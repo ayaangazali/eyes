@@ -60,6 +60,13 @@ const WALK_METERS_PER_MINUTE = 80;
 const CAPTURE_MINUTES = 3;
 const POLL_MS = 1000;
 const CONNECT_LINK_MS = 7 * 24 * 60 * 60 * 1000;
+const PAYOUT_BATCH = 25;
+
+const ResolveInput = z.object({
+  task_id: z.uuid(),
+  decision: z.enum(["refund", "release"]),
+  note: z.string().trim().min(1),
+});
 
 const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
   dispatched:
@@ -87,6 +94,7 @@ const REPLY_TEXT: Record<"no" | "help" | "unknown", string> = {
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const iso = (s: string) => new Date(s).toISOString();
+const dollars = (cents: number) => `$${centsToUsd(cents).toFixed(2)}`;
 
 const policyOf = (s: Summary) => ({
   max_bounty_usd: centsToUsd(s.max_bounty_cents),
@@ -278,6 +286,16 @@ export function createEyesService(deps: EngineDeps): EyesService {
       amount_cents: paid.bounty_cents,
     });
     return paid;
+  }
+
+  async function settle(task: Task, worker: Worker): Promise<Task> {
+    if (task.status !== "verified") return task;
+    if (worker.stripe_account_id) return payOut(task, worker.stripe_account_id, worker.phone);
+    await messaging.sendText(
+      worker.phone,
+      `Your ${dollars(task.bounty_cents)} for this task is waiting. Set up payouts here: ${connectUrl(worker.id)}`,
+    );
+    return task;
   }
 
   return {
@@ -706,11 +724,8 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_now: nowIso(),
       });
       const worker = await one<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null });
-      const settled =
-        submitted.status === "verified" && worker.stripe_account_id
-          ? await payOut(submitted, worker.stripe_account_id, worker.phone)
-          : submitted;
-      const amount = `$${centsToUsd(settled.bounty_cents).toFixed(2)}`;
+      const settled = await settle(submitted, worker);
+      const amount = dollars(settled.bounty_cents);
       const message =
         settled.status === "paid"
           ? `Verified and paid. ${amount} is on its way to your account. Thank you!`
@@ -719,12 +734,6 @@ export function createEyesService(deps: EngineDeps): EyesService {
             : worker.stripe_account_id
               ? `Verified. Your ${amount} payout did not go through yet; it will be retried.`
               : `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`;
-      if (settled.status === "verified" && !worker.stripe_account_id) {
-        await messaging.sendText(
-          worker.phone,
-          `Your ${amount} for this task is waiting. Set up payouts here: ${connectUrl(workerId)}`,
-        );
-      }
       return {
         task_id: settled.id,
         status: settled.status,
@@ -740,6 +749,30 @@ export function createEyesService(deps: EngineDeps): EyesService {
 
     async expireOverdue() {
       return { expired: (await rpc("eyes_expire_overdue", { p_now: nowIso() })).length };
+    },
+
+    async retryPayouts() {
+      const due = await rpc<{ task: Task; account_id: string; phone: string }>("eyes_payouts_due", {
+        p_limit: PAYOUT_BATCH,
+      });
+      let paid = 0;
+      for (const { task, account_id, phone } of due) {
+        if ((await payOut(task, account_id, phone)).status === "paid") paid += 1;
+      }
+      return { paid };
+    },
+
+    async resolveTask(task_id, decision, note) {
+      const input = parse(ResolveInput, { task_id, decision, note });
+      const resolved = await one<Task>("eyes_resolve_task", {
+        p_task_id: input.task_id,
+        p_decision: input.decision,
+        p_note: input.note,
+        p_now: nowIso(),
+      });
+      const worker = await one<Worker>("eyes_worker", { p_worker_id: resolved.claimed_by, p_phone: null });
+      const settled = await settle(resolved, worker);
+      return { task_id: settled.id, status: settled.status };
     },
   };
 }

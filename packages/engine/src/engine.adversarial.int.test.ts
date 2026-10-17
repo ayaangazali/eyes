@@ -510,6 +510,8 @@ describe.skipIf(!url)("engine under races and guards", () => {
     expect(res.message).not.toContain("/w/connect/");
     const linksAfter = outbox.filter((m) => m.to === w.phone && String(m.payload).includes("/w/connect/"));
     expect(linksAfter.length).toBe(linksBefore.length + 1);
+    await service.retryPayouts();
+    expect((await task(t1)).status).toBe("verified");
     await service.workerConnectUrl(w.connectToken);
     const account = `acct_fake_${w.worker_id}`;
     await service.markWorkerOnboarded(account);
@@ -747,5 +749,167 @@ describe.skipIf(!url)("engine under races and guards", () => {
     expect(res.message).toContain("retried");
     expect(down.outbox.slice(sent)).toEqual([]);
     expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow", "fee", "release"]);
+  });
+
+  const REVIEW = async () => ({ ...PASS, vision_ok: false, auto_approve: false, vision_reason: "blurry" });
+  const STRIPE_DOWN = async (): Promise<never> => {
+    throw new Error("balance_insufficient");
+  };
+
+  async function captured(env: Env) {
+    const at = somewhere();
+    const w = await worker(north(at, 100), env);
+    await env.service.workerConnectUrl(w.connectToken);
+    const a = await agent(env);
+    const { task_id } = await ask(a, at, {}, env);
+    await yes(w.phone, env);
+    const res = await env.service.submitCapture(
+      tokenOf(env.outbox, w.phone),
+      capture(at, env.providers.clock.now()),
+      photo,
+    );
+    return { a, w, task_id, res };
+  }
+  const transfersFor = (env: Env, taskId: string) =>
+    env.providers.payments.transfers.filter((t) => t.task_id === taskId);
+  const paidTexts = (env: Env, phone: string) =>
+    env.outbox.filter((m) => m.to === phone && m.kind === "paid");
+
+  it("a transfer that failed is paid by the next retryPayouts, once, with the per-task idempotency key", async () => {
+    const env = make();
+    const real = env.providers.payments.payoutWorker;
+    env.providers.payments.payoutWorker = STRIPE_DOWN;
+    const { w, task_id, res } = await captured(env);
+    env.providers.payments.payoutWorker = real;
+    expect(res).toMatchObject({ status: "verified", message: expect.stringContaining("retried") });
+
+    expect((await env.service.retryPayouts()).paid).toBeGreaterThanOrEqual(1);
+    await env.service.retryPayouts();
+    expect((await task(task_id)).status).toBe("paid");
+    expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow", "fee", "payout", "release"]);
+    expect(transfersFor(env, task_id)).toEqual([
+      expect.objectContaining({ idempotency_key: `payout:${task_id}`, amount_cents: 300 }),
+    ]);
+    expect(paidTexts(env, w.phone)).toHaveLength(1);
+  });
+
+  it("retryPayouts racing the onboarding webhook on one task (both in the transfer at once) pays once", async () => {
+    const env = make();
+    const real = env.providers.payments.payoutWorker;
+    env.providers.payments.payoutWorker = STRIPE_DOWN;
+    const { w, task_id } = await captured(env);
+    const keys: string[] = [];
+    let bothIn: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      bothIn = r;
+    });
+    env.providers.payments.payoutWorker = async (i) => {
+      if (i.task_id !== task_id) return real(i);
+      keys.push(i.idempotency_key);
+      if (keys.length === 2) bothIn();
+      await Promise.race([gate, sleep(2000)]);
+      return real(i);
+    };
+
+    await Promise.all([
+      env.service.retryPayouts(),
+      env.service.markWorkerOnboarded(`acct_fake_${w.worker_id}`),
+    ]);
+    expect(keys).toEqual([`payout:${task_id}`, `payout:${task_id}`]);
+    expect((await task(task_id)).status).toBe("paid");
+    expect((await rows(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
+    expect(transfersFor(env, task_id)).toHaveLength(1);
+    expect(paidTexts(env, w.phone)).toHaveLength(1);
+  });
+
+  it("resolveTask refund returns a needs_review task's escrow to the agent and never pays the worker", async () => {
+    const env = make({ verify: REVIEW });
+    const { a, task_id } = await captured(env);
+    expect(await env.service.resolveTask(task_id, "refund", "Photo shows a different store.")).toEqual({
+      task_id,
+      status: "refunded",
+    });
+    expect(await env.service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
+    await env.service.retryPayouts();
+    await expect(env.service.resolveTask(task_id, "release", "Changed my mind.")).rejects.toMatchObject({
+      code: "invalid_input",
+      context: { status: "refunded" },
+    });
+    expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow", "refund"]);
+    expect(transfersFor(env, task_id)).toHaveLength(0);
+  });
+
+  it("resolveTask release pays a disputed needs_review task through the normal payout path and keeps the note", async () => {
+    const env = make({ verify: REVIEW });
+    const { a, w, task_id } = await captured(env);
+    await env.service.disputeAnswer(a, { task_id, reason: "Too blurry to read." });
+    expect(await env.service.resolveTask(task_id, "release", "Line is visible when zoomed.")).toEqual({
+      task_id,
+      status: "paid",
+    });
+    expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow", "fee", "payout", "release"]);
+    expect(transfersFor(env, task_id)).toEqual([
+      expect.objectContaining({ idempotency_key: `payout:${task_id}` }),
+    ]);
+    expect(paidTexts(env, w.phone)).toHaveLength(1);
+    expect(await env.service.getBalance(a)).toMatchObject({ balance_usd: 16.5, escrowed_usd: 0 });
+    expect((await sql`select dispute_reason from tasks where id = ${task_id}`)[0]?.dispute_reason).toBe(
+      "Too blurry to read.\nresolved release: Line is visible when zoomed.",
+    );
+    await expect(env.service.resolveTask(task_id, "refund", "Again.")).rejects.toMatchObject({
+      code: "invalid_input",
+      context: { status: "paid" },
+    });
+  });
+
+  it("refund and release racing on one needs_review task (forced on the row lock): one wins, money moves once", async () => {
+    const env = make({ verify: REVIEW });
+    const { task_id } = await captured(env);
+    let race: Promise<PromiseSettledResult<unknown>[]> = Promise.resolve([]);
+    await sql.begin(async (tx) => {
+      await tx`select id from tasks where id = ${task_id} for update`;
+      race = Promise.allSettled([
+        env.service.resolveTask(task_id, "refund", "Operator A."),
+        env.service.resolveTask(task_id, "release", "Operator B."),
+      ]);
+      await untilWaiting("eyes_resolve_task", 2);
+    });
+    const settled = await race;
+    expect(settled.filter((s) => s.status === "fulfilled")).toHaveLength(1);
+    expect(settled.find((s) => s.status === "rejected")).toMatchObject({ reason: { code: "invalid_input" } });
+    expect(["refunded", "paid"]).toContain((await task(task_id)).status);
+  });
+
+  it("resolveTask refuses unknown tasks, tasks not under review, and a refund once the bounty was released", async () => {
+    const env = make();
+    const real = env.providers.payments.payoutWorker;
+    await expect(env.service.resolveTask(randomUUID(), "refund", "Note.")).rejects.toMatchObject({
+      code: "task_not_found",
+    });
+    env.providers.payments.payoutWorker = STRIPE_DOWN;
+    const unpaid = await captured(env);
+    env.providers.payments.payoutWorker = real;
+    const paid = await captured(env);
+    expect([unpaid.res.status, paid.res.status]).toEqual(["verified", "paid"]);
+
+    for (const { a, task_id, res } of [unpaid, paid]) {
+      await expect(env.service.resolveTask(task_id, "release", "Note.")).rejects.toMatchObject({
+        code: "invalid_input",
+        context: { status: res.status },
+      });
+      await env.service.disputeAnswer(a, { task_id, reason: "Wrong store." });
+      await expect(env.service.resolveTask(task_id, "refund", "Agent is right.")).rejects.toMatchObject({
+        code: "invalid_input",
+        context: { status: "disputed" },
+      });
+      expect(await env.service.resolveTask(task_id, "release", "Store sign matches.")).toEqual({
+        task_id,
+        status: "paid",
+      });
+    }
+    for (const { w, task_id } of [unpaid, paid]) {
+      expect(transfersFor(env, task_id)).toHaveLength(1);
+      expect(paidTexts(env, w.phone)).toHaveLength(1);
+    }
   });
 });

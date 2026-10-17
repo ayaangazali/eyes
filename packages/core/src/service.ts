@@ -12,6 +12,7 @@ import type {
   SignupInput,
   SignupOutput,
   Task,
+  TaskStatus,
   TaskType,
   ToolInput,
   ToolOutput,
@@ -97,6 +98,12 @@ export interface EyesService {
   submitCapture(token: string, fields: CaptureFields, photo: PhotoUpload | null): Promise<CaptureResult>;
 
   expireOverdue(): Promise<{ expired: number }>;
+  retryPayouts(): Promise<{ paid: number }>;
+  resolveTask(
+    task_id: string,
+    decision: "refund" | "release",
+    note: string,
+  ): Promise<{ task_id: string; status: TaskStatus }>;
 }
 
 export const AppConfig = z.object({
