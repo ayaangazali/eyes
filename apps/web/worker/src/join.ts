@@ -7,9 +7,8 @@ let spot: { lat: number; lng: number } | null = null;
 
 function toE164(input: string): string | null {
   const digits = input.replace(/\D/g, "");
-  if (input.trim().startsWith("+")) return /^[1-9]\d{6,14}$/.test(digits) ? `+${digits}` : null;
-  const us = digits.replace(/^1(?=\d{10}$)/, "");
-  return /^[2-9]\d{9}$/.test(us) ? `+1${us}` : null;
+  const e164 = input.trim().startsWith("+") ? `+${digits}` : `+1${digits.replace(/^1(?=\d{10}$)/, "")}`;
+  return /^\+(1[2-9]\d\d[2-9]\d{6}|[2-9]\d{6,14})$/.test(e164) ? e164 : null;
 }
 
 $("locate").addEventListener("click", () => {
@@ -38,7 +37,11 @@ form.addEventListener("submit", async (event) => {
   event.preventDefault();
   error.hidden = true;
   const data = new FormData(form);
+  const name = String(data.get("name")).trim();
   const phone = toE164(String(data.get("phone")));
+  if (name.length < 2) {
+    return showError(error, new Problem("Please enter your name.", "Use at least 2 letters."));
+  }
   if (!phone) {
     return showError(
       error,
@@ -60,19 +63,18 @@ form.addEventListener("submit", async (event) => {
     const out = await call<JoinWorkerOutput>("/w/join", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: String(data.get("name")).trim(), phone, ...spot }),
+      body: JSON.stringify({ name, phone, ...spot }),
     });
-    if (out.connect_url) {
-      $("payouts").prepend(
+    const number = out.inkbox_number || import.meta.env.VITE_INKBOX_NUMBER;
+    if (number) {
+      $("start").prepend(
         Object.assign(document.createElement("a"), {
-          href: out.connect_url,
-          className: "button secondary",
-          target: "_blank",
-          rel: "noopener",
-          textContent: "Set up payouts",
+          href: `sms:${number}?&body=START`,
+          className: "button",
+          textContent: `Text START to ${number}`,
         }),
       );
-      $("payouts").hidden = false;
+      $("start").hidden = false;
     }
     form.hidden = true;
     $("done").hidden = false;

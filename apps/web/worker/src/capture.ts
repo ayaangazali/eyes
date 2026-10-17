@@ -28,6 +28,9 @@ let offer: OfferView;
 let photo: File | null = null;
 let capturedAt = "";
 let here: GeolocationCoordinates | null = null;
+let searching = false;
+let sending = false;
+let closed = false;
 let watch = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -40,67 +43,101 @@ function meters(a: GeolocationCoordinates, b: { lat: number; lng: number }): num
 }
 
 function ready() {
-  send.disabled = !here || (offer.require_photo && !photo);
+  shutter.disabled = closed || video.readyState < video.HAVE_CURRENT_DATA;
+  send.disabled = closed || sending || searching || !here || (offer.require_photo && !photo);
+}
+
+function showGps() {
+  const fix = here
+    ? `GPS within ${Math.round(here.accuracy)} m. You are ${Math.round(meters(here, offer))} m from the place.`
+    : "";
+  $("gps").textContent = searching ? `${fix} Getting your location...`.trim() : fix;
+}
+
+function stopGps() {
+  navigator.geolocation.clearWatch(watch);
+  clearTimeout(timer);
+  searching = false;
+}
+
+function finish() {
+  closed = true;
+  stopGps();
+  for (const track of (video.srcObject as MediaStream | null)?.getTracks() ?? []) track.stop();
+  form.hidden = true;
+  ready();
+}
+
+function close(reason: string) {
+  finish();
+  $("closed").textContent = reason;
+  $("closed").hidden = false;
 }
 
 function tick() {
   const s = Math.max(0, Math.floor((Date.parse(offer.deadline_at) - Date.now()) / 1000));
   $("deadline").textContent =
     s > 0 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")} left` : "Deadline passed";
-}
-
-function stopGps() {
-  navigator.geolocation.clearWatch(watch);
-  clearTimeout(timer);
+  if (s === 0 && !closed && !sending) close(CLOSED.expired);
 }
 
 function locate() {
   stopGps();
-  here = null;
-  ready();
-  $("gps").textContent = "Getting your location...";
-  const giveUp = () => {
+  error.hidden = true;
+  searching = true;
+  const previous = here;
+  let best: GeolocationCoordinates | null = null;
+  const end = (denied: boolean) => {
     stopGps();
     if (!here) {
       showError(
         error,
         new Problem(
           "We could not get your location.",
-          "Allow location access for this page, then reload it.",
+          denied
+            ? "Allow location for this page in your browser settings, then take the photo again."
+            : "Move near a window or step outside, then take the photo again.",
         ),
       );
     }
+    showGps();
+    ready();
   };
-  timer = setTimeout(giveUp, GPS_WAIT_MS);
+  timer = setTimeout(() => end(false), GPS_WAIT_MS);
   watch = navigator.geolocation.watchPosition(
     ({ coords }) => {
-      if (here && here.accuracy <= coords.accuracy) return;
-      here = coords;
-      $("gps").textContent =
-        `GPS within ${Math.round(coords.accuracy)} m. You are ${Math.round(meters(coords, offer))} m from the place.`;
-      ready();
-      if (coords.accuracy <= GPS_GOOD_M) stopGps();
+      if (best && best.accuracy <= coords.accuracy) return;
+      best = coords;
+      if (!previous || coords.accuracy <= Math.max(previous.accuracy, GPS_GOOD_M)) here = coords;
+      if (coords.accuracy <= GPS_GOOD_M) return end(false);
+      showGps();
     },
     (err) => {
-      if (err.code === err.PERMISSION_DENIED) giveUp();
+      if (err.code === err.PERMISSION_DENIED) end(true);
     },
     { enableHighAccuracy: true, maximumAge: 0 },
   );
+  showGps();
+  ready();
 }
 
 async function startCamera() {
-  if (!navigator.mediaDevices?.getUserMedia) {
+  const stream = await navigator.mediaDevices
+    ?.getUserMedia({ video: { facingMode: "environment" } })
+    .catch((err: Error) => {
+      if (err.name === "NotAllowedError") {
+        throw new Problem(
+          "Your camera is blocked.",
+          "Allow camera access for this page in your browser settings, then reload it.",
+        );
+      }
+      return null;
+    });
+  if (!stream) {
     $("fallback").hidden = false;
     return;
   }
-  video.srcObject = await navigator.mediaDevices
-    .getUserMedia({ video: { facingMode: "environment" } })
-    .catch(() => {
-      throw new Problem(
-        "Your camera is blocked.",
-        "Allow camera access for this page in your browser settings, then reload it.",
-      );
-    });
+  video.srcObject = stream;
   $("live").hidden = false;
 }
 
@@ -115,9 +152,7 @@ function usePhoto(file: File, at: string) {
 }
 
 function showResult({ message, verification: v }: CaptureResult) {
-  stopGps();
-  for (const track of (video.srcObject as MediaStream | null)?.getTracks() ?? []) track.stop();
-  form.hidden = true;
+  finish();
   $("message").textContent = message;
   const checks = [
     ["Location matches the place", v.gps_ok],
@@ -136,9 +171,7 @@ function showResult({ message, verification: v }: CaptureResult) {
   $("result").hidden = false;
 }
 
-video.addEventListener("loadeddata", () => {
-  shutter.disabled = false;
-});
+video.addEventListener("loadeddata", ready);
 
 shutter.addEventListener("click", () => {
   const at = new Date().toISOString();
@@ -162,7 +195,7 @@ $<HTMLInputElement>("file").addEventListener("change", (event) => {
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!here) return;
+  if (!here || send.disabled) return;
   error.hidden = true;
   const data = new FormData(form);
   data.set("answer_bool", String(data.get("answer_bool") ?? ""));
@@ -171,7 +204,8 @@ form.addEventListener("submit", async (event) => {
   data.set("accuracy_m", String(here.accuracy));
   data.set("captured_at", capturedAt || new Date().toISOString());
   if (photo) data.set("photo", photo);
-  send.disabled = true;
+  sending = true;
+  ready();
   try {
     showResult(
       await call<CaptureResult>(`/w/offers/${encodeURIComponent(token)}/capture`, {
@@ -180,8 +214,10 @@ form.addEventListener("submit", async (event) => {
       }),
     );
   } catch (err) {
+    sending = false;
     showError(error, err);
-    send.disabled = false;
+    if (err instanceof Problem && (err.status === 404 || err.status === 409)) finish();
+    else ready();
   }
 });
 
@@ -199,14 +235,11 @@ async function main() {
       textContent: `${offer.place_label} (map)`,
     }),
   );
+  $("task").hidden = false;
+  if (offer.status !== "claimed" || !offer.claimed_by_you) close(CLOSED[offer.status]);
   tick();
   setInterval(tick, 1000);
-  $("task").hidden = false;
-  if (offer.status !== "claimed" || !offer.claimed_by_you) {
-    $("closed").textContent = CLOSED[offer.status];
-    $("closed").hidden = false;
-    return;
-  }
+  if (closed) return;
   $("yesno").hidden = !YES_NO.includes(offer.task_type);
   form.hidden = false;
   locate();
