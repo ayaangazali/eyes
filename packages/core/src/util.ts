@@ -24,7 +24,9 @@ export function signToken(secret: string, payload: string, expiresAt?: Date): st
 }
 
 export function verifyToken(secret: string, token: string, now = new Date()): string | null {
-  const [body, mac] = token.split(".");
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [body, mac] = parts;
   if (!body || !mac) return null;
   const expected = Buffer.from(sign(secret, body));
   const given = Buffer.from(mac);
