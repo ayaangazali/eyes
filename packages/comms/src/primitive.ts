@@ -1,4 +1,3 @@
-import { setTimeout as sleep } from "node:timers/promises";
 import {
   type Agent,
   type Answer,
@@ -19,6 +18,7 @@ import {
   PRIMITIVE_SIGNATURE_HEADER,
   type ReceivedEmail,
   safeValidateEmailReceivedEvent,
+  validateEmailAuth,
   verifyWebhookSignature,
 } from "@primitivedotdev/sdk";
 import { Hono } from "hono";
@@ -26,32 +26,49 @@ import type { Env } from "./inkbox.ts";
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
 const QUESTION_MAX_CHARS = 500;
+const SUBJECT_MAX_CHARS = 200;
 const MAX_REFERENCES = 20;
 const AWAIT_ROUNDS = 300;
+const AWAIT_MAX_FAILURES = 5;
 const AWAIT_RETRY_MS = 5_000;
-const ENDED_UNANSWERED = new Set(["expired", "refunded"]);
-const QUOTE_START =
-  /^(?:--\s?|_{3,}|-{3,}\s*original message\s*-{3,}|on .+ wrote:|from: .+|sent from my .+)$/i;
-const DIRECTIVE = /^\s*(location|at|type)\s*:\s*(.*)$/i;
+const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
+const SEEN_MAX = 10_000;
+const WAITING = new Set(["dispatched", "claimed", "submitted"]);
+const REFUNDED = new Set(["expired", "refunded"]);
+const QUOTE_START = /^(?:--\s?|_{3,}|-{3,}\s*original message\s*-{3,}|sent from my .+)$/i;
+const DIRECTIVE = /^\s*(location|at|type|bounty|deadline)\s*:\s*(.*)$/i;
+const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", nbsp: " " };
 
 const usd = (amount: number) => `$${amount.toFixed(2)}`;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const errorName = (err: unknown) =>
   err instanceof EyesError ? err.code : err instanceof Error ? err.name : typeof err;
 
 async function download(attachment: EmailAttachment) {
   const res = await fetch(attachment.url, { signal: AbortSignal.timeout(20_000) });
   const declared = Number(res.headers.get("content-length") ?? 0);
-  if (!res.ok || declared > MAX_ATTACHMENT_BYTES) {
+  if (!res.ok || !res.body || declared > MAX_ATTACHMENT_BYTES) {
     throw new Error(`attachment ${attachment.filename}: HTTP ${res.status}, ${declared} bytes`);
   }
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length > MAX_ATTACHMENT_BYTES) {
-    throw new Error(`attachment ${attachment.filename} is over ${MAX_ATTACHMENT_BYTES} bytes`);
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (let part = await reader.read(); !part.done; part = await reader.read()) {
+    size += part.value.byteLength;
+    if (size > MAX_ATTACHMENT_BYTES) {
+      await reader.cancel();
+      throw new Error(`attachment ${attachment.filename} is over ${MAX_ATTACHMENT_BYTES} bytes`);
+    }
+    chunks.push(part.value);
   }
+  const header = res.headers.get("content-type")?.split(";")[0]?.trim() ?? "";
+  const contentType = header.startsWith("image/") ? header : attachment.content_type;
   return {
-    filename: attachment.filename,
-    content_type: attachment.content_type,
-    content_base64: bytes.toString("base64"),
+    filename: attachment.filename.includes(".")
+      ? attachment.filename
+      : `${attachment.filename}.${contentType.split("/")[1]}`,
+    content_type: contentType,
+    content_base64: Buffer.concat(chunks).toString("base64"),
   };
 }
 
@@ -87,28 +104,56 @@ export function createPrimitiveEmail(env: Env): Email {
   };
 }
 
+const htmlToText = (html: string) =>
+  html
+    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h\d)>/gi, "\n")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name: string) => ENTITIES[name] ?? "");
+
 export function parseTaskEmail(
   subject: string | null,
   text: string | null,
-): { question: string; location: string | null; task_type: TaskType } {
+  html: string | null = null,
+): {
+  question: string;
+  location: string | null;
+  task_type: TaskType;
+  bounty_usd?: number;
+  deadline_minutes?: number;
+} {
+  const lines = (text ?? (html ? htmlToText(html) : "")).split(/\r?\n/);
   const body: string[] = [];
-  let location: string | null = null;
-  let type: string | null = null;
-  for (const line of (text ?? "").split(/\r?\n/)) {
-    if (QUOTE_START.test(line.trim())) break;
-    if (line.trimStart().startsWith(">")) continue;
+  const fields: Record<string, string> = {};
+  for (const [i, line] of lines.entries()) {
+    const trimmed = line.trim();
+    if (/wrote:$/i.test(trimmed)) {
+      if (/^on\s/i.test(body.at(-1)?.trim() ?? "")) body.pop();
+      break;
+    }
+    if (QUOTE_START.test(trimmed)) break;
+    if (/^from:/i.test(trimmed) && lines.slice(i + 1, i + 4).some((l) => /^\s*(sent|date):/i.test(l))) break;
+    if (trimmed.startsWith(">")) continue;
     const directive = line.match(DIRECTIVE);
-    if (!directive) body.push(line);
-    else if (directive[1]?.toLowerCase() === "type") type ??= directive[2]?.trim() ?? null;
-    else location ??= directive[2]?.trim() || null;
+    const key = directive?.[1]?.toLowerCase();
+    if (!key) body.push(line);
+    else fields[key === "at" ? "location" : key] ??= directive?.[2]?.trim() ?? "";
   }
   const title = (subject ?? "").replace(/^\s*(?:(?:re|fwd?|aw)\s*:\s*)+/i, "").trim();
   const rest = body.join(" ").replace(/\s+/g, " ").trim();
   const question = [title, rest].filter(Boolean).join(/[.?!:]$/.test(title) ? " " : ". ");
   return {
     question: question.slice(0, QUESTION_MAX_CHARS).replace(/\p{Cs}$/u, ""),
-    location,
-    task_type: TaskType.safeParse(type?.toLowerCase().replace(/[\s-]+/g, "_")).data ?? "other_public",
+    location: fields.location || null,
+    task_type: TaskType.safeParse(fields.type?.toLowerCase().replace(/[\s-]+/g, "_")).data ?? "other_public",
+    bounty_usd:
+      fields.bounty === undefined
+        ? undefined
+        : Number(fields.bounty.replace(/^\$\s*|\s*(?:usd|dollars?)$/gi, "")),
+    deadline_minutes:
+      fields.deadline === undefined
+        ? undefined
+        : Number(fields.deadline.replace(/\s*(?:minutes?|mins?)$/i, "")),
   };
 }
 
@@ -131,52 +176,63 @@ function errorText(err: unknown): string {
 type Reply = (text: string, attachments?: EmailAttachment[]) => Promise<unknown>;
 
 async function follow(deps: RouteDeps, agent: Agent, task: ToolOutput<"ask_eyes">, reply: Reply) {
+  let failures = 0;
   for (let round = 0; round < AWAIT_ROUNDS; round++) {
     let result: ToolOutput<"await_answer">;
     try {
       result = await deps.service.awaitAnswer(agent, { task_id: task.task_id, timeout_seconds: 55 });
+      failures = 0;
     } catch (err) {
       console.error(`primitive: awaitAnswer for task ${task.task_id} failed: ${errorName(err)}`);
+      if (++failures >= AWAIT_MAX_FAILURES) break;
       await sleep(AWAIT_RETRY_MS);
       continue;
     }
     if (result.answer) {
-      const text = answerText(result.answer);
       const photo = result.answer.photo_url;
-      if (!photo) return reply(text);
-      return reply(text, [{ filename: "eyes-photo.jpg", content_type: "image/jpeg", url: photo }]).catch(() =>
-        reply(text),
+      return reply(
+        answerText(result.answer),
+        photo ? [{ filename: "eyes-photo", content_type: "image/jpeg", url: photo }] : undefined,
       );
     }
-    if (ENDED_UNANSWERED.has(result.status)) {
+    if (!WAITING.has(result.status)) {
       return reply(
-        `Task ${task.task_id} ended without an answer (${result.status}). The ${usd(task.escrowed_usd)} escrow is refunded to your balance.`,
+        `Task ${task.task_id} ended without an answer (${result.status}).${
+          REFUNDED.has(result.status)
+            ? ` The ${usd(task.escrowed_usd)} escrow is refunded to your balance.`
+            : " Call get_task with this task_id for details."
+        }`,
       );
     }
   }
+  return reply(
+    `Eyes stopped waiting on task ${task.task_id}. Call get_task with this task_id for its status.`,
+  );
 }
 
-async function handleEmail(deps: RouteDeps, agent: Agent, email: ReceivedEmail, following: Set<string>) {
+async function handleEmail(deps: RouteDeps, agent: Agent, email: ReceivedEmail) {
   const messageId = email.thread.messageId ?? undefined;
-  const reply: Reply = (text, attachments) =>
+  const send = (text: string, attachments?: EmailAttachment[]) =>
     deps.providers.email.send({
-      to: email.replyTarget.address,
-      subject: email.replySubject,
+      to: email.sender.address,
+      subject: email.replySubject.slice(0, SUBJECT_MAX_CHARS),
       text,
       in_reply_to: messageId,
       references: [...email.thread.references, ...(messageId ? [messageId] : [])].slice(-MAX_REFERENCES),
       attachments,
     });
-  const parsed = parseTaskEmail(email.subject, email.text);
+  const reply: Reply = (text, attachments) =>
+    send(text, attachments)
+      .catch((err: unknown) => (attachments ? send(text) : Promise.reject(err)))
+      .catch((err: unknown) => console.error(`primitive: reply to ${email.id} failed: ${errorName(err)}`));
+  const parsed = parseTaskEmail(email.subject, email.text, email.raw.email.parsed.body_html);
   if (!parsed.location) {
     return reply(
-      `Eyes needs to know where to look. Please send the question again with the place on its own line, for example:\n\nLocation: Blue Bottle Coffee, Mint Plaza, San Francisco\n\nOptionally add a line "Type: <type>" with one of ${TASK_TYPES.join(", ")}.`,
+      `Eyes needs to know where to look. Please send the question again and add a line that starts with the word Location and a colon, followed by the place, for example a store name, street and city.\n\nYou can also add lines that start with Type, Bounty (USD) or Deadline (minutes) and a colon. Types: ${TASK_TYPES.join(", ")}.`,
     );
   }
   const input = AskEyesInput.safeParse({
-    question: parsed.question,
-    location: parsed.location,
-    task_type: parsed.task_type,
+    ...parsed,
     idempotency_key: (messageId ?? email.id).slice(0, 128),
   });
   if (!input.success) {
@@ -188,7 +244,7 @@ async function handleEmail(deps: RouteDeps, agent: Agent, email: ReceivedEmail, 
           {},
           {
             message: `The email did not make a valid task (${issues}).`,
-            fix: "Put the question (5 to 500 characters) in the subject or body and the place on its own line as Location: <place> (200 characters or fewer).",
+            fix: "Put the question (5 to 500 characters) in the subject or body, the place on a line starting with the word Location and a colon (200 characters or fewer), and keep Bounty between 1 and 50 USD and Deadline between 5 and 240 minutes.",
           },
         ),
       ),
@@ -201,17 +257,12 @@ async function handleEmail(deps: RouteDeps, agent: Agent, email: ReceivedEmail, 
     if (!(err instanceof EyesError)) console.error(`primitive: askEyes failed: ${errorName(err)}`);
     return reply(errorText(err));
   }
-  if (!following.has(task.task_id)) {
-    const id = task.task_id;
-    following.add(id);
-    void follow(deps, agent, task, reply)
-      .catch((err: unknown) =>
-        console.error(`primitive: answer reply for task ${id} failed: ${errorName(err)}`),
-      )
-      .finally(() => following.delete(id));
-  }
+  const id = task.task_id;
+  void follow(deps, agent, task, reply).catch((err: unknown) =>
+    console.error(`primitive: answer loop for task ${id} failed: ${errorName(err)}`),
+  );
   return reply(
-    `Got it: task ${task.task_id}, ${task.workers_notified} workers notified, escrowed ${usd(task.escrowed_usd)}. We'll reply here with the answer.`,
+    `Got it: task ${id}, ${task.workers_notified} workers notified, escrowed ${usd(task.escrowed_usd)}. We'll reply here with the answer.`,
   );
 }
 
@@ -224,7 +275,17 @@ function parseJson(raw: Buffer): unknown {
 }
 
 export function primitiveRoutes(deps: RouteDeps, env: Env): Hono {
-  const following = new Set<string>();
+  const seen = new Map<string, number>();
+  const firstDelivery = (keys: string[]) => {
+    const now = deps.providers.clock.now().getTime();
+    for (const [key, expires] of seen) {
+      if (expires > now && seen.size < SEEN_MAX) break;
+      seen.delete(key);
+    }
+    if (keys.some((key) => seen.has(key))) return false;
+    for (const key of keys) seen.set(key, now + SEEN_TTL_MS);
+    return true;
+  };
   return new Hono().post("/", async (c) => {
     const raw = Buffer.from(await c.req.arrayBuffer());
     try {
@@ -244,12 +305,26 @@ export function primitiveRoutes(deps: RouteDeps, env: Env): Hono {
     }
     if (event.data.event !== "email.received") return c.text("ignored");
     const email = normalizeReceivedEmail(event.data);
+    const sender = email.sender.address.toLowerCase();
+    const senderDomain = sender.split("@").pop();
+    const auth = validateEmailAuth(email.auth);
+    if (
+      auth.verdict !== "legit" ||
+      senderDomain !== email.auth.dmarcFromDomain?.toLowerCase() ||
+      senderDomain === deps.config.email_domain?.toLowerCase()
+    ) {
+      console.warn(`primitive: ignored ${email.id}: sender not authenticated or our own (${auth.verdict})`);
+      return c.text("ignored");
+    }
     const agentId = email.receivedByAll
       .map((address) => agentIdFromEmailAddress(deps.config.link_secret, address))
       .find((id) => id !== null);
     const agent = agentId ? await deps.service.agentById(agentId) : null;
     if (!agent) return c.text("ignored");
-    await handleEmail(deps, agent, email, following);
+    if (!firstDelivery([event.data.id, `${agent.id}:${email.thread.messageId ?? email.id}`])) {
+      return c.text("duplicate");
+    }
+    await handleEmail(deps, agent, email);
     return c.text("ok");
   });
 }
