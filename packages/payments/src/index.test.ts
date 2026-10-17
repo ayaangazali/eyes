@@ -35,10 +35,20 @@ vi.mock("stripe", async (importOriginal) => {
       headers: Object.fromEntries(new Headers(init?.headers).entries()),
       body: Object.fromEntries(new URLSearchParams(String(init?.body ?? "")).entries()),
     });
-    const { status_code = 200, ...body } = (http.queue.shift() ?? http.response) as { status_code?: number };
+    const next = (http.queue.shift() ?? http.response) as {
+      status_code?: number;
+      should_retry?: boolean;
+      network_error?: boolean;
+    };
+    if (next.network_error) throw new TypeError("fetch failed");
+    const { status_code = 200, should_retry = false, ...body } = next;
     return new Response(JSON.stringify(body), {
       status: status_code,
-      headers: { "content-type": "application/json", "request-id": "req_1", "stripe-should-retry": "false" },
+      headers: {
+        "content-type": "application/json",
+        "request-id": "req_1",
+        "stripe-should-retry": String(should_retry),
+      },
     });
   };
   class StubbedStripe extends mod.default {
@@ -441,20 +451,34 @@ describe("outbound Stripe requests", () => {
     }
   });
 
-  it("marks a failed Transfer whose outcome is unknown, and leaves a refusal unmarked", async () => {
-    for (const [status_code, type, unknown] of [
-      [400, "invalid_request_error", false],
-      [402, "card_error", false],
-      [409, "idempotency_error", true],
-      [500, "api_error", true],
-    ] as const) {
-      http.queue.push(ACTIVE, transferList([]), { status_code, error: { type, message: "refused" } });
+  it("marks every failed Transfer as outcome unknown except a 400, 402 or 404 refusal", async () => {
+    const refusal = (status_code: number, type: string, should_retry = false) => ({
+      status_code,
+      should_retry,
+      error: { type, message: "refused" },
+    });
+    const rateLimited = refusal(429, "rate_limit_error");
+    const rows: [string, Record<string, unknown>[], boolean][] = [
+      ["400", [refusal(400, "invalid_request_error")], false],
+      ["402", [refusal(402, "card_error")], false],
+      ["404", [refusal(404, "invalid_request_error")], false],
+      ["401", [refusal(401, "authentication_error")], true],
+      ["403", [refusal(403, "invalid_request_error")], true],
+      ["409", [refusal(409, "idempotency_error")], true],
+      ["429", [rateLimited], true],
+      ["500", [refusal(500, "api_error")], true],
+      ["timeout, then 429", [{ network_error: true }, rateLimited], true],
+      ["503, then 429", [refusal(503, "api_error", true), rateLimited], true],
+    ];
+    for (const [label, responses, unknown] of rows) {
+      http.queue.push(ACTIVE, transferList([]), ...responses);
       const err: { outcome_unknown?: boolean } = await payments.payoutWorker(payout).then(
         () => ({}),
         (e) => e,
       );
-      expect(err, `HTTP ${status_code}`).toBeInstanceOf(Error);
-      expect(err.outcome_unknown === true, `HTTP ${status_code}`).toBe(unknown);
+      expect(http.queue, label).toEqual([]);
+      expect(err, label).toBeInstanceOf(Error);
+      expect(err.outcome_unknown === true, label).toBe(unknown);
     }
   });
 

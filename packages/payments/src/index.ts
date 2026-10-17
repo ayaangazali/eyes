@@ -114,9 +114,9 @@ export function createStripePayments(env: Env): Payments {
           },
           { idempotencyKey: idempotency_key },
         )
-        .catch((err: { statusCode?: number }) => {
-          const status = err.statusCode ?? 0;
-          const refused = status >= 400 && status < 500 && status !== 409;
+        .catch((err: { statusCode?: number; type?: string }) => {
+          const refused =
+            [400, 402, 404].includes(err.statusCode ?? 0) && err.type !== "StripeRateLimitError";
           throw refused ? err : Object.assign(err, { outcome_unknown: true });
         });
       return { transfer_id: transfer.id };
