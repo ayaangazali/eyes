@@ -47,6 +47,7 @@ const HOME = `<!doctype html>
 <body>
 <h1>Eyes</h1>
 <p>Pay a nearby human a few dollars to check something in the physical world right now.</p>
+<p>Agents: <code>POST /mcp</code> with <code>Authorization: Bearer &lt;api_key&gt;</code>. No key yet? <code>POST /v1/signup</code>.</p>
 <ul>
 <li><a href="/llms.txt">llms.txt</a></li>
 <li><a href="/openapi.json">openapi.json</a></li>
@@ -70,7 +71,7 @@ export function liveProviders(env: Env) {
     messaging: live && Boolean(env.INKBOX_API_KEY),
     email: live && Boolean(env.PRIMITIVE_API_KEY),
     payments: live && Boolean(env.STRIPE_SECRET_KEY),
-    storage: live && Boolean(env.INSFORGE_API_KEY),
+    storage: live && Boolean(env.INSFORGE_BASE_URL && env.INSFORGE_API_KEY),
     vision: live && Boolean(env.ANTHROPIC_API_KEY),
     geo: live,
   };
@@ -379,7 +380,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     c.json(await service.joinWorker(parse(JoinWorkerInput, await readJson(c)))),
   );
   server.get("/w/offers/:token", async (c) => c.json(await service.getOffer(c.req.param("token"))));
-  let uploads = 0;
+  const uploads = new Set<string>();
   server.post("/w/offers/:token/capture", async (c) => {
     const token = c.req.param("token");
     if (!verifyToken(config.link_secret, token, deps.providers.clock.now()))
@@ -387,15 +388,15 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     const offer = await service.getOffer(token);
     if (!offer.claimed_by_you) throw new EyesError("task_already_claimed");
     if (offer.status !== "claimed") throw new EyesError("offer_invalid", { status: offer.status });
-    if (uploads >= MAX_CAPTURE_UPLOADS) {
+    if (uploads.size >= MAX_CAPTURE_UPLOADS || uploads.has(token)) {
       throw new EyesError("rate_limited", { retry_after_s: 5 }, { fix: "Wait 5 seconds and submit again." });
     }
-    uploads += 1;
+    uploads.add(token);
     try {
       const { fields, photo } = await readCapture(c);
       return c.json(await service.submitCapture(token, fields, photo));
     } finally {
-      uploads -= 1;
+      uploads.delete(token);
     }
   });
 
@@ -408,15 +409,21 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     typeof value === "string" && value.startsWith("/") && (key === "url" || key.endsWith("Url"))
       ? new URL(value, config.public_api_url).href
       : value;
+  const absoluteCard = (text: string) => {
+    try {
+      return JSON.stringify(JSON.parse(text, absolute), null, 2);
+    } catch {
+      console.error(`${AGENT_CARD} is not valid JSON; serving 404`);
+      return null;
+    }
+  };
   server.get("/", (c) => c.html(HOME, 200, { link: LINK }));
   for (const [path, contentType] of Object.entries(DOCS)) {
     server.get(path, async (c) => {
       c.header("link", LINK);
       const text = await readFile(join(docsDir, path), "utf8").catch(() => null);
-      if (text !== null) {
-        const body = path === AGENT_CARD ? JSON.stringify(JSON.parse(text, absolute), null, 2) : text;
-        return c.body(body, 200, { "content-type": contentType });
-      }
+      const body = text !== null && path === AGENT_CARD ? absoluteCard(text) : text;
+      if (body !== null) return c.body(body, 200, { "content-type": contentType });
       const missing = new EyesError(
         "not_implemented",
         { path },

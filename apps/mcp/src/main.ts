@@ -1,4 +1,5 @@
 import { createServer as createHttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createInkboxMessaging, createPrimitiveEmail } from "@eyes/comms";
 import { AppConfig, type DbConfig, fakeProviders, type Providers } from "@eyes/core";
 import { createInsforgeStorage } from "@eyes/db";
@@ -33,6 +34,11 @@ const config = parsed.data;
 if (env.EYES_PROVIDERS === "live" && !env.ANTHROPIC_API_KEY) {
   exit(
     "EYES_PROVIDERS=live needs ANTHROPIC_API_KEY: without it the safety classifier and photo verification are off. Set ANTHROPIC_API_KEY, or run with EYES_PROVIDERS=fake.",
+  );
+}
+if (env.EYES_PROVIDERS === "live" && Boolean(env.INSFORGE_BASE_URL) !== Boolean(env.INSFORGE_API_KEY)) {
+  exit(
+    "Live photo storage needs both INSFORGE_BASE_URL and INSFORGE_API_KEY. Set both, or unset both to keep fake storage.",
   );
 }
 
@@ -70,8 +76,9 @@ setInterval(() => {
 }, EXPIRE_EVERY_MS);
 
 const server = createServer({ service, providers, config, env });
-const port = Number(env.PORT) || 3000;
 const host = env.HOST || "0.0.0.0";
-createHttpServer(toNodeListener(server.fetch)).listen(port, host, () => {
+const http = createHttpServer(toNodeListener(server.fetch));
+http.listen(env.PORT ? Number(env.PORT) : 3000, host, () => {
+  const { port } = http.address() as AddressInfo;
   console.log(`Eyes MCP listening on http://${host}:${port}/mcp`);
 });

@@ -376,43 +376,106 @@ describe("worker capture", () => {
     expect(captures).toEqual([]);
   });
 
-  it.each([
-    ["already submitted", { ...OFFER, status: "submitted" as const }, 404, "offer_invalid"],
-    ["claimed by another worker", { ...OFFER, claimed_by_you: false }, 409, "task_already_claimed"],
-  ])("rejects an offer that is %s before reading the body", async (_, offer, status, error) => {
-    const { fetch, captures } = setup({ getOffer: async () => offer });
-    const res = await post(fetch, token, { body: captureForm({ photo: new File([jpeg], "photo.jpg") }) });
-    expect(res.status).toBe(status);
-    expect(await res.json()).toMatchObject({ error });
-    expect(captures).toEqual([]);
-  });
-
-  it("answers rate_limited while four uploads are already in flight", async () => {
+  const neverEnding = () => {
+    let pulls = 0;
+    const body = new ReadableStream(
+      {
+        pull: () => {
+          pulls += 1;
+          return new Promise<void>(() => {});
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    return { body, pulls: () => pulls };
+  };
+  const postStream = (fetch: ReturnType<typeof setup>["fetch"], t: string, body: ReadableStream) =>
+    fetch(`http://eyes.test/w/offers/${t}/capture`, {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=zzz" },
+      body,
+      duplex: "half",
+    } as RequestInit);
+  const holdSubmits = () => {
     let release = () => {};
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const { fetch } = setup({
-      submitCapture: async () => {
-        await gate;
-        return {
-          task_id: TASK_ID,
-          status: "submitted",
-          verification: { gps_ok: true, fresh_ok: true, vision_ok: true, vision_reason: "ok" },
-          message: "Thanks!",
-        };
-      },
-    });
-    const inFlight = [1, 2, 3, 4].map(() => post(fetch, token, { body: captureForm() }));
+    const submitCapture: EyesService["submitCapture"] = async () => {
+      await gate;
+      return {
+        task_id: TASK_ID,
+        status: "submitted",
+        verification: { gps_ok: true, fresh_ok: true, vision_ok: true, vision_reason: "ok" },
+        message: "Thanks!",
+      };
+    };
+    return { release, submitCapture };
+  };
+  const unknownOffer = async (): Promise<OfferView> => {
+    throw new EyesError("offer_invalid");
+  };
+  const cases: [string, Partial<EyesService>, string, number, string][] = [
+    ["an unsigned token", {}, "tok123", 404, "offer_invalid"],
+    ["an unknown offer", { getOffer: unknownOffer }, token, 404, "offer_invalid"],
+    [
+      "a submitted offer",
+      { getOffer: async () => ({ ...OFFER, status: "submitted" }) },
+      token,
+      404,
+      "offer_invalid",
+    ],
+    [
+      "another worker's offer",
+      { getOffer: async () => ({ ...OFFER, claimed_by_you: false }) },
+      token,
+      409,
+      "task_already_claimed",
+    ],
+  ];
+
+  it.each(cases)("rejects %s without pulling a byte of the body", async (_, overrides, t, status, error) => {
+    const { fetch, captures } = setup(overrides);
+    const stream = neverEnding();
+    const res = await postStream(fetch, t, stream.body);
+    expect(res.status).toBe(status);
+    expect(await res.json()).toMatchObject({ error });
+    expect(stream.pulls()).toBe(0);
+    expect(captures).toEqual([]);
+  });
+
+  it("answers rate_limited without pulling the body while four uploads are in flight", async () => {
+    const held = holdSubmits();
+    const { fetch } = setup({ submitCapture: held.submitCapture });
+    const inFlight = [1, 2, 3, 4].map((n) =>
+      post(fetch, signToken(SECRET, `offer-${n}`), { body: captureForm() }),
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    const fifth = await post(fetch, token, { body: captureForm() });
-    release();
+    const stream = neverEnding();
+    const fifth = await postStream(fetch, signToken(SECRET, "offer-5"), stream.body);
+    held.release();
     const done = await Promise.all(inFlight);
 
     expect(fifth.status).toBe(429);
     expect(await fifth.json()).toMatchObject({ error: "rate_limited", retry_after_s: 5 });
+    expect(stream.pulls()).toBe(0);
     expect(done.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+  });
+
+  it("allows one upload per token at a time", async () => {
+    const held = holdSubmits();
+    const { fetch } = setup({ submitCapture: held.submitCapture });
+    const first = post(fetch, token, { body: captureForm() });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const stream = neverEnding();
+    const second = await postStream(fetch, token, stream.body);
+    held.release();
+
+    expect(second.status).toBe(429);
+    expect(stream.pulls()).toBe(0);
+    expect((await first).status).toBe(200);
     expect((await post(fetch, token, { body: captureForm() })).status).toBe(200);
   });
 });
@@ -437,12 +500,16 @@ describe("routes", () => {
   it("reports each provider as live only in live mode with its key", async () => {
     const health = async (env: Record<string, string>) =>
       (await (await setup({}, env).fetch("http://eyes.test/healthz")).json()).providers;
-    expect(await health({ EYES_PROVIDERS: "live", INSFORGE_API_KEY: "ik_test" })).toMatchObject({
+    const insforge = { INSFORGE_BASE_URL: "https://x.insforge.test", INSFORGE_API_KEY: "ik_test" };
+    expect(await health({ EYES_PROVIDERS: "live", ...insforge })).toMatchObject({
       storage: "live",
       vision: "fake",
       geo: "live",
     });
-    expect(await health({ INSFORGE_API_KEY: "ik_test" })).toMatchObject({ storage: "fake", geo: "fake" });
+    expect(await health({ EYES_PROVIDERS: "live", INSFORGE_API_KEY: "ik_test" })).toMatchObject({
+      storage: "fake",
+    });
+    expect(await health(insforge)).toMatchObject({ storage: "fake", geo: "fake" });
   });
 
   it("answers an unknown route with a JSON error that points at the docs", async () => {
@@ -486,6 +553,8 @@ describe("agent docs", () => {
     for (const href of ["/llms.txt", "/openapi.json", "/.well-known/agent-card.json", "/agents.md"]) {
       expect(html).toContain(`href="${href}"`);
     }
+    expect(html).toContain("<code>POST /mcp</code>");
+    expect(html).toContain("<code>POST /v1/signup</code>");
   });
 
   it("serves docs files with a Link header and 404s missing ones cleanly", async () => {
@@ -512,6 +581,19 @@ describe("agent docs", () => {
         { url: "http://api.eyes.test/mcp", protocolBinding: "https://example.test/spec" },
       ],
       description: "/not-a-url-field",
+    });
+  });
+
+  it("answers a malformed agent card with the clean not_implemented 404", async () => {
+    const bad = await mkdtemp(join(tmpdir(), "eyes-docs-bad-"));
+    await mkdir(join(bad, ".well-known"));
+    await writeFile(join(bad, ".well-known/agent-card.json"), "{not json");
+    const res = await setup({}, { EYES_DOCS_DIR: bad }).fetch("http://eyes.test/.well-known/agent-card.json");
+    await rm(bad, { recursive: true, force: true });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({
+      error: "not_implemented",
+      path: "/.well-known/agent-card.json",
     });
   });
 });

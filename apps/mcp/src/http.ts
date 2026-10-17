@@ -8,7 +8,7 @@ const MB = 1024 * 1024;
 const CAPTURE_LIMIT = 21 * MB;
 const DEFAULT_LIMIT = MB;
 const CAPTURE_PATH = /^\/w\/offers\/[^/]+\/capture$/;
-const TOKEN_SEGMENT = /(?<=\/)[\w-]{16,}\.[\w-]{16,}(?=\/|$)/g;
+const TOKEN = /[\w-]{16,}\.[\w-]{16,}/g;
 
 type Fetch = (request: Request) => Promise<Response>;
 
@@ -26,6 +26,14 @@ function tooLarge(req: IncomingMessage, limit: number): Response {
     },
   );
   return Response.json(err.toBody(), { status: 413 });
+}
+
+function redact(pathname: string): string {
+  let decoded = pathname;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {}
+  return decoded.replace(TOKEN, "<token>");
 }
 
 function badTarget(req: IncomingMessage): Response {
@@ -114,9 +122,12 @@ export function toNodeListener(fetch: Fetch) {
     res.on("close", () => abort.abort());
     res.on("finish", () => console.log(`${req.method} ${path} ${res.statusCode} ${Date.now() - started}ms`));
     try {
-      const url = URL.parse(req.url ?? "/", "http://localhost");
-      if (url) path = url.pathname.replace(TOKEN_SEGMENT, "<token>");
-      const response = url ? await respond(req, url, fetch, abort.signal) : badTarget(req);
+      const parsed = URL.parse(req.url ?? "/", "http://localhost");
+      const url = parsed && !parsed.username && !parsed.password ? parsed : null;
+      if (url) path = redact(url.pathname);
+      const response = url
+        ? await respond(req, new URL(url.pathname + url.search, "http://localhost"), fetch, abort.signal)
+        : badTarget(req);
       res.statusCode = response.status;
       for (const [name, value] of response.headers) if (name !== "set-cookie") res.setHeader(name, value);
       const cookies = response.headers.getSetCookie();
@@ -124,7 +135,7 @@ export function toNodeListener(fetch: Fetch) {
       if (!response.body) return void res.end();
       await pipeline(Readable.fromWeb(response.body as ReadableStream), res).catch(() => undefined);
     } catch (err) {
-      console.error(err);
+      console.error(`request failed: ${err instanceof Error ? err.name : "unknown error"}`);
       if (res.headersSent) return void res.destroy();
       res.statusCode = 500;
       res.setHeader("content-type", "application/json");

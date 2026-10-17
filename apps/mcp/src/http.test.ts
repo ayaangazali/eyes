@@ -252,6 +252,55 @@ describe("node adapter on a real socket", () => {
     expect(lines.join("\n")).not.toContain(token);
   });
 
+  const secret = signToken(config.link_secret, "offer-secret");
+  const [tokenBody = "", tokenMac = ""] = secret.split(".");
+  const encodeAll = (text: string) =>
+    [...text].map((ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`).join("");
+  const logged = () =>
+    [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls]
+      .map((call) => call.map(String).join(" "))
+      .join("\n");
+  const silence = () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  };
+  const offerInvalid = async (): Promise<OfferView> => {
+    throw new EyesError("offer_invalid");
+  };
+
+  it.each([
+    ["backslash", `/\\u:p@h/w/offers/${secret}`],
+    ["scheme-relative", `//u:p@h/w/offers/${secret}`],
+    ["absolute", `http://u:p@h/w/offers/${secret}`],
+  ])("answers a %s target with userinfo with 400 and logs no token", async (_, path) => {
+    const base = await start({ getOffer: offerInvalid });
+    silence();
+
+    const res = await raw(base, { method: "GET", path }, (req) => req.end());
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "invalid_input" });
+    expect(logged()).not.toContain(tokenMac);
+  });
+
+  it.each([
+    ["an encoded slash before it", `/w/offers%2F${secret}`],
+    ["an encoded dot", `/w/offers/${tokenBody}%2E${tokenMac}`],
+    ["full percent-encoding", `/w/offers/${encodeAll(secret)}`],
+    ["a ;x suffix", `/w/offers/${secret};x`],
+    ["a .json suffix", `/w/offers/${secret}.json`],
+    ["an encoded slash after it", `/w/offers/${secret}%2Fcapture`],
+  ])("redacts a token with %s", async (_, path) => {
+    const base = await start({ getOffer: offerInvalid });
+    silence();
+
+    await raw(base, { method: "GET", path }, (req) => req.end());
+
+    expect(logged()).toContain("<token>");
+    expect(logged()).not.toContain(tokenMac);
+    expect(logged()).not.toContain(tokenBody);
+  });
+
   it("streams MCP responses and progress over SSE", async () => {
     const agent = { id: "0b6c8f9e-1a2b-4c3d-8e4f-5a6b7c8d9e0f" } as Agent;
     const base = await start({
