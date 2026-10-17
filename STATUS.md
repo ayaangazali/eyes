@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisions: #7 A, #9 A, #11 B (merging), #14 B (merging); ADR-010 adopted. Live G1 starting: first key INKBOX_API_KEY.
+Updated: 2026-10-17 02:15 PT by orchestrator. InsForge live-verified through Manufact; worker web live on InsForge Sites. Wave 4 running (T2.5 owner console, T4.1 hardening, T3.5a demo+swarm, coverage + UX audits). Plan: docs/PLAN.md.
 
 ## Task board
 
@@ -24,6 +24,12 @@ Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisi
 | T3.2 AX docs + CLI | ax-builder | round 4 (human decision A) | [#9](https://github.com/ayaangazali/eyes/pull/9) | escalated after r3 | none |
 | T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
+| T2.5 owner console (ADR-011) | payments-builder | building | branch feat/T2.5-owner-console | | none |
+| T4.1 hardening (#17-#23, throttles) | mcp/comms builder | building | | | none |
+| T3.5a demo e2e + swarm | integration builder | building | | | refusal step waits on #7 |
+| T3.5b Blaxel batch/sandboxes | | queued | | | BL keys, after G2 |
+| UX/UI audit -> UI fixes | ux auditor, then ui builder | auditing | | | none |
+| SPEC coverage ledger | auditor | auditing | | | none |
 
 ## Sponsor coverage (update at every gate)
 
@@ -31,8 +37,8 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 
 | Sponsor | What we use | PR(s) | live-verified | What the demo shows |
 |---|---|---|---|---|
-| Manufact (mcp-use) | **Deployed** (https://dark-wave-wfmpm.run.mcp-use.com/mcp). MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror, worker API, byte-safe Node adapter; deployed on Manufact Cloud via the repo Dockerfile | #2, #14, T2.3 | partial (routing yes, providers fake) | Claude calls quote_task -> ask_eyes -> await_answer against the Manufact URL; Manufact dashboard shows sessions and gateway requests |
-| InsForge | Postgres (escrow ledger, race-safe claim, expiry as plpgsql over RPC; RLS on every table), photo storage (`photos` bucket), Sites hosting for the worker capture page | #6, #12, #14, #15, T2.3 | no | capture page served from *.insforge.site; photo URL from InsForge storage; dashboard reads `eyes_dashboard_feed` |
+| Manufact (mcp-use) | **Deployed**, auto-redeploys on every merge to main (https://dark-wave-wfmpm.run.mcp-use.com/mcp). MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror, worker API, byte-safe Node adapter; deployed on Manufact Cloud via the repo Dockerfile | #2, #14, T2.3 | partial (routing yes, providers fake) | Claude calls quote_task -> ask_eyes -> await_answer against the Manufact URL; Manufact dashboard shows sessions and gateway requests |
+| InsForge | Postgres (escrow ledger, race-safe claim, expiry as plpgsql over RPC; RLS on every table), photo storage (`photos` bucket), Sites hosting for the worker capture page (https://7t6779x4.insforge.site) | #6, #12, #14, #15, T2.3 | **yes** (DB + Sites; storage pending first live capture) | capture page served from *.insforge.site; photo URL from InsForge storage; dashboard reads `eyes_dashboard_feed` |
 | Stripe | Checkout top-ups (card only), per-key spend policy, Connect Express onboarding minted on click, $3 transfer on a verified answer, signed webhooks, refund on expiry/cancel | #5, #6 | no | top-up in Checkout, the worker's connected account, the transfer in the Stripe dashboard; get_spend_policy limits; refund path |
 | Inkbox | iMessage line (chosen for cost): offer, capture link and paid texts; signed `imessage.received` webhook for START/YES | #1, #10, #24 | no | worker iPhone gets the offer, replies YES, gets the capture link and the paid text |
 | Primitive | Capability email address per agent (ADR-007); inbound email -> ask_eyes; threaded answer with the photo attached; DMARC-verified senders only | #11 | no | an agent emails its Eyes address and gets a threaded reply with the photo |
@@ -59,8 +65,8 @@ Earlier verifier minors (non-blocking by severity) are in each task's intent Kno
 
 | Integration | live-verified | Evidence |
 |---|---|---|
-| Manufact deploy (mcp-use) | **partial yes** (2026-10-17 01:52 PT) | Deployed with `mcp-use deploy --no-github` + repo Dockerfile; server `dark-wave-wfmpm`, MCP URL https://dark-wave-wfmpm.run.mcp-use.com/mcp. Gateway forwards ALL paths (ADR-004 risk resolved): /healthz 200, / HTML, /v1/balance 401, /w/offers/x 404 offer_invalid, /topup/done 200, POST /webhooks/inkbox unsigned 401, /mcp without key 401. Running on fake providers with no database yet (InsForge next). |
-| InsForge DB + storage + Sites | no | |
+| Manufact deploy (mcp-use) | **partial yes** (2026-10-17 01:52 PT) | Deployed with `mcp-use deploy --no-github` + repo Dockerfile; server `dark-wave-wfmpm`, MCP URL https://dark-wave-wfmpm.run.mcp-use.com/mcp. Gateway forwards ALL paths (ADR-004 risk resolved): /healthz 200, / HTML, /v1/balance 401, /w/offers/x 404 offer_invalid, /topup/done 200, POST /webhooks/inkbox unsigned 401, /mcp without key 401. Now backed by InsForge Postgres (see below); vendors still fake until keys land. |
+| InsForge DB + storage + Sites | **yes** (2026-10-17 02:10 PT) | Migrations 001-004 applied to project `hackathon`; anon denied on functions and tables; `photos` bucket. Manufact deploy 35d2cc74 `/healthz` -> `"db":"insforge"`; live signup -> balance -> spend-policy served from InsForge Postgres. Worker web live at https://7t6779x4.insforge.site (Sites deployment 5f2bbf5a). Photo upload to storage not yet exercised live (needs a capture). |
 | Inkbox outbound + inbound | no | |
 | Stripe Checkout + Connect + transfer | no | |
 | Primitive inbound + threaded reply | no | |
