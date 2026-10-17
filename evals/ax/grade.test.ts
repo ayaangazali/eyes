@@ -93,6 +93,12 @@ const broken: [string, Expect, Partial<Transcript>, string[]][] = [
     ["surfaced_answer"],
   ],
   [
+    "a verified photo mentioned without its photo_url",
+    "answer",
+    { final_text: "Short line, about 4 people. The photo was verified and checked." },
+    ["surfaced_answer"],
+  ],
+  [
     "answer text without verification",
     "answer",
     { final_text: `Short line. Photo: ${PHOTO}` },
@@ -118,16 +124,8 @@ describe("grade", () => {
     ).toEqual(REFUSE_OK);
   });
 
-  it.each([
-    [
-      "names the checks instead of saying verified",
-      `Open, about 4 people in line. The answer passed GPS, freshness and photo checks. Photo: ${PHOTO}`,
-    ],
-    [
-      "withholds a placeholder photo link and says why",
-      "Short line, about 4 people, from a verified answer. The photo link points to a storage.fake.test address, so I can't confirm the photo itself.",
-    ],
-  ])("passes an answer that %s", (_name, final_text) => {
+  it("passes an answer that names the checks instead of saying verified", () => {
+    const final_text = `Open, about 4 people in line. The answer passed GPS, freshness and photo checks. Photo: ${PHOTO}`;
     expect(grade("answer", { ...golden, final_text })).toEqual(ANSWER_OK);
   });
 
