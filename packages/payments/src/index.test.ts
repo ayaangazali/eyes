@@ -4,6 +4,8 @@ import {
   type EyesService,
   FAKE_STRIPE_SIGNATURE,
   fakeProviders,
+  type OwnerConsole,
+  type OwnerPolicyInput,
   type Payments,
 } from "@eyes/core";
 import Stripe from "stripe";
@@ -45,6 +47,33 @@ beforeEach(() => {
   http.captured.length = 0;
 });
 
+const TASK_ID = "6f1c2b0e-8a4d-4c1e-9b7a-2d3e4f5a6b7c";
+const OWNER_VIEW: OwnerConsole = {
+  agent_id: "0b9e8d7c-6a5b-4c3d-8e2f-1a0b9c8d7e6f",
+  agent_name: "Scout <b>bot</b>",
+  balance_usd: 16.5,
+  escrowed_usd: 3.5,
+  policy: {
+    max_bounty_usd: 10,
+    daily_cap_usd: 20,
+    spent_today_usd: 3.5,
+    remaining_today_usd: 16.5,
+    allowed_task_types: ["is_open", "line_length"],
+  },
+  tasks: [
+    {
+      task_id: TASK_ID,
+      question: '<script>alert("owned")</script> Is it open?',
+      place_label: "Cafe & Co",
+      status: "dispatched",
+      bounty_usd: 3,
+      created_at: "2026-10-17T09:15:00.000Z",
+    },
+  ],
+  ledger: [{ type: "escrow", amount_usd: 3.5, task_id: TASK_ID, created_at: "2026-10-17T09:15:00.000Z" }],
+  top_up_url: "https://api.eyes.test/topup/agent-tok",
+};
+
 function setup(payments: Payments = fakeProviders().payments) {
   const service = {
     creditTopup: vi.fn(async () => {}),
@@ -55,6 +84,14 @@ function setup(payments: Payments = fakeProviders().payments) {
     workerConnectUrl: vi.fn(async (token: string) => {
       if (token === "expired") throw new EyesError("offer_invalid");
       return `https://connect.test/${token}`;
+    }),
+    ownerConsole: vi.fn(async (token: string) => {
+      if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
+      return OWNER_VIEW;
+    }),
+    updateSpendPolicy: vi.fn(async (token: string, _input: OwnerPolicyInput) => {
+      if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
+      return OWNER_VIEW.policy;
     }),
   };
   const config = AppConfig.parse({
@@ -167,6 +204,79 @@ describe("stripeRoutes", () => {
     const res = await app.request("/w/connect/expired");
     expect(res.status).toBe(404);
     expect(await res.text()).toContain("invalid or has expired");
+  });
+});
+
+describe("owner console routes", () => {
+  const post = (app: ReturnType<typeof setup>["app"], token: string, body: string) =>
+    app.request(`/owner/${token}/policy`, {
+      method: "POST",
+      body,
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+    });
+  const privateHeaders = (res: Response) => ({
+    referrer: res.headers.get("referrer-policy"),
+    cache: res.headers.get("cache-control"),
+  });
+  const PRIVATE = { referrer: "no-referrer", cache: "no-store" };
+
+  it("renders the console with agent-written text escaped and private-link headers", async () => {
+    const { app } = setup();
+    const res = await app.request("/owner/owner-tok");
+    expect(res.status).toBe(200);
+    expect(privateHeaders(res)).toEqual(PRIVATE);
+    const body = await res.text();
+    expect(body).not.toContain("<script>");
+    expect(body).toContain("&lt;script&gt;alert(&quot;owned&quot;)&lt;/script&gt; Is it open?");
+    expect(body).toContain("Scout &lt;b&gt;bot&lt;/b&gt;");
+    expect(body).toContain("Cafe &amp; Co");
+    expect(body).toContain('value="is_open" checked>');
+    expect(body).toContain('value="in_stock">');
+    expect(body).toContain('href="https://api.eyes.test/topup/agent-tok"');
+    expect(body).toContain('action="/owner/owner-tok/policy"');
+  });
+
+  it("saves posted limits, including several task types, and redirects back with a notice", async () => {
+    const { app, service } = setup();
+    const res = await post(
+      app,
+      "owner-tok",
+      "max_bounty_usd=2.5&daily_cap_usd=0&allowed_task_types=is_open&allowed_task_types=in_stock",
+    );
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/owner/owner-tok?saved=1");
+    expect(privateHeaders(res)).toEqual(PRIVATE);
+    expect(service.updateSpendPolicy).toHaveBeenCalledWith("owner-tok", {
+      max_bounty_usd: 2.5,
+      daily_cap_usd: 0,
+      allowed_task_types: ["is_open", "in_stock"],
+    });
+    await post(app, "owner-tok", "max_bounty_usd=3&daily_cap_usd=20");
+    expect(service.updateSpendPolicy).toHaveBeenLastCalledWith("owner-tok", {
+      max_bounty_usd: 3,
+      daily_cap_usd: 20,
+      allowed_task_types: [],
+    });
+    expect(await (await app.request("/owner/owner-tok?saved=1")).text()).toContain("Saved.");
+  });
+
+  it("re-renders invalid limits without saving, and answers a bad link with a 404 page", async () => {
+    const { app, service } = setup();
+    for (const body of ["max_bounty_usd=&daily_cap_usd=20", "max_bounty_usd=500&daily_cap_usd=20"]) {
+      const res = await post(app, "owner-tok", body);
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain("Nothing was saved.");
+    }
+    expect(service.updateSpendPolicy).not.toHaveBeenCalled();
+
+    for (const res of [
+      await app.request("/owner/agent-tok"),
+      await post(app, "agent-tok", "max_bounty_usd=1&daily_cap_usd=1"),
+    ]) {
+      expect(res.status).toBe(404);
+      expect(privateHeaders(res)).toEqual(PRIVATE);
+      expect(await res.text()).toContain("This owner control link is invalid.");
+    }
   });
 });
 

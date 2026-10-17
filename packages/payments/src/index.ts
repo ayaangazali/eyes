@@ -1,4 +1,16 @@
-import { EyesError, type Payments, type PaymentsEvent, type RouteDeps, usdToCents } from "@eyes/core";
+import {
+  centsToUsd,
+  EyesError,
+  type LedgerType,
+  type OwnerConsole,
+  OwnerPolicyInput,
+  type Payments,
+  type PaymentsEvent,
+  type RouteDeps,
+  TASK_TYPES,
+  type TaskType,
+  usdToCents,
+} from "@eyes/core";
 import { type Context, Hono } from "hono";
 import { html } from "hono/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -127,13 +139,108 @@ const page = (title: string, text: string) =>
 <body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 3rem auto; padding: 0 1rem"><h1>${title}</h1><p>${text}</p></body>
 </html>`;
 
-async function redirectTo(c: Context, url: () => Promise<string>) {
+async function explained(c: Context, respond: () => Promise<Response>) {
   try {
-    return c.redirect(await url(), 302);
+    return await respond();
   } catch (err) {
     if (!(err instanceof EyesError)) throw err;
     return c.html(page(err.message, err.fix), err.status as ContentfulStatusCode);
   }
+}
+
+const redirectTo = (c: Context, url: () => Promise<string>) =>
+  explained(c, async () => c.redirect(await url(), 302));
+
+const OWNER_HEADERS = {
+  "Referrer-Policy": "no-referrer",
+  "Cache-Control": "no-store",
+  "Content-Security-Policy":
+    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+};
+
+const TASK_TYPE_LABELS: Record<TaskType, string> = {
+  is_open: "Whether a place is open",
+  line_length: "How long a line is",
+  in_stock: "Whether something is in stock",
+  photo_of_place: "A photo of a public place",
+  price_check: "A price check",
+  crowd_level: "How crowded a place is",
+  other_public: "Other checks of public places",
+};
+
+const LEDGER_LABELS: Record<LedgerType, string> = {
+  topup: "Funds added",
+  escrow: "Held for a task",
+  release: "Paid to a worker",
+  fee: "Eyes fee",
+  refund: "Refunded",
+  payout: "Worker payout",
+};
+
+type Note = { text: string; error: boolean };
+const SAVED: Note = { text: "Saved. The new limits apply to your agent's next request.", error: false };
+const INVALID: Note = {
+  text: "Nothing was saved. Max bounty must be a number from 0 to 100 USD, and the daily cap a number from 0 to 1000 USD.",
+  error: true,
+};
+
+const usd = (n: number) => `$${n.toFixed(2)}`;
+const when = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
+const shortId = (id: string) => id.slice(0, 8);
+
+function ownerPage(view: OwnerConsole, token: string, note: Note | null, feeUsd: number) {
+  const p = view.policy;
+  return html`<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Eyes owner controls</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:0 auto;padding:1rem;color:#111;background:#fff}
+h1{font-size:1.5rem;margin:.5rem 0}h2{font-size:1.2rem;margin-top:2rem}
+dl{display:grid;grid-template-columns:auto 1fr;gap:.25rem 1rem}dt{color:#555}dd{margin:0;font-weight:600}
+label{display:block;margin-top:1rem;font-weight:600}
+input[type=number]{display:block;width:100%;box-sizing:border-box;font-size:1rem;padding:.6rem;margin-top:.25rem;border:1px solid #888;border-radius:.4rem}
+fieldset{margin-top:1rem;border:1px solid #ccc;border-radius:.4rem}fieldset label{font-weight:400;margin-top:.5rem}
+input[type=checkbox]{width:1.25rem;height:1.25rem;vertical-align:middle;margin:0 .5rem 0 0}
+button,.button{display:inline-block;font-size:1rem;padding:.75rem 1.25rem;margin-top:1rem;border:0;border-radius:.5rem;background:#111;color:#fff;text-decoration:none}
+.note{padding:.75rem;border-radius:.5rem;background:#e6f4ea}.error{background:#fdecea}.hint{color:#555}
+ul{padding-left:1.25rem}li{margin-bottom:.75rem}
+.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:.35rem .25rem;border-bottom:1px solid #ddd}
+</style></head>
+<body>
+<h1>${view.agent_name}</h1>
+<p>Owner controls for your AI agent on Eyes, which pays nearby people a few dollars to check public places. Keep this link private: anyone who has it can change these limits.</p>
+${note ? html`<p class="note${note.error ? " error" : ""}" role="status">${note.text}</p>` : ""}
+<dl>
+<dt>Balance</dt><dd>${usd(view.balance_usd)}</dd>
+<dt>Held for open tasks</dt><dd>${usd(view.escrowed_usd)}</dd>
+<dt>Spent today (UTC)</dt><dd>${usd(p.spent_today_usd)} of ${usd(p.daily_cap_usd)}</dd>
+</dl>
+${view.top_up_url ? html`<a class="button" href="${view.top_up_url}">Add funds</a>` : ""}
+<h2>Spending limits</h2>
+<form method="post" action="/owner/${token}/policy">
+<label for="max_bounty_usd">Most it may pay a worker per task (USD)</label>
+<input id="max_bounty_usd" name="max_bounty_usd" type="number" inputmode="decimal" min="0" max="100" step="0.01" required value="${p.max_bounty_usd.toFixed(2)}">
+<label for="daily_cap_usd">Daily spending cap (USD)</label>
+<input id="daily_cap_usd" name="daily_cap_usd" type="number" inputmode="decimal" min="0" max="1000" step="0.01" required value="${p.daily_cap_usd.toFixed(2)}" aria-describedby="cap-hint">
+<p class="hint" id="cap-hint">A daily cap of 0 freezes all spending. Each task counts its bounty plus the ${usd(feeUsd)} Eyes fee.</p>
+<fieldset><legend>Kinds of tasks it may post</legend>
+${TASK_TYPES.map((t) => html`<label><input type="checkbox" name="allowed_task_types" value="${t}"${p.allowed_task_types.includes(t) ? html` checked` : ""}>${TASK_TYPE_LABELS[t]}</label>`)}
+</fieldset>
+<button type="submit">Save limits</button>
+</form>
+<h2>Recent tasks</h2>
+${
+  view.tasks.length
+    ? html`<ul>${view.tasks.map((t) => html`<li><strong>${t.question}</strong><br>${t.place_label}<br>${t.status.replaceAll("_", " ")}, ${usd(t.bounty_usd)} bounty, ${when(t.created_at)}, task ${shortId(t.task_id)}</li>`)}</ul>`
+    : html`<p>No tasks yet.</p>`
+}
+<h2>Money in and out</h2>
+<div class="scroll"><table>
+<thead><tr><th scope="col">What</th><th scope="col">Amount</th><th scope="col">Task</th><th scope="col">When</th></tr></thead>
+<tbody>${view.ledger.map((l) => html`<tr><td>${LEDGER_LABELS[l.type]}</td><td>${usd(l.amount_usd)}</td><td>${l.task_id ? shortId(l.task_id) : ""}</td><td>${when(l.created_at)}</td></tr>`)}</tbody>
+</table></div>
+</body>
+</html>`;
 }
 
 export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
@@ -178,6 +285,34 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
     const usd = query ? Number(query) : Number.NaN;
     const cents = Number.isFinite(usd) ? usdToCents(Math.min(100, Math.max(5, usd))) : undefined;
     return redirectTo(c, () => deps.service.topupCheckoutUrl(c.req.param("token"), cents));
+  });
+
+  const fee = centsToUsd(deps.config.fee_cents);
+  const ownerView = (c: Context, note: Note | null, status: ContentfulStatusCode = 200) =>
+    explained(c, async () => {
+      const token = c.req.param("token") ?? "";
+      return c.html(ownerPage(await deps.service.ownerConsole(token), token, note, fee), status);
+    });
+  const formNumber = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? Number(v) : Number.NaN);
+
+  app.use("/owner/*", async (c, next) => {
+    for (const [name, value] of Object.entries(OWNER_HEADERS)) c.header(name, value);
+    await next();
+  });
+  app.get("/owner/:token", (c) => ownerView(c, c.req.query("saved") === undefined ? null : SAVED));
+  app.post("/owner/:token/policy", async (c) => {
+    const form = await c.req.parseBody({ all: true });
+    const input = OwnerPolicyInput.safeParse({
+      max_bounty_usd: formNumber(form.max_bounty_usd),
+      daily_cap_usd: formNumber(form.daily_cap_usd),
+      allowed_task_types: [form.allowed_task_types ?? []].flat(),
+    });
+    if (!input.success) return ownerView(c, INVALID, 400);
+    const token = c.req.param("token");
+    return explained(c, async () => {
+      await deps.service.updateSpendPolicy(token, input.data);
+      return c.redirect(`/owner/${token}?saved=1`, 303);
+    });
   });
 
   app.get("/w/connect/done", (c) =>
