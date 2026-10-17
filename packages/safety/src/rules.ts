@@ -68,14 +68,16 @@ const RULES: [SafetyCategory, RegExp[]][] = [
         "\\b(?:(?:plant|place|leave|hide|build|make|set off|detonate) (?:a |the )?(?:bomb|explosive|grenade)s?|pipe bombs?|molotov\\w*)\\b",
       ),
       /\bIEDs?\b/,
-      re("\\b(?:buy|score|get me|cop)\\s+(?:some\\s+)?(?:cocaine|heroin|meth|crack)\\b"),
+      re(
+        "\\b(?:buy|score|get me|cop)\\s+(?:some\\s+)?(?:cocaine|heroin|meth|crack(?!\\s+(?:sealant|filler|repair)))\\b",
+      ),
       re(
         "\\b(?:bring|carry|sneak|smuggle)\\s+(?:a |an |the |my |his |her )?(?:guns?|firearms?|pistols?|handguns?|weapons?)\\s+(?:in|into|inside)\\b",
       ),
       re(
         "\\bbreak(?:ing)? into (?:the |a |an |his |her |their |someone's )?(?:[a-z-]+ )?(?:house|home|apartment|car|shop|store|building|office|garage|business|cafe|restaurant|bar|warehouse)\\b",
       ),
-      re("\\bpick(?:ing)?\\s+(?:the|a|their|his|her)\\s+locks?\\b"),
+      re("\\bpick(?:ing)?\\s+(?:the|their|his|her)\\s+locks?\\b"),
       re("\\b(?:jimmy|force|forcing)\\s+(?:open\\s+)?(?:the|a|their|his|her)\\s+(?:lock|door|window)s?\\b"),
     ],
   ],
@@ -119,7 +121,8 @@ const RULES: [SafetyCategory, RegExp[]][] = [
   [
     "private_residence",
     [
-      re(`\\b(?:(?:my|his|her|their|your) [a-z-]+'s|[a-z]+s'|his|her)\\s+(?:home|house|apartment)\\b${ENDS}`),
+      re(`\\b(?:(?:my|his|her|their|your) [a-z-]+'s|his|her)\\s+(?:home|house|apartment)\\b${ENDS}`),
+      re(`\\b[a-z]+s'\\s+(?-i:home|house|apartment)\\b${ENDS}`),
       re(`\\b(?:his|her|(?:my|his|her|their) ${REL}'s) (?:home|residential) address\\b`),
       re(
         `\\bhome address of (?:him|her|the owner of|(?:that|this) ${PERSON}|(?:my|his|her|their) ${REL})\\b`,
@@ -128,7 +131,10 @@ const RULES: [SafetyCategory, RegExp[]][] = [
       re(
         "(?:,|\\b(?:st|street|ave|avenue|rd|road|blvd|dr|drive|ln|lane|ct|court|way|pl|place|ter|terrace)\\.?)\\s*(?:apartment|apt\\.?)\\s*(?:#|no\\.?|number)?\\s*\\d+[a-z]?\\b",
       ),
-      re(`\\bis (?:anyone|anybody|someone|somebody|he|she) (?:at )?home\\b${ENDS}`),
+      re(`\\bis (?:he|she) (?:at )?home\\b${ENDS}`),
+      re(
+        "\\bis (?:anyone|anybody|someone|somebody) (?:at )?home (?:(?:at|on)(?: number| no\\.?| #)?|number|#) ?\\d",
+      ),
       /\b(?:[Tt]he|[Aa]|[Tt]his|[Tt]hat|[Hh]is|[Hh]er|[Tt]heir|[Mm]y) (?:house|home|residence)s?(?: (?:located|situated))? (?:(?:at|on)(?: number| no\.?| #)?|number|#) ?\d/,
     ],
   ],
