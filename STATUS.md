@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 06:05 PT by orchestrator. 39 PRs merged. Live: Manufact 03c5dd9e (main 4eebc47) + InsForge (DB 001-014, Sites) + ops dashboard. Building: T5.2 docs. Waits on vendor keys: docs/PLAN.md §4.
+Updated: 2026-10-17 06:20 PT by orchestrator. 44 PRs merged in total (GitHub count). Live: Manufact 03c5dd9e (main 4eebc47) + InsForge (DB 001-014, Sites) + ops dashboard. Building: T5.2 docs. Waits on vendor keys: docs/PLAN.md §4.
 
 ## Task board
 
