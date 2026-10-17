@@ -77,6 +77,7 @@ const service = createEyesService({
 
 setInterval(() => {
   service.expireOverdue().catch((err) => console.error("expireOverdue failed", err));
+  service.retryPayouts().catch((err) => console.error("retryPayouts failed", err));
 }, EXPIRE_EVERY_MS);
 
 const server = createServer({ service, providers, config, env });

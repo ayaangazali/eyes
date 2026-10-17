@@ -458,6 +458,30 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
   });
 
+  it("refuses a bounty one cent over max_bounty and a task_type the key may not post, charging nothing", async () => {
+    const at = somewhere();
+    await worker(north(at, 100));
+    const { id } = await agent();
+    await sql`update agents set max_bounty_cents = 200, allowed_task_types = array['is_open'] where id = ${id}`;
+    const a = (await service.agentById(id)) as Agent;
+
+    await expect(ask(a, at, { task_type: "is_open", bounty_usd: 2.01 })).rejects.toMatchObject({
+      code: "bounty_exceeds_max",
+      context: { bounty_usd: 2.01, max_bounty_usd: 2 },
+      fix: expect.stringContaining("2 or less"),
+    });
+    await expect(ask(a, at, { bounty_usd: 2 })).rejects.toMatchObject({
+      code: "task_type_not_allowed",
+      context: { task_type: "line_length", allowed_task_types: ["is_open"] },
+    });
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
+    expect(await sql`select id from tasks where agent_id = ${id}`).toHaveLength(0);
+    await expect(ask(a, at, { task_type: "is_open", bounty_usd: 2 })).resolves.toMatchObject({
+      status: "dispatched",
+      escrowed_usd: 2.5,
+    });
+  });
+
   it("emails the owner a private link that sets the limits ask_eyes enforces, and never shows it to the agent", async () => {
     const at = somewhere();
     await worker(north(at, 100));
