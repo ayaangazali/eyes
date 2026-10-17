@@ -24,7 +24,7 @@ export const SANDBOX_NOTICE = `${SANDBOX} Call /mcp or /v1 with no Authorization
 
 const SANDBOX_PHONE = /^\+1[2-9]\d{2}55501\d{2}$/;
 const ASK_TIMEOUT_MS = 15_000;
-const ASK_QUEUE_MAX = 10;
+const ASK_QUEUE_MAX = 50;
 const ASK_RETRY_S = 15;
 const HIRE_TRIES = 3;
 const KEYLESS_TTL_MS = 60 * 60 * 1000;

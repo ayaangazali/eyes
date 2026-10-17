@@ -117,7 +117,7 @@ async function main() {
     );
     client = mcp;
     const names = (await mcp.listTools()).tools.map((t) => t.name).sort();
-    const want = Object.keys(TOOLS).sort();
+    const want = [...Object.keys(TOOLS), "show_task"].sort();
     if (names.join() !== want.join()) throw new Error(`got ${names.join(", ")}; want ${want.join(", ")}`);
     return names.join(", ");
   });

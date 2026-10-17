@@ -52,7 +52,7 @@ claude mcp add --transport http eyes https://dark-wave-wfmpm.run.mcp-use.com/mcp
 
 The deployed server has live place lookup, photo storage, vision and safety; texting is connected to Inkbox but not yet verified on a real phone; payments and email are simulated. Until workers opt in near a place, `ask_eyes` there returns `no_workers_nearby` and charges nothing. Its `/status` page says which parts are live and which are simulated, whether the safety review is rules only or rules plus the AI classifier, and, while place lookup is simulated, which demo places resolve. An agent can read that before it spends anything, instead of finding out from a task nobody answers. The whole loop runs on fakes in [e2e/golden-path.spec.ts](e2e/golden-path.spec.ts).
 
-### The 9 tools
+### The 10 tools
 
 | Tool | What it does |
 |---|---|
@@ -60,6 +60,7 @@ The deployed server has live place lookup, photo storage, vision and safety; tex
 | `ask_eyes` | Escrows bounty plus fee and texts nearby workers. `idempotency_key` is required ([ADR-017](intent/decisions/ADR-017-honest-surfaces.md)): MCP clients may retry a call on their own, and a retry without a key used to escrow the money twice. A retry with the same key returns the same task. |
 | `await_answer` | Long-polls up to 55 s per call ([ADR-002](intent/decisions/ADR-002-await-answer-cap.md)). Call it right after `ask_eyes` and keep calling: agents cannot listen for events in the background, so this loop is how the answer arrives. |
 | `get_task` | Instant status and answer lookup. |
+| `show_task` | The same JSON as `get_task`, plus a task card (status, question, answer, photo, the three checks, cost) that chat apps rendering MCP Apps, such as ChatGPT and Claude, draw for your user. Other clients get only the JSON, so `get_task`'s result stays unchanged for them ([screenshot](docs/manufact/widget-task-card.png)). |
 | `cancel_task` | Refunds the full escrow while no worker has claimed the task. |
 | `dispute_answer` | Flags a wrong answer; holds the payout if it has not gone out and sends the task to human review. |
 | `get_balance` | Balance, escrowed amount and a top-up link for your human. |
@@ -174,7 +175,7 @@ From the coverage table in [STATUS.md](STATUS.md), with the live-verified column
 
 | Sponsor | What we use | Where in the repo | Live-verified |
 |---|---|---|---|
-| Manufact (mcp-use) | MCP server on mcp-use 2.10: 9 tools with LLM-first descriptions, bearer auth, REST mirror and worker API, `/status`, owner console and the ops dashboard at `/ops/<key>`, deployed on Manufact Cloud from the repo Dockerfile | [apps/mcp](apps/mcp), [Dockerfile](Dockerfile) | partial: routing, MCP and a real Claude agent round trip yes (stand-in worker); Stripe and Primitive simulated |
+| Manufact (mcp-use) | MCP server on mcp-use 2.10: 10 tools with LLM-first descriptions, an MCP Apps task card (`show_task`), bearer auth, REST mirror and worker API, `/status`, owner console and the ops dashboard at `/ops/<key>`, deployed on Manufact Cloud from the repo Dockerfile | [apps/mcp](apps/mcp), [Dockerfile](Dockerfile) | partial: routing, MCP and a real Claude agent round trip yes (stand-in worker); Stripe and Primitive simulated |
 | InsForge | Postgres (escrow ledger, race-safe claim, release, re-offer, payout lease and expiry as plpgsql over RPC, RLS on every table), `photos` storage bucket with face-rejected photos deleted, Sites hosting for the worker pages | [packages/db](packages/db), [scripts/insforge-migrate.ts](scripts/insforge-migrate.ts), [apps/web/worker](apps/web/worker) | **yes** (database, storage including face-photo deletion, and Sites) |
 | Stripe | Checkout top-ups, per-key spend policy, owner console with freeze and key replacement, owner link to the first payer, Connect Express onboarding minted on click, $3 transfer on a verified answer with retries, operator refund or release, signed webhooks, refund on expiry or cancel | [packages/payments](packages/payments) | no |
 | Inkbox | iMessage line: offer, capture link, paid, STOP, START, HELP and release texts, re-offer after a release; signed `imessage.received` webhook for replies | [packages/comms/src/inkbox.ts](packages/comms/src/inkbox.ts) | partly: signed webhook live; no text to a real phone yet |
@@ -262,3 +263,31 @@ More checks and operator tools, all in `package.json`:
 The deployed server also serves the demo dashboard at `/ops/<key>` when `EYES_OPS_KEY` is set ([docs/DEPLOY.md](docs/DEPLOY.md) §2). The URL is the credential and the page shows where workers are, so the key is never written in docs, issues or chat: the operator sends the link to a person directly and changes the key after judging. Unset, `/ops/...` gets the same 404 as any unknown path.
 
 Deploying is in [docs/DEPLOY.md](docs/DEPLOY.md). The demo runbook is [docs/DEMO.md](docs/DEMO.md) and the submission draft is [docs/SUBMISSION.md](docs/SUBMISSION.md).
+
+### Task card, tunnel and Inspector
+
+`show_task` draws a task card in chat apps that render MCP Apps. The card is a React view, [apps/mcp/views/task-card/view.tsx](apps/mcp/views/task-card/view.tsx), started from the mcp-use `mcp-apps` template. Eyes runs its own HTTP server instead of `mcp-use start`, so `pnpm --filter @eyes/mcp build` runs `mcp-use build --inline`, which writes the view's JS and CSS into `apps/mcp/.mcp-use/build/manifest.json`; the server reads that file at startup and binds the card to `show_task`. The Dockerfile runs the same build. Without the file, `show_task` still returns the task JSON, just with no card.
+
+To reach your local server from anywhere, on fakes and the local Postgres, run the last two lines in separate terminals:
+
+```sh
+pnpm --filter @eyes/mcp build
+node --env-file=.env apps/mcp/src/main.ts
+npx -y @mcp-use/tunnel@0.2.2 3000
+```
+
+The tunnel prints `https://<name>.tunnel.mcp-use.run`; the MCP URL is that plus `/mcp`. The tunnel has no auth of its own: the bearer key still guards `/mcp` and `/v1/*`, and every other route the server has (home page, docs, webhooks) is public through it. It lasts at most 24 hours, and Ctrl-C releases it. Get a key from your local server with `curl -s -X POST https://<name>.tunnel.mcp-use.run/v1/signup -H 'content-type: application/json' -d '{"name":"dev"}'`.
+
+Open the Inspector with that key. This prints a link to the hosted Inspector; swap the origin for `http://localhost:8080` to use a local one started with `npx -y @mcp-use/inspector@20.3.20 --port 8080`, which needs no tunnel (use `http://127.0.0.1:3000/mcp` as the URL):
+
+```sh
+node -e 'console.log("https://inspector.manufact.com/inspector?autoConnect=" + encodeURIComponent(JSON.stringify({ url: process.argv[1], customHeaders: { Authorization: `Bearer ${process.argv[2]}` } })))' https://<name>.tunnel.mcp-use.run/mcp <api_key>
+```
+
+The hosted Inspector calls your server through Manufact's proxy and the key sits in the link, so only use a key from this local fakes server. In the Tools tab, run `show_task` with a `task_id` to see the card ([screenshot](docs/manufact/inspector-tools.png)). To save the card as a PNG (needs Chrome, or `MCP_USE_CHROME_PATH`):
+
+```sh
+npx -y -p mcp-use@2.10.0 -p @mcp-use/client@2.4.3 mcp-use screenshot --mcp <mcp url> -H "Authorization: Bearer <api_key>" --tool show_task '{"task_id":"<task_id>"}' --output card.png
+```
+
+On fakes no photo is stored, so the card says "No photo to show".

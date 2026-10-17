@@ -64,7 +64,7 @@ importers:
         version: 4.13.13
       mcp-use:
         specifier: 2.10.0
-        version: 2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7)
+        version: 2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7)
       zod:
         specifier: 4.6.7
         version: 4.6.7
@@ -72,6 +72,12 @@ importers:
       '@modelcontextprotocol/client':
         specifier: 2.3.1
         version: 2.3.1
+      react:
+        specifier: 19.3.0
+        version: 19.3.0
+      react-dom:
+        specifier: 19.3.0
+        version: 19.3.0(react@19.3.0)
 
   apps/web/dashboard:
     dependencies:
@@ -1526,6 +1532,15 @@ packages:
     resolution: {integrity: sha512-BbubeCEyTuQjVMakvJQ/Sxbc93F2pwmbsxONT/ZRrwU7Ua38d8unYTwXpTVLAKJ4BDuH9IGztCjQcd/N/39Dvg==}
     engines: {node: '>=16.0.0'}
 
+  react-dom@19.3.0:
+    resolution: {integrity: sha512-JDk8dgif51OjFoDE70+OT9ICyYr+69HlmihNwp1+Nsfbna3t5sIiCa9ZJktDmQ4/1b/rn26hIAR2uYXDMr5r0Q==}
+    peerDependencies:
+      react: ^19.3.0
+
+  react@19.3.0:
+    resolution: {integrity: sha512-E8LUcbtBWt20bbl2YoHfx4ZDBdxVTfOKtCZn9cDSJ4l6/nuoApcpIBcj47t2wZoVX8g2ZHuMHbiShgCR1T5Sog==}
+    engines: {node: '>=0.10.0'}
+
   reflect-metadata@0.2.2:
     resolution: {integrity: sha512-urBwgfrvVP/eAyXx4hluJivBKzuEbSQs9rKWCrCkbSxNv8mxPcUZKeuoF3Uy4mJl3Lwprp6yy5/39VWigZ4K6Q==}
 
@@ -1549,6 +1564,9 @@ packages:
   sanitize-html@2.18.1:
     resolution: {integrity: sha512-2X5lC8fYla8YaT8g73Nj+HcLWXan5dLyCWLgVvaOmfw7JI78IRsyNtIDytTHdn7hBQbIkCah7Zbmd5jabzeDig==}
     engines: {node: '>=22.12.0'}
+
+  scheduler@0.28.0:
+    resolution: {integrity: sha512-juorfCmIkIw8tT+p5BXSm6PJjQF/ycEYmKyzURCIt/RaZIhL+PulbQ9Yu2z1HdOJDdqDTlxA1+xKBmHXJsczAw==}
 
   selderee@0.12.0:
     resolution: {integrity: sha512-b1YMh3+DHZp59DLna3qVwQ5iOla/nrI6mLBNW02XxU77M3046Df6VLkoaJyFz20VsGIG5kkp+FK0kg4K4HnUFw==}
@@ -1936,7 +1954,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@mcp-use/cli@4.4.0(@mcp-use/inspector@20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7)))(@types/node@24.19.2)(jiti@2.7.0)':
+  '@mcp-use/cli@4.4.0(@mcp-use/inspector@20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/node@24.19.2)(jiti@2.7.0)':
     dependencies:
       '@tailwindcss/vite': 4.3.3(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))
       '@vitejs/plugin-react': 6.0.5(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))
@@ -1944,7 +1962,7 @@ snapshots:
       tailwindcss: 4.3.3
       vite: 8.0.16(@types/node@24.19.2)(jiti@2.7.0)
     optionalDependencies:
-      '@mcp-use/inspector': 20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))
+      '@mcp-use/inspector': 20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
     transitivePeerDependencies:
       - '@rolldown/plugin-babel'
       - '@types/node'
@@ -1961,9 +1979,11 @@ snapshots:
       - tsx
       - yaml
 
-  '@mcp-use/inspector@20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))':
+  '@mcp-use/inspector@20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     optionalDependencies:
-      mcp-use: 2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7)
+      mcp-use: 2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@modelcontextprotocol/client@2.3.1':
     dependencies:
@@ -1979,7 +1999,7 @@ snapshots:
     dependencies:
       zod: 4.6.7
 
-  '@modelcontextprotocol/ext-apps@2.0.3(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/core@2.3.1)(@modelcontextprotocol/server@2.3.1)(zod@4.6.7)':
+  '@modelcontextprotocol/ext-apps@2.0.3(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/core@2.3.1)(@modelcontextprotocol/server@2.3.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.7)':
     dependencies:
       '@modelcontextprotocol/client': 2.3.1
       '@modelcontextprotocol/core': 2.3.1
@@ -1987,6 +2007,8 @@ snapshots:
       zod: 4.6.7
     optionalDependencies:
       '@modelcontextprotocol/server': 2.3.1
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@modelcontextprotocol/server@2.3.1':
     dependencies:
@@ -2809,18 +2831,20 @@ snapshots:
       punycode.js: 2.3.1
       tlds: 1.261.0
 
-  mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7):
+  mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7):
     dependencies:
-      '@mcp-use/cli': 4.4.0(@mcp-use/inspector@20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7)))(@types/node@24.19.2)(jiti@2.7.0)
-      '@mcp-use/inspector': 20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))
+      '@mcp-use/cli': 4.4.0(@mcp-use/inspector@20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))(react-dom@19.3.0(react@19.3.0))(react@19.3.0))(@types/node@24.19.2)(jiti@2.7.0)
+      '@mcp-use/inspector': 20.3.20(mcp-use@2.10.0(@types/node@24.19.2)(jiti@2.7.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(vite@8.0.16(@types/node@24.19.2)(jiti@2.7.0))(zod@4.6.7))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@modelcontextprotocol/client': 2.3.1
       '@modelcontextprotocol/core': 2.3.1
-      '@modelcontextprotocol/ext-apps': 2.0.3(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/core@2.3.1)(@modelcontextprotocol/server@2.3.1)(zod@4.6.7)
+      '@modelcontextprotocol/ext-apps': 2.0.3(@modelcontextprotocol/client@2.3.1)(@modelcontextprotocol/core@2.3.1)(@modelcontextprotocol/server@2.3.1)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.7)
       '@modelcontextprotocol/server': 2.3.1
       hono: 4.13.13
       jose: 6.2.12
       oauth4webapi: 3.8.8
     optionalDependencies:
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
       vite: 8.0.16(@types/node@24.19.2)(jiti@2.7.0)
     transitivePeerDependencies:
       - '@base-ui/react'
@@ -2914,6 +2938,13 @@ snapshots:
 
   pvutils@1.2.0: {}
 
+  react-dom@19.3.0(react@19.3.0):
+    dependencies:
+      react: 19.3.0
+      scheduler: 0.28.0
+
+  react@19.3.0: {}
+
   reflect-metadata@0.2.2: {}
 
   require-from-string@2.0.2: {}
@@ -2970,6 +3001,8 @@ snapshots:
       launder: 1.7.2
       parse-srcset: 1.0.2
       postcss: 8.5.30
+
+  scheduler@0.28.0: {}
 
   selderee@0.12.0:
     dependencies:
