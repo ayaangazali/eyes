@@ -280,26 +280,45 @@ test("Send stays disabled during an upload despite a double tap, a retake and a 
   expect(posts).toBe(1);
 });
 
-test("a final capture error (409) shows worker wording and closes the form", async ({ page }) => {
-  await mockOffer(page, offer, (route) =>
-    route.fulfill({
-      status: 409,
-      json: {
-        error: "task_already_claimed",
-        message: "Another worker already claimed this task.",
-        fix: "No action needed. Watch for the next task text.",
-      },
-    }),
-  );
-  await page.goto("/capture.html?t=tok");
-  await takePhoto(page);
-  await page.getByRole("button", { name: "Send to Eyes" }).click();
+const invalid = {
+  error: "offer_invalid",
+  message: "This task link is invalid or has expired.",
+  fix: "Open the newest link Eyes texted you. Expired tasks cannot be submitted.",
+};
+for (const [label, status, body, shown, alert] of [
+  [
+    "409 task_already_claimed",
+    409,
+    {
+      error: "task_already_claimed",
+      message: "Another worker already claimed this task.",
+      fix: "No action needed. Watch for the next task text.",
+    },
+    "Another worker already claimed this task.",
+    true,
+  ],
+  ["404 offer_invalid", 404, invalid, "This task link is invalid or has expired.", true],
+  [
+    "404 after a lost response",
+    404,
+    { ...invalid, status: "verified" },
+    "A photo was already sent for this task.",
+    false,
+  ],
+] as const) {
+  test(`a final capture error (${label}) shows worker wording and closes the form`, async ({ page }) => {
+    await mockOffer(page, offer, (route) => route.fulfill({ status, json: body }));
+    await page.goto("/capture.html?t=tok");
+    await takePhoto(page);
+    await page.getByRole("button", { name: "Send to Eyes" }).click();
 
-  await expect(page.getByRole("alert")).toContainText("Another worker already claimed this task.");
-  await expect(page.getByRole("button", { name: "Send to Eyes", includeHidden: true })).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Send to Eyes" })).toBeHidden();
-  await expect(page.getByRole("heading", { name: "Sent" })).toBeHidden();
-});
+    await expect(page.getByText(shown)).toBeVisible();
+    await expect(page.getByRole("alert")).toBeVisible({ visible: alert });
+    await expect(page.getByRole("button", { name: "Send to Eyes", includeHidden: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Send to Eyes" })).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Sent" })).toBeHidden();
+  });
+}
 
 test("a server error (500) shows worker wording, not the agent fix, and allows a retry", async ({ page }) => {
   await mockOffer(page, offer, (route) =>

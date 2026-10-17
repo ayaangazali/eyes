@@ -5,9 +5,14 @@ import {
   AppConfig,
   type AskEyesInput,
   agentEmailAddress,
+  CaptureResult,
   fakeProviders,
+  JoinWorkerOutput,
   type LatLng,
+  OfferView,
   type SafetyVerdict,
+  SignupOutput,
+  TOOLS,
   type VerificationResult,
 } from "@eyes/core";
 import { migrate } from "@eyes/db";
@@ -189,6 +194,52 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await sql`select name, lat from workers where phone = ${phone}`).toEqual([
       { name: "Real Worker", lat: at.lat },
     ]);
+  });
+
+  it("returns outputs that parse against the frozen contract schemas on every service call", async () => {
+    const at = somewhere();
+    const signup = SignupOutput.parse(await service.signupAgent({ name: "contract-agent" }));
+    const a = (await service.authenticate(signup.api_key)) as Agent;
+    const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
+    JoinWorkerOutput.parse(await service.joinWorker({ name: "Worker", phone, ...north(at, 80) }));
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+    TOOLS.quote_task.output.parse(await service.quoteTask(a, { location: at, task_type: "line_length" }));
+    const asked = TOOLS.ask_eyes.output.parse(await ask(a, at));
+    TOOLS.get_task.output.parse(await service.getTask(a, { task_id: asked.task_id }));
+    TOOLS.await_answer.output.parse(
+      await service.awaitAnswer(a, { task_id: asked.task_id, timeout_seconds: 1 }),
+    );
+    await reply(phone);
+    const link = outbox.findLast((m) => m.to === phone && m.kind === "capture_link");
+    const token = new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "";
+    OfferView.parse(await service.getOffer(token));
+    await service.workerConnectUrl(connectToken(phone));
+    const captured = CaptureResult.parse(
+      await service.submitCapture(
+        token,
+        {
+          lat: at.lat,
+          lng: at.lng,
+          accuracy_m: 5,
+          captured_at: providers.clock.now().toISOString(),
+          answer_text: "short",
+          answer_bool: null,
+        },
+        { bytes: new Uint8Array([1]), content_type: "image/jpeg" },
+      ),
+    );
+    expect(captured.status).toBe("paid");
+    TOOLS.get_task.output.parse(await service.getTask(a, { task_id: asked.task_id }));
+    TOOLS.await_answer.output.parse(
+      await service.awaitAnswer(a, { task_id: asked.task_id, timeout_seconds: 1 }),
+    );
+    TOOLS.get_balance.output.parse(await service.getBalance(a));
+    TOOLS.get_spend_policy.output.parse(await service.getSpendPolicy(a));
+    TOOLS.dispute_answer.output.parse(
+      await service.disputeAnswer(a, { task_id: asked.task_id, reason: "wrong store" }),
+    );
+    const second = await ask(a, at);
+    TOOLS.cancel_task.output.parse(await service.cancelTask(a, { task_id: second.task_id }));
   });
 
   it("gives each new agent its capability email address and mentions it in next_step", async () => {

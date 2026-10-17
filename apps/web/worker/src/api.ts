@@ -2,7 +2,7 @@ import type { ErrorBody, ErrorCode } from "@eyes/core";
 
 declare global {
   interface ImportMetaEnv {
-    readonly VITE_EYES_API_URL: string;
+    readonly VITE_EYES_API_URL?: string;
     readonly VITE_INKBOX_NUMBER?: string;
   }
   interface ImportMeta {
@@ -24,17 +24,19 @@ const WORDS: Partial<Record<ErrorCode, [string, string]>> = {
 export class Problem extends Error {
   fix: string;
   status: number;
-  constructor(message: string, fix: string, status = 0) {
+  body: Partial<ErrorBody> | null;
+  constructor(message: string, fix: string, status = 0, body: Partial<ErrorBody> | null = null) {
     super(message);
     this.fix = fix;
     this.status = status;
+    this.body = body;
   }
 }
 
 export const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
 export async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${import.meta.env.VITE_EYES_API_URL}${path}`, init).catch(() => {
+  const res = await fetch(`${import.meta.env.VITE_EYES_API_URL ?? ""}${path}`, init).catch(() => {
     throw new Problem("Could not reach Eyes.", "Check your signal, then try again.");
   });
   const body: Partial<ErrorBody> | null = await res.json().catch(() => null);
@@ -43,7 +45,7 @@ export async function call<T>(path: string, init?: RequestInit): Promise<T> {
     `Eyes had a problem (HTTP ${res.status}).`,
     TRY_AGAIN,
   ];
-  throw new Problem(message, fix, res.status);
+  throw new Problem(message, fix, res.status, body);
 }
 
 export function showError(el: HTMLElement, err: unknown) {
