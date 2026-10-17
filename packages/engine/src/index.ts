@@ -412,7 +412,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         task_id,
         status: "disputed",
         next_step:
-          "Recorded. The task is flagged for human review and any unpaid worker payout is on hold. Call get_task later to see the outcome.",
+          "Recorded. The task is flagged for human review. If the worker payout has not been sent yet it is held; a payout already sent is not reversed automatically. Call get_task later to see the outcome.",
       };
     },
 
@@ -524,6 +524,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         );
         return;
       }
+      if (!worker.opted_in && intent !== "start") return;
       const reply: Record<ReplyIntent, () => Promise<unknown>> = {
         start: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: true });
@@ -622,7 +623,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
           ? `Verified and paid. ${amount} is on its way to your account. Thank you!`
           : settled.status === "needs_review"
             ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). You will be paid once it is approved.`
-            : `Verified. Finish payout setup and your ${amount} is sent automatically: ${connectUrl(workerId)}`;
+            : `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`;
+      if (settled.status === "verified") {
+        await messaging.sendText(
+          worker.phone,
+          `Your ${amount} for this task is waiting. Set up payouts here: ${connectUrl(workerId)}`,
+        );
+      }
       return {
         task_id: settled.id,
         status: settled.status,

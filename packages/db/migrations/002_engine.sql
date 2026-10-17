@@ -228,8 +228,7 @@ returns setof workers language plpgsql as $$
 begin
   return query
   insert into workers (name, phone, lat, lng, created_at) values (p_name, p_phone, p_lat, p_lng, p_now)
-  on conflict (phone) do update set name = excluded.name, lat = excluded.lat, lng = excluded.lng
-  where not workers.opted_in
+  on conflict (phone) do nothing
   returning *;
   if not found then
     return query select * from workers where phone = p_phone;
@@ -252,6 +251,10 @@ declare
   v_task tasks;
   v_won tasks;
 begin
+  if not exists (select 1 from workers where id = p_worker_id and opted_in and available) then
+    return;
+  end if;
+
   select t.* into v_task
   from offers o join tasks t on t.id = o.task_id
   where o.worker_id = p_worker_id and t.status = 'dispatched' and t.deadline_at > p_now
@@ -263,9 +266,9 @@ begin
     returning * into v_won;
     if found then
       return query select 'won', v_won;
-    else
-      return query select 'lost', v_task;
+      return;
     end if;
+    return query select 'lost', t from tasks t where t.id = v_task.id and t.claimed_by is not null;
     return;
   end if;
 
@@ -304,7 +307,7 @@ begin
   if v_task.claimed_by is distinct from p_worker_id then
     raise exception 'eyes:task_already_claimed';
   end if;
-  if v_task.status <> 'claimed' then
+  if v_task.status <> 'claimed' or v_task.deadline_at <= p_now then
     raise exception 'eyes:offer_invalid %', json_build_object('status', v_task.status);
   end if;
 
@@ -355,8 +358,14 @@ declare
   v_fn regprocedure;
   v_role text;
 begin
+  if to_regclass('schema_migrations') is not null then
+    alter table schema_migrations enable row level security;
+  end if;
   for v_role in select rolname from pg_roles where rolname in ('anon', 'authenticated') loop
     execute format('revoke all on agents, workers, tasks, offers, submissions, ledger from %I', v_role);
+    if to_regclass('schema_migrations') is not null then
+      execute format('revoke all on schema_migrations from %I', v_role);
+    end if;
   end loop;
   for v_fn in select p.oid::regprocedure from pg_proc p
     where p.pronamespace = 'public'::regnamespace and p.proname like 'eyes\_%'

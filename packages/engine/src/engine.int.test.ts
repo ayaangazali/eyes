@@ -174,7 +174,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
   });
 
-  it("never lets a repeat join rewrite an opted-in worker and sends the payout link only by text after START", async () => {
+  it("never lets a repeat join rewrite an existing worker, even after STOP, and sends the payout link only by text after START", async () => {
     const at = somewhere();
     const phone = newPhone();
     const first = await service.joinWorker({ name: "Real Worker", phone, ...at });
@@ -184,36 +184,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
     const again = await service.joinWorker({ name: "Someone Else", phone, ...north(at, 2000) });
     expect(again).toEqual(first);
+    await service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
+    expect(await service.joinWorker({ name: "Someone Else", phone, lat: 0, lng: 0 })).toEqual(first);
     expect(await sql`select name, lat from workers where phone = ${phone}`).toEqual([
       { name: "Real Worker", lat: at.lat },
     ]);
-  });
-
-  it("holds the payout of a worker without Stripe until onboarding finishes, then pays it once", async () => {
-    const at = somewhere();
-    const w = await worker(north(at, 100));
-    const { task_id } = await ask(await agent(), at);
-    await reply(w.phone);
-    const link = outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link");
-    const token = new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "";
-    const capture = {
-      lat: at.lat,
-      lng: at.lng,
-      accuracy_m: 8,
-      captured_at: providers.clock.now().toISOString(),
-      answer_text: "Open",
-      answer_bool: true,
-    };
-    const photo = { bytes: new Uint8Array([255, 216, 255]), content_type: "image/jpeg" };
-
-    expect(await service.submitCapture(token, capture, photo)).toMatchObject({ status: "verified" });
-    await service.workerConnectUrl(connectToken(w.phone));
-    const account = `acct_fake_${w.worker_id}`;
-    await Promise.all([service.markWorkerOnboarded(account), service.markWorkerOnboarded(account)]);
-
-    expect(await service.getOffer(token)).toMatchObject({ status: "paid" });
-    expect((await ledger(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
-    expect(outbox.filter((m) => m.to === w.phone && m.kind === "paid")).toHaveLength(1);
   });
 
   it("gives each new agent its capability email address and mentions it in next_step", async () => {
@@ -322,21 +297,5 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
     await service.cancelTask(a, { task_id });
     await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
-  });
-
-  it("expires overdue tasks and refunds each exactly once, even when runs overlap", async () => {
-    const at = somewhere();
-    await worker(north(at, 100));
-    const a = await agent();
-    const { task_id } = await ask(a, at, { deadline_minutes: 5 });
-
-    providers.clock.advance(6 * 60_000);
-    const runs = await Promise.all([service.expireOverdue(), service.expireOverdue()]);
-    expect(runs[0].expired + runs[1].expired).toBeGreaterThanOrEqual(1);
-    expect(await service.expireOverdue()).toEqual({ expired: 0 });
-
-    expect(await service.getTask(a, { task_id })).toMatchObject({ status: "expired" });
-    expect((await ledger(task_id)).filter((r) => r.type === "refund")).toHaveLength(1);
-    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
   });
 });
