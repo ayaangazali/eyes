@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,8 @@ import {
   signToken,
   TOOLS,
 } from "@eyes/core";
+import type { Rpc } from "@eyes/db";
+import { PAGE } from "@eyes/web-dashboard";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "./server.ts";
@@ -45,6 +48,14 @@ const QUOTE = {
     lng: -122.40776,
     label: "Blue Bottle Coffee, Mint Plaza, San Francisco",
   },
+};
+
+const OPS_KEY = "ops-5f2c9a1e7b3d4c8a9e0f1a2b3c4d5e6f";
+const FEED = {
+  tasks: [],
+  ledger: [],
+  workers: [{ lat: 37.78246, lng: -122.40776, available: true, opted_in: true }],
+  totals: { escrowed_cents: 0, released_today_cents: 0, paid_out_today_cents: 0 },
 };
 
 const OFFER: OfferView = {
@@ -118,14 +129,20 @@ function setup(overrides: Partial<EyesService> = {}, env: Record<string, string>
     link_secret: SECRET,
   });
   const providers = fakeProviders();
+  const rpcCalls: { fn: string; args: unknown }[] = [];
+  const rpc = (async (fn: string, args: unknown) => {
+    rpcCalls.push({ fn, args });
+    return [FEED];
+  }) as Rpc;
   const server = createServer({
     service: service as EyesService,
     providers,
     config,
     env,
+    rpc,
   });
   const fetch = (url: string | URL, init?: RequestInit) => server.fetch(new Request(url, init));
-  return { server, fetch, captures, awaitSignals, clock: providers.clock };
+  return { server, fetch, captures, awaitSignals, rpcCalls, clock: providers.clock };
 }
 
 async function connect(fetch: ReturnType<typeof setup>["fetch"]) {
@@ -908,5 +925,59 @@ describe("agent docs", () => {
       error: "not_implemented",
       path: "/.well-known/agent-card.json",
     });
+  });
+});
+
+describe("ops dashboard", () => {
+  const paths = (key: string) => [`/ops/${key}`, `/ops/${key}/feed`];
+
+  it.each([
+    ["unset", {}],
+    ["empty, as in .env.example", { EYES_OPS_KEY: "" }],
+  ])("does not exist while EYES_OPS_KEY is %s", async (_, env: Record<string, string>) => {
+    const { fetch, rpcCalls } = setup({}, env);
+    for (const path of [...paths(OPS_KEY), ...paths("")]) {
+      const res = await fetch(`http://eyes.test${path}`);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toMatchObject({ error: "invalid_input", message: "Unknown route.", path });
+    }
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it("answers a wrong key exactly like an unknown route, without reading the feed", async () => {
+    const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
+    for (const key of [OPS_KEY.slice(0, -1), `${OPS_KEY}0`, OPS_KEY.toUpperCase(), "x"]) {
+      for (const path of paths(key)) {
+        const res = await fetch(`http://eyes.test${path}`);
+        expect(res.status).toBe(404);
+        expect(await res.json()).toMatchObject({ error: "invalid_input", message: "Unknown route.", path });
+      }
+    }
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it("serves the dashboard page and its feed for the right key, uncached, with no referrer and a CSP that allows only the page's own script", async () => {
+    const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
+    const page = await fetch(`http://eyes.test/ops/${OPS_KEY}`);
+    const feed = await fetch(`http://eyes.test/ops/${OPS_KEY}/feed`);
+
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-type")).toContain("text/html");
+    const body = await page.text();
+    expect(body).toBe(PAGE);
+    expect(feed.status).toBe(200);
+    expect(await feed.json()).toEqual(FEED);
+    expect(rpcCalls).toEqual([{ fn: "eyes_dashboard_feed", args: { p_limit: 50 } }]);
+    for (const res of [page, feed]) {
+      expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(res.headers.get("cache-control")).toBe("no-store");
+    }
+    const inline = [...body.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
+      ([, script = ""]) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+    );
+    expect(inline).toHaveLength(1);
+    expect(page.headers.get("content-security-policy")).toBe(
+      `default-src 'none'; script-src https://unpkg.com ${inline.join(" ")}; style-src https://unpkg.com 'unsafe-inline'; img-src https: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    );
   });
 });

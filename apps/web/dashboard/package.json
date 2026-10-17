@@ -2,6 +2,9 @@
   "name": "@eyes/web-dashboard",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/server.ts"
+  },
   "scripts": {
     "start": "node src/server.ts"
   },

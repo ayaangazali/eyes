@@ -150,7 +150,7 @@ export function createInkboxMessaging(env: Env): Messaging {
     return { id: sent.id };
   };
   return {
-    sendOffer: (to, offer) => send(to, offerText(offer), `offer:${offer.task_id}:${to}`),
+    sendOffer: (to, offer) => send(to, offerText(offer)),
     sendCaptureLink: (to, msg) => send(to, captureLinkText(msg), `capture:${msg.task_id}:${to}`),
     sendAlreadyClaimed: (to, msg) => send(to, alreadyClaimedText(msg)),
     sendPaid: (to, msg) => send(to, paidText(msg), `paid:${msg.task_id}:${to}`),

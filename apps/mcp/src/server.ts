@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isIPv6 } from "node:net";
 import { join } from "node:path";
@@ -22,7 +23,9 @@ import {
   TOOLS,
   verifyToken,
 } from "@eyes/core";
+import type { Rpc } from "@eyes/db";
 import { stripeRoutes } from "@eyes/payments";
+import { PAGE as DASHBOARD, readFeed } from "@eyes/web-dashboard";
 import type { Context, MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { html, raw } from "hono/html";
@@ -69,6 +72,13 @@ code{font:.9em ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef0f3;pa
 .state::before{content:"";display:inline-block;width:.6rem;height:.6rem;margin-right:.5rem;border-radius:50%;background:#7d8a9b}
 .state.live::before{background:#1f9d63}
 .box+.button{margin-top:1.5rem}`;
+const sha256 = (text: string) => createHash("sha256").update(text);
+const DASHBOARD_SCRIPT = sha256(/<script>([\s\S]*?)<\/script>/.exec(DASHBOARD)?.[1] ?? "").digest("base64");
+const OPS_HEADERS = {
+  "Referrer-Policy": "no-referrer",
+  "Cache-Control": "no-store",
+  "Content-Security-Policy": `default-src 'none'; script-src https://unpkg.com 'sha256-${DASHBOARD_SCRIPT}'; style-src https://unpkg.com 'unsafe-inline'; img-src https: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+};
 const PROVIDER_LINES = {
   messaging: ["Texting", "Task texts to workers' phones and their YES replies (Inkbox)."],
   email: ["Agent email", "Questions agents email in and the threaded answers (Primitive)."],
@@ -263,7 +273,7 @@ async function readCapture(c: Context) {
   return { fields, photo: { bytes, content_type } };
 }
 
-export function createServer(deps: RouteDeps & { env: Env }) {
+export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
   const { service, config, env } = deps;
   const server = new MCPServer<never, AppEnv>({
     name: "eyes",
@@ -613,6 +623,18 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   });
   const status = statusPage(live, classifier, db, env.EYES_COMMIT);
   server.get("/status", (c) => c.html(status));
+
+  const { rpc } = deps;
+  if (env.EYES_OPS_KEY && rpc) {
+    const opsKey = sha256(env.EYES_OPS_KEY).digest();
+    const operator = (key: string) => timingSafeEqual(opsKey, sha256(key).digest());
+    server.get("/ops/:key", (c) =>
+      operator(c.req.param("key")) ? c.html(DASHBOARD, 200, OPS_HEADERS) : c.notFound(),
+    );
+    server.get("/ops/:key/feed", async (c) =>
+      operator(c.req.param("key")) ? c.json(await readFeed(rpc), 200, OPS_HEADERS) : c.notFound(),
+    );
+  }
 
   return server;
 }

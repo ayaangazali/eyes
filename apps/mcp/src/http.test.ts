@@ -19,6 +19,7 @@ import {
   type PhotoUpload,
   signToken,
 } from "@eyes/core";
+import type { Rpc } from "@eyes/db";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toNodeListener } from "./http.ts";
@@ -408,6 +409,32 @@ describe("node adapter on a real socket", () => {
       "127.0.0.1",
       "198.51.100.7, 203.0.113.9",
       "127.0.0.1",
+    ]);
+  });
+
+  it("keeps the ops key out of the request log", async () => {
+    const opsKey = "ops-5f2c9a1e7b3d4c8a9e0f1a2b3c4d5e6f";
+    const server = createServer({
+      service: {} as EyesService,
+      providers: fakeProviders(),
+      config,
+      env: { EYES_OPS_KEY: opsKey },
+      rpc: (async () => [{ tasks: [] }]) as Rpc,
+    });
+    const base = await listenOn((request) => server.fetch(request));
+    const log = quiet();
+
+    const statuses: number[] = [];
+    for (const path of [`/ops/${opsKey}`, `/ops/${opsKey}/feed`, `/ops/${opsKey}0/feed`]) {
+      statuses.push((await fetch(`${base}${path}`)).status);
+    }
+
+    expect(statuses).toEqual([200, 200, 404]);
+    const lines = log.mock.calls.map((call) => String(call[0]));
+    expect(lines).toEqual([
+      expect.stringMatching(/^GET <other> 200 \d+ms$/),
+      expect.stringMatching(/^GET <other> 200 \d+ms$/),
+      expect.stringMatching(/^GET <other> 404 \d+ms$/),
     ]);
   });
 

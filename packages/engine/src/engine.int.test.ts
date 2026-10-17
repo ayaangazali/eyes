@@ -987,4 +987,58 @@ describe.skipIf(!url)("engine on Postgres", () => {
       answer: { answer_text: "short" },
     });
   });
+
+  it("a released task is offered again to idle workers it was offered to, never the busy or the releaser, and their YES claims it", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const releaser = await worker(north(at, 50));
+    const idle = await worker(north(at, 100));
+    const busy = await worker(north(at, 2900));
+    const { task_id, workers_notified } = await ask(a, at);
+    expect(workers_notified).toBe(3);
+
+    providers.clock.advance(1000);
+    const elsewhere = await ask(a, north(at, 5000));
+    await reply(busy.phone);
+    expect(outbox.findLast((m) => m.to === busy.phone)).toMatchObject({
+      kind: "capture_link",
+      payload: { task_id: elsewhere.task_id },
+    });
+    await reply(releaser.phone);
+    providers.clock.advance(1000);
+    await ask(a, north(at, 100));
+    providers.clock.advance(1000);
+
+    const before = outbox.length;
+    await service.handleWorkerReply({ phone: releaser.phone, intent: "no", text: "NO" });
+    expect(outbox.slice(before).filter((m) => m.kind === "offer")).toEqual([
+      { to: idle.phone, kind: "offer", payload: expect.objectContaining({ task_id, distance_m: 100 }) },
+    ]);
+
+    await reply(idle.phone);
+    expect(outbox.findLast((m) => m.to === idle.phone)).toMatchObject({
+      kind: "capture_link",
+      payload: { task_id },
+    });
+    expect(await service.getTask(a, { task_id })).toMatchObject({ status: "claimed" });
+  });
+
+  it("offers a released task again to each worker at most once, however often it is claimed and released", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const releaser = await worker(north(at, 50));
+    const other = await worker(north(at, 100));
+    const { task_id } = await ask(a, at);
+    const offersTo = (phone: string) =>
+      outbox.filter((m) => m.to === phone && m.kind === "offer" && m.payload.task_id === task_id);
+
+    for (let i = 0; i < 2; i++) {
+      providers.clock.advance(1000);
+      await reply(releaser.phone);
+      expect(await service.getTask(a, { task_id })).toMatchObject({ status: "claimed" });
+      await service.handleWorkerReply({ phone: releaser.phone, intent: "no", text: "NO" });
+    }
+    expect(offersTo(other.phone)).toHaveLength(2);
+    expect(offersTo(releaser.phone)).toHaveLength(1);
+  });
 });

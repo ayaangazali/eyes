@@ -55,7 +55,7 @@ describe("dashboard server", () => {
     const res = await get("/");
     expect(res.status).toBe(200);
     expect(res.type).toContain("text/html");
-    expect(res.body).toContain('fetch("/feed"');
+    expect(res.body).toContain("<title>Eyes live</title>");
   });
 
   it("serves the feed function's row at /feed", async () => {
