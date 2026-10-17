@@ -129,17 +129,19 @@ export function parseReplyIntent(text: string): ReplyIntent {
   return asked && intent !== "stop" && intent !== "help" ? "unknown" : intent;
 }
 
+const scrub = (s: string) => s.replace(/\+?\d[\d\s().-]{5,}\d/g, "<number>").slice(0, 80);
+
+const sendFailure = (message: string, label: string, cause?: unknown) =>
+  Object.assign(new Error(message, { cause }), { name: `InkboxSendError(${scrub(label)})` });
+
 function sendError(err: unknown): unknown {
   if (!(err instanceof InkboxAPIError)) return err;
   const detail = err.detail;
-  const reason =
+  const code =
     typeof detail === "string"
       ? detail
-      : String(detail.error ?? detail.code ?? detail.type ?? "no error code");
-  const safe = reason.replace(/\+?\d[\d\s().-]{5,}\d/g, "<number>").slice(0, 80);
-  return Object.assign(new Error("Inkbox send failed", { cause: err }), {
-    name: `InkboxSendError(${err.statusCode} ${safe})`,
-  });
+      : ([detail.error, detail.code, detail.type].find((v) => typeof v === "string") ?? "no error code");
+  return sendFailure("Inkbox send failed", `${err.statusCode} ${code}`, err);
 }
 
 export function createInkboxMessaging(env: Env): Messaging {
@@ -158,13 +160,14 @@ export function createInkboxMessaging(env: Env): Messaging {
   const send = async (to: string, text: string, idempotencyKey?: string) => {
     identity ??= inkbox.getIdentity(handle).catch((err: unknown) => {
       identity = undefined;
-      throw err;
+      throw sendError(err);
     });
     const sent = await (await identity).sendIMessage({ to, text, idempotencyKey }).catch((err: unknown) => {
       throw sendError(err);
     });
     if (sent.status === "error" || sent.status === "declined") {
-      throw new Error(`Inkbox iMessage ${sent.status}: ${sent.errorCode ?? "no error code"}`);
+      const code = sent.errorCode ?? "no error code";
+      throw sendFailure(`Inkbox iMessage ${sent.status}: ${code}`, `${sent.status} ${code}`);
     }
     return { id: sent.id };
   };
