@@ -27,6 +27,7 @@ const PRIMITIVE_SECRET = "e2e-demo-primitive-webhook-secret";
 const EMAIL_DOMAIN = "eyes-demo.primitive.email";
 const WHERE = "Blue Bottle Coffee, Mint Plaza, San Francisco";
 const CAFE = FAKE_PLACES[WHERE.toLowerCase()] as { lat: number; lng: number; label: string };
+const CAFE_SHORT = CAFE.label.split(",")[0];
 const QUESTION = "Is the line at Blue Bottle long right now?";
 const ANSWER = "Short line, about 4 people";
 const AGENT_EMAIL = "agent@agent.test";
@@ -270,7 +271,7 @@ test("demo: Claude asks about the cafe line, a texted worker answers on site, Cl
     });
     await board.route("https://unpkg.com/**", (route) => route.abort());
     await board.goto(DASHBOARD);
-    await expect(board.getByRole("heading", { name: `3 workers notified near ${CAFE.label}` })).toBeVisible();
+    await expect(board.getByRole("heading", { name: `3 workers notified near ${CAFE_SHORT}` })).toBeVisible();
   });
 
   let captureUrl = "";
@@ -330,7 +331,7 @@ test("demo: Claude asks about the cafe line, a texted worker answers on site, Cl
       ["release", 300],
     ]);
     await expect(
-      board.getByRole("heading", { name: `Answered at ${CAFE.label}, worker paid $3.00` }),
+      board.getByRole("heading", { name: `Answered at ${CAFE_SHORT}, worker paid $3.00` }),
     ).toBeVisible();
     await expect(board.getByRole("listitem").filter({ hasText: "Released for the worker" })).toContainText(
       "$3.00",
