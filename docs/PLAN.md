@@ -28,13 +28,17 @@ Hacking: Sat Oct 17 10:30 AM to Sun Oct 18 10:00 AM (submissions). Feature freez
 
 Every PR: spec + test + intent verifiers, plus security on money/auth/webhooks/safety and ax on agent surfaces (SPEC §4). Auto-merge on PASS + green CI. ADR-010 decides blocking vs deferred.
 
-## 3. Next waves (queued, start as slots free; max 4 builders)
+## 3. Next waves (queued, start as slots free; builder cap raised from 4 to 6 on 2026-10-17 per the humans' "keep adding agents")
 
-1. **UI fixes** from the UX audit (worker web, dashboard, owner console, HOME, top-up pages): one visual language, permission-denied recovery, safety copy before capture, projector-legible dashboard.
-2. **Gap builders** from the coverage ledger, highest demo impact first.
-3. **T3.4 Armature + evals**: golden-path eval across Claude and a second MCP client; analytics once the key and their mcp-use answer land.
-4. **T3.5b Blaxel**: run `pnpm swarm` and the ax/eval agents as Blaxel batch jobs and sandboxes (needs `BL_WORKSPACE`, `BL_API_KEY`). Never on the golden path.
-5. **Phase 4 package**: README (judge-facing), submission text, 90 s video script, backup video, demo runbook card.
+1. **UI fixes, part 2** (after T2.5 and T4.1 free their files): HOME page for humans who got a text (UX 10), shared header on top-up pages and amount on /topup/done (UX 13, 24), engine returns the Inkbox number to JOIN (UX 9).
+2. **T4.2 money never stuck** (after T2.5 frees packages/engine): payout retry sweep for verified-but-unpaid tasks; operator resolve of `needs_review`/`disputed` to refund or release (plpgsql + script + runbook); refuse an `sk_live_` key while `EYES_TEST_MODE=true`; tests for `bounty_exceeds_max` and `task_type_not_allowed`.
+3. **T4.3 worker lifecycle**: STOP confirmation and HELP reply; Inkbox new-recipient budget counted from `offers`.
+4. **T3.6 `list_tasks`** tool and `GET /v1/tasks` (ADR needed; frozen TOOLS) so an agent that lost a task_id can recover it.
+5. **Status page** for humans next to `/healthz`.
+6. Filed for after the demo: #27-#34, #36.
+7. **T3.4 Armature + evals**: golden-path eval across Claude and a second MCP client; analytics once the key and their mcp-use answer land.
+8. **T3.5b Blaxel**: run `pnpm swarm` and the ax/eval agents as Blaxel batch jobs and sandboxes (needs `BL_WORKSPACE`, `BL_API_KEY`). Never on the golden path.
+9. **Phase 4 package**: README (judge-facing), submission text, 90 s video script, backup video, demo runbook card.
 
 ## 4. When each key lands (exact steps)
 
