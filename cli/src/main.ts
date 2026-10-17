@@ -144,8 +144,9 @@ async function readConfig(path: string): Promise<Config> {
 const nextKey = (taskId: string) => createHash("sha256").update(`eyes-next-ask:${taskId}`).digest("hex");
 
 async function readPending(file: string): Promise<PendingAsk | null> {
+  let text: string | null = "";
   for (let tries = 0; tries < 100; tries++) {
-    const text = await readFile(file, "utf8").catch((e: { code?: string }) =>
+    text = await readFile(file, "utf8").catch((e: { code?: string }) =>
       e.code === "ENOENT" ? null : Promise.reject(e),
     );
     if (text === null) return null;
@@ -157,15 +158,19 @@ async function readPending(file: string): Promise<PendingAsk | null> {
   }
   return fail(
     `${file} is not valid JSON.`,
-    "Pass --idempotency-key <the last idempotency_key printed on stderr for this ask> and reuse it on every retry. If none was printed, nothing was sent.",
+    text === ""
+      ? `Nothing was sent. Delete ${file} and re-run.`
+      : "Pass --idempotency-key <the last idempotency_key printed on stderr for this ask> and reuse it on every retry. If none was printed, nothing was sent.",
     "config_error",
   );
 }
 
-async function savePending(file: string, entry: PendingAsk) {
+async function savePending(file: string, readKey: string, entry: PendingAsk) {
+  if ((await readPending(file))?.idempotency_key !== readKey) return false;
   const temp = `${file}.${crypto.randomUUID()}.tmp`;
   await writeFile(temp, JSON.stringify(entry), { mode: 0o600 });
   await rename(temp, file);
+  return true;
 }
 
 async function claimPending(
@@ -186,8 +191,7 @@ async function claimPending(
     if (!entry) continue;
     if (!entry.task_id || !(await settled(entry.task_id))) return entry;
     const next: PendingAsk = { idempotency_key: nextKey(entry.task_id), task_id: null };
-    await savePending(file, next);
-    return next;
+    if (await savePending(file, entry.idempotency_key, next)) return next;
   }
 }
 
@@ -453,7 +457,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           throw e;
         }
         if (!explicit) {
-          await savePending(pendingFile, { idempotency_key: key, task_id: task.task_id }).catch(
+          await savePending(pendingFile, key, { idempotency_key: key, task_id: task.task_id }).catch(
             () => undefined,
           );
         }
