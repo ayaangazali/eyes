@@ -1,10 +1,17 @@
 import { createHash, randomBytes } from "node:crypto";
-import { createServer as createHttpServer, type OutgoingHttpHeaders, request, type Server } from "node:http";
+import {
+  type ClientRequest,
+  createServer as createHttpServer,
+  type RequestOptions,
+  request,
+  type Server,
+} from "node:http";
 import type { AddressInfo } from "node:net";
 import {
   type Agent,
   AppConfig,
   type CaptureFields,
+  EyesError,
   type EyesService,
   fakeProviders,
   type PhotoUpload,
@@ -45,13 +52,9 @@ async function start(service: Partial<EyesService>) {
   return `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
 }
 
-function rawPost(
-  url: string,
-  headers: OutgoingHttpHeaders,
-  write: (req: ReturnType<typeof request>) => void,
-) {
+function raw(url: string, options: RequestOptions, write: (req: ClientRequest) => void) {
   return new Promise<{ status: number; body: Record<string, unknown> }>((resolve, reject) => {
-    const req = request(url, { method: "POST", headers }, (res) => {
+    const req = request(url, options, (res) => {
       let text = "";
       res.setEncoding("utf8");
       res.on("data", (chunk) => {
@@ -67,6 +70,20 @@ function rawPost(
   });
 }
 
+function pump(req: ClientRequest, total: number) {
+  const chunk = Buffer.alloc(64 * 1024, 0x20);
+  let sent = 0;
+  const next = () => {
+    while (sent < total) {
+      sent += chunk.length;
+      if (!req.write(chunk)) return void req.once("drain", next);
+    }
+    req.end();
+  };
+  next();
+}
+
+const quiet = () => vi.spyOn(console, "log").mockImplementation(() => undefined);
 const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
 describe("node adapter on a real socket", () => {
@@ -83,7 +100,7 @@ describe("node adapter on a real socket", () => {
         };
       },
     });
-    const log = vi.spyOn(console, "log").mockImplementation(() => undefined);
+    const log = quiet();
     const photo = new Uint8Array(Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), randomBytes(2 * MB)]));
     const token = signToken(config.link_secret, "offer-1");
     const form = new FormData();
@@ -106,11 +123,11 @@ describe("node adapter on a real socket", () => {
   it("answers 413 to a declared content-length over 1 MB without reading the body or authenticating", async () => {
     const authenticate = vi.fn(async () => null);
     const base = await start({ authenticate });
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    quiet();
 
-    const res = await rawPost(
+    const res = await raw(
       `${base}/mcp`,
-      { "content-type": "application/json", "content-length": 256 * MB },
+      { method: "POST", headers: { "content-type": "application/json", "content-length": 256 * MB } },
       (req) => req.flushHeaders(),
     );
 
@@ -123,16 +140,86 @@ describe("node adapter on a real socket", () => {
   it("answers 413 to a chunked body once it grows past 1 MB", async () => {
     const signupAgent = vi.fn();
     const base = await start({ signupAgent });
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    quiet();
 
-    const res = await rawPost(`${base}/v1/signup`, { "content-type": "application/json" }, (req) => {
-      for (let i = 0; i < 32; i++) req.write(Buffer.alloc(64 * 1024, 0x20));
-      req.end();
-    });
+    const res = await raw(
+      `${base}/v1/signup`,
+      { method: "POST", headers: { "content-type": "text/plain" } },
+      (req) => pump(req, 2 * MB),
+    );
 
     expect(res.status).toBe(413);
     expect(res.body).toMatchObject({ error: "invalid_input", max_bytes: MB });
     expect(signupAgent).not.toHaveBeenCalled();
+  });
+
+  it("holds a JSON body sent to the capture route to 1 MB, not the 21 MB photo limit", async () => {
+    const submitCapture = vi.fn();
+    const base = await start({ submitCapture });
+    quiet();
+    const rss = process.memoryUsage().rss;
+
+    const res = await raw(
+      `${base}/w/offers/bad.token/capture`,
+      { method: "POST", headers: { "content-type": "application/json" } },
+      (req) => pump(req, 20.9 * MB),
+    );
+
+    expect(res.status).toBe(413);
+    expect(res.body).toMatchObject({ error: "invalid_input", max_bytes: MB });
+    expect(process.memoryUsage().rss - rss).toBeLessThan(16 * MB);
+    expect(submitCapture).not.toHaveBeenCalled();
+  });
+
+  it("drops content-type on bodiless requests and answers malformed JSON with invalid_input", async () => {
+    const agent = { id: "0b6c8f9e-1a2b-4c3d-8e4f-5a6b7c8d9e0f" } as Agent;
+    const base = await start({
+      authenticate: async (key) => (key === KEY ? agent : null),
+      getBalance: async () => ({ balance_usd: 20, escrowed_usd: 0, top_up_url: null }),
+      cancelTask: async (_agent, input) => ({
+        task_id: input.task_id,
+        status: "refunded",
+        refunded_usd: 3.5,
+      }),
+    });
+    quiet();
+    const headers = { authorization: `Bearer ${KEY}`, "content-type": "application/json" };
+
+    const balance = await fetch(`${base}/v1/balance`, { headers });
+    const cancel = await fetch(`${base}/v1/tasks/${TASK_ID}/cancel`, { method: "POST", headers });
+    const bad = await fetch(`${base}/v1/tasks`, { method: "POST", headers, body: "{bad" });
+
+    expect(balance.status).toBe(200);
+    expect(await balance.json()).toMatchObject({ balance_usd: 20 });
+    expect(cancel.status).toBe(200);
+    expect(await cancel.json()).toMatchObject({ task_id: TASK_ID, status: "refunded" });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toEqual(
+      new EyesError("invalid_input", {
+        issues: [{ path: "", message: "Request body is not valid JSON." }],
+      }).toBody(),
+    );
+  });
+
+  it("redacts the link token of an absolute-form target and tolerates an empty Host header", async () => {
+    const base = await start({
+      getOffer: async () => {
+        throw new EyesError("offer_invalid");
+      },
+    });
+    const log = quiet();
+    const token = signToken(config.link_secret, "offer-1");
+
+    const res = await raw(
+      base,
+      { method: "GET", path: `http://evil.test/w/offers/${token}`, headers: { host: "" } },
+      (req) => req.end(),
+    );
+
+    expect(res.status).toBe(404);
+    const lines = log.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(lines).toMatch(/^GET \/w\/offers\/<token> 404 \d+ms$/);
+    expect(lines).not.toContain(token);
   });
 
   it("streams MCP responses and progress over SSE", async () => {
@@ -147,7 +234,7 @@ describe("node adapter on a real socket", () => {
         next_step: "Call await_answer again.",
       }),
     });
-    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    quiet();
     const client = new Client({ name: "socket-test", version: "1.0.0" });
     await client.connect(
       new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {

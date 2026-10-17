@@ -37,8 +37,8 @@ const DOCS = {
 const STRIPE_PATHS = ["/webhooks/stripe", "/topup/:token", "/w/connect/:token"];
 
 const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo.
-Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. 3) Call await_answer immediately with the task_id and keep calling it until answered is true or the status is expired or refunded; you cannot receive events in the background, so this loop is how you get the answer.
-Money: the bounty plus a 0.50 USD fee is escrowed from your balance when you ask, paid to the worker only after the answer is verified, and refunded in full if nobody answers before the deadline or you cancel before a worker claims it.
+Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. 3) Call await_answer immediately with the task_id and keep calling it until answered is true or the status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer.
+Money: the bounty plus a 0.50 USD fee is escrowed from your balance when you ask, paid to the worker only after the answer is verified, and refunded in full if nobody answers before the deadline or you cancel before a worker claims it. An answer that fails a verification check (status needs_review) keeps the escrow held until a human review pays the worker or refunds you.
 Only public, commercial or civic places; never private people, homes or vehicles.
 Errors: when Eyes refuses a call, the result is JSON with error, message and fix; do what fix says. When your arguments do not match a tool's schema, you get an "Input validation error" text naming each bad field: fix those fields and call again.`;
 
@@ -196,13 +196,14 @@ Next: immediately call await_answer with the returned task_id and keep calling i
     {
       name: "await_answer",
       title: "Wait for the answer",
-      description: `Wait for the answer to a task you created with ask_eyes. Call it immediately after ask_eyes, then keep calling it with the same task_id until answered is true or the status is terminal. You cannot watch for events in the background, so this loop is the only way to receive the answer.
-Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the answer arrives. A task usually takes 5 to 20 minutes. deadline_at (from ask_eyes) is the latest time anything can change.
+      description: `Wait for the answer to a task you created with ask_eyes. Call it immediately after ask_eyes, then keep calling it with the same task_id until answered is true or the status is expired, refunded or disputed. You cannot watch for events in the background, so this loop is the only way to receive the answer.
+Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the answer arrives. A task usually takes 5 to 20 minutes. deadline_at (from ask_eyes) is the latest time a worker can still answer; a human review outcome can come later.
 How to read the result:
-- answered true: stop calling. answer holds answer_text, answer_bool, photo_url, captured_at, worker_distance_m, verification, confidence and cost_usd. Show your user the answer and photo_url. Then check answer.verification: if gps_ok, fresh_ok and vision_ok are all true the answer is verified. If any is false, status is needs_review: a worker answered but a check failed (vision_reason says why), so tell your user and consider dispute_answer.
+- answered true: stop calling. answer holds answer_text, answer_bool, photo_url, captured_at, worker_distance_m, verification, confidence and cost_usd. Show your user the answer and photo_url. If confidence is below 0.7, hedge when you relay it.
+- Then check answer.verification. If gps_ok, fresh_ok and vision_ok are all true, the answer is verified (status verified or paid). If any is false, status is needs_review: a worker answered but a check failed (vision_reason says why). Your escrow stays held until a human review settles it, either paid to the worker or refunded to you. Tell your user, check get_task later, and if the answer is wrong call dispute_answer to add your reason to that review.
 - answered false with status dispatched, claimed or submitted: call await_answer again right away, and give your user a one-line progress update about every other call.
-- status expired or refunded: nobody answered in time and the escrow was refunded. Ask again later or at a busier place.
-- status disputed: you disputed this answer; stop calling.
+- status expired: no worker answered before the deadline and the full cost was refunded. status refunded: the task was cancelled or expired and the escrow was refunded. Either way, stop calling; ask again later, at a busier place or with a higher bounty_usd.
+- status disputed: you disputed this answer and it is under human review. Stop calling and check get_task later.
 Example: await_answer({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
 Next: follow next_step in the response.`,
       inputSchema: TOOLS.await_answer.input,
@@ -234,7 +235,7 @@ Next: follow next_step in the response.`,
       name: "get_task",
       title: "Get task status",
       description: `Look up a task's current status and details, including the answer once there is one. Read-only and instant; it does not wait.
-Statuses: dispatched (workers notified), claimed (a worker is on the way), submitted (answer received, verifying), verified or paid (answer ready), needs_review (verification inconclusive, escrow held), disputed, expired or refunded (nobody answered, money returned).
+Statuses: dispatched (workers notified), claimed (a worker is on the way), submitted (answer received, verifying), verified or paid (answer ready), needs_review (a worker answered but a check failed; escrow held until a human review pays the worker or refunds you), disputed (under human review), expired (nobody answered before the deadline, cost refunded), refunded (cancelled or expired, escrow refunded).
 Example: get_task({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
 Next: to wait for an answer call await_answer instead of polling get_task.`,
       inputSchema: TOOLS.get_task.input,

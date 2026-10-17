@@ -8,7 +8,7 @@ const MB = 1024 * 1024;
 const CAPTURE_LIMIT = 21 * MB;
 const DEFAULT_LIMIT = MB;
 const CAPTURE_PATH = /^\/w\/offers\/[^/]+\/capture$/;
-const TOKEN_PATH = /^(\/w\/offers|\/w\/connect|\/topup)\/[^/?]+/;
+const TOKEN_PATH = /^(\/w\/offers|\/w\/connect|\/topup)\/[^/]+/;
 
 type Fetch = (request: Request) => Promise<Response>;
 
@@ -40,9 +40,31 @@ async function* limited(req: IncomingMessage, limit: number, state: { overflow: 
   }
 }
 
-async function respond(req: IncomingMessage, fetch: Fetch, signal: AbortSignal): Promise<Response> {
-  const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-  const limit = req.method === "POST" && CAPTURE_PATH.test(url.pathname) ? CAPTURE_LIMIT : DEFAULT_LIMIT;
+function isJson(text: string): boolean {
+  try {
+    JSON.parse(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function readJsonBody(req: IncomingMessage, limit: number, state: { overflow: boolean }) {
+  const chunks: Uint8Array[] = [];
+  try {
+    for await (const chunk of limited(req, limit, state)) chunks.push(chunk);
+  } catch (err) {
+    if (state.overflow) return null;
+    throw err;
+  }
+  return Buffer.concat(chunks);
+}
+
+async function respond(req: IncomingMessage, url: URL, fetch: Fetch, signal: AbortSignal): Promise<Response> {
+  const type = (req.headers["content-type"] ?? "").toLowerCase();
+  const multipart = type.startsWith("multipart/form-data") && !type.includes("application/json");
+  const limit =
+    req.method === "POST" && multipart && CAPTURE_PATH.test(url.pathname) ? CAPTURE_LIMIT : DEFAULT_LIMIT;
   if (Number(req.headers["content-length"] ?? 0) > limit) return tooLarge(req, limit);
   const headers = new Headers();
   for (const [name, value] of Object.entries(req.headers)) {
@@ -50,10 +72,23 @@ async function respond(req: IncomingMessage, fetch: Fetch, signal: AbortSignal):
   }
   const state = { overflow: false };
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
+  const mcp = url.pathname === "/mcp" || url.pathname.startsWith("/mcp/");
+  let body: Uint8Array | ReadableStream<Uint8Array> | undefined;
+  if (!mcp && !hasBody) headers.delete("content-type");
+  if (!mcp && hasBody && type.includes("application/json")) {
+    const bytes = await readJsonBody(req, limit, state);
+    if (!bytes) return tooLarge(req, limit);
+    const text = bytes.toString("utf8");
+    if (text.trim() === "") headers.delete("content-type");
+    else if (!isJson(text)) {
+      const issues = [{ path: "", message: "Request body is not valid JSON." }];
+      return Response.json(new EyesError("invalid_input", { issues }).toBody(), { status: 400 });
+    } else body = bytes;
+  } else if (hasBody) body = ReadableStream.from(limited(req, limit, state));
   const request = new Request(url, {
     method: req.method,
     headers,
-    body: hasBody ? ReadableStream.from(limited(req, limit, state)) : undefined,
+    body,
     duplex: "half",
     signal,
   } as RequestInit);
@@ -68,13 +103,13 @@ export function toNodeListener(fetch: Fetch) {
   return async (req: IncomingMessage, res: ServerResponse) => {
     const started = Date.now();
     const abort = new AbortController();
+    let path = "<unparsable>";
     res.on("close", () => abort.abort());
-    res.on("finish", () => {
-      const path = (req.url ?? "/").replace(TOKEN_PATH, "$1/<token>");
-      console.log(`${req.method} ${path} ${res.statusCode} ${Date.now() - started}ms`);
-    });
+    res.on("finish", () => console.log(`${req.method} ${path} ${res.statusCode} ${Date.now() - started}ms`));
     try {
-      const response = await respond(req, fetch, abort.signal);
+      const url = new URL(req.url ?? "/", `http://${req.headers.host || "localhost"}`);
+      path = url.pathname.replace(TOKEN_PATH, "$1/<token>");
+      const response = await respond(req, url, fetch, abort.signal);
       res.statusCode = response.status;
       for (const [name, value] of response.headers) if (name !== "set-cookie") res.setHeader(name, value);
       const cookies = response.headers.getSetCookie();

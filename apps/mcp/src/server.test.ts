@@ -52,6 +52,7 @@ function setup() {
       api_key: KEY,
       balance_usd: 20,
       top_up_url: null,
+      email_address: null,
       next_step: "Call quote_task.",
     }),
     quoteTask: async () => QUOTE,
