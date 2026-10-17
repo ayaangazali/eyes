@@ -369,12 +369,21 @@ describe("createInkboxMessaging", () => {
 });
 
 describe("offer template", () => {
-  it("describes the task by type, bounty, place and distance", () => {
+  it("describes the task by type, bounty, place, distance, local deadline and how to opt out", () => {
     expect(offerText(offer())).toBe(
-      "Eyes: $3 to check how long the line is at Blue Bottle Coffee, 0.4 mi away. Reply YES to claim.",
+      "Eyes: $3 to check how long the line is at Blue Bottle Coffee (0.4 mi) by 12:30 PM PDT. Reply YES to claim, STOP to opt out.",
     );
-    expect(offerText(offer({ task_type: "is_open", bounty_cents: 450, distance_m: 30 }))).toBe(
-      "Eyes: $4.50 to check if it's open at Blue Bottle Coffee, 0.1 mi away. Reply YES to claim.",
+    expect(
+      offerText(
+        offer({
+          task_type: "is_open",
+          bounty_cents: 450,
+          distance_m: 30,
+          deadline_at: "2026-12-01T17:05:00.000Z",
+        }),
+      ),
+    ).toBe(
+      "Eyes: $4.50 to check if it's open at Blue Bottle Coffee (0.1 mi) by 9:05 AM PST. Reply YES to claim, STOP to opt out.",
     );
   });
 
@@ -383,14 +392,16 @@ describe("offer template", () => {
       offer({
         task_type,
         question: "Text 4155550199 or visit evil.example now ".repeat(20),
-        place_label: "Grand Central Market Food Hall Annex West ".repeat(10),
+        place_label: "Westfield San Francisco Centre Food Hall Level One, San Francisco",
         bounty_cents: 4999,
         distance_m: 40_000_000,
       }),
     );
     expect(text.length).toBeLessThanOrEqual(159);
     expect(text).not.toMatch(/evil|4155550199|Text/);
-    expect(text).toMatch(/^Eyes: \$49\.99 to .+ Reply YES to claim\.$/);
+    expect(text).toMatch(
+      /^Eyes: \$49\.99 to .+ at Westfield San Francisco Centre Food Hall \(24854\.8 mi\) by 12:30 PM PDT\. Reply YES to claim, STOP to opt out\.$/,
+    );
   });
 });
 
@@ -438,7 +449,7 @@ describe("place label in every template", () => {
     ];
     for (const text of texts) expect(text).toContain(` at ${expected}`);
     expect(offerText(offer({ place_label }))).toBe(
-      `Eyes: $3 to check how long the line is at ${expected}, 0.4 mi away. Reply YES to claim.`,
+      `Eyes: $3 to check how long the line is at ${expected} (0.4 mi) by 12:30 PM PDT. Reply YES to claim, STOP to opt out.`,
     );
   });
 });
