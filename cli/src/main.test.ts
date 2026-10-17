@@ -266,6 +266,25 @@ it("empty winner file is retried", async () => {
   expect(calls[1]?.body?.idempotency_key).toBe("winner-key");
 });
 
+it.each([
+  ["", "Nothing was sent. Delete"],
+  ['{"idempotency_key"', "Pass --idempotency-key"],
+])("a pending file holding %j stops the ask with a fix that says how to recover", async (content, fix) => {
+  const { deps, calls, out } = setup([[200, ASKED]]);
+  expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
+  const dir = join(dirname(deps.configPath), "pending-asks");
+  const file = join(dir, readdirSync(dir)[0] ?? "");
+  writeFileSync(file, content);
+
+  expect(await run([...ASK, "--no-wait", "--json"], deps)).toBe(1);
+
+  expect(calls).toHaveLength(1);
+  const error = JSON.parse(out.at(-1) ?? "");
+  expect(error.error).toBe("config_error");
+  expect(error.fix).toContain(fix);
+  if (content === "") expect(error.fix).toBe(`Nothing was sent. Delete ${file} and re-run.`);
+});
+
 it("an ask killed mid-request is re-sent with the same key on the next identical run", async () => {
   const { deps, calls, err } = setup([[200, ASKED]]);
   const stop = new AbortController();
@@ -372,6 +391,53 @@ it("identical re-runs at the same instant after the task settled agree on one ne
   expect(new Set(rerun).size).toBe(1);
   expect(rerun[0]).not.toBe(first);
 });
+
+it.each(["GET", "POST"])(
+  "a %s reply that arrives after the chain moved on never sends a later ask back to a settled task",
+  async (method) => {
+    const { deps } = setup([]);
+    const server = fakeServer();
+    const ask = (fetch = server.fetch) => run([...ASK, "--no-wait"], { ...deps, fetch });
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached = () => {};
+    const holding = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    let first = true;
+    const lateFetch: typeof fetch = async (url, init) => {
+      const res = await server.fetch(url, init);
+      if (first && init?.method === method) {
+        first = false;
+        reached();
+        await held;
+      }
+      return res;
+    };
+
+    expect(await ask()).toBe(0);
+    server.expireAll();
+    const late = ask(lateFetch);
+    await holding;
+    expect(await ask()).toBe(0);
+    server.expireAll();
+    expect(await ask()).toBe(0);
+    server.expireAll();
+    expect(await ask()).toBe(0);
+    const keys = () => server.keys["How long is the line?"] ?? [];
+    const open = keys().at(-1);
+    const sent = keys().length;
+    expect(new Set(keys()).size).toBe(4);
+
+    release();
+    expect(await late).toBe(0);
+    expect(await ask()).toBe(0);
+
+    expect(new Set(keys().slice(sent))).toEqual(new Set([open]));
+  },
+);
 
 it("after waiting to a final status, the next identical ask looks the task up and gets a new key", async () => {
   const { deps, calls } = setup([
