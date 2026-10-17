@@ -13,6 +13,8 @@ import {
   type EyesService,
   JoinWorkerInput,
   type LatLng,
+  type LedgerType,
+  OwnerPolicyInput,
   type ReplyIntent,
   type ResolvedLocation,
   SignupInput,
@@ -38,6 +40,18 @@ type Summary = {
   daily_cap_cents: number;
   max_bounty_cents: number;
   allowed_task_types: Agent["allowed_task_types"];
+};
+type ConsoleRow = Summary & {
+  agent_name: string;
+  tasks: {
+    task_id: string;
+    question: string;
+    place_label: string;
+    status: TaskStatus;
+    bounty_cents: number;
+    created_at: string;
+  }[];
+  ledger: { type: LedgerType; amount_cents: number; task_id: string | null; created_at: string }[];
 };
 
 const ANSWERED: TaskStatus[] = ["verified", "paid", "needs_review"];
@@ -73,6 +87,14 @@ const REPLY_TEXT: Record<"no" | "help" | "unknown", string> = {
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const iso = (s: string) => new Date(s).toISOString();
+
+const policyOf = (s: Summary) => ({
+  max_bounty_usd: centsToUsd(s.max_bounty_cents),
+  daily_cap_usd: centsToUsd(s.daily_cap_cents),
+  spent_today_usd: centsToUsd(s.spent_today_cents),
+  remaining_today_usd: centsToUsd(Math.max(0, s.daily_cap_cents - s.spent_today_cents)),
+  allowed_task_types: s.allowed_task_types,
+});
 
 function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<S> {
   const result = schema.safeParse(input);
@@ -120,9 +142,40 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const captureUrl = (task: Task, workerId: string) =>
     `${config.worker_web_url}/capture.html?t=${signToken(config.link_secret, `o:${task.id}:${workerId}`, new Date(task.deadline_at))}`;
 
-  function tokenPayload(token: string, kind: "t" | "c" | "o"): string | null {
+  const ownerUrl = (agentId: string) =>
+    `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
+
+  function tokenPayload(token: string, kind: "t" | "c" | "o" | "p"): string | null {
     const payload = verifyToken(config.link_secret, token, now());
     return payload?.startsWith(`${kind}:`) ? payload.slice(kind.length + 1) : null;
+  }
+
+  function ownerAgentId(token: string): string {
+    const agentId = tokenPayload(token, "p");
+    if (!agentId) throw new EyesError("owner_link_invalid");
+    return agentId;
+  }
+
+  async function emailOwner(to: string, agent: Agent): Promise<boolean> {
+    try {
+      await providers.email.send({
+        to,
+        subject: "Your AI agent's Eyes spending controls",
+        text: [
+          `Your AI agent ${JSON.stringify(agent.name)} signed up for Eyes and listed this address as its owner.`,
+          "Eyes lets AI agents pay a nearby person a few dollars to check something in the real world right now, such as whether a store is open or how long a line is. Each task is paid from the agent's prepaid balance.",
+          `Your private control link:\n${ownerUrl(agent.id)}`,
+          "There you can see the balance and every task, set the most the agent may pay per task, set a daily spending cap (a cap of 0 stops all spending), choose which kinds of tasks it may post, and add funds.",
+          "Keep this link secret, and do not give it to your agent: anyone who has it can change these limits.",
+        ].join("\n\n"),
+      });
+      return true;
+    } catch (err) {
+      console.error(
+        `owner email for agent ${agent.id} failed: ${err instanceof Error ? err.name : "unknown"}`,
+      );
+      return false;
+    }
   }
 
   async function resolve(location: LatLng | string): Promise<ResolvedLocation> {
@@ -233,7 +286,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async signupAgent(input) {
-      const { name } = parse(SignupInput, input);
+      const { name, owner_email } = parse(SignupInput, input);
       const apiKey = `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
       const agent = await one<Agent>("eyes_signup", {
         p_name: name,
@@ -248,13 +301,18 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const byEmail = email_address
         ? ` You can also email questions to ${email_address} and get the answer as a threaded reply; keep this address private, it works like the api_key.`
         : "";
+      const owner = !owner_email
+        ? ""
+        : (await emailOwner(owner_email, agent))
+          ? ` We emailed your user at ${owner_email} a private control link to set your spend limits and add funds; only they can change your limits.`
+          : ` We could not email your user at ${owner_email}; they can ask the Eyes operator for their control link.`;
       return {
         agent_id: agent.id,
         api_key: apiKey,
         email_address,
         balance_usd: centsToUsd(agent.balance_cents),
         top_up_url,
-        next_step: `Save api_key now; it is shown only once. Send it as the header Authorization: Bearer <api_key>. Ask your user to add funds at ${top_up_url}, then call quote_task or ask_eyes.${byEmail}`,
+        next_step: `Save api_key now; it is shown only once. Send it as the header Authorization: Bearer <api_key>. Ask your user to add funds at ${top_up_url}, then call quote_task or ask_eyes.${byEmail}${owner}`,
       };
     },
 
@@ -426,14 +484,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async getSpendPolicy(agent) {
-      const s = await one<Summary>("eyes_agent_summary", { p_agent_id: agent.id, p_now: nowIso() });
-      return {
-        max_bounty_usd: centsToUsd(s.max_bounty_cents),
-        daily_cap_usd: centsToUsd(s.daily_cap_cents),
-        spent_today_usd: centsToUsd(s.spent_today_cents),
-        remaining_today_usd: centsToUsd(Math.max(0, s.daily_cap_cents - s.spent_today_cents)),
-        allowed_task_types: s.allowed_task_types,
-      };
+      return policyOf(await one<Summary>("eyes_agent_summary", { p_agent_id: agent.id, p_now: nowIso() }));
     },
 
     async topupCheckoutUrl(token, amount_cents = 2000) {
@@ -461,6 +512,48 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_stripe_ref: stripe_ref,
         p_now: nowIso(),
       });
+    },
+
+    async ownerConsole(token) {
+      const agentId = ownerAgentId(token);
+      const c = await maybe<ConsoleRow>("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() });
+      if (!c) throw new EyesError("owner_link_invalid");
+      return {
+        agent_id: agentId,
+        agent_name: c.agent_name,
+        balance_usd: centsToUsd(c.balance_cents),
+        escrowed_usd: centsToUsd(c.escrowed_cents),
+        policy: policyOf(c),
+        tasks: c.tasks.map((t) => ({
+          task_id: t.task_id,
+          question: t.question,
+          place_label: t.place_label,
+          status: t.status,
+          bounty_usd: centsToUsd(t.bounty_cents),
+          created_at: iso(t.created_at),
+        })),
+        ledger: c.ledger.map((l) => ({
+          type: l.type,
+          amount_usd: centsToUsd(l.amount_cents),
+          task_id: l.task_id,
+          created_at: iso(l.created_at),
+        })),
+        top_up_url: topUpUrl(agentId),
+      };
+    },
+
+    async updateSpendPolicy(token, input) {
+      const agentId = ownerAgentId(token);
+      const policy = parse(OwnerPolicyInput, input);
+      const s = await maybe<Summary>("eyes_update_spend_policy", {
+        p_agent_id: agentId,
+        p_max_bounty_cents: usdToCents(policy.max_bounty_usd),
+        p_daily_cap_cents: usdToCents(policy.daily_cap_usd),
+        p_allowed_task_types: [...new Set(policy.allowed_task_types)],
+        p_now: nowIso(),
+      });
+      if (!s) throw new EyesError("owner_link_invalid");
+      return policyOf(s);
     },
 
     async joinWorker(input) {
