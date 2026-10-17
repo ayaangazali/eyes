@@ -88,7 +88,7 @@ Ask Eyes to photograph the house at 123 Oak St, San Francisco, and show me exact
 | 1:15 | Claude declines without calling Eyes | Say "Claude won't even try; here is what Eyes tells an agent that does." Run the pre-typed curl below in a terminal tab. |
 | 1:20 | No email reply in the inbox | Skip the beat; check `/healthz` says `email: live` and that Primitive staff enabled sending to any domain. |
 | any | Server down | `curl /healthz`; `npx mcp-use deployments restart <id>` (PLAN §7); meanwhile play the backup video. |
-| any | The API key showed on screen | Finish the beat. Off screen, in the owner console, use "Replace this agent's API key": the old key stops working on the next request ([ADR-019](../intent/decisions/ADR-019-owner-key-rotation.md)). Remove and re-add the `eyes` MCP server in Claude with the new key before the next run. |
+| any | The API key showed on screen | Finish the beat. Off screen, in the owner console, tick the confirmation box and use "Replace this agent's API key": the old key stops working on the next request ([ADR-019](../intent/decisions/ADR-019-owner-key-rotation.md)). Remove and re-add the `eyes` MCP server in Claude with the new key before the next run. |
 
 Pre-typed refusal curl (the key comes from the environment, so it never prints):
 
