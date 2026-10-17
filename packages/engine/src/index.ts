@@ -87,8 +87,9 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
     "You disputed this answer and it is flagged for human review. Call get_task later to see the outcome.",
 };
 
-const REPLY_TEXT: Record<"no" | "help" | "unknown", string> = {
+const REPLY_TEXT: Record<"no" | "released" | "help" | "unknown", string> = {
   no: "No problem, we will text you the next task nearby.",
+  released: "Got it, the task is released. Thanks.",
   help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out.",
   unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
@@ -152,6 +153,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
     `${config.public_api_url}/w/connect/${signToken(config.link_secret, `c:${workerId}`, new Date(now().getTime() + CONNECT_LINK_MS))}`;
   const captureUrl = (task: Task, workerId: string) =>
     `${config.worker_web_url}/capture.html?t=${signToken(config.link_secret, `o:${task.id}:${workerId}`, new Date(task.deadline_at))}`;
+
+  const newApiKey = () =>
+    `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
 
   const ownerUrl = (agentId: string) =>
     `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
@@ -332,7 +336,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
 
     async signupAgent(input) {
       const { name, owner_email } = parse(SignupInput, input);
-      const apiKey = `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
+      const apiKey = newApiKey();
       const agent = await one<Agent>("eyes_signup", {
         p_name: name,
         p_api_key_hash: sha256(apiKey),
@@ -666,6 +670,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
       return policyOf(s);
     },
 
+    async rotateApiKey(token) {
+      const agentId = ownerAgentId(token);
+      const api_key = newApiKey();
+      const rotated = await maybe("eyes_rotate_api_key", {
+        p_agent_id: agentId,
+        p_api_key_hash: sha256(api_key),
+      });
+      if (!rotated) throw new EyesError("owner_link_invalid");
+      return { api_key };
+    },
+
     async joinWorker(input) {
       const join = parse(JoinWorkerInput, input);
       const worker = await one<Worker>("eyes_join_worker", {
@@ -741,7 +756,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
           );
         },
         yes: () => claim(worker),
-        no: () => messaging.sendText(phone, REPLY_TEXT.no),
+        no: async () => {
+          const released = await maybe<Task>("eyes_release_claim", {
+            p_worker_id: worker.id,
+            p_now: nowIso(),
+          });
+          await messaging.sendText(phone, released ? REPLY_TEXT.released : REPLY_TEXT.no);
+        },
         help: () => messaging.sendText(phone, `${REPLY_TEXT.help} More: ${config.worker_web_url}`),
         unknown: () => messaging.sendText(phone, REPLY_TEXT.unknown),
       };

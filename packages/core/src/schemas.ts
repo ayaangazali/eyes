@@ -464,6 +464,7 @@ export const HTTP_ROUTES = {
   topup_redirect: "GET /topup/:token",
   owner_console: "GET /owner/:token",
   owner_policy: "POST /owner/:token/policy",
+  owner_rotate_key: "POST /owner/:token/rotate-key",
   worker_join: "POST /w/join",
   worker_connect_redirect: "GET /w/connect/:token",
   offer_view: "GET /w/offers/:token",

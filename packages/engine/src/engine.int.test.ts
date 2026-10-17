@@ -645,8 +645,9 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
-  it("accepts only p: owner tokens for the owner console and policy updates", async () => {
-    const a = await agent();
+  it("accepts only p: owner tokens for the owner console, policy updates and key replacement", async () => {
+    const { api_key } = await service.signupAgent({ name: "test-agent" });
+    const a = (await service.authenticate(api_key)) as Agent;
     const secret = "test-link-secret-0123456789";
     const policy = { max_bounty_usd: 1, daily_cap_usd: 1, allowed_task_types: [] };
     const wrong = [
@@ -660,15 +661,68 @@ describe.skipIf(!url)("engine on Postgres", () => {
       await expect(service.updateSpendPolicy(token, policy)).rejects.toMatchObject({
         code: "owner_link_invalid",
       });
+      await expect(service.rotateApiKey(token)).rejects.toMatchObject({
+        code: "owner_link_invalid",
+        status: 404,
+      });
     }
+    expect(await service.authenticate(api_key)).toMatchObject({ id: a.id });
     expect(await service.getSpendPolicy(a)).toMatchObject({ max_bounty_usd: 10, daily_cap_usd: 20 });
     await expect(service.ownerConsole(signToken(secret, `p:${randomUUID()}`))).rejects.toMatchObject({
+      code: "owner_link_invalid",
+    });
+    await expect(service.rotateApiKey(signToken(secret, `p:${randomUUID()}`))).rejects.toMatchObject({
       code: "owner_link_invalid",
     });
     await expect(service.updateSpendPolicy(signToken(secret, `p:${a.id}`), policy)).resolves.toMatchObject({
       max_bounty_usd: 1,
       allowed_task_types: [],
     });
+  });
+
+  it("replaces a leaked API key from the owner link: the old key stops working at once and the new key appears nowhere else", async () => {
+    const logs = (["log", "info", "warn", "error"] as const).map((m) => vi.spyOn(console, m));
+    try {
+      const { api_key: oldKey } = await service.signupAgent({
+        name: "leaky-agent",
+        owner_email: "o@example.com",
+      });
+      const a = (await service.authenticate(oldKey)) as Agent;
+      const ownerToken = signToken(deps.config.link_secret, `p:${a.id}`);
+
+      const { api_key } = await service.rotateApiKey(ownerToken);
+      expect(api_key).toMatch(/^eyes_test_[\w-]{43}$/);
+      expect(api_key).not.toBe(oldKey);
+      expect(await service.authenticate(oldKey)).toBeNull();
+      const rotated = (await service.authenticate(api_key)) as Agent;
+      expect(rotated.id).toBe(a.id);
+      expect(await service.getBalance(rotated)).toMatchObject({ balance_usd: 20 });
+
+      const elsewhere = JSON.stringify([
+        providers.email.outbox,
+        outbox,
+        logs.map((spy) => spy.mock.calls),
+        await service.ownerConsole(ownerToken),
+        await service.getBalance(rotated),
+        await service.getSpendPolicy(rotated),
+        await sql`select * from agents where id = ${a.id}`,
+      ]);
+      expect(elsewhere).not.toContain(api_key);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  it("leaves exactly one working key when two key replacements race", async () => {
+    const { api_key: oldKey } = await service.signupAgent({ name: "raced-agent" });
+    const a = (await service.authenticate(oldKey)) as Agent;
+    const ownerToken = signToken(deps.config.link_secret, `p:${a.id}`);
+    const keys = await Promise.all([service.rotateApiKey(ownerToken), service.rotateApiKey(ownerToken)]);
+    const agents = await Promise.all(
+      [oldKey, ...keys.map((k) => k.api_key)].map((k) => service.authenticate(k)),
+    );
+    expect(agents[0]).toBeNull();
+    expect(agents.filter((x) => x !== null).map((x) => x.id)).toEqual([a.id]);
   });
 
   async function claimed(at: LatLng) {
@@ -754,5 +808,48 @@ describe.skipIf(!url)("engine on Postgres", () => {
       remove.mockRestore();
       error.mockRestore();
     }
+  });
+
+  it("a NO after YES gives the task back to the next YES, while a NO without a claim or after the photo changes nothing", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const first = await worker(north(at, 50));
+    const second = await worker(north(at, 100));
+    const { task_id } = await ask(a, at);
+    const no = (phone: string) => service.handleWorkerReply({ phone, intent: "no", text: "NO" });
+    const last = (phone: string) => outbox.findLast((m) => m.to === phone);
+    const token = (phone: string) =>
+      new URL(
+        String(outbox.findLast((m) => m.to === phone && m.kind === "capture_link")?.payload.capture_url),
+      ).searchParams.get("t") ?? "";
+    const skipped = "No problem, we will text you the next task nearby.";
+
+    await reply(first.phone);
+    await reply(second.phone);
+    await no(second.phone);
+    expect(last(second.phone)?.payload).toBe(skipped);
+    expect(await service.getTask(a, { task_id })).toMatchObject({ status: "claimed" });
+
+    const firstToken = token(first.phone);
+    await no(first.phone);
+    const released = String(last(first.phone)?.payload);
+    expect(released).toBe("Got it, the task is released. Thanks.");
+    expect(released.length).toBeLessThanOrEqual(159);
+    expect(await service.getTask(a, { task_id })).toMatchObject({ status: "dispatched", claimed_at: null });
+    expect(await service.awaitAnswer(a, { task_id, timeout_seconds: 1 })).toMatchObject({
+      status: "dispatched",
+      answered: false,
+    });
+
+    await reply(second.phone);
+    expect(last(second.phone)).toMatchObject({ kind: "capture_link", payload: { task_id } });
+    await expect(capture(firstToken, at)).rejects.toMatchObject({ code: "task_already_claimed" });
+    await capture(token(second.phone), at);
+    await no(second.phone);
+    expect(last(second.phone)?.payload).toBe(skipped);
+    expect(await service.getTask(a, { task_id })).toMatchObject({
+      status: "verified",
+      answer: { answer_text: "short" },
+    });
   });
 });
