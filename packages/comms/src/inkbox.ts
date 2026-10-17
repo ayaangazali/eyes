@@ -119,8 +119,9 @@ export function parseReplyIntent(text: string): ReplyIntent {
   const words = tokens.filter((t) => t !== "?");
   const asked = words.length < tokens.length;
   if (words.length === 0) return asked ? "help" : "unknown";
-  const [first, ...rest] = words.map((w) => INTENTS[w]);
-  const intent = (rest.every((i) => i === first) && first) || INTENTS[words.join(" ")] || "unknown";
+  const lookup = (phrase: string) => (Object.hasOwn(INTENTS, phrase) ? INTENTS[phrase] : undefined);
+  const [first, ...rest] = words.map(lookup);
+  const intent = (rest.every((i) => i === first) && first) || lookup(words.join(" ")) || "unknown";
   return asked && intent !== "stop" && intent !== "help" ? "unknown" : intent;
 }
 
@@ -142,7 +143,10 @@ export function createInkboxMessaging(env: Env): Messaging {
       identity = undefined;
       throw err;
     });
-    const sent = await (await identity).sendText({ to, text, idempotencyKey });
+    const sent = await (await identity).sendIMessage({ to, text, idempotencyKey });
+    if (sent.status === "error" || sent.status === "declined") {
+      throw new Error(`Inkbox iMessage ${sent.status}: ${sent.errorCode ?? "no error code"}`);
+    }
     return { id: sent.id };
   };
   return {
