@@ -91,6 +91,7 @@ const OWNER_VIEW: OwnerConsole = {
   ledger: [{ type: "escrow", amount_usd: 3.5, task_id: TASK_ID, created_at: "2026-10-17T09:15:00.000Z" }],
   top_up_url: "https://api.eyes.test/topup/agent-tok",
 };
+const NEW_KEY = 'eyes_test_<b>"new"</b>&key';
 
 function setup(payments: Payments = fakeProviders().payments) {
   const service = {
@@ -110,6 +111,10 @@ function setup(payments: Payments = fakeProviders().payments) {
     updateSpendPolicy: vi.fn(async (token: string, _input: OwnerPolicyInput) => {
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
       return OWNER_VIEW.policy;
+    }),
+    rotateApiKey: vi.fn(async (token: string) => {
+      if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
+      return { api_key: NEW_KEY };
     }),
   };
   const config = AppConfig.parse({
@@ -317,6 +322,35 @@ describe("owner console routes", () => {
       expect(privateHeaders(res)).toEqual(PRIVATE);
       expect(await res.text()).toContain("This owner control link is invalid.");
     }
+  });
+
+  it("replaces the API key only on a POST with the owner link and shows the new key once, escaped and uncached", async () => {
+    const { app, service } = setup();
+    const escaped = "eyes_test_&lt;b&gt;&quot;new&quot;&lt;/b&gt;&amp;key";
+    const before = await (await app.request("/owner/owner-tok")).text();
+    expect(before).toContain('action="/owner/owner-tok/rotate-key"');
+    expect(before).toContain("The old key stops working immediately");
+
+    const res = await app.request("/owner/owner-tok/rotate-key", { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(privateHeaders(res)).toEqual(PRIVATE);
+    expect(res.headers.get("location")).toBeNull();
+    const body = await res.text();
+    expect(body).toContain(escaped);
+    expect(body).not.toContain("<b>");
+    expect(body).toContain("The old key has stopped working.");
+
+    const elsewhere = [
+      await app.request("/owner/owner-tok/rotate-key"),
+      await app.request("/owner/owner-tok"),
+      await app.request("/owner/agent-tok/rotate-key", { method: "POST" }),
+    ];
+    expect(elsewhere.map((r) => r.status)).toEqual([404, 200, 404]);
+    for (const r of elsewhere) {
+      expect(privateHeaders(r)).toEqual(PRIVATE);
+      expect(await r.text()).not.toContain(escaped);
+    }
+    expect(service.rotateApiKey.mock.calls).toEqual([["owner-tok"], ["agent-tok"]]);
   });
 });
 

@@ -154,6 +154,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const captureUrl = (task: Task, workerId: string) =>
     `${config.worker_web_url}/capture.html?t=${signToken(config.link_secret, `o:${task.id}:${workerId}`, new Date(task.deadline_at))}`;
 
+  const newApiKey = () =>
+    `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
+
   const ownerUrl = (agentId: string) =>
     `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
 
@@ -333,7 +336,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
 
     async signupAgent(input) {
       const { name, owner_email } = parse(SignupInput, input);
-      const apiKey = `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
+      const apiKey = newApiKey();
       const agent = await one<Agent>("eyes_signup", {
         p_name: name,
         p_api_key_hash: sha256(apiKey),
@@ -665,6 +668,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
       });
       if (!s) throw new EyesError("owner_link_invalid");
       return policyOf(s);
+    },
+
+    async rotateApiKey(token) {
+      const agentId = ownerAgentId(token);
+      const api_key = newApiKey();
+      const rotated = await maybe("eyes_rotate_api_key", {
+        p_agent_id: agentId,
+        p_api_key_hash: sha256(api_key),
+      });
+      if (!rotated) throw new EyesError("owner_link_invalid");
+      return { api_key };
     },
 
     async joinWorker(input) {

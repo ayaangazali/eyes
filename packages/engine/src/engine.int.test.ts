@@ -645,8 +645,9 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
-  it("accepts only p: owner tokens for the owner console and policy updates", async () => {
-    const a = await agent();
+  it("accepts only p: owner tokens for the owner console, policy updates and key replacement", async () => {
+    const { api_key } = await service.signupAgent({ name: "test-agent" });
+    const a = (await service.authenticate(api_key)) as Agent;
     const secret = "test-link-secret-0123456789";
     const policy = { max_bounty_usd: 1, daily_cap_usd: 1, allowed_task_types: [] };
     const wrong = [
@@ -660,15 +661,68 @@ describe.skipIf(!url)("engine on Postgres", () => {
       await expect(service.updateSpendPolicy(token, policy)).rejects.toMatchObject({
         code: "owner_link_invalid",
       });
+      await expect(service.rotateApiKey(token)).rejects.toMatchObject({
+        code: "owner_link_invalid",
+        status: 404,
+      });
     }
+    expect(await service.authenticate(api_key)).toMatchObject({ id: a.id });
     expect(await service.getSpendPolicy(a)).toMatchObject({ max_bounty_usd: 10, daily_cap_usd: 20 });
     await expect(service.ownerConsole(signToken(secret, `p:${randomUUID()}`))).rejects.toMatchObject({
+      code: "owner_link_invalid",
+    });
+    await expect(service.rotateApiKey(signToken(secret, `p:${randomUUID()}`))).rejects.toMatchObject({
       code: "owner_link_invalid",
     });
     await expect(service.updateSpendPolicy(signToken(secret, `p:${a.id}`), policy)).resolves.toMatchObject({
       max_bounty_usd: 1,
       allowed_task_types: [],
     });
+  });
+
+  it("replaces a leaked API key from the owner link: the old key stops working at once and the new key appears nowhere else", async () => {
+    const logs = (["log", "info", "warn", "error"] as const).map((m) => vi.spyOn(console, m));
+    try {
+      const { api_key: oldKey } = await service.signupAgent({
+        name: "leaky-agent",
+        owner_email: "o@example.com",
+      });
+      const a = (await service.authenticate(oldKey)) as Agent;
+      const ownerToken = signToken(deps.config.link_secret, `p:${a.id}`);
+
+      const { api_key } = await service.rotateApiKey(ownerToken);
+      expect(api_key).toMatch(/^eyes_test_[\w-]{43}$/);
+      expect(api_key).not.toBe(oldKey);
+      expect(await service.authenticate(oldKey)).toBeNull();
+      const rotated = (await service.authenticate(api_key)) as Agent;
+      expect(rotated.id).toBe(a.id);
+      expect(await service.getBalance(rotated)).toMatchObject({ balance_usd: 20 });
+
+      const elsewhere = JSON.stringify([
+        providers.email.outbox,
+        outbox,
+        logs.map((spy) => spy.mock.calls),
+        await service.ownerConsole(ownerToken),
+        await service.getBalance(rotated),
+        await service.getSpendPolicy(rotated),
+        await sql`select * from agents where id = ${a.id}`,
+      ]);
+      expect(elsewhere).not.toContain(api_key);
+    } finally {
+      for (const spy of logs) spy.mockRestore();
+    }
+  });
+
+  it("leaves exactly one working key when two key replacements race", async () => {
+    const { api_key: oldKey } = await service.signupAgent({ name: "raced-agent" });
+    const a = (await service.authenticate(oldKey)) as Agent;
+    const ownerToken = signToken(deps.config.link_secret, `p:${a.id}`);
+    const keys = await Promise.all([service.rotateApiKey(ownerToken), service.rotateApiKey(ownerToken)]);
+    const agents = await Promise.all(
+      [oldKey, ...keys.map((k) => k.api_key)].map((k) => service.authenticate(k)),
+    );
+    expect(agents[0]).toBeNull();
+    expect(agents.filter((x) => x !== null).map((x) => x.id)).toEqual([a.id]);
   });
 
   async function claimed(at: LatLng) {
