@@ -143,7 +143,10 @@ export function createInkboxMessaging(env: Env): Messaging {
       identity = undefined;
       throw err;
     });
-    const sent = await (await identity).sendText({ to, text, idempotencyKey });
+    const sent = await (await identity).sendIMessage({ to, text, idempotencyKey });
+    if (sent.status === "error" || sent.status === "declined") {
+      throw new Error(`Inkbox iMessage ${sent.status}: ${sent.errorCode ?? "no error code"}`);
+    }
     return { id: sent.id };
   };
   return {
