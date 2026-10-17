@@ -21,7 +21,9 @@
     "intent:check": "node scripts/check-intent.ts",
     "intent:index": "node scripts/check-intent.ts --write-index",
     "verify:fast": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:contract && pnpm test:safety && pnpm intent:check",
-    "safety:eval": "node evals/safety/run.ts"
+    "safety:eval": "node evals/safety/run.ts",
+    "smoke:live": "node scripts/smoke-live.ts",
+    "owner-link": "node scripts/owner-link.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

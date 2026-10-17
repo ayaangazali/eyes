@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisions: #7 A, #9 A, #11 B (merging), #14 B (merging); ADR-010 adopted. Live G1 starting: first key INKBOX_API_KEY.
+Updated: 2026-10-17 02:35 PT by orchestrator. #7 safety merged and deployed: live quote works, live refusal works (rules layer). #26 smoke:live merged. Verifying #35 (polish), #37, #39, #9 r6. Building: T3.5a, T4.5, T5.1. Plan: docs/PLAN.md.
 
 ## Task board
 
@@ -14,16 +14,25 @@ Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisi
 | T1.2 engine + db | engine-builder | **merged** #6, #12 | [#6](https://github.com/ayaangazali/eyes/pull/6) | r2 security PASS, test+spec PASS; follow-up PASS | InsForge grants unverified live |
 | T1.3 Inkbox comms | comms-builder | **merged** #1, #10; iMessage send #24 merging | [#1](https://github.com/ayaangazali/eyes/pull/1) | r2 all PASS; follow-up #10 PASS | live-verified: no |
 | T1.4 worker web | worker-web-builder | **merged** #3; follow-up #13 merging | [#3](https://github.com/ayaangazali/eyes/pull/3) | r2 PASS; #13 coverage major downgraded by ruling | live-verified: no |
-| T1.5 safety | safety-builder | round 4 (human decision A) | [#7](https://github.com/ayaangazali/eyes/pull/7) | escalated after r3 | blocks live ask_eyes |
+| T1.5 safety | safety-builder | **merged** #7 (round 7 PASS) | [#7](https://github.com/ayaangazali/eyes/pull/7) | r6 FAIL (3 majors, false positives), r7 PASS; deferred #36 | live: rules refusal yes; classifier needs ANTHROPIC_API_KEY |
 | G1 golden path e2e | integration builder | **merged** #16 | [#16](https://github.com/ayaangazali/eyes/pull/16) | integration PASS (3/3 fresh DBs, mutations killed) | unsafe_task test skipped until T1.5 |
 | T2.1 Stripe | payments-builder | **merged** | [#5](https://github.com/ayaangazali/eyes/pull/5) | r1 security PASS, spec+intent PASS, test FAIL; r2 PASS | live-verified: no |
 | T2.2 verification | verification-builder | **merged** #4, #8 | [#4](https://github.com/ayaangazali/eyes/pull/4) | all PASS | live-verified: no |
 | T2.3 deploy | orchestrator | artifacts on main (Dockerfile proven locally, InsForge migrate script, docs/DEPLOY.md) | | | keys and logins |
 | T2.4 MCP wiring + hardening | mcp-builder | **merging** #14 (human decision B) | [#14](https://github.com/ayaangazali/eyes/pull/14) | escalated after r3; deferred #21-#23 | live-verified: no |
 | T3.1 Primitive | comms-builder | **merging** #11 (human decision B) | [#11](https://github.com/ayaangazali/eyes/pull/11) | escalated after r3; deferred #17-#20 | live-verified: no |
-| T3.2 AX docs + CLI | ax-builder | round 4 (human decision A) | [#9](https://github.com/ayaangazali/eyes/pull/9) | escalated after r3 | none |
+| T3.2 AX docs + CLI | ax-builder | round 6 fixing | [#9](https://github.com/ayaangazali/eyes/pull/9) | r5 FAIL: waitFor rewrite can replay a settled task (blocking) | none |
 | T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
+| T2.5 owner console (ADR-011) | payments-builder | polish round | [#35](https://github.com/ayaangazali/eyes/pull/35) | security PASS, spec+test PASS (minors being fixed); #38 filed | none |
+| T4.1 hardening (#17-#23, throttles) | mcp/comms builder | **merged** #37 | [#37](https://github.com/ayaangazali/eyes/pull/37) | PASS; XFF key cap queued in T4.4 | none |
+| T2.3b smoke:live | ops builder | **merged** #26 | [#26](https://github.com/ayaangazali/eyes/pull/26) | PASS (2 minors in Known gaps) | none |
+| T4.5 UI fixes (UX audit 0-6, 8, 11, 12, 15-23) | ui builder | building | | | none |
+| T4.6 dispatch skips busy workers; YES claims open offer | engine/comms builder | verifying | [#39](https://github.com/ayaangazali/eyes/pull/39) | | none |
+| T3.5a demo e2e + swarm | integration builder | building | | | refusal step waits on #7 |
+| T3.5b Blaxel batch/sandboxes | | queued | | | BL keys, after G2 |
+| UX/UI audit | ux auditor | **done**: 1 blocker, 12 major, 12 minor; 46 screenshots | | | fixes in T4.5/T4.6; 9, 10, 13, 24 queued after T2.5/T4.1 |
+| SPEC coverage ledger | auditor | **done**: 140 rows (62 met, 29 partial, 4 unmet, 33 key, 6 human, 6 in flight); 15 gaps | | | gaps queued in PLAN §3 or filed #27-#34 |
 
 ## Sponsor coverage (update at every gate)
 
@@ -31,8 +40,8 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 
 | Sponsor | What we use | PR(s) | live-verified | What the demo shows |
 |---|---|---|---|---|
-| Manufact (mcp-use) | MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror, worker API, byte-safe Node adapter; deployed on Manufact Cloud via the repo Dockerfile | #2, #14, T2.3 | no | Claude calls quote_task -> ask_eyes -> await_answer against the Manufact URL; Manufact dashboard shows sessions and gateway requests |
-| InsForge | Postgres (escrow ledger, race-safe claim, expiry as plpgsql over RPC; RLS on every table), photo storage (`photos` bucket), Sites hosting for the worker capture page | #6, #12, #14, #15, T2.3 | no | capture page served from *.insforge.site; photo URL from InsForge storage; dashboard reads `eyes_dashboard_feed` |
+| Manufact (mcp-use) | **Deployed** (redeployed by hand after merges; https://dark-wave-wfmpm.run.mcp-use.com/mcp). MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror, worker API, byte-safe Node adapter; deployed on Manufact Cloud via the repo Dockerfile | #2, #14, T2.3 | partial (routing yes, providers fake) | Claude calls quote_task -> ask_eyes -> await_answer against the Manufact URL; Manufact dashboard shows sessions and gateway requests |
+| InsForge | Postgres (escrow ledger, race-safe claim, expiry as plpgsql over RPC; RLS on every table), photo storage (`photos` bucket), Sites hosting for the worker capture page (https://7t6779x4.insforge.site) | #6, #12, #14, #15, T2.3 | **yes** (DB + Sites; storage pending first live capture) | capture page served from *.insforge.site; photo URL from InsForge storage; dashboard reads `eyes_dashboard_feed` |
 | Stripe | Checkout top-ups (card only), per-key spend policy, Connect Express onboarding minted on click, $3 transfer on a verified answer, signed webhooks, refund on expiry/cancel | #5, #6 | no | top-up in Checkout, the worker's connected account, the transfer in the Stripe dashboard; get_spend_policy limits; refund path |
 | Inkbox | iMessage line (chosen for cost): offer, capture link and paid texts; signed `imessage.received` webhook for START/YES | #1, #10, #24 | no | worker iPhone gets the offer, replies YES, gets the capture link and the paid text |
 | Primitive | Capability email address per agent (ADR-007); inbound email -> ask_eyes; threaded answer with the photo attached; DMARC-verified senders only | #11 | no | an agent emails its Eyes address and gets a threaded reply with the photo |
@@ -42,16 +51,21 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 
 ## Deferred (ADR-010; triage at feature freeze, 6:00 AM Sun)
 
+#17-#23 fixed by PR #37 (2026-10-17).
+
 | Item | From | Tracking |
 |---|---|---|
-| Quadratic field regexes on email bodies (authenticated input) | PR #11 r3 | [#17](https://github.com/ayaangazali/eyes/issues/17) |
-| trustedSender fail-closed catch untested | PR #11 r3 | [#18](https://github.com/ayaangazali/eyes/issues/18) |
-| Endless-stream cap test hangs on regression | PR #11 r3 | [#19](https://github.com/ayaangazali/eyes/issues/19) |
-| No per-agent inbound email reply budget | PR #11 r3 | [#20](https://github.com/ayaangazali/eyes/issues/20) |
-| Request log decodes paths (log-line forging); switch to allowlist logging | PR #14 r3 | [#21](https://github.com/ayaangazali/eyes/issues/21) |
-| Mangled token halves can appear in logs | PR #14 r3 | [#22](https://github.com/ayaangazali/eyes/issues/22) |
-| Strict PORT parsing | PR #14 r3 | [#23](https://github.com/ayaangazali/eyes/issues/23) |
 | iMessage from an Apple ID email is ignored (workers must send from the phone number) | PR #24 | [#25](https://github.com/ayaangazali/eyes/issues/25) |
+| Four contrived benign phrasings still rule-blocked | PR #7 r7 | [#36](https://github.com/ayaangazali/eyes/issues/36) |
+| Face-rejected photos stay in the public bucket | coverage ledger | [#27](https://github.com/ayaangazali/eyes/issues/27) |
+| No per-agent key / link revocation | coverage ledger | [#28](https://github.com/ayaangazali/eyes/issues/28) |
+| No withdrawal of unused balance to card | coverage ledger | [#29](https://github.com/ayaangazali/eyes/issues/29) |
+| Owner link goes to an address the agent chooses | PR #35 security | [#38](https://github.com/ayaangazali/eyes/issues/38) |
+| Money/dispatch failures only in console logs | coverage ledger | [#30](https://github.com/ayaangazali/eyes/issues/30) |
+| Expiry runs in-process only | coverage ledger | [#31](https://github.com/ayaangazali/eyes/issues/31) |
+| Dashboard loopback-only | coverage ledger | [#32](https://github.com/ayaangazali/eyes/issues/32) |
+| No worker earnings page | coverage ledger | [#33](https://github.com/ayaangazali/eyes/issues/33) |
+| Worker task report (SPEC §12 stretch) | coverage ledger | [#34](https://github.com/ayaangazali/eyes/issues/34) |
 
 Earlier verifier minors (non-blocking by severity) are in each task's intent Known gaps.
 
@@ -59,11 +73,12 @@ Earlier verifier minors (non-blocking by severity) are in each task's intent Kno
 
 | Integration | live-verified | Evidence |
 |---|---|---|
-| Manufact deploy (mcp-use) | no | |
-| InsForge DB + storage + Sites | no | |
+| Manufact deploy (mcp-use) | **partial yes** (2026-10-17 01:52 PT) | Deployed with `mcp-use deploy --no-github` + repo Dockerfile; server `dark-wave-wfmpm`, MCP URL https://dark-wave-wfmpm.run.mcp-use.com/mcp. Gateway forwards ALL paths (ADR-004 risk resolved): /healthz 200, / HTML, /v1/balance 401, /w/offers/x 404 offer_invalid, /topup/done 200, POST /webhooks/inkbox unsigned 401, /mcp without key 401. Now backed by InsForge Postgres (see below); vendors still fake until keys land. |
+| InsForge DB + storage + Sites | **yes** (2026-10-17 02:10 PT) | Migrations 001-004 applied to project `hackathon`; anon denied on functions and tables; `photos` bucket. Manufact deploy 35d2cc74 `/healthz` -> `"db":"insforge"`; live signup -> balance -> spend-policy served from InsForge Postgres. Worker web live at https://7t6779x4.insforge.site (Sites deployment 5f2bbf5a). Photo upload to storage not yet exercised live (needs a capture). |
 | Inkbox outbound + inbound | no | |
 | Stripe Checkout + Connect + transfer | no | |
 | Primitive inbound + threaded reply | no | |
+| Safety gate, rules layer | **yes** (2026-10-17 02:33 PT) | Deploy 9e99b696 (main 433b76a): live `POST /v1/tasks` "Photograph the house at 12 Pine St." -> 422 `unsafe_task` / private_residence with a fix; live `POST /v1/quote` for the Ferry Building -> 200 (`allowed: true`); a safe ask -> 409 `no_workers_nearby`, nothing charged. Classifier layer not live (no ANTHROPIC_API_KEY). |
 | Claude vision verification | no | |
 | Armature analytics | no | |
 

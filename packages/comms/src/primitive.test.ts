@@ -83,6 +83,7 @@ function emailEvent(
     references?: string[] | null;
     id?: string;
     from?: string;
+    mailFrom?: string;
     replyTo?: string;
     headerTo?: string[];
     html?: string;
@@ -99,7 +100,7 @@ function emailEvent(
       id: "em_1",
       thread_id: null,
       received_at: NOW.toISOString(),
-      smtp: { helo: "mail.agent.test", mail_from: "agent@agent.test", rcpt_to: rcpt },
+      smtp: { helo: "mail.agent.test", mail_from: o.mailFrom ?? "agent@agent.test", rcpt_to: rcpt },
       headers: {
         message_id: o.messageId === undefined ? "<m1@agent.test>" : o.messageId,
         subject: o.subject === undefined ? "Line check" : o.subject,
@@ -308,6 +309,7 @@ describe("sender authentication", () => {
     ["DMARC passing for a different domain than From", { auth: { dmarcFromDomain: "relay.test" } }],
     ["a sender on our own domain", { from: `Eyes <eyes@${DOMAIN}>`, auth: { dmarcFromDomain: DOMAIN } }],
     ["an unparsable From that would fall back to the envelope sender", { from: "undisclosed-recipients:;" }],
+    ["an unparsable From with an empty envelope sender", { from: "undisclosed-recipients:;", mailFrom: "" }],
     ["two From addresses", { from: "agent@agent.test, other@agent.test" }],
   ])("processes nothing, sends nothing and logs no address for %s", async (_, overrides) => {
     const { post, svc, outbox } = setup();
@@ -355,10 +357,18 @@ describe("sender authentication", () => {
 
 describe("redelivery", () => {
   it("forgets the oldest emails once more than 10,000 keys are held", async () => {
-    const { post } = setup({ askEyes: async () => Promise.reject(new EyesError("no_workers_nearby")) });
+    const { post } = setup({
+      agentById: async (id: string) => ({ id }) as Agent,
+      askEyes: async () => Promise.reject(new EyesError("no_workers_nearby")),
+    });
+    const agent = (i: number) => `11111111-2222-4333-8444-${i.toString(16).padStart(12, "0")}`;
     const nth = (i: number) =>
       JSON.stringify(
-        emailEvent({ id: `evt_${i.toString(16).padStart(64, "0")}`, messageId: `<m${i}@agent.test>` }),
+        emailEvent({
+          id: `evt_${i.toString(16).padStart(64, "0")}`,
+          messageId: `<m${i}@agent.test>`,
+          rcpt: [agentEmailAddress(LINK_SECRET, agent(i), DOMAIN)],
+        }),
       );
     expect(await (await post(nth(0))).text()).toBe("ok");
     for (let i = 1; i < 5_000; i++) await post(nth(i));
@@ -392,6 +402,30 @@ describe("redelivery", () => {
       ),
     );
     expect(svc.askEyes).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("per-agent budget", () => {
+  const nth = (i: number, rcpt = [ADDRESS]) =>
+    JSON.stringify(
+      emailEvent({ id: `evt_${i.toString(16).padStart(64, "0")}`, messageId: `<b${i}@agent.test>`, rcpt }),
+    );
+
+  it("processes 20 emails per agent per hour and drops the rest without a reply", async () => {
+    const other = "22222222-2222-4333-8444-555555555555";
+    const { post, svc, outbox, clock } = setup({
+      agentById: async (id: string) => ({ id }) as Agent,
+      askEyes: vi.fn(async () => Promise.reject(new EyesError("no_workers_nearby"))),
+    });
+    for (let i = 0; i < 20; i++) expect(await (await post(nth(i))).text()).toBe("ok");
+    expect(await (await post(nth(20))).text()).toBe("rate_limited");
+    expect(svc.askEyes).toHaveBeenCalledTimes(20);
+    expect(outbox).toHaveLength(20);
+    expect(warn.mock.calls.join(" ")).not.toContain("@");
+    expect(await (await post(nth(21, [agentEmailAddress(LINK_SECRET, other, DOMAIN)]))).text()).toBe("ok");
+    clock.advance(60 * 60 * 1000);
+    expect(await (await post(nth(22))).text()).toBe("ok");
+    expect(outbox).toHaveLength(22);
   });
 });
 
@@ -529,6 +563,16 @@ describe("parseTaskEmail", () => {
   ])("parses 200 KB of hostile HTML (%s) in under 50 ms", (_, html) => {
     const start = performance.now();
     parseTaskEmail("Q", null, html);
+    expect(performance.now() - start).toBeLessThan(50);
+  });
+
+  it.each([
+    ["Location", `Location:${" ".repeat(19_980)}a\rb`],
+    ["Bounty", `Location: Tartine\nBounty: 1${" ".repeat(19_960)}x`],
+    ["Deadline", `Location: Tartine\nDeadline: 1${" ".repeat(19_960)}x`],
+  ])("parses a 20 KB %s line padded with spaces in under 50 ms", (_, text) => {
+    const start = performance.now();
+    parseTaskEmail("Q", text);
     expect(performance.now() - start).toBeLessThan(50);
   });
 
@@ -852,7 +896,8 @@ describe("createPrimitiveEmail", () => {
     const endless = new ReadableStream<Uint8Array>({
       pull(controller) {
         pulled += 1;
-        controller.enqueue(new Uint8Array(1024 * 1024));
+        if (pulled > 20) controller.close();
+        else controller.enqueue(new Uint8Array(1024 * 1024));
       },
       cancel() {
         cancelled = true;

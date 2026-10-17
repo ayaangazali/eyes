@@ -7,6 +7,8 @@ import type {
   JoinWorkerInput,
   JoinWorkerOutput,
   OfferView,
+  OwnerConsole,
+  OwnerPolicyInput,
   SignupInput,
   SignupOutput,
   Task,
@@ -84,6 +86,8 @@ export interface EyesService {
 
   topupCheckoutUrl(token: string, amount_cents?: number): Promise<string>;
   creditTopup(input: { agent_id: string; amount_cents: number; stripe_ref: string }): Promise<void>;
+  ownerConsole(token: string): Promise<OwnerConsole>;
+  updateSpendPolicy(token: string, input: OwnerPolicyInput): Promise<ToolOutput<"get_spend_policy">>;
 
   joinWorker(input: JoinWorkerInput): Promise<JoinWorkerOutput>;
   workerConnectUrl(token: string): Promise<string>;

@@ -6,18 +6,21 @@ import {
   type AskEyesInput,
   agentEmailAddress,
   CaptureResult,
+  type EyesError,
   fakeProviders,
   JoinWorkerOutput,
   type LatLng,
   OfferView,
+  OwnerConsole,
   type SafetyVerdict,
   SignupOutput,
+  signToken,
   TOOLS,
   type VerificationResult,
 } from "@eyes/core";
 import { migrate } from "@eyes/db";
 import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createEyesService } from "./index.ts";
 
 const url = process.env.DATABASE_URL;
@@ -348,5 +351,120 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
     await service.cancelTask(a, { task_id });
     await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
+  });
+
+  it("emails the owner a private link that sets the limits ask_eyes enforces, and never shows it to the agent", async () => {
+    const at = somewhere();
+    await worker(north(at, 100));
+    const ownerEmail = `owner-${randomUUID()}@example.com`;
+    const signup = await service.signupAgent({ name: "owned-agent", owner_email: ownerEmail });
+    const mail = providers.email.outbox.find((m) => m.to === ownerEmail);
+    const ownerToken = mail?.text.match(/\/owner\/([\w.-]+)/)?.[1] ?? "";
+    expect(ownerToken).not.toBe("");
+    expect(signup.next_step).toContain(ownerEmail);
+    const fresh = async () => (await service.authenticate(signup.api_key)) as Agent;
+    const a = await fresh();
+    for (const out of [signup, await service.getBalance(a), await service.getSpendPolicy(a)]) {
+      expect(JSON.stringify(out)).not.toContain(ownerToken);
+      expect(JSON.stringify(out)).not.toContain("/owner/");
+    }
+
+    const asked = await ask(a, at, { question: "Is the <b>line</b> long?" });
+    const view = OwnerConsole.parse(await service.ownerConsole(ownerToken));
+    expect(view).toMatchObject({
+      agent_id: a.id,
+      agent_name: "owned-agent",
+      balance_usd: 16.5,
+      escrowed_usd: 3.5,
+      policy: { max_bounty_usd: 10, daily_cap_usd: 20, spent_today_usd: 3.5 },
+      tasks: [
+        { task_id: asked.task_id, question: "Is the <b>line</b> long?", status: "dispatched", bounty_usd: 3 },
+      ],
+      top_up_url: signup.top_up_url,
+    });
+    expect(view.ledger.map((l) => `${l.type}:${l.amount_usd}`).sort()).toEqual(["escrow:3.5", "topup:20"]);
+
+    const types = ["is_open", "line_length"] as const;
+    expect(
+      await service.updateSpendPolicy(ownerToken, {
+        max_bounty_usd: 2,
+        daily_cap_usd: 20,
+        allowed_task_types: [...types, "is_open"],
+      }),
+    ).toEqual({
+      max_bounty_usd: 2,
+      daily_cap_usd: 20,
+      spent_today_usd: 3.5,
+      remaining_today_usd: 16.5,
+      allowed_task_types: types,
+    });
+    await expect(ask(await fresh(), at)).rejects.toMatchObject({ code: "bounty_exceeds_max" });
+    await expect(ask(await fresh(), at, { bounty_usd: 2, task_type: "in_stock" })).rejects.toMatchObject({
+      code: "task_type_not_allowed",
+    });
+
+    await service.updateSpendPolicy(ownerToken, {
+      max_bounty_usd: 10,
+      daily_cap_usd: 0,
+      allowed_task_types: [...types],
+    });
+    await expect(ask(await fresh(), at, { bounty_usd: 2 })).rejects.toMatchObject({
+      code: "daily_cap_exceeded",
+    });
+
+    await service.updateSpendPolicy(ownerToken, {
+      max_bounty_usd: 100,
+      daily_cap_usd: 1000,
+      allowed_task_types: [...types],
+    });
+    const broke = await ask(await fresh(), at, { bounty_usd: 50 }).catch((err: EyesError) => err);
+    expect(broke).toMatchObject({ code: "insufficient_balance" });
+    const body = JSON.stringify((broke as EyesError).toBody());
+    expect(body).toContain("/topup/");
+    expect(body).not.toContain(ownerToken);
+    expect(body).not.toContain("/owner/");
+  });
+
+  it("still signs the agent up when the owner email fails, without logging the owner link", async () => {
+    const send = providers.email.send;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    providers.email.send = async (msg) => {
+      throw new Error(`relay refused: ${msg.text}`);
+    };
+    try {
+      const signup = await service.signupAgent({ name: "unlucky-agent", owner_email: "owner@example.com" });
+      expect(signup.next_step).toContain("could not email your user at owner@example.com");
+      expect(error).toHaveBeenCalled();
+      expect(JSON.stringify(error.mock.calls)).not.toContain("/owner/");
+    } finally {
+      providers.email.send = send;
+      error.mockRestore();
+    }
+  });
+
+  it("accepts only p: owner tokens for the owner console and policy updates", async () => {
+    const a = await agent();
+    const secret = "test-link-secret-0123456789";
+    const policy = { max_bounty_usd: 1, daily_cap_usd: 1, allowed_task_types: [] };
+    const wrong = [
+      ...["t", "o", "c"].map((kind) => signToken(secret, `${kind}:${a.id}`)),
+      signToken("another-secret-0123456789", `p:${a.id}`),
+      `${signToken(secret, `p:${a.id}`)}.x`,
+      "garbage",
+    ];
+    for (const token of wrong) {
+      await expect(service.ownerConsole(token)).rejects.toMatchObject({ code: "owner_link_invalid" });
+      await expect(service.updateSpendPolicy(token, policy)).rejects.toMatchObject({
+        code: "owner_link_invalid",
+      });
+    }
+    expect(await service.getSpendPolicy(a)).toMatchObject({ max_bounty_usd: 10, daily_cap_usd: 20 });
+    await expect(service.ownerConsole(signToken(secret, `p:${randomUUID()}`))).rejects.toMatchObject({
+      code: "owner_link_invalid",
+    });
+    await expect(service.updateSpendPolicy(signToken(secret, `p:${a.id}`), policy)).resolves.toMatchObject({
+      max_bounty_usd: 1,
+      allowed_task_types: [],
+    });
   });
 });

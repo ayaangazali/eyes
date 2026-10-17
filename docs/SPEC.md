@@ -20,7 +20,7 @@ Flow:
 Pricing: default $3 bounty to the human plus $0.50 Eyes fee, escrowed from the agent's balance on post, refunded if unclaimed or expired.
 
 Sponsor tracks:
-- Primitive: agents get an Eyes email identity; agents email questions to Eyes and get threaded answers with the photo attached; workers can reply to task emails with photo attachments. Inbound handled by a Primitive function on our managed subdomain. Prize: best agent communication setup, demo must show an agent-side email thread.
+- Primitive: agents get an Eyes email identity; agents email questions to their private Eyes address (ADR-007) and get threaded answers with the photo attached. Workers are reached by text only; worker email replies were dropped (ADR-007). Inbound mail reaches our signed `/webhooks/primitive` route from Primitive's managed subdomain. Prize: best agent communication setup, demo must show an agent-side email thread.
 - Stripe: prepaid agent balance via Checkout; per-API-key spend controls (max bounty, daily cap, allowed task types); escrow, release, Connect Express payout to workers (test mode); refunds on expiry. Prize wants clear user control over what agents can do and spend: spend limits and the refund path must be visible in the demo.
 - Inkbox: the Eyes dispatcher is an Inkbox identity with a phone number; texts or iMessages workers, receives YES claims, sends capture links and payout confirmations.
 - Manufact: MCP server built with the mcp-use SDK (TypeScript), deployed on Manufact Cloud.
@@ -81,7 +81,7 @@ Phase 2, money, verification, deploy:
 - Gate G2: live end-to-end including Stripe test-mode escrow -> payout visible in the dashboard; safety refusal works live.
 
 Phase 3, Primitive, AX, dashboard (feature freeze at 6:00 AM Sunday):
-- T3.1 `comms-builder`: Primitive agent email identity; agents email `tasks@` and get threaded answers with the photo attached; workers reply with attachments (marked gps-unverified unless the capture link is used). Verifiers: spec, test, security, intent.
+- T3.1 `comms-builder`: Primitive agent email identity; agents email their capability address (ADR-007) and get threaded answers with the photo attached; DMARC-verified senders only. Verifiers: spec, test, security, intent.
 - T3.2 `ax-builder`: `/llms.txt`, `/llms-full.txt`, `/openapi.json`, `/.well-known/agent-card.json`, agent self-signup (API key + funding link, $20 test grant), error catalog surfaced with `fix`, CLI `eyes ask "..."`. Verifiers: spec, test, ax, intent.
 - T3.3 `dashboard-builder`: live map, task timeline, ledger, payouts. Verifiers: spec, intent.
 - T3.4 orchestrator or `ax-builder`: Armature analytics and a golden-path eval across Claude and one other client. Verifiers: ax, integration.
@@ -199,7 +199,7 @@ Eyes only allows tasks about public, commercial or civic places.
 1. "Agents can read the whole internet but can't see the street outside." In Claude: "Is the line at [DEMO_CAFE] long right now? Use Eyes."
 2. Claude calls `quote_task` then `ask_eyes`; the dashboard shows the pin and "3 workers notified."
 3. A teammate already at the cafe gets the text, replies YES, snaps the photo.
-4. Claude receives: "Short line, about 4 people, photo attached, verified 38 m away, $3.50 total." The Stripe dashboard shows escrow released and $3 paid out.
+4. Claude receives: "Short line, about 4 people, photo attached, verified 38 m away, $3.50 total." The Eyes dashboard ledger shows the escrow released; the Stripe dashboard shows the top-up and the $3 transfer to the worker's connected account (escrow is an Eyes ledger entry, not a Stripe object).
 5. A rejected task ("photograph the house at [address]") returns a polite refusal. An agent emails Eyes and gets a threaded answer with the photo attached.
 6. Close: "Eyes turns 8 billion humans into an API agents can pay for."
 
