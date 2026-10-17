@@ -638,6 +638,38 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
+  it("emails one owner link when first payments for an agent arrive at the same time", async () => {
+    const overlapping = async (agentId: string, calls: () => Promise<unknown>[]) => {
+      const lock = await sql.reserve();
+      await lock`begin`;
+      await lock`select 1 from agents where id = ${agentId} for update`;
+      const running = Promise.all(calls());
+      await sleep(500);
+      await lock`commit`;
+      lock.release();
+      await running;
+    };
+    const topup = (agentId: string, stripe_ref: string, payer_email: string) =>
+      service.creditTopup({ agent_id: agentId, amount_cents: 1500, stripe_ref, payer_email });
+
+    const a = await agent();
+    const payer = `payer-${randomUUID()}@example.com`;
+    const ref = `cs_${randomUUID()}`;
+    const before = providers.email.outbox.length;
+    await overlapping(a.id, () => Array.from({ length: 5 }, () => topup(a.id, ref, payer)));
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 35 });
+    expect(providers.email.outbox.slice(before).map((m) => m.to)).toEqual([payer]);
+
+    const b = await agent();
+    const payers = [`first-${randomUUID()}@example.com`, `second-${randomUUID()}@example.com`];
+    const start = providers.email.outbox.length;
+    await overlapping(b.id, () => payers.map((p) => topup(b.id, `cs_${randomUUID()}`, p)));
+    expect(await service.getBalance(b)).toMatchObject({ balance_usd: 50 });
+    const sent = providers.email.outbox.slice(start);
+    expect(sent).toHaveLength(1);
+    expect(payers).toContain(sent[0]?.to);
+  });
+
   it("still credits a top-up when the payer email fails, without logging the owner link", async () => {
     const a = await agent();
     const send = providers.email.send;
