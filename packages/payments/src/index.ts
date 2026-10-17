@@ -31,7 +31,7 @@ export function createStripePayments(env: Env): Payments {
       'STRIPE_SECRET_KEY is a live key, which moves real money, but EYES_TEST_MODE is not "false". Use a test key (sk_test_...) from your Stripe sandbox, or set EYES_TEST_MODE=false to take real payments on purpose.',
     );
   }
-  const stripe = new Stripe(key);
+  const stripe = new Stripe(key, { timeout: 80_000, maxNetworkRetries: 2 });
 
   return {
     async createTopupCheckout({ agent_id, amount_cents, success_url, cancel_url }) {
@@ -100,16 +100,27 @@ export function createStripePayments(env: Env): Payments {
           `Stripe account ${account_id} cannot receive transfers yet (transfers capability: ${transfers}); the worker has not finished payout setup.`,
         );
       }
-      const transfer = await stripe.transfers.create(
-        {
-          amount: amount_cents,
-          currency: "usd",
-          destination: account_id,
-          transfer_group: `task_${task_id}`,
-          metadata: { task_id },
-        },
-        { idempotencyKey: idempotency_key },
-      );
+      const transfer_group = `task_${task_id}`;
+      const [earlier] = (await stripe.transfers.list({ transfer_group, limit: 1 })).data;
+      if (earlier) return { transfer_id: earlier.id };
+      const transfer = await stripe.transfers
+        .create(
+          {
+            amount: amount_cents,
+            currency: "usd",
+            destination: account_id,
+            transfer_group,
+            metadata: { task_id },
+          },
+          { idempotencyKey: idempotency_key },
+        )
+        .catch((err: { statusCode?: number; type?: string; headers?: Record<string, string> }) => {
+          const refused =
+            [400, 402, 404].includes(err.statusCode ?? 0) &&
+            err.type !== "StripeRateLimitError" &&
+            err.headers?.["stripe-should-retry"] !== "true";
+          throw refused ? err : Object.assign(err, { outcome_unknown: true });
+        });
       return { transfer_id: transfer.id };
     },
 

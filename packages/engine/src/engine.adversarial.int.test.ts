@@ -777,52 +777,165 @@ describe.skipIf(!url)("engine under races and guards", () => {
   const paidTexts = (env: Env, phone: string) =>
     env.outbox.filter((m) => m.to === phone && m.kind === "paid");
 
-  it("a transfer that failed is paid by the next retryPayouts, once, with the per-task idempotency key", async () => {
-    const env = make();
+  function stripeLike(env: Env, refusals: number) {
     const real = env.providers.payments.payoutWorker;
-    env.providers.payments.payoutWorker = STRIPE_DOWN;
+    const results = new Map<string, Error | { transfer_id: string }>();
+    const keys: string[] = [];
+    env.providers.payments.payoutWorker = async (i) => {
+      keys.push(i.idempotency_key);
+      await sleep(randomInt(4));
+      const out =
+        results.get(i.idempotency_key) ??
+        (refusals-- > 0 ? new Error("balance_insufficient: platform balance too low") : await real(i));
+      results.set(i.idempotency_key, out);
+      if (out instanceof Error) throw out;
+      return out;
+    };
+    return keys;
+  }
+  const leaseTakenAgo = (taskId: string, age: string) => sql`
+    update ledger set stripe_ref = format('payout:%s:%s', task_id,
+      floor(extract(epoch from clock_timestamp() - ${age}::interval) * 1000000)::bigint)
+    where task_id = ${taskId} and type = 'release'`;
+  const keyOf = (taskId: string) => new RegExp(`^payout:${taskId}:\\d+$`);
+  async function retryUntilPaid(env: Env, taskId: string) {
+    for (let i = 0; i < 10 && (await task(taskId)).status === "verified"; i++)
+      await env.service.retryPayouts();
+  }
+
+  it("a transfer Stripe refused is paid by the next retryPayouts under a new idempotency key, exactly once", async () => {
+    const env = make();
+    const keys = stripeLike(env, 1);
     const { w, task_id, res } = await captured(env);
-    env.providers.payments.payoutWorker = real;
     expect(res).toMatchObject({ status: "verified", message: expect.stringContaining("retried") });
 
-    expect((await env.service.retryPayouts()).paid).toBeGreaterThanOrEqual(1);
+    await retryUntilPaid(env, task_id);
     await env.service.retryPayouts();
     expect((await task(task_id)).status).toBe("paid");
     expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow", "fee", "payout", "release"]);
-    expect(transfersFor(env, task_id)).toEqual([
-      expect.objectContaining({ idempotency_key: `payout:${task_id}`, amount_cents: 300 }),
-    ]);
+    expect(transfersFor(env, task_id)).toEqual([expect.objectContaining({ amount_cents: 300 })]);
+    const mine = keys.filter((k) => k.includes(task_id));
+    expect(mine).toEqual([expect.stringMatching(keyOf(task_id)), expect.stringMatching(keyOf(task_id))]);
+    expect(mine[0]).not.toBe(mine[1]);
     expect(paidTexts(env, w.phone)).toHaveLength(1);
   });
 
-  it("retryPayouts racing the onboarding webhook on one task (both in the transfer at once) pays once", async () => {
+  it("retryPayouts, onboarding webhooks and an operator release racing on two instances pay each task once", async () => {
+    const A = make();
+    const B = make();
+    stripeLike(A, 0);
+    const stripe = A.providers.payments;
+    B.providers.payments.payoutWorker = (i) => stripe.payoutWorker(i);
+    for (let rep = 0; rep < 10; rep++) {
+      const real = stripe.payoutWorker;
+      stripe.payoutWorker = STRIPE_DOWN;
+      const { a, w, task_id } = await captured(A);
+      stripe.payoutWorker = real;
+      const account = `acct_fake_${w.worker_id}`;
+      if (rep % 2) await A.service.disputeAnswer(a, { task_id, reason: "Wrong store." });
+      await Promise.all([
+        A.service.retryPayouts(),
+        B.service.retryPayouts(),
+        A.service.markWorkerOnboarded(account),
+        B.service.markWorkerOnboarded(account),
+        rep % 2 && B.service.resolveTask(task_id, "release", "Sign matches."),
+      ]);
+      await A.service.markWorkerOnboarded(account);
+      expect((await task(task_id)).status).toBe("paid");
+      expect((await rows(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
+      expect(stripe.transfers.filter((t) => t.task_id === task_id)).toHaveLength(1);
+      expect([...A.outbox, ...B.outbox].filter((m) => m.to === w.phone && m.kind === "paid")).toHaveLength(1);
+    }
+  });
+
+  it("an attempt that died holding the payout lease blocks others for 15 minutes, then the task is paid", async () => {
     const env = make();
     const real = env.providers.payments.payoutWorker;
     env.providers.payments.payoutWorker = STRIPE_DOWN;
     const { w, task_id } = await captured(env);
-    const keys: string[] = [];
-    let bothIn: () => void = () => {};
-    const gate = new Promise<void>((r) => {
-      bothIn = r;
-    });
-    env.providers.payments.payoutWorker = async (i) => {
-      if (i.task_id !== task_id) return real(i);
-      keys.push(i.idempotency_key);
-      if (keys.length === 2) bothIn();
-      await Promise.race([gate, sleep(2000)]);
-      return real(i);
-    };
+    env.providers.payments.payoutWorker = real;
+    const account = `acct_fake_${w.worker_id}`;
 
-    await Promise.all([
-      env.service.retryPayouts(),
-      env.service.markWorkerOnboarded(`acct_fake_${w.worker_id}`),
-    ]);
-    expect(keys).toEqual([`payout:${task_id}`, `payout:${task_id}`]);
+    await leaseTakenAgo(task_id, "14 minutes 50 seconds");
+    await env.service.markWorkerOnboarded(account);
+    expect((await task(task_id)).status).toBe("verified");
+    expect(transfersFor(env, task_id)).toHaveLength(0);
+
+    await leaseTakenAgo(task_id, "15 minutes");
+    await env.service.markWorkerOnboarded(account);
     expect((await task(task_id)).status).toBe("paid");
-    expect((await rows(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
     expect(transfersFor(env, task_id)).toHaveLength(1);
+  });
+
+  it("a transfer whose outcome is unknown keeps the lease, so the webhook cannot pay again before Stripe finishes", async () => {
+    const env = make();
+    const real = env.providers.payments.payoutWorker;
+    let finished: { transfer_id: string } | undefined;
+    let stripeStillRunning: Promise<void> | undefined;
+    env.providers.payments.payoutWorker = async (i) => {
+      if (finished) return finished;
+      if (stripeStillRunning) return real(i);
+      stripeStillRunning = sleep(50).then(async () => {
+        finished = await real(i);
+      });
+      throw Object.assign(new Error("connection lost on all 3 tries"), { outcome_unknown: true });
+    };
+    const { w, task_id, res } = await captured(env);
+    expect(res.status).toBe("verified");
+    const account = `acct_fake_${w.worker_id}`;
+
+    await env.service.markWorkerOnboarded(account);
+    await stripeStillRunning;
+    expect((await task(task_id)).status).toBe("verified");
+    expect(transfersFor(env, task_id)).toHaveLength(1);
+
+    await leaseTakenAgo(task_id, "15 minutes");
+    await env.service.markWorkerOnboarded(account);
+    expect((await task(task_id)).status).toBe("paid");
+    expect(transfersFor(env, task_id)).toHaveLength(1);
+    expect((await rows(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
     expect(paidTexts(env, w.phone)).toHaveLength(1);
   });
+
+  it("30 tasks on an account that never finishes onboarding do not keep retryPayouts from a newer payable task", async () => {
+    const env = make();
+    const real = env.providers.payments.payoutWorker;
+    const at = somewhere();
+    const stuck = await worker(north(at, 100), env);
+    await env.service.workerConnectUrl(stuck.connectToken);
+    const stuckAccount = `acct_fake_${stuck.worker_id}`;
+    env.providers.payments.payoutWorker = async (i) => {
+      if (i.account_id === stuckAccount)
+        throw new Error(`Stripe account ${i.account_id} cannot receive transfers yet`);
+      return real(i);
+    };
+    const stuckTasks: string[] = [];
+    for (let n = 0; n < 3; n++) {
+      const a = await agent(env);
+      for (let k = 0; k < 10; k++) {
+        const { task_id } = await ask(a, at, { bounty_usd: 1 }, env);
+        await yes(stuck.phone, env);
+        await env.service.submitCapture(
+          tokenOf(env.outbox, stuck.phone),
+          capture(at, env.providers.clock.now()),
+          photo,
+        );
+        stuckTasks.push(task_id);
+      }
+    }
+    env.providers.clock.advance(60_000);
+    const late = await captured(env, false);
+    await env.service.workerConnectUrl(late.w.connectToken);
+    expect((await task(late.task_id)).status).toBe("verified");
+
+    await retryUntilPaid(env, late.task_id);
+    expect((await task(late.task_id)).status).toBe("paid");
+    for (const id of stuckTasks) expect((await task(id)).status).toBe("verified");
+
+    env.providers.payments.payoutWorker = real;
+    await env.service.markWorkerOnboarded(stuckAccount);
+    for (const id of stuckTasks) expect((await task(id)).status).toBe("paid");
+  }, 15_000);
 
   it("resolveTask refund returns a needs_review task's escrow to the agent and never pays the worker", async () => {
     const env = make({ verify: REVIEW });
@@ -851,7 +964,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
     });
     expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow", "fee", "payout", "release"]);
     expect(transfersFor(env, task_id)).toEqual([
-      expect.objectContaining({ idempotency_key: `payout:${task_id}` }),
+      expect.objectContaining({ idempotency_key: expect.stringMatching(keyOf(task_id)) }),
     ]);
     expect(paidTexts(env, w.phone)).toHaveLength(1);
     expect(await env.service.getBalance(a)).toMatchObject({ balance_usd: 16.5, escrowed_usd: 0 });
@@ -937,7 +1050,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
     }
   });
 
-  it("a worker who texted STOP is still paid but gets no paid text and no payout setup text", async () => {
+  it("a worker who texted STOP is paid without texts, and the capture page shows the payout setup link instead", async () => {
     const env = make();
     const stop = (phone: string) => env.service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
     const onboarded = await captured(env, true, stop);
@@ -956,6 +1069,12 @@ describe.skipIf(!url)("engine under races and guards", () => {
         ),
       ).toEqual([]);
     }
+    expect(unconnected.res.message).not.toContain("texted");
+    const link = unconnected.res.message.split("set up payouts here: ")[1] ?? "";
+    expect(link).toMatch(/^https:\/\/api\.eyes\.test\/w\/connect\//);
+    expect(await env.service.workerConnectUrl(link.split("/w/connect/")[1] ?? "")).toBe(
+      `https://connect.fake.test/onboard/acct_fake_${unconnected.w.worker_id}`,
+    );
   });
 
   it("a paid or payout setup text that fails after verification never fails the capture or the payout", async () => {
