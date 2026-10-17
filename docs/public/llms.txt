@@ -1,0 +1,91 @@
+# Eyes
+
+> Eyes lets an AI agent pay a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and get back a verified answer with a live photo.
+
+All paths below are relative to this server's origin: the scheme and host you fetched this file from. If you fetched `https://<host>/llms.txt`, the MCP endpoint is `https://<host>/mcp`.
+
+## What Eyes does and does not do
+
+- Does: send a registered human nearby to look at a public, commercial or civic place (store, cafe, park, transit stop, venue) and answer your question with a live photo, GPS and a verification report.
+- Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`.
+- Does not: anything about specific private people, homes or home addresses, someone's vehicle, entering private property, photographing identifiable people, following anyone, or illegal or dangerous tasks. These are refused with `unsafe_task` before anything is charged.
+- Coverage depends on workers near the place. `quote_task` tells you for free before you pay. Answers usually take 5 to 20 minutes.
+
+## Pricing, escrow and refunds
+
+- You set `bounty_usd` (default 3, from 1 to 50), paid to the human. Eyes adds a 0.50 USD fee.
+- Bounty plus fee are escrowed from your prepaid balance when you call `ask_eyes`. The worker is paid only after the answer is verified.
+- Full refund if nobody answers before `deadline_minutes` (default 30, from 5 to 240), or if you call `cancel_task` before a worker claims the task.
+- Answer wrong? `dispute_answer` holds the payout for human review.
+- Your human stays in control: each API key has a max bounty, a daily cap (UTC day) and allowed task types. Read them with `get_spend_policy`.
+- Test mode: signup grants a 20 USD test balance.
+
+## Quickstart
+
+### 1. Sign up (no dashboard, no human needed)
+
+    curl -X POST <origin>/v1/signup -H 'content-type: application/json' -d '{"name": "my-research-agent"}'
+
+The response has `api_key`, `balance_usd`, `top_up_url`, `email_address` and `next_step`. The `api_key` is shown only once: store it now, for example as the env var `EYES_API_KEY`. `email_address` (null if email is not set up) lets you ask Eyes by email; anyone who knows it can spend your balance, so keep it secret.
+
+### 2. Give the top-up link to your human
+
+Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. In test mode you can skip this step and use the 20 USD grant.
+
+### 3. Connect MCP with the bearer header
+
+Endpoint: `<origin>/mcp` (MCP Streamable HTTP). Every request needs the header `Authorization: Bearer <api_key>`.
+
+Claude Code:
+
+    claude mcp add --transport http eyes <origin>/mcp --header "Authorization: Bearer $EYES_API_KEY"
+
+`.mcp.json` (Claude Code, Cursor):
+
+    {"mcpServers": {"eyes": {"type": "http", "url": "<origin>/mcp", "headers": {"Authorization": "Bearer <api_key>"}}}}
+
+No MCP client? The same tools are a REST API (see openapi.json) with the same bearer header.
+
+### 4. Quote, ask, then loop on await
+
+1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
+2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. Always set `idempotency_key`, one per question. Retrying with the same key and parameters returns the same task and never charges twice.
+3. `await_answer({"task_id": "<task_id>"})` right away. Each call waits up to 50 seconds (max 55). Keep calling it with the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet". You cannot receive events in the background, so this loop is how you get the answer.
+
+When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`, `captured_at`, `worker_distance_m`, `verification`, `confidence` and `cost_usd`. Show your user the answer and the photo.
+
+## Task statuses
+
+- `dispatched`: nearby workers were texted; nobody has claimed it yet. Keep calling `await_answer`. `cancel_task` still refunds in full.
+- `claimed`: a worker accepted and is on the way. Keep calling `await_answer`. It can no longer be cancelled.
+- `submitted`: the worker sent an answer; Eyes is verifying it. Keep calling `await_answer`.
+- `verified`, `paid`: answered (`answered: true`) and every check passed. `paid` means the worker has been paid.
+- `needs_review`: answered (`answered: true`), but at least one automatic check failed. `answer.verification` shows which: `gps_ok` (worker within about 150 m of the place), `fresh_ok` (photo taken live, before the deadline), `vision_ok` with `vision_reason` (the photo actually answers the question). Your escrow is held until a human review settles it: paid to the worker or refunded to you. Use the answer with care, call `get_task` later for the outcome, and `dispute_answer` if it is wrong.
+- `expired`: nobody answered before the deadline. Bounty and fee were refunded to your balance. Ask again later, with a higher bounty, or at a busier place.
+- `refunded`: you cancelled the task. Bounty and fee were refunded to your balance.
+- `disputed`: you disputed the answer. The payout is held for human review; check back with `get_task`.
+
+## Errors always carry a fix
+
+Every error is JSON: `{"error": "<code>", "message": "...", "fix": "...", ...context}`. Over MCP the tool result has `isError: true` with that JSON as text; over REST it comes with an HTTP 4xx or 5xx status. `fix` says exactly what to do next, filled in with your numbers, so follow it. One exception: over MCP, arguments that do not match a tool's input schema return a plain "Input validation error" text naming each bad field; fix those fields and call again. Common errors:
+
+- `insufficient_balance`: the fix includes your `top_up_url` and the largest bounty you can afford.
+- `unsafe_task`: rephrase the task about a public place. Nothing was charged.
+- `no_workers_nearby`: nothing was charged; try a nearby busier place or later.
+- `rate_limited`: wait `retry_after_s` seconds, then retry the same call with the same `idempotency_key`.
+- `internal_error`: retry the same call with the same `idempotency_key`; retries are safe.
+
+A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` and so on) creates no task, so retrying with the same `idempotency_key` and corrected parameters is safe.
+
+## REST and CLI
+
+- REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
+- CLI: `eyes` means `node cli/src/main.ts`, run from a checkout of the source repo (Node 24.2+, after `pnpm install`). `EYES_API_URL=<origin> eyes signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `eyes ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints `{"idempotency_key": ...}` to stderr before sending, then the task, then the answer. Re-running the same `ask` while its task is still open reuses that key (one file per ask in `~/.config/eyes/pending-asks/`), so a crash, Ctrl-C or two runs at once never charge twice; `--idempotency-key` overrides it. It retries failed polls for up to 10 minutes; if waiting stops it prints `resume with: eyes await <task_id>`. If your tool calls time out, run `eyes ask ... --no-wait`, then `eyes status <task_id>` or `eyes await <task_id>`. Exit 0 means answered. A final status without an answer (`expired`, `refunded`, `disputed`) exits 1 and prints the task with its `next_step`, but no `Fix:` line. Errors print `message` and `fix` and exit 1 (130 on Ctrl-C). `--help` on any command shows its usage.
+
+## Reference
+
+- [llms-full.txt](/llms-full.txt): this file plus every tool's input and output JSON Schema and the full error catalog
+- [openapi.json](/openapi.json): OpenAPI 3.1 description of the REST API
+- [agent-card.json](/.well-known/agent-card.json): A2A agent card
+- [agents.md](/agents.md): short summary for agents
+- [Source code](https://github.com/ayaangazali/eyes): the Eyes repository, including the `eyes` CLI

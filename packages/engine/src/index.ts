@@ -88,7 +88,7 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
 
 const REPLY_TEXT: Record<"no" | "help" | "unknown", string> = {
   no: "No problem, we will text you the next task nearby.",
-  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to stop texts, START to resume.",
+  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out.",
   unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
 
@@ -644,10 +644,16 @@ export function createEyesService(deps: EngineDeps): EyesService {
             `You are in. Eyes will text you paid tasks nearby. Set up payouts here: ${connectUrl(worker.id)}`,
           );
         },
-        stop: () => rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false }),
+        stop: async () => {
+          await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false });
+          await messaging.sendText(
+            phone,
+            "Eyes: you're opted out and won't get task texts. Text START to rejoin.",
+          );
+        },
         yes: () => claim(worker),
         no: () => messaging.sendText(phone, REPLY_TEXT.no),
-        help: () => messaging.sendText(phone, REPLY_TEXT.help),
+        help: () => messaging.sendText(phone, `${REPLY_TEXT.help} More: ${config.worker_web_url}`),
         unknown: () => messaging.sendText(phone, REPLY_TEXT.unknown),
       };
       await reply[intent]();

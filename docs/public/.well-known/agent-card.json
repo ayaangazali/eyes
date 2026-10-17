@@ -1,0 +1,105 @@
+{
+  "name": "Eyes",
+  "description": "Eyes pays a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo.",
+  "supportedInterfaces": [
+    {
+      "url": "/mcp",
+      "protocolBinding": "https://modelcontextprotocol.io/specification/latest/basic/transports#streamable-http",
+      "protocolVersion": "1.0"
+    },
+    {
+      "url": "/",
+      "protocolBinding": "https://spec.openapis.org/oas/v3.1.0",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "version": "0.1.0",
+  "documentationUrl": "/llms.txt",
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false
+  },
+  "securitySchemes": {
+    "bearer": {
+      "httpAuthSecurityScheme": {
+        "scheme": "Bearer",
+        "description": "API key from POST /v1/signup, sent as Authorization: Bearer <api_key>."
+      }
+    }
+  },
+  "securityRequirements": [
+    {
+      "schemes": {
+        "bearer": {
+          "list": []
+        }
+      }
+    }
+  ],
+  "defaultInputModes": ["application/json"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "quote_task",
+      "name": "Quote a task",
+      "description": "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed (false if this API key may not post that task_type, see reason_if_not) and resolved_location (where Eyes thinks you mean). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.",
+      "tags": ["coverage", "pricing"],
+      "examples": [
+        "quote_task({\"location\":\"Ferry Building, San Francisco\",\"task_type\":\"line_length\"})"
+      ]
+    },
+    {
+      "id": "ask_eyes",
+      "name": "Ask a human to check",
+      "description": "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. Always pass a unique idempotency_key: retrying with the same key and parameters returns the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.",
+      "tags": ["physical-world", "human-verification", "real-time"],
+      "examples": [
+        "ask_eyes({\"question\":\"How many people are waiting in line right now?\",\"location\":\"Blue Bottle Coffee, Mint Plaza, San Francisco\",\"task_type\":\"line_length\",\"bounty_usd\":3,\"idempotency_key\":\"6f1c2a9e-line-check\"})"
+      ]
+    },
+    {
+      "id": "await_answer",
+      "name": "Wait for the answer",
+      "description": "Long-poll for the answer to a task. Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the task is answered. Call it right after ask_eyes and keep calling it with the same task_id until answered is true or status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer. answered: false only means not yet; tasks usually take 5 to 20 minutes.",
+      "tags": ["physical-world", "polling"],
+      "examples": ["await_answer({\"task_id\":\"3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b\"})"]
+    },
+    {
+      "id": "get_task",
+      "name": "Get task status",
+      "description": "Instant, read-only status and details of one task, including the answer once there is one. To wait for an answer call await_answer instead of polling get_task.",
+      "tags": ["status"],
+      "examples": ["get_task({\"task_id\":\"3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b\"})"]
+    },
+    {
+      "id": "cancel_task",
+      "name": "Cancel a task",
+      "description": "Cancel a task that no worker has claimed yet (status dispatched) and refund the full escrow, bounty plus fee. After a worker claims it this fails with task_not_cancellable; keep calling await_answer instead.",
+      "tags": ["refund"],
+      "examples": ["cancel_task({\"task_id\":\"3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b\"})"]
+    },
+    {
+      "id": "dispute_answer",
+      "name": "Dispute an answer",
+      "description": "Flag an answered task (status verified, paid or needs_review) as wrong. The worker payout is held and the task goes to human review. Give a specific reason. To get a fresh answer now, call ask_eyes again with a new idempotency_key.",
+      "tags": ["refund", "review"],
+      "examples": [
+        "dispute_answer({\"task_id\":\"3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b\",\"reason\":\"The photo shows a different cafe, not Blue Bottle.\"})"
+      ]
+    },
+    {
+      "id": "get_balance",
+      "name": "Get balance",
+      "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url, and after they pay call get_balance again before asking.",
+      "tags": ["billing"],
+      "examples": ["get_balance({})"]
+    },
+    {
+      "id": "get_spend_policy",
+      "name": "Get spend policy",
+      "description": "The limits your human set on this API key: max_bounty_usd per task, daily_cap_usd, spent_today_usd and remaining_today_usd (UTC day), and allowed_task_types. Stay within them when you call ask_eyes; only your human can change them.",
+      "tags": ["billing", "limits"],
+      "examples": ["get_spend_policy({})"]
+    }
+  ]
+}
