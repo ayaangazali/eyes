@@ -167,8 +167,17 @@ export const QuoteTaskOutput = z.object({
   workers_nearby: z.int().min(0),
   est_minutes_to_answer: z.number().nullable(),
   suggested_bounty_usd: Usd,
-  allowed: z.boolean(),
-  reason_if_not: z.string().nullable(),
+  allowed: z
+    .boolean()
+    .describe(
+      "Whether Eyes' safety rules accept this task_type at this place. It does not check your question (ask_eyes checks the question itself and can still refuse it with unsafe_task) or your spend policy and balance (see get_spend_policy and get_balance).",
+    ),
+  reason_if_not: z
+    .string()
+    .nullable()
+    .describe(
+      "Why allowed is false and what to change about the place or task_type; null when allowed is true.",
+    ),
   resolved_location: ResolvedLocation,
 });
 
@@ -252,6 +261,32 @@ export const GetTaskOutput = z.object({
   created_at: Timestamp,
   claimed_at: Timestamp.nullable(),
   answer: Answer.nullable(),
+});
+
+export const ListTasksInput = z.object({
+  status: TaskStatus.optional().describe(
+    'Only return tasks in this status, e.g. "dispatched" for tasks no worker has claimed yet. Omit for every status.',
+  ),
+  limit: z.int().min(1).max(50).default(20).describe("How many tasks to return, newest first. 1 to 50."),
+});
+export const ListTasksOutput = z.object({
+  tasks: z
+    .array(
+      z.object({
+        task_id: Id,
+        status: TaskStatus,
+        question: z.string(),
+        place_label: z.string(),
+        bounty_usd: Usd,
+        created_at: Timestamp,
+        deadline_at: Timestamp,
+        answered: z
+          .boolean()
+          .describe("True when status is verified, paid or needs_review; get_task returns the answer."),
+      }),
+    )
+    .max(50),
+  next_step: z.string(),
 });
 
 export const CancelTaskInput = z.object({ task_id: TaskId });
@@ -343,6 +378,7 @@ export const TOOLS = {
   ask_eyes: { input: AskEyesInput, output: AskEyesOutput },
   await_answer: { input: AwaitAnswerInput, output: AwaitAnswerOutput },
   get_task: { input: GetTaskInput, output: GetTaskOutput },
+  list_tasks: { input: ListTasksInput, output: ListTasksOutput },
   cancel_task: { input: CancelTaskInput, output: CancelTaskOutput },
   dispute_answer: { input: DisputeAnswerInput, output: DisputeAnswerOutput },
   get_balance: { input: GetBalanceInput, output: GetBalanceOutput },
@@ -415,6 +451,7 @@ export const HTTP_ROUTES = {
   quote: "POST /v1/quote",
   ask: "POST /v1/tasks",
   get_task: "GET /v1/tasks/:task_id",
+  list_tasks: "GET /v1/tasks",
   await_answer: "POST /v1/tasks/:task_id/await",
   cancel_task: "POST /v1/tasks/:task_id/cancel",
   dispute_answer: "POST /v1/tasks/:task_id/dispute",

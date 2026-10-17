@@ -19,6 +19,7 @@ type Op = {
   description: string;
   auth: boolean;
   params?: Record<string, Json>;
+  query?: Json;
   body?: Json;
   example?: Json;
   response: Json;
@@ -38,7 +39,7 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
   quote_task: {
     title: "Quote a task",
     summary:
-      "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed (false if this API key may not post that task_type, see reason_if_not) and resolved_location (where Eyes thinks you mean). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.",
+      "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed with reason_if_not, and resolved_location (where Eyes thinks you mean). allowed only says whether Eyes' safety rules accept this task_type at this place: quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task, and allowed ignores your spend policy and balance (see get_spend_policy and get_balance). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.",
     tags: ["coverage", "pricing"],
     example: { location: "Ferry Building, San Francisco", task_type: "line_length" },
   },
@@ -68,6 +69,13 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
       "Instant, read-only status and details of one task, including the answer once there is one. To wait for an answer call await_answer instead of polling get_task.",
     tags: ["status"],
     example: TASK_ID,
+  },
+  list_tasks: {
+    title: "List your tasks",
+    summary:
+      "Instant, read-only list of the tasks this API key created, newest first: task_id, status, question, place_label, bounty_usd, created_at, deadline_at and answered. Call it when you lost a task_id (context reset, crash) and before asking a question again, so you resume an open task instead of paying twice. status filters to one status; limit is 1 to 50 (default 20). Next: await_answer any task still dispatched, claimed or submitted; get_task any task where answered is true.",
+    tags: ["status", "recovery"],
+    example: { status: "dispatched", limit: 5 },
   },
   cancel_task: {
     title: "Cancel a task",
@@ -113,6 +121,7 @@ function toolOp(name: ToolName, route: Documented): Op {
   const drop = (o: Json) => Object.fromEntries(Object.entries(o).filter(([k]) => !params.includes(k)));
   const bodyProps = drop(props);
   const hasBody = HTTP_ROUTES[route].startsWith("POST") && Object.keys(bodyProps).length > 0;
+  const query = HTTP_ROUTES[route].startsWith("GET") ? bodyProps : {};
   const required = ((input.required as string[] | undefined) ?? []).filter((k) => !params.includes(k));
   const { example, title, summary } = TOOL_DOCS[name];
   return {
@@ -122,6 +131,7 @@ function toolOp(name: ToolName, route: Documented): Op {
     description: `${summary} Same as the MCP tool ${name}.`,
     auth: true,
     params: Object.fromEntries(params.map((p) => [p, props[p] as Json])),
+    query,
     body: hasBody ? { ...input, properties: bodyProps, required } : undefined,
     example: hasBody ? drop(example) : undefined,
     response: schema(TOOLS[name].output),
@@ -144,7 +154,7 @@ const OPS: Record<Documented, Op> = {
     tag: "agent",
     summary: "MCP endpoint",
     description:
-      "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
+      "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, list_tasks, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
     auth: true,
     body: { type: "object", description: "An MCP JSON-RPC 2.0 message." },
     response: { type: "object", description: "An MCP JSON-RPC 2.0 response, as JSON or text/event-stream." },
@@ -164,6 +174,7 @@ const OPS: Record<Documented, Op> = {
   ask: toolOp("ask_eyes", "ask"),
   await_answer: toolOp("await_answer", "await_answer"),
   get_task: toolOp("get_task", "get_task"),
+  list_tasks: toolOp("list_tasks", "list_tasks"),
   cancel_task: toolOp("cancel_task", "cancel_task"),
   dispute_answer: toolOp("dispute_answer", "dispute_answer"),
   get_balance: toolOp("get_balance", "get_balance"),
@@ -191,12 +202,15 @@ function openapi(): Json {
   const paths: Record<string, Json> = {};
   for (const [route, op] of Object.entries(OPS) as [Documented, Op][]) {
     const [method = "", path = ""] = HTTP_ROUTES[route].split(" ");
-    const parameters = Object.entries(op.params ?? {}).map(([name, s]) => ({
-      name,
-      in: "path",
-      required: true,
-      schema: s,
-    }));
+    const parameters = [
+      ...Object.entries(op.params ?? {}).map(([name, s]) => ({
+        name,
+        in: "path",
+        required: true,
+        schema: s,
+      })),
+      ...Object.entries(op.query ?? {}).map(([name, s]) => ({ name, in: "query", schema: s })),
+    ];
     const media = (s: Json, example?: Json) => (example ? { schema: s, example } : { schema: s });
     const key = path.replace(/:(\w+)/g, "{$1}");
     paths[key] = {
@@ -281,7 +295,7 @@ function llmsFull(llms: string): string {
     "",
     "## Tools",
     "",
-    "Each tool is available over MCP (POST /mcp) and over REST. Over REST, task_id goes in the path and the other input fields go in the JSON body.",
+    "Each tool is available over MCP (POST /mcp) and over REST. Over REST, task_id goes in the path and the other input fields go in the JSON body, or in the query string on GET routes.",
   ];
   for (const [route, op] of tools) {
     const name = op.id as ToolName;

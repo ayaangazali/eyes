@@ -453,6 +453,32 @@ export function createEyesService(deps: EngineDeps): EyesService {
       };
     },
 
+    async listTasks(agent, input) {
+      const { status, limit } = parse(TOOLS.list_tasks.input, input);
+      const rows = await rpc<Task>("eyes_list_tasks", {
+        p_agent_id: agent.id,
+        p_status: status ?? null,
+        p_limit: limit,
+      });
+      return {
+        tasks: rows.map((t) => ({
+          task_id: t.id,
+          status: t.status,
+          question: t.question,
+          place_label: t.place_label,
+          bounty_usd: centsToUsd(t.bounty_cents),
+          created_at: iso(t.created_at),
+          deadline_at: iso(t.deadline_at),
+          answered: ANSWERED.includes(t.status),
+        })),
+        next_step: rows.length
+          ? "Resume instead of asking again: for a task with status dispatched, claimed or submitted, call await_answer with its task_id; for a task where answered is true, call get_task to read the answer and photo_url. Call ask_eyes only if no task here covers your question."
+          : status
+            ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
+            : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
+      };
+    },
+
     async cancelTask(agent, input) {
       const { task_id } = parse(TOOLS.cancel_task.input, input);
       const task = await one<Task>("eyes_cancel_task", {

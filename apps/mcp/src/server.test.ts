@@ -244,12 +244,19 @@ describe("signup and join throttle", () => {
 });
 
 describe("MCP tools", () => {
-  it("lists all eight tools with read-only and idempotent hints", async () => {
+  it("lists every tool with read-only and idempotent hints", async () => {
     const client = await connect(setup().fetch);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(TOOLS).sort());
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
-    for (const name of ["quote_task", "await_answer", "get_task", "get_balance", "get_spend_policy"]) {
+    for (const name of [
+      "quote_task",
+      "await_answer",
+      "get_task",
+      "list_tasks",
+      "get_balance",
+      "get_spend_policy",
+    ]) {
       expect(hints[name]?.readOnlyHint, name).toBe(true);
     }
     expect(hints.ask_eyes).toMatchObject({ readOnlyHint: false, idempotentHint: true });
@@ -307,6 +314,26 @@ describe("MCP tools", () => {
 });
 
 describe("REST mirror", () => {
+  it("serves list_tasks at GET /v1/tasks from query parameters with the default limit", async () => {
+    const inputs: unknown[] = [];
+    const { fetch } = setup({
+      listTasks: async (_agent, input) => {
+        inputs.push(input);
+        return { tasks: [], next_step: "Call ask_eyes." };
+      },
+    });
+    const get = (query: string) =>
+      fetch(`http://eyes.test/v1/tasks${query}`, { headers: { authorization: `Bearer ${KEY}` } });
+    expect((await get("?status=dispatched&limit=5")).status).toBe(200);
+    expect((await get("")).status).toBe(200);
+    for (const bad of ["?limit=51", "?limit=abc", "?status=lost"]) {
+      const res = await get(bad);
+      expect(res.status, bad).toBe(400);
+      expect(await res.json(), bad).toMatchObject({ error: "invalid_input" });
+    }
+    expect(inputs).toEqual([{ status: "dispatched", limit: 5 }, { limit: 20 }]);
+  });
+
   it("returns the EyesError status code and body", async () => {
     const { fetch } = setup();
     const res = await fetch(`http://eyes.test/v1/tasks/${TASK_ID}/cancel`, {

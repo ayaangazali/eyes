@@ -48,11 +48,13 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 
 ### 4. Quote, ask, then loop on await
 
-1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
+1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `allowed` covers only the place and task type: `ask_eyes` still checks your question and your spend policy, and can refuse either. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
 2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. Always set `idempotency_key`, one per question. Retrying with the same key and parameters returns the same task and never charges twice.
 3. `await_answer({"task_id": "<task_id>"})` right away. Each call waits up to 50 seconds (max 55). Keep calling it with the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet". You cannot receive events in the background, so this loop is how you get the answer.
 
 When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`, `captured_at`, `worker_distance_m`, `verification`, `confidence` and `cost_usd`. Show your user the answer and the photo.
+
+Lost a `task_id` after a restart or context reset? Call `list_tasks` (newest first, optional `status` and `limit`) before asking again, and resume the open task with `await_answer` instead of paying twice.
 
 ## Task statuses
 
@@ -79,8 +81,8 @@ A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` an
 
 ## REST and CLI
 
-- REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
-- CLI: `eyes` means `node cli/src/main.ts`, run from a checkout of the source repo (Node 24.2+, after `pnpm install`). `EYES_API_URL=<origin> eyes signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `eyes ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints `{"idempotency_key": ...}` to stderr before sending, then the task, then the answer. Re-running the same `ask` while its task is still open reuses that key (one file per ask in `~/.config/eyes/pending-asks/`), so a crash, Ctrl-C or two runs at once never charge twice; `--idempotency-key` overrides it. It retries failed polls for up to 10 minutes; if waiting stops it prints `resume with: eyes await <task_id>`. If your tool calls time out, run `eyes ask ... --no-wait`, then `eyes status <task_id>` or `eyes await <task_id>`. Exit 0 means answered. A final status without an answer (`expired`, `refunded`, `disputed`) exits 1 and prints the task with its `next_step`, but no `Fix:` line. Errors print `message` and `fix` and exit 1 (130 on Ctrl-C). `--help` on any command shows its usage.
+- REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `GET /v1/tasks?status=&limit=` (list_tasks), `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
+- CLI: `eyes` means `node cli/src/main.ts`, run from a checkout of the source repo (Node 24.2+, after `pnpm install`). `EYES_API_URL=<origin> eyes signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `eyes ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints `{"idempotency_key": ...}` to stderr before sending, then the task, then the answer. Re-running the same `ask` while its task is still open reuses that key (one file per ask in `~/.config/eyes/pending-asks/`), so a crash, Ctrl-C or two runs at once never charge twice; `--idempotency-key` overrides it. It retries failed polls for up to 10 minutes; if waiting stops it prints `resume with: eyes await <task_id>`. If your tool calls time out, run `eyes ask ... --no-wait`, then `eyes status <task_id>` or `eyes await <task_id>`. `eyes tasks [--status dispatched]` lists your tasks if you lost a `task_id`. Exit 0 means answered. A final status without an answer (`expired`, `refunded`, `disputed`) exits 1 and prints the task with its `next_step`, but no `Fix:` line. Errors print `message` and `fix` and exit 1 (130 on Ctrl-C). `--help` on any command shows its usage.
 
 ## Reference
 
@@ -105,13 +107,13 @@ Output:
 
 ## Tools
 
-Each tool is available over MCP (POST /mcp) and over REST. Over REST, task_id goes in the path and the other input fields go in the JSON body.
+Each tool is available over MCP (POST /mcp) and over REST. Over REST, task_id goes in the path and the other input fields go in the JSON body, or in the query string on GET routes.
 
 ### quote_task: Quote a task
 
 REST: POST /v1/quote
 
-Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed (false if this API key may not post that task_type, see reason_if_not) and resolved_location (where Eyes thinks you mean). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.
+Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed with reason_if_not, and resolved_location (where Eyes thinks you mean). allowed only says whether Eyes' safety rules accept this task_type at this place: quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task, and allowed ignores your spend policy and balance (see get_spend_policy and get_balance). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.
 
 Example: quote_task({"location":"Ferry Building, San Francisco","task_type":"line_length"})
 
@@ -121,7 +123,7 @@ Input:
 ```
 Output:
 ```json
-{"type":"object","properties":{"workers_nearby":{"type":"integer","minimum":0,"maximum":9007199254740991},"est_minutes_to_answer":{"type":["number","null"]},"suggested_bounty_usd":{"type":"number"},"allowed":{"type":"boolean"},"reason_if_not":{"type":["string","null"]},"resolved_location":{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"},"label":{"type":"string"}},"required":["lat","lng","label"],"additionalProperties":false}},"required":["workers_nearby","est_minutes_to_answer","suggested_bounty_usd","allowed","reason_if_not","resolved_location"],"additionalProperties":false}
+{"type":"object","properties":{"workers_nearby":{"type":"integer","minimum":0,"maximum":9007199254740991},"est_minutes_to_answer":{"type":["number","null"]},"suggested_bounty_usd":{"type":"number"},"allowed":{"type":"boolean","description":"Whether Eyes' safety rules accept this task_type at this place. It does not check your question (ask_eyes checks the question itself and can still refuse it with unsafe_task) or your spend policy and balance (see get_spend_policy and get_balance)."},"reason_if_not":{"description":"Why allowed is false and what to change about the place or task_type; null when allowed is true.","type":["string","null"]},"resolved_location":{"type":"object","properties":{"lat":{"type":"number"},"lng":{"type":"number"},"label":{"type":"string"}},"required":["lat","lng","label"],"additionalProperties":false}},"required":["workers_nearby","est_minutes_to_answer","suggested_bounty_usd","allowed","reason_if_not","resolved_location"],"additionalProperties":false}
 ```
 
 ### ask_eyes: Ask a human to check
@@ -173,6 +175,23 @@ Input:
 Output:
 ```json
 {"type":"object","properties":{"task_id":{"type":"string","format":"uuid"},"status":{"type":"string","enum":["dispatched","claimed","submitted","verified","paid","expired","refunded","disputed","needs_review"]},"question":{"type":"string"},"task_type":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"]},"place_label":{"type":"string"},"bounty_usd":{"type":"number"},"fee_usd":{"type":"number"},"deadline_at":{"type":"string","format":"date-time"},"created_at":{"type":"string","format":"date-time"},"claimed_at":{"anyOf":[{"type":"string","format":"date-time"},{"type":"null"}]},"answer":{"anyOf":[{"type":"object","properties":{"task_id":{"type":"string","format":"uuid"},"answer_text":{"type":"string"},"answer_bool":{"type":["boolean","null"]},"photo_url":{"type":["string","null"]},"captured_at":{"type":"string","format":"date-time"},"worker_distance_m":{"type":"number"},"verification":{"type":"object","properties":{"gps_ok":{"type":"boolean"},"fresh_ok":{"type":"boolean"},"vision_ok":{"type":"boolean"},"vision_reason":{"type":"string"}},"required":["gps_ok","fresh_ok","vision_ok","vision_reason"],"additionalProperties":false},"confidence":{"type":"number","minimum":0,"maximum":1},"worker_rating":{"type":"number"},"cost_usd":{"type":"number"}},"required":["task_id","answer_text","answer_bool","photo_url","captured_at","worker_distance_m","verification","confidence","worker_rating","cost_usd"],"additionalProperties":false},{"type":"null"}]}},"required":["task_id","status","question","task_type","place_label","bounty_usd","fee_usd","deadline_at","created_at","claimed_at","answer"],"additionalProperties":false}
+```
+
+### list_tasks: List your tasks
+
+REST: GET /v1/tasks
+
+Instant, read-only list of the tasks this API key created, newest first: task_id, status, question, place_label, bounty_usd, created_at, deadline_at and answered. Call it when you lost a task_id (context reset, crash) and before asking a question again, so you resume an open task instead of paying twice. status filters to one status; limit is 1 to 50 (default 20). Next: await_answer any task still dispatched, claimed or submitted; get_task any task where answered is true.
+
+Example: list_tasks({"status":"dispatched","limit":5})
+
+Input:
+```json
+{"type":"object","properties":{"status":{"description":"Only return tasks in this status, e.g. \"dispatched\" for tasks no worker has claimed yet. Omit for every status.","type":"string","enum":["dispatched","claimed","submitted","verified","paid","expired","refunded","disputed","needs_review"]},"limit":{"default":20,"description":"How many tasks to return, newest first. 1 to 50.","type":"integer","minimum":1,"maximum":50}}}
+```
+Output:
+```json
+{"type":"object","properties":{"tasks":{"maxItems":50,"type":"array","items":{"type":"object","properties":{"task_id":{"type":"string","format":"uuid"},"status":{"type":"string","enum":["dispatched","claimed","submitted","verified","paid","expired","refunded","disputed","needs_review"]},"question":{"type":"string"},"place_label":{"type":"string"},"bounty_usd":{"type":"number"},"created_at":{"type":"string","format":"date-time"},"deadline_at":{"type":"string","format":"date-time"},"answered":{"type":"boolean","description":"True when status is verified, paid or needs_review; get_task returns the answer."}},"required":["task_id","status","question","place_label","bounty_usd","created_at","deadline_at","answered"],"additionalProperties":false}},"next_step":{"type":"string"}},"required":["tasks","next_step"],"additionalProperties":false}
 ```
 
 ### cancel_task: Cancel a task

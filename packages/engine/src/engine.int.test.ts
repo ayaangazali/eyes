@@ -15,6 +15,7 @@ import {
   type SafetyVerdict,
   SignupOutput,
   signToken,
+  type TaskStatus,
   TOOLS,
   type VerificationResult,
 } from "@eyes/core";
@@ -258,6 +259,34 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await service.agentById(a.id)).toEqual(a);
     expect(await service.agentById(randomUUID())).toBeNull();
     expect(await service.agentById("not-a-uuid")).toBeNull();
+  });
+
+  it("lists only the calling agent's tasks, newest first, filtered by status and bounded by limit", async () => {
+    const at = somewhere();
+    await worker(north(at, 100));
+    const [a, b] = [await agent(), await agent()];
+    const mine: string[] = [];
+    for (const question of ["Is it open right now?", "Is the line long?", "Is it busy right now?"]) {
+      mine.unshift((await ask(a, at, { question })).task_id);
+      providers.clock.advance(1000);
+    }
+    const theirs = await ask(b, at);
+    await service.cancelTask(a, { task_id: mine[1] as string });
+    const ids = async (who: Agent, input: { status?: TaskStatus; limit: number }) =>
+      (await service.listTasks(who, input)).tasks.map((t) => t.task_id);
+
+    const listed = TOOLS.list_tasks.output.parse(await service.listTasks(a, { limit: 20 }));
+    expect(listed.tasks.map((t) => t.task_id)).toEqual(mine);
+    expect(listed.tasks[0]).toMatchObject({
+      question: "Is it busy right now?",
+      status: "dispatched",
+      bounty_usd: 3,
+      answered: false,
+    });
+    expect(await ids(b, { limit: 20 })).toEqual([theirs.task_id]);
+    expect(await ids(a, { status: "refunded", limit: 20 })).toEqual([mine[1]]);
+    expect(await ids(a, { limit: 2 })).toEqual(mine.slice(0, 2));
+    await expect(service.listTasks(a, { limit: 51 })).rejects.toMatchObject({ code: "invalid_input" });
   });
 
   it("charges nothing on insufficient balance and tells the agent what it can afford", async () => {

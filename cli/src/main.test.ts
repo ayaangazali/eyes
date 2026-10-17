@@ -235,6 +235,21 @@ it("re-running an ask reuses its key while the task is open, gets a new key once
   expect(calls[5]?.body?.idempotency_key).toBe("mine");
 });
 
+it("tasks sends --status and --limit as query parameters and checks the limit before calling", async () => {
+  const listed = { tasks: [], next_step: "Call ask_eyes." };
+  const { deps, calls } = setup([
+    [200, listed],
+    [200, listed],
+  ]);
+  expect(await run(["tasks", "--status", "dispatched", "--limit", "5"], deps)).toBe(0);
+  expect(await run(["tasks"], deps)).toBe(0);
+  expect(await run(["tasks", "--limit", "51"], deps)).toBe(1);
+  expect(calls.map((c) => [c.method, c.url])).toEqual([
+    ["GET", "https://eyes.test/v1/tasks?status=dispatched&limit=5"],
+    ["GET", "https://eyes.test/v1/tasks"],
+  ]);
+});
+
 it("status lookup 5xx keeps the key", async () => {
   const { deps, calls } = setup([
     [200, ASKED],
