@@ -190,4 +190,56 @@ describe.skipIf(!url)("dispatch and YES claims for workers who already hold a ta
       await sql`drop function eyes_claim_paused(uuid, timestamptz)`;
     }
   });
+
+  it("a NO gives the claim back only before the deadline, and a NO racing the photo never both releases and keeps it", async () => {
+    const place = somewhere();
+    const lockWaits = async () =>
+      (
+        await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity
+          where datname = current_database() and wait_event_type = 'Lock'
+            and (query like '%eyes_release_claim(%' or query like '%eyes_submit(%')`
+      )[0]?.n ?? 0;
+
+    for (let rep = 0; rep < 20; rep++) {
+      const w = await worker(place, 50);
+      const taskId = await post(await agent(), place, [w], 0);
+      await yes(w, 1);
+      expect(await rpc("eyes_release_claim", { p_worker_id: w, p_now: at(30 * 60) })).toEqual([]);
+
+      const noFirst = rep % 2 === 1;
+      const no = () =>
+        rpc<Task>("eyes_release_claim", { p_worker_id: w, p_now: at(2) }).then((r) => r.length);
+      const photo = () =>
+        settle(taskId, w, place, 2).then(
+          () => "sent",
+          (e: { code?: string }) => e.code,
+        );
+      let released: Promise<number> = Promise.resolve(-1);
+      let sent: Promise<string | undefined> = Promise.resolve("unset");
+      await sql.begin(async (tx) => {
+        await tx`select id from tasks where id = ${taskId} for update`;
+        if (noFirst) released = no();
+        else sent = photo();
+        while ((await lockWaits()) < 1) await sleep(5);
+        if (noFirst) sent = photo();
+        else released = no();
+        while ((await lockWaits()) < 2) await sleep(5);
+      });
+
+      const outcome = { released: await released, sent: await sent };
+      const [submissions] = await sql<{ n: number }[]>`
+        select count(*)::int as n from submissions where task_id = ${taskId}`;
+      expect({ ...outcome, submissions: submissions?.n, ...(await task(taskId)) }).toEqual(
+        noFirst
+          ? {
+              released: 1,
+              sent: "task_already_claimed",
+              submissions: 0,
+              status: "dispatched",
+              claimed_by: null,
+            }
+          : { released: 0, sent: "sent", submissions: 1, status: "verified", claimed_by: w },
+      );
+    }
+  });
 });

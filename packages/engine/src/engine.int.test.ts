@@ -809,4 +809,47 @@ describe.skipIf(!url)("engine on Postgres", () => {
       error.mockRestore();
     }
   });
+
+  it("a NO after YES gives the task back to the next YES, while a NO without a claim or after the photo changes nothing", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const first = await worker(north(at, 50));
+    const second = await worker(north(at, 100));
+    const { task_id } = await ask(a, at);
+    const no = (phone: string) => service.handleWorkerReply({ phone, intent: "no", text: "NO" });
+    const last = (phone: string) => outbox.findLast((m) => m.to === phone);
+    const token = (phone: string) =>
+      new URL(
+        String(outbox.findLast((m) => m.to === phone && m.kind === "capture_link")?.payload.capture_url),
+      ).searchParams.get("t") ?? "";
+    const skipped = "No problem, we will text you the next task nearby.";
+
+    await reply(first.phone);
+    await reply(second.phone);
+    await no(second.phone);
+    expect(last(second.phone)?.payload).toBe(skipped);
+    expect(await service.getTask(a, { task_id })).toMatchObject({ status: "claimed" });
+
+    const firstToken = token(first.phone);
+    await no(first.phone);
+    const released = String(last(first.phone)?.payload);
+    expect(released).toBe("Got it, the task is released. Thanks.");
+    expect(released.length).toBeLessThanOrEqual(159);
+    expect(await service.getTask(a, { task_id })).toMatchObject({ status: "dispatched", claimed_at: null });
+    expect(await service.awaitAnswer(a, { task_id, timeout_seconds: 1 })).toMatchObject({
+      status: "dispatched",
+      answered: false,
+    });
+
+    await reply(second.phone);
+    expect(last(second.phone)).toMatchObject({ kind: "capture_link", payload: { task_id } });
+    await expect(capture(firstToken, at)).rejects.toMatchObject({ code: "task_already_claimed" });
+    await capture(token(second.phone), at);
+    await no(second.phone);
+    expect(last(second.phone)?.payload).toBe(skipped);
+    expect(await service.getTask(a, { task_id })).toMatchObject({
+      status: "verified",
+      answer: { answer_text: "short" },
+    });
+  });
 });

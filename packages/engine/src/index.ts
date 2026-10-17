@@ -87,8 +87,9 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
     "You disputed this answer and it is flagged for human review. Call get_task later to see the outcome.",
 };
 
-const REPLY_TEXT: Record<"no" | "help" | "unknown", string> = {
+const REPLY_TEXT: Record<"no" | "released" | "help" | "unknown", string> = {
   no: "No problem, we will text you the next task nearby.",
+  released: "Got it, the task is released. Thanks.",
   help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out.",
   unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
@@ -755,7 +756,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
           );
         },
         yes: () => claim(worker),
-        no: () => messaging.sendText(phone, REPLY_TEXT.no),
+        no: async () => {
+          const released = await maybe<Task>("eyes_release_claim", {
+            p_worker_id: worker.id,
+            p_now: nowIso(),
+          });
+          await messaging.sendText(phone, released ? REPLY_TEXT.released : REPLY_TEXT.no);
+        },
         help: () => messaging.sendText(phone, `${REPLY_TEXT.help} More: ${config.worker_web_url}`),
         unknown: () => messaging.sendText(phone, REPLY_TEXT.unknown),
       };
