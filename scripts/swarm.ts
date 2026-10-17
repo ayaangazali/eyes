@@ -1,16 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
 import { parseArgs } from "node:util";
-import {
-  type Agent,
-  AppConfig,
-  type AssessTask,
-  EyesError,
-  fakeGeo,
-  fakeProviders,
-} from "../packages/core/src/index.ts";
+import { type Agent, AppConfig, EyesError, fakeGeo, fakeProviders } from "../packages/core/src/index.ts";
 import { createRpc } from "../packages/db/src/index.ts";
 import { createEyesService } from "../packages/engine/src/index.ts";
+import { createAssessTask } from "../packages/safety/src/index.ts";
 import { verifySubmission } from "../packages/verify/src/index.ts";
 
 type Env = Record<string, string | undefined>;
@@ -25,13 +19,6 @@ const CLAIM_CUTOFF_S = 48;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
 const BOUNTIES = [2, 3, 3, 3, 4, 5];
-const ALLOW: AssessTask = async () => ({
-  allowed: true,
-  category: null,
-  reason: null,
-  fix: null,
-  layer: null,
-});
 
 const KINDS = {
   is_open: {
@@ -216,7 +203,7 @@ async function run(url: string, agentCount: number, perAgent: number) {
   const service = createEyesService({
     db: { kind: "postgres", url },
     providers,
-    assessTask: ALLOW,
+    assessTask: createAssessTask({}),
     verifySubmission,
     config: AppConfig.parse({
       public_api_url: "http://127.0.0.1:3000",

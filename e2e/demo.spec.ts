@@ -9,8 +9,6 @@ import { createServer } from "../apps/mcp/src/server.ts";
 import { createDashboardServer } from "../apps/web/dashboard/src/server.ts";
 import {
   AppConfig,
-  type AssessTask,
-  EyesError,
   FAKE_PLACES,
   fakeProviders,
   type SignupOutput,
@@ -69,7 +67,6 @@ let API = "";
 let DASHBOARD = "";
 let client: Client;
 let signup: SignupOutput;
-let safetyStubbed = false;
 
 async function listen(server: Server) {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -186,18 +183,6 @@ test.beforeAll(async () => {
   url.pathname = `/${dbName}`;
   await migrate(url.href);
 
-  const realSafety = createAssessTask({});
-  safetyStubbed = await realSafety({ question: QUESTION, task_type: "line_length", place_label: CAFE.label })
-    .then(() => false)
-    .catch((err) => err instanceof EyesError && err.code === "not_implemented");
-  const allow: AssessTask = async () => ({
-    allowed: true,
-    category: null,
-    reason: null,
-    fix: null,
-    layer: null,
-  });
-
   api = createHttpServer();
   API = await listen(api);
   const config = AppConfig.parse({
@@ -210,7 +195,7 @@ test.beforeAll(async () => {
   const service = createEyesService({
     db,
     providers,
-    assessTask: safetyStubbed ? allow : realSafety,
+    assessTask: createAssessTask({}),
     verifySubmission,
     config,
   });
@@ -322,7 +307,7 @@ test("demo: Claude asks about the cafe line, a texted worker answers on site, Cl
     expect(result.answer?.worker_distance_m).toBeLessThan(150);
   });
 
-  await test.step("one $3.00 transfer, and one escrow, release, fee and payout row for the task", async () => {
+  await test.step("one $3.00 transfer, one escrow, release, fee and payout row, released on the dashboard", async () => {
     expect(providers.payments.transfers).toEqual([
       expect.objectContaining({ amount_cents: 300, task_id: taskId }),
     ]);
@@ -336,14 +321,13 @@ test("demo: Claude asks about the cafe line, a texted worker answers on site, Cl
     await expect(
       board.getByRole("heading", { name: `Answered at ${CAFE.label}, worker paid $3.00` }),
     ).toBeVisible();
+    await expect(board.getByRole("listitem").filter({ hasText: "Released for the worker" })).toContainText(
+      "$3.00",
+    );
   });
 });
 
 test("demo: a task about a private house is refused with unsafe_task and a fix", async () => {
-  test.fixme(
-    safetyStubbed,
-    "@eyes/safety on main is the T1.5 not_implemented stub (PR #7 not merged), so nothing can refuse yet.",
-  );
   const result = await client.callTool({
     name: "ask_eyes",
     arguments: {
@@ -357,6 +341,7 @@ test("demo: a task about a private house is refused with unsafe_task and a fix",
   const [block] = result.content as { text: string }[];
   expect(JSON.parse(block?.text ?? "null")).toMatchObject({
     error: "unsafe_task",
+    category: "private_residence",
     fix: expect.stringMatching(/\S/),
   });
 });
