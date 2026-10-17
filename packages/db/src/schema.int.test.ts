@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "./migrate.ts";
@@ -57,5 +58,43 @@ describe.skipIf(!url)("migration v1 invariants", () => {
     const [a, b] = await Promise.all([claim(sql, workers[0]?.id), claim(other, workers[1]?.id)]);
     await other.end();
     expect(a.length + b.length).toBe(1);
+  });
+
+  it("keeps every table behind RLS and strips anon and authenticated grants", async () => {
+    const tables = ["agents", "ledger", "offers", "schema_migrations", "submissions", "tasks", "workers"];
+    expect(
+      await sql`select relname, relrowsecurity from pg_class
+        where relnamespace = 'public'::regnamespace and relname in ${sql(tables)} order by relname`,
+    ).toEqual(tables.map((relname) => ({ relname, relrowsecurity: true })));
+
+    const migration = readFileSync(new URL("../migrations/002_engine.sql", import.meta.url), "utf8");
+    const revokeBlock = migration.match(/^do \$\$[\s\S]*?^end \$\$;/m)?.[0] ?? "";
+    const rollback = new Error("rollback");
+    await expect(
+      sql.begin(async (tx) => {
+        for (const role of ["anon", "authenticated"]) {
+          await tx.unsafe(
+            `do $$ begin if not exists (select 1 from pg_roles where rolname = '${role}') then create role ${role}; end if; end $$`,
+          );
+        }
+        await tx.unsafe(`grant all on ${tables.join(", ")} to anon, authenticated`);
+        await tx.unsafe(
+          "grant execute on function eyes_credit_topup(uuid, bigint, text, timestamptz) to anon",
+        );
+        await tx.unsafe(revokeBlock);
+        const [granted] = await tx`select
+          has_table_privilege('anon', 'agents', 'select') as anon_agents,
+          has_table_privilege('authenticated', 'ledger', 'insert') as authenticated_ledger,
+          has_table_privilege('anon', 'schema_migrations', 'insert') as anon_migrations,
+          has_function_privilege('anon', 'eyes_credit_topup(uuid,bigint,text,timestamptz)', 'execute') as anon_topup`;
+        expect(granted).toEqual({
+          anon_agents: false,
+          authenticated_ledger: false,
+          anon_migrations: false,
+          anon_topup: false,
+        });
+        throw rollback;
+      }),
+    ).rejects.toBe(rollback);
   });
 });

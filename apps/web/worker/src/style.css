@@ -1,0 +1,160 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font:
+    17px / 1.45 system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+
+main {
+  max-width: 34rem;
+  margin: 0 auto;
+  padding: 1.25rem 1rem 3rem;
+}
+
+h1 {
+  font-size: 1.5rem;
+  line-height: 1.25;
+  margin: 0.5rem 0 0.75rem;
+}
+
+h2 {
+  font-size: 1.25rem;
+}
+
+label {
+  display: block;
+  margin: 1rem 0;
+}
+
+fieldset {
+  margin: 1rem 0;
+  border: 0;
+  padding: 0;
+}
+
+fieldset label {
+  display: inline-block;
+  margin: 0.25rem 1rem 0 0;
+}
+
+input:not([type="radio"]) {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.75rem;
+  font: inherit;
+  border: 1px solid #bbb;
+  border-radius: 0.5rem;
+  background: #fff;
+}
+
+input[type="radio"] {
+  width: 1.25rem;
+  height: 1.25rem;
+  vertical-align: -0.2rem;
+}
+
+button,
+.button {
+  display: block;
+  width: 100%;
+  min-height: 3rem;
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  text-decoration: none;
+  color: #fff;
+  background: #1f5eff;
+  border: 0;
+  border-radius: 0.6rem;
+  cursor: pointer;
+}
+
+.secondary {
+  color: #1f5eff;
+  background: #e8eeff;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+video {
+  display: block;
+  width: 100%;
+  border-radius: 0.6rem;
+  background: #000;
+}
+
+#preview {
+  width: 12rem;
+  margin-top: 0.75rem;
+  border-radius: 0.6rem;
+}
+
+.muted {
+  color: #666;
+  font-size: 0.95rem;
+}
+
+.meta {
+  display: flex;
+  justify-content: space-between;
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.error,
+.warn,
+.notice {
+  padding: 0.75rem 1rem;
+  border-radius: 0.6rem;
+}
+
+.error {
+  color: #8a1010;
+  background: #fde8e8;
+}
+
+.warn {
+  background: #fff4d6;
+}
+
+.notice {
+  background: #e8eeff;
+}
+
+.steps li {
+  margin-bottom: 1rem;
+}
+
+.checks {
+  padding: 0;
+  list-style: none;
+}
+
+.checks li {
+  margin: 0.4rem 0;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+}
+
+.ok {
+  background: #e3f6e8;
+}
+
+.fail {
+  background: #fde8e8;
+}

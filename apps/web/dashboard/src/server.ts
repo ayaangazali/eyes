@@ -1,0 +1,47 @@
+import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { DbConfig } from "@eyes/core";
+import { createRpc, type Rpc } from "@eyes/db";
+
+const PAGE = readFileSync(new URL("./index.html", import.meta.url));
+const LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+const FEED_LIMIT = 50;
+
+export function createDashboardServer(rpc: Rpc) {
+  return createServer(async (req, res) => {
+    if (!LOOPBACK_HOST.test(req.headers.host ?? "")) {
+      res.writeHead(403).end();
+      return;
+    }
+    const path = req.method === "GET" ? req.url?.split("?")[0] : null;
+    if (path === "/") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end(PAGE);
+      return;
+    }
+    if (path === "/feed") {
+      try {
+        const [feed] = await rpc("eyes_dashboard_feed", { p_limit: FEED_LIMIT });
+        res
+          .writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
+          .end(JSON.stringify(feed));
+      } catch (err) {
+        console.error("feed failed:", err instanceof Error ? err.message : err);
+        res.writeHead(502, { "content-type": "application/json" }).end('{"error":"feed_unavailable"}');
+      }
+      return;
+    }
+    res.writeHead(404).end();
+  });
+}
+
+if (import.meta.main) {
+  const { DATABASE_URL, INSFORGE_BASE_URL, INSFORGE_API_KEY, PORT = "4400" } = process.env;
+  let db: DbConfig;
+  if (DATABASE_URL) db = { kind: "postgres", url: DATABASE_URL };
+  else if (INSFORGE_BASE_URL && INSFORGE_API_KEY)
+    db = { kind: "insforge", base_url: INSFORGE_BASE_URL, api_key: INSFORGE_API_KEY };
+  else throw new Error("Set DATABASE_URL, or INSFORGE_BASE_URL and INSFORGE_API_KEY, to read the feed.");
+  createDashboardServer(createRpc(db)).listen(Number(PORT), "127.0.0.1", () =>
+    console.log(`EYES dashboard on http://127.0.0.1:${PORT}`),
+  );
+}
