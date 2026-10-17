@@ -7,6 +7,7 @@ import {
   type OwnerConsole,
   type OwnerPolicyInput,
   type Payments,
+  type WorkerEarnings,
 } from "@eyes/core";
 import Stripe from "stripe";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -93,6 +94,51 @@ const OWNER_VIEW: OwnerConsole = {
 };
 const NEW_KEY = 'eyes_test_<b>"new"</b>&key';
 
+const EARNINGS_VIEW: WorkerEarnings = {
+  paid_usd: 3,
+  pending_usd: 6.25,
+  tasks: [
+    {
+      task_id: "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e",
+      place_label: "Dolores Park",
+      status: "verified",
+      bounty_usd: 2,
+      payout: "pending",
+      claimed_at: "2026-10-17T11:00:00.000Z",
+      paid_at: null,
+    },
+    {
+      task_id: "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d",
+      place_label: "<img src=x onerror=alert(1)> Cafe & Co",
+      status: "verified",
+      bounty_usd: 4.25,
+      payout: "waiting_for_payout_setup",
+      claimed_at: "2026-10-17T10:00:00.000Z",
+      paid_at: null,
+    },
+    {
+      task_id: TASK_ID,
+      place_label: "Ferry Building",
+      status: "paid",
+      bounty_usd: 3,
+      payout: "paid",
+      claimed_at: "2026-10-17T09:15:00.000Z",
+      paid_at: "2026-10-17T09:40:00.000Z",
+    },
+  ],
+};
+
+const privateHeaders = (res: Response) => ({
+  referrer: res.headers.get("referrer-policy"),
+  cache: res.headers.get("cache-control"),
+  csp: res.headers.get("content-security-policy"),
+});
+const PRIVATE = {
+  referrer: "no-referrer",
+  cache: "no-store",
+  csp: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+};
+
 function setup(payments: Payments = fakeProviders().payments) {
   const service = {
     creditTopup: vi.fn(async () => {}),
@@ -111,6 +157,19 @@ function setup(payments: Payments = fakeProviders().payments) {
     updateSpendPolicy: vi.fn(async (token: string, _input: OwnerPolicyInput) => {
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
       return OWNER_VIEW.policy;
+    }),
+    workerEarnings: vi.fn(async (token: string) => {
+      if (token !== "earnings-tok") {
+        throw new EyesError(
+          "offer_invalid",
+          {},
+          {
+            message: "This earnings link is invalid or has expired.",
+            fix: "Text HELP to the Eyes number for a fresh link.",
+          },
+        );
+      }
+      return EARNINGS_VIEW;
     }),
     rotateApiKey: vi.fn(async (token: string) => {
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
@@ -248,17 +307,6 @@ describe("owner console routes", () => {
       body,
       headers: { "content-type": "application/x-www-form-urlencoded" },
     });
-  const privateHeaders = (res: Response) => ({
-    referrer: res.headers.get("referrer-policy"),
-    cache: res.headers.get("cache-control"),
-    csp: res.headers.get("content-security-policy"),
-  });
-  const PRIVATE = {
-    referrer: "no-referrer",
-    cache: "no-store",
-    csp: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
-  };
-
   it("renders the console with agent-written text escaped and private-link headers", async () => {
     const { app } = setup();
     const res = await app.request("/owner/owner-tok");
@@ -351,6 +399,39 @@ describe("owner console routes", () => {
       expect(await r.text()).not.toContain(escaped);
     }
     expect(service.rotateApiKey.mock.calls).toEqual([["owner-tok"], ["agent-tok"]]);
+  });
+});
+
+describe("worker earnings page", () => {
+  it("shows the totals and each task's payout, escaping place labels, behind private-link headers", async () => {
+    const { app } = setup();
+    const res = await app.request("/w/earnings/earnings-tok");
+    expect(res.status).toBe(200);
+    expect(privateHeaders(res)).toEqual(PRIVATE);
+    const body = await res.text();
+    expect(body).toContain("<dt>Paid to you</dt><dd>$3.00</dd>");
+    expect(body).toContain("<dt>Earned, not sent yet</dt><dd>$6.25</dd>");
+    expect(body).toContain(
+      "<td>Dolores Park</td><td>$2.00</td><td>verified</td><td>Not sent yet. If you have not finished payout setup, use the link we texted, or text START for a new one.</td>",
+    );
+    expect(body).not.toContain("<img");
+    expect(body).toContain(
+      "<td>&lt;img src=x onerror=alert(1)&gt; Cafe &amp; Co</td><td>$4.25</td><td>verified</td><td>Waiting for your payout setup</td>",
+    );
+    expect(body).toContain("text START to the Eyes number");
+    expect(body).toContain(
+      "<td>Ferry Building</td><td>$3.00</td><td>paid</td><td>Paid 2026-10-17 09:40 UTC</td>",
+    );
+  });
+
+  it("answers an invalid or expired link with a 404 page that says how to get a new one", async () => {
+    const { app } = setup();
+    const res = await app.request("/w/earnings/owner-tok");
+    expect(res.status).toBe(404);
+    expect(privateHeaders(res)).toEqual(PRIVATE);
+    const body = await res.text();
+    expect(body).toContain("This earnings link is invalid or has expired.");
+    expect(body).toContain("Text HELP to the Eyes number for a fresh link.");
   });
 });
 

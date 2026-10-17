@@ -20,6 +20,7 @@ import {
   type TaskStatus,
   TOOLS,
   type VerificationResult,
+  WorkerEarnings,
 } from "@eyes/core";
 import { migrate } from "@eyes/db";
 import postgres from "postgres";
@@ -79,6 +80,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
   const connectToken = (phone: string) =>
     String(outbox.findLast((m) => m.to === phone && m.kind === "text")?.payload).split("/w/connect/")[1] ??
     "";
+
+  const earningsToken = (url: unknown) => String(url).split("/w/earnings/")[1] ?? "";
+  async function helpEarnings(phone: string) {
+    await service.handleWorkerReply({ phone, intent: "help", text: "HELP" });
+    return earningsToken(outbox.findLast((m) => m.to === phone)?.payload);
+  }
 
   async function worker(at: LatLng, optIn = true) {
     const phone = newPhone();
@@ -225,14 +232,21 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(sent().slice(before + 1)).toEqual([expect.stringMatching(/^You are in\. .*\/w\/connect\//)]);
   });
 
-  it("HELP says what Eyes is, how to opt out and where to read more, in one iMessage-sized text", async () => {
+  it("HELP says what Eyes is, how to opt out, where to read more and links the worker's earnings", async () => {
     const { phone } = await worker(somewhere());
     await service.handleWorkerReply({ phone, intent: "help", text: "HELP" });
     const help = String(outbox.findLast((m) => m.to === phone)?.payload);
-    expect(help).toBe(
+    const [text, url] = help.split(" Your earnings: ");
+    expect(text).toBe(
       "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out. More: https://w.eyes.test",
     );
-    expect(help.length).toBeLessThanOrEqual(159);
+    expect(url).toMatch(/^https:\/\/api\.eyes\.test\/w\/earnings\/[\w-]+\.[\w-]+$/);
+    expect(await service.workerEarnings(earningsToken(url))).toEqual({
+      paid_usd: 0,
+      pending_usd: 0,
+      tasks: [],
+    });
+    expect(help.length).toBeLessThanOrEqual(1600);
   });
 
   it("returns outputs that parse against the frozen contract schemas on every service call", async () => {
@@ -678,6 +692,125 @@ describe.skipIf(!url)("engine on Postgres", () => {
       max_bounty_usd: 1,
       allowed_task_types: [],
     });
+  });
+
+  it("shows a worker what was paid and what is still owed, per task and in total, linked from the paid text", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const w = await worker(north(at, 50));
+    const work = async (bounty_usd: number) => {
+      const asked = await ask(a, at, { bounty_usd });
+      await reply(w.phone);
+      const link = outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link");
+      await capture(new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "", at);
+      providers.clock.advance(1000);
+      return asked.task_id;
+    };
+    const row = { place_label: expect.any(String), claimed_at: expect.any(String) };
+
+    const first = await work(3);
+    const connect = connectToken(w.phone);
+    expect(await service.workerEarnings(await helpEarnings(w.phone))).toEqual({
+      paid_usd: 0,
+      pending_usd: 3,
+      tasks: [
+        {
+          ...row,
+          task_id: first,
+          status: "verified",
+          bounty_usd: 3,
+          payout: "waiting_for_payout_setup",
+          paid_at: null,
+        },
+      ],
+    });
+
+    await service.workerConnectUrl(connect);
+    await service.markWorkerOnboarded(`acct_fake_${w.worker_id}`);
+    const paid = outbox.findLast((m) => m.to === w.phone && m.kind === "paid");
+    expect(paid?.payload).toMatchObject({ task_id: first, amount_cents: 300 });
+
+    const payoutWorker = providers.payments.payoutWorker;
+    providers.payments.payoutWorker = async () => {
+      throw new Error("balance_insufficient");
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const second = await work(4.25).finally(() => {
+      providers.payments.payoutWorker = payoutWorker;
+      error.mockRestore();
+    });
+
+    const view = WorkerEarnings.parse(
+      await service.workerEarnings(earningsToken(paid?.payload.earnings_url)),
+    );
+    expect(view).toEqual({
+      paid_usd: 3,
+      pending_usd: 4.25,
+      tasks: [
+        { ...row, task_id: second, status: "verified", bounty_usd: 4.25, payout: "pending", paid_at: null },
+        {
+          ...row,
+          task_id: first,
+          status: "paid",
+          bounty_usd: 3,
+          payout: "paid",
+          paid_at: expect.any(String),
+        },
+      ],
+    });
+  });
+
+  it("never shows a worker another worker's tasks or money", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const [w1, w2, idle] = [
+      await worker(north(at, 50)),
+      await worker(north(at, 60)),
+      await worker(north(at, 70)),
+    ];
+    const work = async (w: { phone: string }, bounty_usd: number) => {
+      const asked = await ask(a, at, { bounty_usd });
+      await reply(w.phone);
+      const link = outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link");
+      await capture(new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "", at);
+      return asked.task_id;
+    };
+    const t1 = await work(w1, 3);
+    const t2 = await work(w2, 5);
+    const view = async (phone: string) => service.workerEarnings(await helpEarnings(phone));
+    expect(await view(w1.phone)).toMatchObject({ pending_usd: 3, tasks: [{ task_id: t1 }] });
+    expect((await view(w1.phone)).tasks).toHaveLength(1);
+    expect(await view(w2.phone)).toMatchObject({ pending_usd: 5, tasks: [{ task_id: t2 }] });
+    expect((await view(w2.phone)).tasks).toHaveLength(1);
+    expect(await view(idle.phone)).toEqual({ paid_usd: 0, pending_usd: 0, tasks: [] });
+  });
+
+  it("opens the earnings page only with an e: token for an existing worker, signed here and under 7 days old", async () => {
+    const w = await worker(somewhere());
+    const secret = "test-link-secret-0123456789";
+    const wrong = [
+      ...["t", "o", "c", "p"].map((kind) => signToken(secret, `${kind}:${w.worker_id}`)),
+      signToken("another-secret-0123456789", `e:${w.worker_id}`),
+      `${signToken(secret, `e:${w.worker_id}`)}.x`,
+      signToken(secret, `e:${randomUUID()}`),
+      "garbage",
+    ];
+    for (const token of wrong) {
+      await expect(service.workerEarnings(token)).rejects.toMatchObject({
+        code: "offer_invalid",
+        message: "This earnings link is invalid or has expired.",
+      });
+    }
+    const token = await helpEarnings(w.phone);
+    const issued = providers.clock.now();
+    try {
+      providers.clock.advance(7 * 24 * 60 * 60 * 1000 - 1000);
+      await expect(service.workerEarnings(token)).resolves.toMatchObject({ tasks: [] });
+      providers.clock.advance(2000);
+      await expect(service.workerEarnings(token)).rejects.toMatchObject({ code: "offer_invalid" });
+    } finally {
+      providers.clock.set(issued);
+    }
   });
 
   it("replaces a leaked API key from the owner link: the old key stops working at once and the new key appears nowhere else", async () => {

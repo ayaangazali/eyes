@@ -214,7 +214,12 @@ test("an agent asks over MCP, a texted worker captures on site, the agent gets a
     }),
   ]);
   expect(sent(PAYEE.phone, "paid").map((m) => m.payload)).toEqual([
-    { task_id: taskId, place_label: CAFE.label, amount_cents: 300 },
+    {
+      task_id: taskId,
+      place_label: CAFE.label,
+      amount_cents: 300,
+      earnings_url: expect.stringContaining(`${API}/w/earnings/`),
+    },
   ]);
 });
 

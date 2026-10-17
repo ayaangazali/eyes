@@ -54,13 +54,27 @@ type ConsoleRow = Summary & {
   }[];
   ledger: { type: LedgerType; amount_cents: number; task_id: string | null; created_at: string }[];
 };
+type EarningsRow = {
+  paid_cents: number;
+  pending_cents: number;
+  payouts_set_up: boolean;
+  tasks: {
+    task_id: string;
+    place_label: string;
+    status: TaskStatus;
+    bounty_cents: number;
+    claimed_at: string;
+    released: boolean;
+    paid_at: string | null;
+  }[];
+};
 
 const ANSWERED: TaskStatus[] = ["verified", "paid", "needs_review"];
 const FINAL: TaskStatus[] = ["expired", "refunded", "disputed"];
 const WALK_METERS_PER_MINUTE = 80;
 const CAPTURE_MINUTES = 3;
 const POLL_MS = 1000;
-const CONNECT_LINK_MS = 7 * 24 * 60 * 60 * 1000;
+const WORKER_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 const PAYOUT_BATCH = 25;
 
 const ResolveInput = z.object({
@@ -150,7 +164,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const topUpUrl = (agentId: string) =>
     `${config.public_api_url}/topup/${signToken(config.link_secret, `t:${agentId}`)}`;
   const connectUrl = (workerId: string) =>
-    `${config.public_api_url}/w/connect/${signToken(config.link_secret, `c:${workerId}`, new Date(now().getTime() + CONNECT_LINK_MS))}`;
+    `${config.public_api_url}/w/connect/${signToken(config.link_secret, `c:${workerId}`, new Date(now().getTime() + WORKER_LINK_MS))}`;
+  const earningsUrl = (workerId: string) =>
+    `${config.public_api_url}/w/earnings/${signToken(config.link_secret, `e:${workerId}`, new Date(now().getTime() + WORKER_LINK_MS))}`;
   const captureUrl = (task: Task, workerId: string) =>
     `${config.worker_web_url}/capture.html?t=${signToken(config.link_secret, `o:${task.id}:${workerId}`, new Date(task.deadline_at))}`;
 
@@ -160,7 +176,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const ownerUrl = (agentId: string) =>
     `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
 
-  function tokenPayload(token: string, kind: "t" | "c" | "o" | "p"): string | null {
+  function tokenPayload(token: string, kind: "t" | "c" | "o" | "p" | "e"): string | null {
     const payload = verifyToken(config.link_secret, token, now());
     return payload?.startsWith(`${kind}:`) ? payload.slice(kind.length + 1) : null;
   }
@@ -303,7 +319,12 @@ export function createEyesService(deps: EngineDeps): EyesService {
     if (!paid) return task;
     const { id, place_label, bounty_cents } = paid;
     await textWorker(worker, id, () =>
-      messaging.sendPaid(worker.phone, { task_id: id, place_label, amount_cents: bounty_cents }),
+      messaging.sendPaid(worker.phone, {
+        task_id: id,
+        place_label,
+        amount_cents: bounty_cents,
+        earnings_url: earningsUrl(worker.id),
+      }),
     );
     return paid;
   }
@@ -763,10 +784,48 @@ export function createEyesService(deps: EngineDeps): EyesService {
           });
           await messaging.sendText(phone, released ? REPLY_TEXT.released : REPLY_TEXT.no);
         },
-        help: () => messaging.sendText(phone, `${REPLY_TEXT.help} More: ${config.worker_web_url}`),
+        help: () =>
+          messaging.sendText(
+            phone,
+            `${REPLY_TEXT.help} More: ${config.worker_web_url} Your earnings: ${earningsUrl(worker.id)}`,
+          ),
         unknown: () => messaging.sendText(phone, REPLY_TEXT.unknown),
       };
       await reply[intent]();
+    },
+
+    async workerEarnings(token) {
+      const workerId = tokenPayload(token, "e");
+      const e = workerId && (await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: workerId }));
+      if (!e) {
+        throw new EyesError(
+          "offer_invalid",
+          {},
+          {
+            message: "This earnings link is invalid or has expired.",
+            fix: "Text HELP to the Eyes number for a fresh link.",
+          },
+        );
+      }
+      return {
+        paid_usd: centsToUsd(e.paid_cents),
+        pending_usd: centsToUsd(e.pending_cents),
+        tasks: e.tasks.map((t) => ({
+          task_id: t.task_id,
+          place_label: t.place_label,
+          status: t.status,
+          bounty_usd: centsToUsd(t.bounty_cents),
+          payout: t.paid_at
+            ? "paid"
+            : !t.released
+              ? null
+              : e.payouts_set_up
+                ? "pending"
+                : "waiting_for_payout_setup",
+          claimed_at: iso(t.claimed_at),
+          paid_at: t.paid_at && iso(t.paid_at),
+        })),
+      };
     },
 
     async getOffer(token) {
