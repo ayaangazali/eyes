@@ -1,0 +1,86 @@
+import type { JoinWorkerOutput } from "@eyes/core";
+import { $, call, Problem, showError } from "./api.ts";
+
+const form = $<HTMLFormElement>("join");
+const error = $("error");
+let spot: { lat: number; lng: number } | null = null;
+
+function toE164(input: string): string | null {
+  const digits = input.replace(/\D/g, "");
+  const e164 = input.trim().startsWith("+") ? `+${digits}` : `+1${digits.replace(/^1(?=\d{10}$)/, "")}`;
+  return /^\+(1[2-9]\d\d[2-9]\d{6}|[2-9]\d{6,14})$/.test(e164) ? e164 : null;
+}
+
+$("locate").addEventListener("click", () => {
+  error.hidden = true;
+  $("where").textContent = "Finding you...";
+  navigator.geolocation.getCurrentPosition(
+    ({ coords }) => {
+      spot = { lat: coords.latitude, lng: coords.longitude };
+      $("where").textContent = `Location set (within ${Math.round(coords.accuracy)} m).`;
+    },
+    () => {
+      $("where").textContent = "";
+      showError(
+        error,
+        new Problem(
+          "We could not get your location.",
+          "Allow location access for this page, then tap again.",
+        ),
+      );
+    },
+    { enableHighAccuracy: true, timeout: 15_000 },
+  );
+});
+
+form.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  error.hidden = true;
+  const data = new FormData(form);
+  const name = String(data.get("name")).trim();
+  const phone = toE164(String(data.get("phone")));
+  if (name.length < 2) {
+    return showError(error, new Problem("Please enter your name.", "Use at least 2 letters."));
+  }
+  if (!phone) {
+    return showError(
+      error,
+      new Problem(
+        "That phone number does not look right.",
+        "Enter a US mobile number like (415) 555-0123, or start with + and your country code.",
+      ),
+    );
+  }
+  if (!spot) {
+    return showError(
+      error,
+      new Problem("We need your location to send you nearby tasks.", "Tap Use my location and allow access."),
+    );
+  }
+  const submit = $<HTMLButtonElement>("submit");
+  submit.disabled = true;
+  try {
+    const out = await call<JoinWorkerOutput>("/w/join", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name, phone, ...spot }),
+    });
+    const number = out.inkbox_number || import.meta.env.VITE_INKBOX_NUMBER;
+    if (number) {
+      $("start").prepend(
+        Object.assign(document.createElement("a"), {
+          href: `sms:${number}?&body=START`,
+          className: "button",
+          textContent: `Text START to ${number}`,
+        }),
+      );
+      $("start").hidden = false;
+    }
+    form.hidden = true;
+    $("done").hidden = false;
+  } catch (err) {
+    showError(error, err);
+  } finally {
+    submit.disabled = false;
+  }
+});
