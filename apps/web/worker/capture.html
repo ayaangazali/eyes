@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eyes task</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <section id="task" hidden>
+        <p class="meta"><strong id="bounty"></strong> <span id="deadline"></span></p>
+        <h1 id="question">Loading your task</h1>
+        <p id="place"></p>
+      </section>
+      <p id="closed" class="notice" hidden></p>
+      <p id="error" class="error" role="alert" hidden></p>
+
+      <form id="capture" hidden>
+        <p class="warn">
+          <strong>Do not photograph faces.</strong> Point the camera at the place, the line or the shelf. Photos
+          with faces are rejected.
+        </p>
+        <div id="live" hidden>
+          <video id="video" autoplay muted playsinline></video>
+          <button type="button" id="shutter" disabled>Take photo</button>
+        </div>
+        <div id="fallback" hidden>
+          <p class="warn">
+            Your browser cannot show a live camera. A live photo is still required: take it now with your
+            camera, not from your gallery.
+          </p>
+          <label>Take the photo <input type="file" id="file" accept="image/*" capture="environment" /></label>
+        </div>
+        <img id="preview" alt="What you captured" hidden />
+        <p id="gps" class="muted"></p>
+        <fieldset id="yesno" hidden>
+          <legend>Your answer</legend>
+          <label><input type="radio" name="answer_bool" value="true" /> Yes</label>
+          <label><input type="radio" name="answer_bool" value="false" /> No</label>
+        </fieldset>
+        <label>
+          Anything to add? (optional)
+          <input name="answer_text" maxlength="1000" placeholder="e.g. about 6 people in line" />
+        </label>
+        <button type="submit" id="send" disabled>Send to Eyes</button>
+      </form>
+
+      <section id="result" hidden>
+        <h2>Sent</h2>
+        <p id="message"></p>
+        <ul id="checks" class="checks"></ul>
+        <p id="reason" class="muted"></p>
+      </section>
+    </main>
+    <script type="module" src="/src/capture.ts"></script>
+  </body>
+</html>

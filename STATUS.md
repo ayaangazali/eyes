@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 00:05 PT by orchestrator. Gate: **G0 passed**. First merge done (PR #4). WIP gate clear.
+Updated: 2026-10-17 00:40 PT by orchestrator. Gate: **G0 passed**, G1 in progress. Merged: #1 #2 #3 #4 #5 #6 #8 #10 #12 (+#13 merging). **ESCALATED: T1.5 safety (#7) failed verification 3 times; waiting on humans: A = one more round with the verifier's tested fix, B = merge now and follow up.**
 
 ## Task board
 
@@ -10,18 +10,19 @@ Updated: 2026-10-17 00:05 PT by orchestrator. Gate: **G0 passed**. First merge d
 | T0.2 scaffold + CI | orchestrator | done | (initial commit) | n/a | none |
 | T0.3 contracts + migration v1 + fakes | orchestrator | done | (initial commit) | n/a | none |
 | T0.4 agents, hooks, intent system | orchestrator | done | (initial commit) | n/a | none |
-| T1.1 MCP tools + REST + worker API | mcp-builder | fix round 1 | [#2](https://github.com/ayaangazali/eyes/pull/2) | spec PASS, test PASS, intent PASS, ax FAIL, security FAIL (photo bytes corrupted by mcp-use listen; unbounded bodies) | byte-preserving Node adapter |
-| T1.2 engine + db | engine-builder | verifying | [#6](https://github.com/ayaangazali/eyes/pull/6) | intent PASS; spec, test, security running | none |
-| T1.3 Inkbox comms | comms-builder | verifying round 2 | [#1](https://github.com/ayaangazali/eyes/pull/1) | round 2: test PASS (50/50 mutants killed); security+spec running | none |
-| T1.4 worker web | worker-web-builder | fix round 1 | [#3](https://github.com/ayaangazali/eyes/pull/3) | intent PASS, spec FAIL, test FAIL (duplicate POST, GPS re-acquire) | none |
-| T1.5 safety | safety-builder | verifying | [#7](https://github.com/ayaangazali/eyes/pull/7) | spec+security, test+intent running | none |
-| T2.1 Stripe | payments-builder | verifying | [#5](https://github.com/ayaangazali/eyes/pull/5) | spec+intent, test, security running | none |
-| T2.2 verification | verification-builder | **merged** [#4](https://github.com/ayaangazali/eyes/pull/4); follow-up PR in progress | [#4](https://github.com/ayaangazali/eyes/pull/4) | spec PASS, test PASS, intent PASS | none |
-| T2.3 deploy | orchestrator | blocked | | | keys, T1.1, T1.2 |
-| T2.4 money tools | mcp-builder | blocked | | | T2.1 |
-| T3.1 Primitive | comms-builder | blocked | | | G2 |
-| T3.2 AX docs + CLI | ax-builder | building | | | none |
-| T3.3 dashboard | dashboard-builder | blocked | | | G2 |
+| T1.1 MCP tools + REST + worker API | mcp-builder | **merged** #2 | [#2](https://github.com/ayaangazali/eyes/pull/2) | r3 security+ax PASS | live-verified: no |
+| T1.2 engine + db | engine-builder | **merged** #6, #12 | [#6](https://github.com/ayaangazali/eyes/pull/6) | r2 security PASS, test+spec PASS; follow-up PASS | InsForge grants unverified live |
+| T1.3 Inkbox comms | comms-builder | **merged** #1, #10 | [#1](https://github.com/ayaangazali/eyes/pull/1) | r2 all PASS; follow-up #10 PASS | live-verified: no |
+| T1.4 worker web | worker-web-builder | **merged** #3; follow-up #13 merging | [#3](https://github.com/ayaangazali/eyes/pull/3) | r2 PASS; #13 coverage major downgraded by ruling | live-verified: no |
+| T1.5 safety | safety-builder | **ESCALATED** | [#7](https://github.com/ayaangazali/eyes/pull/7) | r1 FAIL, r2 FAIL, r3 FAIL (negation too broad) | human decision A/B |
+| G1 golden path e2e | integration builder | building | | | T1.5 (safety stub on main) |
+| T2.1 Stripe | payments-builder | **merged** | [#5](https://github.com/ayaangazali/eyes/pull/5) | r1 security PASS, spec+intent PASS, test FAIL; r2 PASS | live-verified: no |
+| T2.2 verification | verification-builder | **merged** #4, #8 | [#4](https://github.com/ayaangazali/eyes/pull/4) | all PASS | live-verified: no |
+| T2.3 deploy | orchestrator | blocked | | | keys |
+| T2.4 MCP wiring + hardening | mcp-builder | building | | | none |
+| T3.1 Primitive | comms-builder | verifying round 2 | [#11](https://github.com/ayaangazali/eyes/pull/11) | r1 security FAIL (open relay), spec+test PASS | none |
+| T3.2 AX docs + CLI | ax-builder | verifying round 2 | [#9](https://github.com/ayaangazali/eyes/pull/9) | r1 spec+intent PASS, test FAIL, ax FAIL | none |
+| T3.3 dashboard | dashboard-builder | building | | | none |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
 
 ## Live verification

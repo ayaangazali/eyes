@@ -200,12 +200,15 @@ describe("inkbox webhook", () => {
     expect(handleWorkerReply).not.toHaveBeenCalled();
   });
 
-  it("rejects everything when no signing key is configured, even a request signed with an empty key", async () => {
-    const { post, handleWorkerReply } = setup({ INKBOX_WEBHOOK_SIGNING_KEY: "" });
-    const body = JSON.stringify(textReceived("YES"));
-    expect((await post(body, signedHeaders(body, { key: "" }))).status).toBe(401);
-    expect(handleWorkerReply).not.toHaveBeenCalled();
-  });
+  it.each(["", "whsec_"])(
+    "rejects everything when the signing key is %j, even a request signed with an empty key",
+    async (key) => {
+      const { post, handleWorkerReply } = setup({ INKBOX_WEBHOOK_SIGNING_KEY: key });
+      const body = JSON.stringify(textReceived("YES"));
+      expect((await post(body, signedHeaders(body, { key: "" }))).status).toBe(401);
+      expect(handleWorkerReply).not.toHaveBeenCalled();
+    },
+  );
 
   it("enforces the bearer token when one is configured", async () => {
     const { post, handleWorkerReply } = setup({ INKBOX_WEBHOOK_AUTH_TOKEN: "tok_abc" });
@@ -367,6 +370,11 @@ describe("place label in every template", () => {
     ["Shop http://evil", "Shop"],
     ["Mail a@b.io", "Mail"],
     ["Back\\slash Bar", "Bar"],
+    ["evilꓸcom Deli", "Deli"],
+    ["Call ЧlƼ-ƼƼƼ-OlԳԳ", "Call"],
+    ["Bed & Breakfast", "Bed Breakfast"],
+    ["Deli \u0301\u0301 \u0300", "Deli"],
+    ["Ünïcode Café", "Ünïcode Café"],
     ["", "a nearby place"],
     ["Grand ".repeat(30), "Grand Grand Grand Grand Grand Grand"],
   ])("%j -> %j", (place_label, expected) => {
@@ -442,6 +450,10 @@ describe("parseReplyIntent", () => {
     ["OPT-OUT", "stop"],
     ["optout", "stop"],
     ["Stop texting me!", "stop"],
+    ["STOP STOP", "stop"],
+    ["please stop", "stop"],
+    ["Stop all", "stop"],
+    ["no no", "no"],
     ["START", "start"],
     ["unstop", "start"],
     ["HELP", "help"],

@@ -16,7 +16,7 @@ const SIGNATURE_TOLERANCE_S = 300;
 const TIME_ZONE = "America/Los_Angeles";
 const E164 = /^\+[1-9]\d{6,14}$/;
 const PLACE_MAX_CHARS = 40;
-const PLACE_TOKEN = /^[\p{L}\p{M}\p{Nd}'’&-]+$/u;
+const PLACE_TOKEN = /^(?=.*[\p{L}\p{Nd}])[\p{Script=Latin}\p{M}\p{Nd}'’&-]+$/u;
 
 const TASK_PHRASES: Record<TaskType, string> = {
   is_open: "check if it's open",
@@ -75,9 +75,18 @@ export function paidText(msg: Parameters<Messaging["sendPaid"]>[1]): string {
   return `Eyes: you've been paid ${dollars(msg.amount_cents)} for the task at ${placeText(msg.place_label)}. Thank you!`;
 }
 
-const YES = new Set(["yes", "y", "yep", "yup", "yeah", "yea", "ok", "okay", "sure", "claim", "👍"]);
-
 const INTENTS: Record<string, ReplyIntent> = {
+  yes: "yes",
+  y: "yes",
+  yep: "yes",
+  yup: "yes",
+  yeah: "yes",
+  yea: "yes",
+  ok: "yes",
+  okay: "yes",
+  sure: "yes",
+  claim: "yes",
+  "👍": "yes",
   no: "no",
   n: "no",
   nope: "no",
@@ -93,6 +102,8 @@ const INTENTS: Record<string, ReplyIntent> = {
   optout: "stop",
   "opt out": "stop",
   "stop texting me": "stop",
+  "please stop": "stop",
+  "stop all": "stop",
   start: "start",
   unstop: "start",
   help: "help",
@@ -108,7 +119,8 @@ export function parseReplyIntent(text: string): ReplyIntent {
   const words = tokens.filter((t) => t !== "?");
   const asked = words.length < tokens.length;
   if (words.length === 0) return asked ? "help" : "unknown";
-  const intent = words.every((w) => YES.has(w)) ? "yes" : (INTENTS[words.join(" ")] ?? "unknown");
+  const [first, ...rest] = words.map((w) => INTENTS[w]);
+  const intent = (rest.every((i) => i === first) && first) || INTENTS[words.join(" ")] || "unknown";
   return asked && intent !== "stop" && intent !== "help" ? "unknown" : intent;
 }
 
@@ -148,7 +160,7 @@ const sameSecret = (a: string, b: string) =>
 function authentic(raw: Buffer, headers: Record<string, string>, env: Env, now: Date): boolean {
   const key = env.INKBOX_WEBHOOK_SIGNING_KEY;
   const token = env.INKBOX_WEBHOOK_AUTH_TOKEN;
-  if (!key) return false;
+  if (!key?.replace(/^whsec_/, "")) return false;
   if (token && !sameSecret(headers.authorization ?? "", `Bearer ${token}`)) return false;
   if (!(Math.abs(now.getTime() / 1000 - Number(headers["x-inkbox-timestamp"])) <= SIGNATURE_TOLERANCE_S)) {
     return false;

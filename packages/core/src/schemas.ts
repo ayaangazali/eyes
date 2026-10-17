@@ -227,7 +227,9 @@ export const AwaitAnswerInput = z.object({
     .min(1)
     .max(55)
     .default(50)
-    .describe("How long this call waits for an answer, at most 55 seconds. Call again if answered is false."),
+    .describe(
+      "How long this call waits for an answer, at most 55 seconds. Call again while answered is false and the status is dispatched, claimed or submitted; stop on expired, refunded or disputed.",
+    ),
 });
 export const AwaitAnswerOutput = z.object({
   task_id: Id,
