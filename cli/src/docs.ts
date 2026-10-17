@@ -1,33 +1,20 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import {
-  CaptureFields,
-  CaptureResult,
-  ERRORS,
-  HTTP_ROUTES,
-  JoinWorkerInput,
-  JoinWorkerOutput,
-  OfferView,
-  SignupInput,
-  SignupOutput,
-  TOOLS,
-  type ToolName,
-} from "@eyes/core";
+import { ERRORS, HTTP_ROUTES, SignupInput, SignupOutput, TOOLS, type ToolName } from "@eyes/core";
 import { z } from "zod";
 
 type Json = Record<string, unknown>;
 type Documented = Exclude<
   keyof typeof HTTP_ROUTES,
-  "health" | "topup_redirect" | "worker_connect_redirect" | `webhook_${string}`
+  "health" | "topup_redirect" | `worker_${string}` | `offer_${string}` | `webhook_${string}`
 >;
 type Op = {
   id: string;
-  tag: "agent" | "worker" | "docs";
+  tag: "agent" | "docs";
   summary: string;
   description: string;
   auth: boolean;
   params?: Record<string, Json>;
   body?: Json;
-  bodyType?: string;
   example?: Json;
   response: Json;
   responseType?: string;
@@ -94,7 +81,7 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
   get_balance: {
     title: "Get balance",
     summary:
-      "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url.",
+      "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url (if it is null, ask whoever runs this server), and after they pay call get_balance again before asking.",
     tags: ["billing"],
     example: {},
   },
@@ -146,11 +133,6 @@ const docOp = (id: string, summary: string, type: string): Op => ({
   responseType: type,
 });
 
-const TOKEN = {
-  token: { type: "string", description: "Signed token from the link Eyes texted the worker." },
-};
-const CAPTURE_FIELDS = schema(CaptureFields, "input");
-
 const OPS: Record<Documented, Op> = {
   mcp: {
     id: "mcp",
@@ -167,7 +149,7 @@ const OPS: Record<Documented, Op> = {
     tag: "agent",
     summary: "Create an API key",
     description:
-      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it) plus top_up_url, a Stripe Checkout link for your human to fund the balance. Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance; null when top-ups are not configured, then ask whoever runs this server) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
     auth: false,
     body: schema(SignupInput, "input"),
     example: { name: "my-research-agent" },
@@ -181,43 +163,6 @@ const OPS: Record<Documented, Op> = {
   dispute_answer: toolOp("dispute_answer", "dispute_answer"),
   get_balance: toolOp("get_balance", "get_balance"),
   get_spend_policy: toolOp("get_spend_policy", "get_spend_policy"),
-  worker_join: {
-    id: "worker_join",
-    tag: "worker",
-    summary: "Register a worker",
-    description:
-      "Called by the worker JOIN page when a human signs up to answer tasks. Agents never call this.",
-    auth: false,
-    body: schema(JoinWorkerInput, "input"),
-    response: schema(JoinWorkerOutput),
-  },
-  offer_view: {
-    id: "offer_view",
-    tag: "worker",
-    summary: "View a task offer",
-    description: "Called by the worker capture page to show a claimed task. Agents never call this.",
-    auth: false,
-    params: TOKEN,
-    response: schema(OfferView),
-  },
-  offer_capture: {
-    id: "offer_capture",
-    tag: "worker",
-    summary: "Submit a capture",
-    description:
-      "Called by the worker capture page with the live photo and GPS fix. Agents never call this. Max upload 20 MB.",
-    auth: false,
-    params: TOKEN,
-    body: {
-      ...CAPTURE_FIELDS,
-      properties: {
-        ...(CAPTURE_FIELDS.properties as Json),
-        photo: { type: "string", contentMediaType: "image/*", description: "Live camera photo." },
-      },
-    },
-    bodyType: "multipart/form-data",
-    response: schema(CaptureResult),
-  },
   llms_txt: docOp("llms_txt", "Start here: what Eyes does, pricing and the quickstart.", "text/plain"),
   llms_full_txt: docOp("llms_full_txt", "Full reference: tool schemas and the error catalog.", "text/plain"),
   openapi: docOp("openapi", "This OpenAPI document.", "application/json"),
@@ -261,8 +206,8 @@ function openapi(): Json {
         ...(op.body
           ? {
               requestBody: {
-                required: true,
-                content: { [op.bodyType ?? "application/json"]: media(op.body, op.example) },
+                ...((op.body.required as unknown[] | undefined)?.length ? { required: true } : {}),
+                content: { "application/json": media(op.body, op.example) },
               },
             }
           : {}),
@@ -288,7 +233,6 @@ function openapi(): Json {
     security: [{ bearer: [] }],
     tags: [
       { name: "agent", description: "Called by AI agents with a bearer API key (signup is public)." },
-      { name: "worker", description: "Called by the Eyes worker web pages, not by agents." },
       { name: "docs", description: "Public agent-facing documents." },
     ],
     paths,
@@ -354,7 +298,7 @@ function llmsFull(llms: string): string {
     "",
     "## Errors",
     "",
-    'Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...context}. Over REST it comes with the HTTP status below; over MCP the tool result has isError: true and the same JSON as text. A {name} in a fix below is filled from the field of the same name in the error body.',
+    'Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...context}. Over REST it comes with the HTTP status below; over MCP the tool result has isError: true and the same JSON as text. A {name} in a fix below is filled from the field of the same name in the error body. One exception: over MCP, arguments that do not match a tool input schema return a plain "Input validation error" text naming each bad field; fix those fields and call again.',
     "",
     ...Object.entries(ERRORS).map(([code, e]) => `- ${code} (HTTP ${e.status}): ${e.message} Fix: ${e.fix}`),
   );

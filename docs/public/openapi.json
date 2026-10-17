@@ -21,10 +21,6 @@
       "description": "Called by AI agents with a bearer API key (signup is public)."
     },
     {
-      "name": "worker",
-      "description": "Called by the Eyes worker web pages, not by agents."
-    },
-    {
       "name": "docs",
       "description": "Public agent-facing documents."
     }
@@ -37,7 +33,6 @@
         "summary": "MCP endpoint",
         "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -73,7 +68,7 @@
         "operationId": "signup",
         "tags": ["agent"],
         "summary": "Create an API key",
-        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it) plus top_up_url, a Stripe Checkout link for your human to fund the balance. Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance; null when top-ups are not configured, then ask whoever runs this server) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -123,11 +118,22 @@
                     "top_up_url": {
                       "type": ["string", "null"]
                     },
+                    "email_address": {
+                      "description": "Private address for asking Eyes by email. Anyone who knows it can spend your balance, so keep it secret.",
+                      "type": ["string", "null"]
+                    },
                     "next_step": {
                       "type": "string"
                     }
                   },
-                  "required": ["agent_id", "api_key", "balance_usd", "top_up_url", "next_step"],
+                  "required": [
+                    "agent_id",
+                    "api_key",
+                    "balance_usd",
+                    "top_up_url",
+                    "email_address",
+                    "next_step"
+                  ],
                   "additionalProperties": false
                 }
               }
@@ -182,7 +188,7 @@
                         "description": "Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""
                       }
                     ],
-                    "description": "Where to look. Either {lat, lng} or a string address / \"place name, city\"."
+                    "description": "Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."
                   },
                   "task_type": {
                     "type": "string",
@@ -316,7 +322,7 @@
                         "description": "Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""
                       }
                     ],
-                    "description": "Where to look. Either {lat, lng} or a string address / \"place name, city\"."
+                    "description": "Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."
                   },
                   "task_type": {
                     "type": "string",
@@ -445,7 +451,6 @@
           }
         ],
         "requestBody": {
-          "required": true,
           "content": {
             "application/json": {
               "schema": {
@@ -925,7 +930,7 @@
         "operationId": "get_balance",
         "tags": ["agent"],
         "summary": "Get balance",
-        "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url. Same as the MCP tool get_balance.",
+        "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url (if it is null, ask whoever runs this server), and after they pay call get_balance again before asking. Same as the MCP tool get_balance.",
         "responses": {
           "200": {
             "description": "Success.",
@@ -1008,336 +1013,6 @@
                     "remaining_today_usd",
                     "allowed_task_types"
                   ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "4XX": {
-            "$ref": "#/components/responses/Error"
-          },
-          "5XX": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/w/join": {
-      "post": {
-        "operationId": "worker_join",
-        "tags": ["worker"],
-        "summary": "Register a worker",
-        "description": "Called by the worker JOIN page when a human signs up to answer tasks. Agents never call this.",
-        "security": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "name": {
-                    "type": "string",
-                    "minLength": 2,
-                    "maxLength": 80
-                  },
-                  "phone": {
-                    "type": "string",
-                    "pattern": "^\\+[1-9]\\d{6,14}$"
-                  },
-                  "lat": {
-                    "type": "number",
-                    "minimum": -90,
-                    "maximum": 90
-                  },
-                  "lng": {
-                    "type": "number",
-                    "minimum": -180,
-                    "maximum": 180
-                  }
-                },
-                "required": ["name", "phone", "lat", "lng"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Success.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "worker_id": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "opt_in_instructions": {
-                      "type": "string"
-                    },
-                    "inkbox_number": {
-                      "type": ["string", "null"]
-                    },
-                    "connect_url": {
-                      "type": ["string", "null"]
-                    }
-                  },
-                  "required": ["worker_id", "opt_in_instructions", "inkbox_number", "connect_url"],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "4XX": {
-            "$ref": "#/components/responses/Error"
-          },
-          "5XX": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/w/offers/{token}": {
-      "get": {
-        "operationId": "offer_view",
-        "tags": ["worker"],
-        "summary": "View a task offer",
-        "description": "Called by the worker capture page to show a claimed task. Agents never call this.",
-        "security": [],
-        "parameters": [
-          {
-            "name": "token",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "description": "Signed token from the link Eyes texted the worker."
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Success.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "task_id": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "question": {
-                      "type": "string"
-                    },
-                    "task_type": {
-                      "type": "string",
-                      "enum": [
-                        "is_open",
-                        "line_length",
-                        "in_stock",
-                        "photo_of_place",
-                        "price_check",
-                        "crowd_level",
-                        "other_public"
-                      ]
-                    },
-                    "place_label": {
-                      "type": "string"
-                    },
-                    "lat": {
-                      "type": "number"
-                    },
-                    "lng": {
-                      "type": "number"
-                    },
-                    "radius_m": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "bounty_usd": {
-                      "type": "number"
-                    },
-                    "deadline_at": {
-                      "type": "string",
-                      "format": "date-time",
-                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                    },
-                    "require_photo": {
-                      "type": "boolean"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "dispatched",
-                        "claimed",
-                        "submitted",
-                        "verified",
-                        "paid",
-                        "expired",
-                        "refunded",
-                        "disputed",
-                        "needs_review"
-                      ]
-                    },
-                    "claimed_by_you": {
-                      "type": "boolean"
-                    }
-                  },
-                  "required": [
-                    "task_id",
-                    "question",
-                    "task_type",
-                    "place_label",
-                    "lat",
-                    "lng",
-                    "radius_m",
-                    "bounty_usd",
-                    "deadline_at",
-                    "require_photo",
-                    "status",
-                    "claimed_by_you"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "4XX": {
-            "$ref": "#/components/responses/Error"
-          },
-          "5XX": {
-            "$ref": "#/components/responses/Error"
-          }
-        }
-      }
-    },
-    "/w/offers/{token}/capture": {
-      "post": {
-        "operationId": "offer_capture",
-        "tags": ["worker"],
-        "summary": "Submit a capture",
-        "description": "Called by the worker capture page with the live photo and GPS fix. Agents never call this. Max upload 20 MB.",
-        "security": [],
-        "parameters": [
-          {
-            "name": "token",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "description": "Signed token from the link Eyes texted the worker."
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "properties": {
-                  "lat": {
-                    "type": "number",
-                    "minimum": -90,
-                    "maximum": 90
-                  },
-                  "lng": {
-                    "type": "number",
-                    "minimum": -180,
-                    "maximum": 180
-                  },
-                  "accuracy_m": {
-                    "type": "number",
-                    "minimum": 0
-                  },
-                  "captured_at": {
-                    "type": "string",
-                    "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
-                  },
-                  "answer_text": {
-                    "default": null,
-                    "anyOf": [
-                      {
-                        "type": "string",
-                        "maxLength": 1000
-                      },
-                      {
-                        "type": "null"
-                      }
-                    ]
-                  },
-                  "answer_bool": {
-                    "default": null,
-                    "type": ["boolean", "null"]
-                  },
-                  "photo": {
-                    "type": "string",
-                    "contentMediaType": "image/*",
-                    "description": "Live camera photo."
-                  }
-                },
-                "required": ["lat", "lng", "accuracy_m", "captured_at"]
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Success.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "task_id": {
-                      "type": "string",
-                      "format": "uuid",
-                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
-                    },
-                    "status": {
-                      "type": "string",
-                      "enum": [
-                        "dispatched",
-                        "claimed",
-                        "submitted",
-                        "verified",
-                        "paid",
-                        "expired",
-                        "refunded",
-                        "disputed",
-                        "needs_review"
-                      ]
-                    },
-                    "verification": {
-                      "type": "object",
-                      "properties": {
-                        "gps_ok": {
-                          "type": "boolean"
-                        },
-                        "fresh_ok": {
-                          "type": "boolean"
-                        },
-                        "vision_ok": {
-                          "type": "boolean"
-                        },
-                        "vision_reason": {
-                          "type": "string"
-                        }
-                      },
-                      "required": ["gps_ok", "fresh_ok", "vision_ok", "vision_reason"],
-                      "additionalProperties": false
-                    },
-                    "message": {
-                      "type": "string"
-                    }
-                  },
-                  "required": ["task_id", "status", "verification", "message"],
                   "additionalProperties": false
                 }
               }

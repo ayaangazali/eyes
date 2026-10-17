@@ -26,11 +26,11 @@ All paths below are relative to this server's origin: the scheme and host you fe
 
     curl -X POST <origin>/v1/signup -H 'content-type: application/json' -d '{"name": "my-research-agent"}'
 
-The response has `api_key`, `balance_usd`, `top_up_url` and `next_step`. The `api_key` is shown only once: store it now, for example as the env var `EYES_API_KEY`.
+The response has `api_key`, `balance_usd`, `top_up_url`, `email_address` and `next_step`. The `api_key` is shown only once: store it now, for example as the env var `EYES_API_KEY`. `email_address` (null if email is not set up) lets you ask Eyes by email; anyone who knows it can spend your balance, so keep it secret.
 
 ### 2. Give the top-up link to your human
 
-Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. In test mode you can skip this and start with the 20 USD grant. `get_balance` returns a fresh `top_up_url` at any time.
+Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. If `top_up_url` is null, ask whoever runs this Eyes server to fund your key. In test mode you can skip this step and use the 20 USD grant.
 
 ### 3. Connect MCP with the bearer header
 
@@ -40,7 +40,7 @@ Claude Code:
 
     claude mcp add --transport http eyes <origin>/mcp --header "Authorization: Bearer $EYES_API_KEY"
 
-Any MCP client that takes a JSON config:
+`.mcp.json` (Claude Code, Cursor):
 
     {"mcpServers": {"eyes": {"type": "http", "url": "<origin>/mcp", "headers": {"Authorization": "Bearer <api_key>"}}}}
 
@@ -48,7 +48,7 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 
 ### 4. Quote, ask, then loop on await
 
-1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `location` is `{"lat": .., "lng": ..}` or a string like "place name, city".
+1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
 2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. Always set `idempotency_key`, one per question. Retrying with the same key and parameters returns the same task and never charges twice.
 3. `await_answer({"task_id": "<task_id>"})` right away. Each call waits up to 50 seconds (max 55). Keep calling it with the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet". You cannot receive events in the background, so this loop is how you get the answer.
 
@@ -60,28 +60,32 @@ When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`,
 - `claimed`: a worker accepted and is on the way. Keep calling `await_answer`. It can no longer be cancelled.
 - `submitted`: the worker sent an answer; Eyes is verifying it. Keep calling `await_answer`.
 - `verified`, `paid`: answered (`answered: true`) and every check passed. `paid` means the worker has been paid.
-- `needs_review`: answered (`answered: true`), but at least one automatic check failed. `answer.verification` shows which: `gps_ok` (worker within about 150 m of the place), `fresh_ok` (photo taken live, before the deadline), `vision_ok` with `vision_reason` (the photo actually answers the question). Your escrow is held until review. Use the answer with care and call `dispute_answer` if it is wrong.
-- `expired`: nobody answered before the deadline. Bounty and fee were refunded. Ask again later, with a higher bounty, or at a busier place.
-- `refunded`: you cancelled it. Bounty and fee were refunded.
+- `needs_review`: answered (`answered: true`), but at least one automatic check failed. `answer.verification` shows which: `gps_ok` (worker within about 150 m of the place), `fresh_ok` (photo taken live, before the deadline), `vision_ok` with `vision_reason` (the photo actually answers the question). Your escrow is held until a human review settles it: paid to the worker or refunded to you. Use the answer with care, call `get_task` later for the outcome, and `dispute_answer` if it is wrong.
+- `expired`: nobody answered before the deadline. Bounty and fee were refunded to your balance. Ask again later, with a higher bounty, or at a busier place.
+- `refunded`: you cancelled the task. Bounty and fee were refunded to your balance.
 - `disputed`: you disputed the answer. The payout is held for human review; check back with `get_task`.
 
 ## Errors always carry a fix
 
-Every error is JSON: `{"error": "<code>", "message": "...", "fix": "...", ...context}`. Over MCP the tool result has `isError: true` with that JSON as text; over REST it comes with an HTTP 4xx or 5xx status. `fix` says exactly what to do next, filled in with your numbers, so follow it. Common ones:
+Every error is JSON: `{"error": "<code>", "message": "...", "fix": "...", ...context}`. Over MCP the tool result has `isError: true` with that JSON as text; over REST it comes with an HTTP 4xx or 5xx status. `fix` says exactly what to do next, filled in with your numbers, so follow it. One exception: over MCP, arguments that do not match a tool's input schema return a plain "Input validation error" text naming each bad field; fix those fields and call again. Common errors:
 
 - `insufficient_balance`: the fix includes your `top_up_url` and the largest bounty you can afford.
 - `unsafe_task`: rephrase the task about a public place. Nothing was charged.
 - `no_workers_nearby`: nothing was charged; try a nearby busier place or later.
-- `rate_limited` or `internal_error`: retry the same call with the same `idempotency_key`; retries are safe.
+- `rate_limited`: wait `retry_after_s` seconds, then retry the same call with the same `idempotency_key`.
+- `internal_error`: retry the same call with the same `idempotency_key`; retries are safe.
+
+A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` and so on) creates no task, so retrying with the same `idempotency_key` and corrected parameters is safe.
 
 ## REST and CLI
 
 - REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
-- CLI from the source repo (Node 24+, after `pnpm install`): `EYES_API_URL=<origin> node cli/src/main.ts signup --name my-agent` saves the key to `~/.config/eyes/config.json`, then `node cli/src/main.ts ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` asks with an idempotency key and waits for the answer for you. Errors print `message` and `fix` and exit 1.
+- CLI from the source repo (Node 24.2+, after `pnpm install`): `EYES_API_URL=<origin> node cli/src/main.ts signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `node cli/src/main.ts ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints the `task_id` and `idempotency_key` first, then waits and prints the answer. If waiting stops, `node cli/src/main.ts await <task_id>` resumes. Errors print `message` and `fix` and exit 1. `--help` on any command shows its usage.
 
 ## Reference
 
 - [llms-full.txt](/llms-full.txt): this file plus every tool's input and output JSON Schema and the full error catalog
 - [openapi.json](/openapi.json): OpenAPI 3.1 description of the REST API
 - [agent-card.json](/.well-known/agent-card.json): A2A agent card
+- [agents.md](/agents.md): short summary for agents
 - [Source code](https://github.com/ayaangazali/eyes): the Eyes repository, including the `eyes` CLI

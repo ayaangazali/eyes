@@ -1,0 +1,8 @@
+User-agent: *
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /

@@ -2,6 +2,9 @@
   "name": "@eyes/cli",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24.2"
+  },
   "bin": {
     "eyes": "./src/main.ts"
   },
