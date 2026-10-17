@@ -23,6 +23,7 @@ const http = vi.hoisted(() => ({
   captured: [] as Captured[],
   response: {} as Record<string, unknown>,
   queue: [] as Record<string, unknown>[],
+  config: undefined as unknown,
 }));
 
 vi.mock("stripe", async (importOriginal) => {
@@ -34,13 +35,15 @@ vi.mock("stripe", async (importOriginal) => {
       headers: Object.fromEntries(new Headers(init?.headers).entries()),
       body: Object.fromEntries(new URLSearchParams(String(init?.body ?? "")).entries()),
     });
-    return new Response(JSON.stringify(http.queue.shift() ?? http.response), {
-      status: 200,
-      headers: { "content-type": "application/json", "request-id": "req_1" },
+    const { status_code = 200, ...body } = (http.queue.shift() ?? http.response) as { status_code?: number };
+    return new Response(JSON.stringify(body), {
+      status: status_code,
+      headers: { "content-type": "application/json", "request-id": "req_1", "stripe-should-retry": "false" },
     });
   };
   class StubbedStripe extends mod.default {
-    constructor(key: string) {
+    constructor(key: string, config?: unknown) {
+      http.config = config;
       super(key, { httpClient: mod.default.createFetchHttpClient(stubFetch) });
     }
   }
@@ -436,6 +439,28 @@ describe("outbound Stripe requests", () => {
       await expect(payments.payoutWorker(payout)).rejects.toThrow(/acct_1 cannot receive transfers yet/);
       expect(http.captured.map((r) => r.url)).toEqual(["https://api.stripe.com/v1/accounts/acct_1"]);
     }
+  });
+
+  it("marks a failed Transfer whose outcome is unknown, and leaves a refusal unmarked", async () => {
+    for (const [status_code, type, unknown] of [
+      [400, "invalid_request_error", false],
+      [402, "card_error", false],
+      [409, "idempotency_error", true],
+      [500, "api_error", true],
+    ] as const) {
+      http.queue.push(ACTIVE, transferList([]), { status_code, error: { type, message: "refused" } });
+      const err: { outcome_unknown?: boolean } = await payments.payoutWorker(payout).then(
+        () => ({}),
+        (e) => e,
+      );
+      expect(err, `HTTP ${status_code}`).toBeInstanceOf(Error);
+      expect(err.outcome_unknown === true, `HTTP ${status_code}`).toBe(unknown);
+    }
+  });
+
+  it("bounds every Stripe request: 80 s timeout and 2 network retries", () => {
+    createStripePayments({ STRIPE_SECRET_KEY: "sk_test_unit" });
+    expect(http.config).toMatchObject({ timeout: 80_000, maxNetworkRetries: 2 });
   });
 });
 

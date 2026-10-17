@@ -793,6 +793,10 @@ describe.skipIf(!url)("engine under races and guards", () => {
     };
     return keys;
   }
+  const leaseTakenAgo = (taskId: string, age: string) => sql`
+    update ledger set stripe_ref = format('payout:%s:%s', task_id,
+      floor(extract(epoch from clock_timestamp() - ${age}::interval) * 1000000)::bigint)
+    where task_id = ${taskId} and type = 'release'`;
   const keyOf = (taskId: string) => new RegExp(`^payout:${taskId}:\\d+$`);
   async function retryUntilPaid(env: Env, taskId: string) {
     for (let i = 0; i < 10 && (await task(taskId)).status === "verified"; i++)
@@ -851,20 +855,46 @@ describe.skipIf(!url)("engine under races and guards", () => {
     const { w, task_id } = await captured(env);
     env.providers.payments.payoutWorker = real;
     const account = `acct_fake_${w.worker_id}`;
-    const diedAgo = (age: string) => sql`
-      update ledger set stripe_ref = format('payout:%s:%s', task_id,
-        floor(extract(epoch from clock_timestamp() - ${age}::interval) * 1000000)::bigint)
-      where task_id = ${task_id} and type = 'release'`;
 
-    await diedAgo("14 minutes 50 seconds");
+    await leaseTakenAgo(task_id, "14 minutes 50 seconds");
     await env.service.markWorkerOnboarded(account);
     expect((await task(task_id)).status).toBe("verified");
     expect(transfersFor(env, task_id)).toHaveLength(0);
 
-    await diedAgo("15 minutes");
+    await leaseTakenAgo(task_id, "15 minutes");
     await env.service.markWorkerOnboarded(account);
     expect((await task(task_id)).status).toBe("paid");
     expect(transfersFor(env, task_id)).toHaveLength(1);
+  });
+
+  it("a transfer whose outcome is unknown keeps the lease, so the webhook cannot pay again before Stripe finishes", async () => {
+    const env = make();
+    const real = env.providers.payments.payoutWorker;
+    let finished: { transfer_id: string } | undefined;
+    let stripeStillRunning: Promise<void> | undefined;
+    env.providers.payments.payoutWorker = async (i) => {
+      if (finished) return finished;
+      if (stripeStillRunning) return real(i);
+      stripeStillRunning = sleep(50).then(async () => {
+        finished = await real(i);
+      });
+      throw Object.assign(new Error("connection lost on all 3 tries"), { outcome_unknown: true });
+    };
+    const { w, task_id, res } = await captured(env);
+    expect(res.status).toBe("verified");
+    const account = `acct_fake_${w.worker_id}`;
+
+    await env.service.markWorkerOnboarded(account);
+    await stripeStillRunning;
+    expect((await task(task_id)).status).toBe("verified");
+    expect(transfersFor(env, task_id)).toHaveLength(1);
+
+    await leaseTakenAgo(task_id, "15 minutes");
+    await env.service.markWorkerOnboarded(account);
+    expect((await task(task_id)).status).toBe("paid");
+    expect(transfersFor(env, task_id)).toHaveLength(1);
+    expect((await rows(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
+    expect(paidTexts(env, w.phone)).toHaveLength(1);
   });
 
   it("30 tasks on an account that never finishes onboarding do not keep retryPayouts from a newer payable task", async () => {

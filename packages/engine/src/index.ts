@@ -275,6 +275,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
     try {
       const lease = await maybe<{ stripe_ref: string }>("eyes_payout_begin", { p_task_id: task.id });
       if (!lease) return task;
+      const end = () => rpc("eyes_payout_end", { p_task_id: task.id, p_key: lease.stripe_ref });
       try {
         const { transfer_id } = await payments.payoutWorker({
           account_id: worker.stripe_account_id,
@@ -287,9 +288,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
           p_transfer_id: transfer_id,
           p_now: nowIso(),
         });
-      } finally {
-        await rpc("eyes_payout_end", { p_task_id: task.id, p_key: lease.stripe_ref });
+      } catch (err) {
+        if (!(err as { outcome_unknown?: boolean }).outcome_unknown) await end();
+        throw err;
       }
+      await end();
     } catch (err) {
       console.error(`payout for task ${task.id} failed`, err);
     }
