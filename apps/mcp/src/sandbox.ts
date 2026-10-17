@@ -15,8 +15,9 @@ import { createEyesService } from "@eyes/engine";
 
 const CAPTURE_DELAY_MS = 5000;
 const ANSWER_IN = `A simulated worker answers each task in about ${CAPTURE_DELAY_MS / 1000} seconds.`;
+const DISCLOSE = "Always tell your user that a sandbox answer is simulated and that no real person went.";
 export const SANDBOX = "Sandbox: keyless, simulated worker, no real people or money.";
-export const SANDBOX_NOTICE = `${SANDBOX} Call /mcp or /v1 with no Authorization header to get a sandbox agent with play money. ${ANSWER_IN} quote_task counts the worker ask_eyes adds when none is free nearby, so workers_nearby is at least 1. Place names resolve only for ${Object.values(
+export const SANDBOX_NOTICE = `${SANDBOX} ${DISCLOSE} Call /mcp or /v1 with no Authorization header to get a sandbox agent with play money. ${ANSWER_IN} quote_task counts the worker ask_eyes adds when none is free nearby, so workers_nearby is at least 1. Place names resolve only for ${Object.values(
   FAKE_PLACES,
 )
   .map((place) => `"${place.label}"`)
@@ -49,7 +50,7 @@ const errorName = (err: unknown) =>
 
 const sandboxed = <T extends { next_step: string }>(out: T): T => ({
   ...out,
-  next_step: `${SANDBOX} ${ANSWER_IN} ${out.next_step}`,
+  next_step: `${SANDBOX} ${ANSWER_IN} ${DISCLOSE} ${out.next_step}`,
 });
 
 export function createSandboxService(deps: EngineDeps): EyesService {
