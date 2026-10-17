@@ -18,7 +18,12 @@ import {
   parseReplyIntent,
 } from "./index.ts";
 
-const sdk = vi.hoisted(() => ({ created: vi.fn(), getIdentity: vi.fn(), sendText: vi.fn() }));
+const sdk = vi.hoisted(() => ({
+  created: vi.fn(),
+  getIdentity: vi.fn(),
+  sendIMessage: vi.fn(),
+  sendText: vi.fn(),
+}));
 
 vi.mock("@inkbox/sdk", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@inkbox/sdk")>()),
@@ -74,14 +79,29 @@ const imessageReceived = (content: string, from = "+15555550123", is_group = fal
     message: {
       id: "1a90e8b0-0e1e-485f-b316-28f7dfa96afd",
       conversation_id: "82cf24f6-78fe-48da-a673-6a75b4f4a819",
+      reply_to_message_id: null,
+      thread_id: "91b1a20b-3ee3-5f4d-b976-e578972b9f38",
+      thread_root_message_id: "1a90e8b0-0e1e-485f-b316-28f7dfa96afd",
+      assignment_id: is_group ? null : "9b2e4a68-8cb1-4f18-b97d-a2324c8b4d1f",
       direction: "inbound",
       remote_number: from,
       sender_number: is_group ? from : null,
+      participants: is_group ? [from, "+15555550124"] : null,
       is_group,
       content,
       message_type: "message",
       service: "imessage",
+      send_style: null,
+      media: null,
+      was_downgraded: null,
       status: "received",
+      error_code: null,
+      error_message: null,
+      error_reason: null,
+      error_detail: null,
+      is_read: false,
+      recipients: null,
+      reactions: null,
       created_at: "2026-06-09T14:30:00Z",
       updated_at: "2026-06-09T14:30:00Z",
     },
@@ -149,12 +169,24 @@ describe("inkbox webhook", () => {
     expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+14155550999", intent: "yes", text: "Yes!" });
   });
 
-  it("passes a signed 1:1 imessage.received reply to the service", async () => {
+  it.each([
+    ["Yes!", "yes"],
+    ["START", "start"],
+    ["STOP", "stop"],
+  ])("passes a signed 1:1 imessage.received %j to the service like a text reply", async (content, intent) => {
     const { post, handleWorkerReply } = setup();
-    const body = JSON.stringify(imessageReceived("STOP"));
+    const body = JSON.stringify(imessageReceived(content));
     const res = await post(body, signedHeaders(body));
     expect(res.status).toBe(200);
-    expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+15555550123", intent: "stop", text: "STOP" });
+    expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+15555550123", intent, text: content });
+  });
+
+  it("rejects an imessage.received with a bad signature exactly like a text event", async () => {
+    const { post, handleWorkerReply } = setup();
+    const body = JSON.stringify(imessageReceived("YES"));
+    expect((await post(body, signedHeaders(body, { key: "other-key" }))).status).toBe(401);
+    expect((await post(body.replace("YES", "NO"), signedHeaders(body))).status).toBe(401);
+    expect(handleWorkerReply).not.toHaveBeenCalled();
   });
 
   it("verifies the signature over the exact raw bytes, not re-encoded text", async () => {
@@ -264,8 +296,11 @@ describe("createInkboxMessaging", () => {
   const env = { INKBOX_API_KEY: "key_test", INKBOX_AGENT_HANDLE: "eyes-dispatch" };
   beforeEach(() => {
     sdk.created.mockReset();
-    sdk.sendText.mockReset().mockResolvedValue({ id: "txt_1", deliveryStatus: "queued" });
-    sdk.getIdentity.mockReset().mockResolvedValue({ sendText: sdk.sendText });
+    sdk.sendIMessage
+      .mockReset()
+      .mockResolvedValue({ id: "im_1", status: "queued", service: "imessage", wasDowngraded: false });
+    sdk.sendText.mockReset();
+    sdk.getIdentity.mockReset().mockResolvedValue({ sendIMessage: sdk.sendIMessage, sendText: sdk.sendText });
   });
 
   it("refuses to start without an API key or an agent handle", () => {
@@ -274,7 +309,7 @@ describe("createInkboxMessaging", () => {
     expect(sdk.created).not.toHaveBeenCalled();
   });
 
-  it("sends each template through the agent identity with its idempotency key", async () => {
+  it("sends each template as an iMessage through the agent identity with its idempotency key", async () => {
     const m = createInkboxMessaging(env);
     const capture = {
       task_id: "t1",
@@ -283,40 +318,52 @@ describe("createInkboxMessaging", () => {
       deadline_at: "2026-10-17T19:30:00.000Z",
     };
     const paid = { task_id: "t1", place_label: "Ferry Building", amount_cents: 300 };
-    expect(await m.sendOffer(TO, offer())).toEqual({ id: "txt_1" });
-    expect(await m.sendCaptureLink(TO, capture)).toEqual({ id: "txt_1" });
-    expect(await m.sendAlreadyClaimed(TO, { place_label: "Ferry Building" })).toEqual({ id: "txt_1" });
-    expect(await m.sendPaid(TO, paid)).toEqual({ id: "txt_1" });
-    expect(await m.sendText(TO, "raw body")).toEqual({ id: "txt_1" });
+    expect(await m.sendOffer(TO, offer())).toEqual({ id: "im_1" });
+    expect(await m.sendCaptureLink(TO, capture)).toEqual({ id: "im_1" });
+    expect(await m.sendAlreadyClaimed(TO, { place_label: "Ferry Building" })).toEqual({ id: "im_1" });
+    expect(await m.sendPaid(TO, paid)).toEqual({ id: "im_1" });
+    expect(await m.sendText(TO, "raw body")).toEqual({ id: "im_1" });
     expect(sdk.created).toHaveBeenCalledWith({ apiKey: "key_test" });
     expect(sdk.getIdentity).toHaveBeenCalledWith("eyes-dispatch");
-    expect(sdk.sendText.mock.calls.map(([options]) => options)).toEqual([
+    expect(sdk.sendIMessage.mock.calls.map(([options]) => options)).toEqual([
       { to: TO, text: offerText(offer()), idempotencyKey: `offer:${offer().task_id}:${TO}` },
       { to: TO, text: captureLinkText(capture), idempotencyKey: `capture:t1:${TO}` },
       { to: TO, text: alreadyClaimedText({ place_label: "Ferry Building" }), idempotencyKey: undefined },
       { to: TO, text: paidText(paid), idempotencyKey: `paid:t1:${TO}` },
       { to: TO, text: "raw body", idempotencyKey: undefined },
     ]);
+    expect(sdk.sendText).not.toHaveBeenCalled();
+  });
+
+  it.each(["error", "declined"])("throws when Inkbox answers the send with status %s", async (status) => {
+    sdk.sendIMessage.mockResolvedValueOnce({
+      id: "im_2",
+      status,
+      errorCode: "imessage_reply_required_for_links_or_media",
+    });
+    await expect(createInkboxMessaging(env).sendText(TO, "a")).rejects.toThrow(
+      `Inkbox iMessage ${status}: imessage_reply_required_for_links_or_media`,
+    );
   });
 
   it("fetches the identity once for concurrent sends", async () => {
     const m = createInkboxMessaging(env);
     await Promise.all([m.sendText(TO, "a"), m.sendText(TO, "b"), m.sendText(TO, "c")]);
     expect(sdk.getIdentity).toHaveBeenCalledOnce();
-    expect(sdk.sendText).toHaveBeenCalledTimes(3);
+    expect(sdk.sendIMessage).toHaveBeenCalledTimes(3);
   });
 
   it("refetches the identity after a failed fetch", async () => {
     const m = createInkboxMessaging(env);
     sdk.getIdentity.mockRejectedValueOnce(new Error("identity lookup failed"));
     await expect(m.sendText(TO, "a")).rejects.toThrow("identity lookup failed");
-    await expect(m.sendText(TO, "b")).resolves.toEqual({ id: "txt_1" });
+    await expect(m.sendText(TO, "b")).resolves.toEqual({ id: "im_1" });
     expect(sdk.getIdentity).toHaveBeenCalledTimes(2);
   });
 
   it("propagates SDK send errors", async () => {
     const err = new Error("403 recipient_not_opted_in");
-    sdk.sendText.mockRejectedValueOnce(err);
+    sdk.sendIMessage.mockRejectedValueOnce(err);
     await expect(createInkboxMessaging(env).sendText(TO, "a")).rejects.toBe(err);
   });
 });
