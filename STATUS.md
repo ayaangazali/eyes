@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 00:30 PT by orchestrator. **G1 fakes half PASSED** (golden path e2e green in CI: MCP -> engine -> signed Inkbox webhook -> capture page -> verification -> fake payout -> answer). G1 live half needs keys (docs/DEPLOY.md). **ESCALATED: T1.5 safety (#7) needs a human A/B decision**; until it merges, quote_task and ask_eyes return not_implemented on a live server.
+Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisions: #7 A, #9 A, #11 B (merging), #14 B (merging); ADR-010 adopted. Live G1 starting: first key INKBOX_API_KEY.
 
 ## Task board
 
@@ -14,16 +14,30 @@ Updated: 2026-10-17 00:30 PT by orchestrator. **G1 fakes half PASSED** (golden p
 | T1.2 engine + db | engine-builder | **merged** #6, #12 | [#6](https://github.com/ayaangazali/eyes/pull/6) | r2 security PASS, test+spec PASS; follow-up PASS | InsForge grants unverified live |
 | T1.3 Inkbox comms | comms-builder | **merged** #1, #10 | [#1](https://github.com/ayaangazali/eyes/pull/1) | r2 all PASS; follow-up #10 PASS | live-verified: no |
 | T1.4 worker web | worker-web-builder | **merged** #3; follow-up #13 merging | [#3](https://github.com/ayaangazali/eyes/pull/3) | r2 PASS; #13 coverage major downgraded by ruling | live-verified: no |
-| T1.5 safety | safety-builder | **ESCALATED** | [#7](https://github.com/ayaangazali/eyes/pull/7) | r1 FAIL, r2 FAIL, r3 FAIL (negation too broad) | human decision A/B |
+| T1.5 safety | safety-builder | round 4 (human decision A) | [#7](https://github.com/ayaangazali/eyes/pull/7) | escalated after r3 | blocks live ask_eyes |
 | G1 golden path e2e | integration builder | **merged** #16 | [#16](https://github.com/ayaangazali/eyes/pull/16) | integration PASS (3/3 fresh DBs, mutations killed) | unsafe_task test skipped until T1.5 |
 | T2.1 Stripe | payments-builder | **merged** | [#5](https://github.com/ayaangazali/eyes/pull/5) | r1 security PASS, spec+intent PASS, test FAIL; r2 PASS | live-verified: no |
 | T2.2 verification | verification-builder | **merged** #4, #8 | [#4](https://github.com/ayaangazali/eyes/pull/4) | all PASS | live-verified: no |
 | T2.3 deploy | orchestrator | artifacts on main (Dockerfile proven locally, InsForge migrate script, docs/DEPLOY.md) | | | keys and logins |
-| T2.4 MCP wiring + hardening | mcp-builder | fix round 1 | [#14](https://github.com/ayaangazali/eyes/pull/14) | spec+ax PASS, security+test FAIL (token in logs via userinfo/encoded targets; ordering untested) | none |
-| T3.1 Primitive | comms-builder | verifying round 3 | [#11](https://github.com/ayaangazali/eyes/pull/11) | r1 security FAIL (open relay), r2 FAIL (HTML ReDoS; DMARC parent domain) | 3rd failure would escalate |
-| T3.2 AX docs + CLI | ax-builder | verifying round 3 | [#9](https://github.com/ayaangazali/eyes/pull/9) | r1 FAIL, r2 FAIL (gateway 5xx double-escrow path) | 3rd failure would escalate |
+| T2.4 MCP wiring + hardening | mcp-builder | **merging** #14 (human decision B) | [#14](https://github.com/ayaangazali/eyes/pull/14) | escalated after r3; deferred #21-#23 | live-verified: no |
+| T3.1 Primitive | comms-builder | **merging** #11 (human decision B) | [#11](https://github.com/ayaangazali/eyes/pull/11) | escalated after r3; deferred #17-#20 | live-verified: no |
+| T3.2 AX docs + CLI | ax-builder | round 4 (human decision A) | [#9](https://github.com/ayaangazali/eyes/pull/9) | escalated after r3 | none |
 | T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
+
+## Deferred (ADR-010; triage at feature freeze, 6:00 AM Sun)
+
+| Item | From | Tracking |
+|---|---|---|
+| Quadratic field regexes on email bodies (authenticated input) | PR #11 r3 | [#17](https://github.com/ayaangazali/eyes/issues/17) |
+| trustedSender fail-closed catch untested | PR #11 r3 | [#18](https://github.com/ayaangazali/eyes/issues/18) |
+| Endless-stream cap test hangs on regression | PR #11 r3 | [#19](https://github.com/ayaangazali/eyes/issues/19) |
+| No per-agent inbound email reply budget | PR #11 r3 | [#20](https://github.com/ayaangazali/eyes/issues/20) |
+| Request log decodes paths (log-line forging); switch to allowlist logging | PR #14 r3 | [#21](https://github.com/ayaangazali/eyes/issues/21) |
+| Mangled token halves can appear in logs | PR #14 r3 | [#22](https://github.com/ayaangazali/eyes/issues/22) |
+| Strict PORT parsing | PR #14 r3 | [#23](https://github.com/ayaangazali/eyes/issues/23) |
+
+Earlier verifier minors (non-blocking by severity) are in each task's intent Known gaps.
 
 ## Live verification
 
