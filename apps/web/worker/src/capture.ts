@@ -215,6 +215,9 @@ form.addEventListener("submit", async (event) => {
     );
   } catch (err) {
     sending = false;
+    const sentBefore =
+      err instanceof Problem && err.status === 404 && CLOSED[err.body?.status as TaskStatus] === ALREADY_SENT;
+    if (sentBefore) return close(ALREADY_SENT);
     showError(error, err);
     if (err instanceof Problem && (err.status === 404 || err.status === 409)) finish();
     else ready();
