@@ -21,12 +21,15 @@ function exit(message: string): never {
 
 const env = process.env;
 
+const live = liveProviders(env);
+
 const parsed = AppConfig.safeParse({
   public_api_url: env.EYES_PUBLIC_API_URL,
   worker_web_url: env.EYES_WORKER_WEB_URL,
   link_secret: env.EYES_LINK_SECRET,
   test_mode: env.EYES_TEST_MODE ? env.EYES_TEST_MODE === "true" : undefined,
   email_domain: env.PRIMITIVE_DOMAIN || undefined,
+  email_delivery: live.email,
 });
 if (!parsed.success) exit(`Invalid EYES_* environment (see .env.example):\n${z.prettifyError(parsed.error)}`);
 const config = parsed.data;
@@ -52,7 +55,6 @@ const db: DbConfig = env.DATABASE_URL
     ? { kind: "insforge", base_url: env.INSFORGE_BASE_URL, api_key: env.INSFORGE_API_KEY }
     : exit("Set DATABASE_URL, or INSFORGE_BASE_URL and INSFORGE_API_KEY.");
 
-const live = liveProviders(env);
 const fakes = fakeProviders();
 const providers: Providers = {
   messaging: live.messaging ? createInkboxMessaging(env) : fakes.messaging,
