@@ -20,7 +20,7 @@ import {
 } from "@eyes/core";
 import { migrate } from "@eyes/db";
 import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createEyesService } from "./index.ts";
 
 const url = process.env.DATABASE_URL;
@@ -49,7 +49,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
     db: { kind: "postgres", url: url ?? "" },
     providers,
     assessTask: async () => safety,
-    verifySubmission: async () => PASS,
+    verifySubmission: async ({ task, submission: s, vision }) => {
+      if (!s.photo_url) return PASS;
+      const v = await vision.judge({ ...task, ...s, photo_url: s.photo_url });
+      const vision_ok = v.answers_question && !v.prominent_faces;
+      return vision_ok ? PASS : { ...PASS, vision_ok, vision_reason: v.reason, auto_approve: false };
+    },
     config: AppConfig.parse({
       public_api_url: "https://api.eyes.test",
       worker_web_url: "https://w.eyes.test",
@@ -60,6 +65,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
   beforeAll(() => migrate(url ?? ""));
   afterAll(() => sql.end());
+  afterEach(() => providers.vision.setVerdict({ answers_question: true, prominent_faces: false }));
 
   const somewhere = (): LatLng => ({ lat: 10 + Math.random() * 40, lng: -120 + Math.random() * 60 });
   const north = (p: LatLng, meters: number): LatLng => ({ lat: p.lat + meters / 111_320, lng: p.lng });
@@ -466,5 +472,90 @@ describe.skipIf(!url)("engine on Postgres", () => {
       max_bounty_usd: 1,
       allowed_task_types: [],
     });
+  });
+
+  async function claimed(at: LatLng) {
+    const a = await agent();
+    const w = await worker(north(at, 50));
+    const asked = await ask(a, at);
+    await reply(w.phone);
+    const link = outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link");
+    return {
+      a,
+      task_id: asked.task_id,
+      token: new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "",
+    };
+  }
+
+  const capture = (token: string, at: LatLng) =>
+    service.submitCapture(
+      token,
+      {
+        lat: at.lat,
+        lng: at.lng,
+        accuracy_m: 5,
+        captured_at: providers.clock.now().toISOString(),
+        answer_text: "short",
+        answer_bool: null,
+      },
+      { bytes: new Uint8Array([1]), content_type: "image/jpeg" },
+    );
+
+  const stored = (taskId: string) =>
+    [...providers.storage.objects.keys()].filter((key) => key.startsWith(`${taskId}/`));
+
+  it("deletes a photo rejected for prominent faces and never gives the agent its URL", async () => {
+    const at = somewhere();
+    const { a, task_id, token } = await claimed(at);
+    providers.vision.setVerdict({ prominent_faces: true });
+
+    expect(await capture(token, at)).toMatchObject({
+      status: "needs_review",
+      verification: { vision_ok: false },
+    });
+    expect(providers.vision.calls).toContainEqual(
+      expect.objectContaining({ photo_url: expect.stringContaining(`/photos/${task_id}/`) }),
+    );
+    expect(stored(task_id)).toEqual([]);
+    expect(await service.awaitAnswer(a, { task_id, timeout_seconds: 1 })).toMatchObject({
+      answered: true,
+      answer: { answer_text: "short", photo_url: null },
+    });
+    expect((await service.getTask(a, { task_id })).answer?.photo_url).toBeNull();
+  });
+
+  it("keeps the photo of a capture without prominent faces, approved or sent to review", async () => {
+    for (const answers_question of [true, false]) {
+      providers.vision.setVerdict({ answers_question });
+      const at = somewhere();
+      const { a, task_id, token } = await claimed(at);
+      await capture(token, at);
+      const [key] = stored(task_id);
+      expect((await service.getTask(a, { task_id })).answer?.photo_url).toBe(
+        `https://storage.fake.test/photos/${key}`,
+      );
+    }
+  });
+
+  it("accepts the capture and hides the URL when deleting a face photo fails, logging only the task id", async () => {
+    const at = somewhere();
+    const { a, task_id, token } = await claimed(at);
+    providers.vision.setVerdict({ prominent_faces: true });
+    const remove = vi
+      .spyOn(providers.storage, "deletePhoto")
+      .mockRejectedValueOnce(new Error("storage down at https://storage.fake.test/photos/secret"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(await capture(token, at)).toMatchObject({ status: "needs_review" });
+      expect(remove).toHaveBeenCalledOnce();
+      expect(error.mock.calls).toEqual([[`photo delete for task ${task_id} failed`]]);
+      expect((await service.getTask(a, { task_id })).answer).toMatchObject({
+        answer_text: "short",
+        photo_url: null,
+      });
+    } finally {
+      remove.mockRestore();
+      error.mockRestore();
+    }
   });
 });
