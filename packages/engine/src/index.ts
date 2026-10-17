@@ -762,6 +762,25 @@ export function createEyesService(deps: EngineDeps): EyesService {
             p_now: nowIso(),
           });
           await messaging.sendText(phone, released ? REPLY_TEXT.released : REPLY_TEXT.no);
+          if (!released) return;
+          const idle = await rpc<Worker>("eyes_reoffer", {
+            p_task_id: released.id,
+            p_released_by: worker.id,
+            p_now: nowIso(),
+          });
+          await Promise.allSettled(
+            idle.map((w) =>
+              messaging.sendOffer(w.phone, {
+                task_id: released.id,
+                task_type: released.task_type,
+                question: released.question,
+                place_label: released.place_label,
+                bounty_cents: released.bounty_cents,
+                distance_m: Math.round(distanceMeters(released, w)),
+                deadline_at: iso(released.deadline_at),
+              }),
+            ),
+          );
         },
         help: () => messaging.sendText(phone, `${REPLY_TEXT.help} More: ${config.worker_web_url}`),
         unknown: () => messaging.sendText(phone, REPLY_TEXT.unknown),
@@ -830,11 +849,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
           },
         },
       });
-      if (faces) {
-        await providers.storage
+      const dropPhoto = () =>
+        providers.storage
           .deletePhoto({ key })
           .catch(() => console.error(`photo delete for task ${task.id} failed`));
-      }
+      if (faces) await dropPhoto();
       const submitted = await one<Task>("eyes_submit", {
         p_task_id: task.id,
         p_worker_id: workerId,
@@ -851,6 +870,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_confidence: v.confidence,
         p_auto_approve: v.auto_approve,
         p_now: nowIso(),
+      }).catch(async (err: unknown) => {
+        const lost =
+          err instanceof EyesError && (err.code === "task_already_claimed" || err.code === "offer_invalid");
+        if (lost && photo_url && !faces) await dropPhoto();
+        throw err;
       });
       const worker = await one<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null });
       const settled = await settle(submitted, worker);
