@@ -57,6 +57,8 @@ const PLATE = "(?:licen[cs]e plates?|number plates?|plate numbers?)";
 const ENDS =
   "(?=\\s*(?:$|[.,!?;:)]|(?:in|at|on|by|near|outside|inside|behind|who|that|is|was|are|working|standing|sitting|wearing|with|from|of|and|or|so|while|when|as|right|now|today|tonight|to|for)\\b))";
 
+const NOT_NEGATED = "(?<!(?:\\bnot|\\bnever|n't|\\bavoid\\w*|\\bwithout|\\bno)\\s+(?:[\\w']+\\s+){0,3})";
+
 const re = (source: string) => new RegExp(source, "i");
 
 const RULES: [SafetyCategory, RegExp[]][] = [
@@ -64,12 +66,12 @@ const RULES: [SafetyCategory, RegExp[]][] = [
     "illegal_or_dangerous",
     [
       re(
-        "\\b(?:(?:plant|place|leave|hide|build|make|set off|detonate) (?:a |the )?(?:bomb|explosive)s?|pipe bombs?|molotov\\w*|grenades?)\\b",
+        "\\b(?:(?:plant|place|leave|hide|build|make|set off|detonate) (?:a |the )?(?:bomb|explosive)s?|pipe bombs?|molotov\\w*)\\b",
       ),
       /\bIEDs?\b/,
       re("\\b(?:buy|score|sell|get me|cop)\\s+(?:some\\s+)?(?:drugs|cocaine|heroin|meth|fentanyl|crack)\\b"),
       re(
-        "\\b(?:buy|purchase|sell|get me)\\b(?:\\s+\\w+){0,3}?\\s+(?:a |some )?(?:ghost guns?|stolen \\w+|fake ids?)\\b",
+        "\\b(?:buy|purchase|get me)\\b(?:\\s+\\w+){0,3}?\\s+(?:a |some )?(?:ghost guns?|stolen \\w+|fake ids?)\\b",
       ),
       re(
         "\\b(?:bring|carry|sneak|smuggle)\\s+(?:a |an |the |my |his |her )?(?:guns?|firearms?|pistols?|handguns?|weapons?)\\s+(?:in|into|inside)\\b",
@@ -139,7 +141,7 @@ const RULES: [SafetyCategory, RegExp[]][] = [
       re(
         "\\b(?:look|peek|peer|see)\\s+(?:in|into|through)\\s+(?:his|her|someone's|somebody's)\\s+windows?\\b",
       ),
-      re("\\bsneak(?:ing)? (?:in|into|inside)\\b"),
+      re("\\bsneak(?:ing)? (?:into|inside)\\b"),
       re(
         "\\b(?:enter|into|inside|go in(?:to)?|access|get into)\\s+(?:the\\s+|an?\\s+)?(?:(?:employees?|staff)[- ]only|restricted)\\b",
       ),
@@ -168,17 +170,19 @@ const RULES: [SafetyCategory, RegExp[]][] = [
       re("\\b(?:apartment|apt\\.?)\\s*(?:#|no\\.?|number)?\\s*\\d+[a-z]?\\b"),
       re("\\bprivate (?:homes?|houses?|residences?)\\b"),
       re("\\bis (?:anyone|anybody|someone|somebody|he|she) (?:at )?home\\b"),
-      re("\\b(?:the|a|this|that|his|her|their|my) (?:house|home|residence) (?:at|on|number) \\d"),
+      re(
+        "\\b(?:the|a|this|that|his|her|their|my) (?:house|home|residence)s?(?: (?:located|situated))? (?:(?:at|on)(?: number| no\\.?| #)?|number|#) ?\\d",
+      ),
     ],
   ],
   [
     "identifiable_people",
     [
       re(
-        `\\b(?:(?:photo|picture|pic|shot|snapshot|video|selfie|close-?up|image)s?\\s+(?:of|showing|capturing)|(?:photograph|film|record|snap|videotape|shoot)(?:s|ed|ing)?)\\s+(?:(?!no\\b|not\\b|without\\b|any\\b)\\w+\\s+){0,2}?(?:faces?|him|her|everyone|everybody|someone|somebody|(?:that|the|this) (?:${PERSON}|${STAFF})s?)\\b${ENDS}`,
+        `\\b${NOT_NEGATED}(?:(?:photo|picture|pic|shot|snapshot|video|selfie|close-?up|image)s?\\s+(?:of|showing|capturing)|(?:photograph|film|record|snap|videotape|shoot)(?:s|ed|ing)?)\\s+(?:(?!no\\b|not\\b|without\\b|any\\b)[\\w']+\\s+){0,2}?(?:faces?|him|her|everyone|everybody|someone|somebody|(?:that|the|this) (?:${PERSON}|${STAFF})s?)\\b${ENDS}`,
       ),
       re(
-        `\\b(?:identify|recogni[sz]e)\\s+(?:the |that |this |a |any |every |each )?(?:${PERSON}|people|faces?|individuals?)\\b`,
+        `\\b${NOT_NEGATED}(?:identify|recogni[sz]e)\\s+(?:the |that |this |a |any |every |each )?(?:${PERSON}|people|faces?|individuals?)\\b`,
       ),
       re(`\\bwhat (?:does|did) (?:he|she|the (?:${PERSON}|${STAFF})) look like\\b`),
     ],
