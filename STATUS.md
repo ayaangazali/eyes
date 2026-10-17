@@ -36,6 +36,7 @@ Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisi
 | Request log decodes paths (log-line forging); switch to allowlist logging | PR #14 r3 | [#21](https://github.com/ayaangazali/eyes/issues/21) |
 | Mangled token halves can appear in logs | PR #14 r3 | [#22](https://github.com/ayaangazali/eyes/issues/22) |
 | Strict PORT parsing | PR #14 r3 | [#23](https://github.com/ayaangazali/eyes/issues/23) |
+| iMessage from an Apple ID email is ignored (workers must send from the phone number) | PR #24 | [#25](https://github.com/ayaangazali/eyes/issues/25) |
 
 Earlier verifier minors (non-blocking by severity) are in each task's intent Known gaps.
 
