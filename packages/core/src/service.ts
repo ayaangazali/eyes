@@ -87,7 +87,12 @@ export interface EyesService {
   getSpendPolicy(agent: Agent): Promise<ToolOutput<"get_spend_policy">>;
 
   topupCheckoutUrl(token: string, amount_cents?: number): Promise<string>;
-  creditTopup(input: { agent_id: string; amount_cents: number; stripe_ref: string }): Promise<void>;
+  creditTopup(input: {
+    agent_id: string;
+    amount_cents: number;
+    stripe_ref: string;
+    payer_email?: string | null;
+  }): Promise<void>;
   ownerConsole(token: string): Promise<OwnerConsole>;
   updateSpendPolicy(token: string, input: OwnerPolicyInput): Promise<ToolOutput<"get_spend_policy">>;
 
