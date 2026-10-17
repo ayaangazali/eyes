@@ -95,4 +95,5 @@ Keys go in `.env` at the repo root (never committed) and later as Manufact env v
 6. Manufact: `MCP_USE_API_KEY` and org slug.
 7. Armature: `ANALYTICS_INGEST_API_KEY`; ask them to enable Evaluation; confirm mcp-use support.
 8. Decisions: worker phones for the demo (whose, how many), demo cafe, public domain (or use Manufact + InsForge default URLs).
-9. Hackathon rules: the event page publishes no rule on pre-start code. Ask the organizers (host Ray Liao) before 10:30 AM.
+9. Hackathon rules: the event page publishes no rule on pre-start code. Ask the organizers (host Ray Liao) before 10:30 AM. The repo's first commit is 2026-10-16 22:47 PT; docs/SUBMISSION.md has a TODO to disclose it per their answer.
+10. Privacy contact: who the worker privacy page (apps/web/worker/privacy.html, PR #47) names for data deletion requests (an email address the team monitors).
