@@ -468,6 +468,10 @@ describe("parseReplyIntent", () => {
     ["maybe later", "unknown"],
     ["yes please", "unknown"],
     ["stop by later", "unknown"],
+    ["constructor", "unknown"],
+    ["toString", "unknown"],
+    ["__proto__", "unknown"],
+    ["hasOwnProperty valueOf", "unknown"],
   ])("%j -> %s", (text, intent) => {
     expect(parseReplyIntent(text)).toBe(intent);
   });
