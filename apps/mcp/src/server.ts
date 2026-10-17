@@ -559,6 +559,9 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
 
   server.app.route("/webhooks/inkbox", inkboxRoutes(deps, env));
   server.app.route("/webhooks/primitive", primitiveRoutes(deps, env));
+  if (!liveProviders(env).payments && env.EYES_FAKE_WEBHOOKS !== "1") {
+    server.app.post("/webhooks/stripe", (c) => c.notFound());
+  }
   server.app.route("/", stripeRoutes(deps, env));
 
   const docsDir = env.EYES_DOCS_DIR || DOCS_DIR;

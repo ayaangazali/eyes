@@ -654,7 +654,10 @@ describe("worker capture", () => {
 describe("routes", () => {
   it("mounts the Stripe routes at the root", async () => {
     const onboarded: string[] = [];
-    const { fetch } = setup({ markWorkerOnboarded: async (id) => void onboarded.push(id) });
+    const { fetch } = setup(
+      { markWorkerOnboarded: async (id) => void onboarded.push(id) },
+      { EYES_FAKE_WEBHOOKS: "1" },
+    );
     const webhook = await fetch("http://eyes.test/webhooks/stripe", {
       method: "POST",
       headers: { "content-type": "application/json", "stripe-signature": FAKE_STRIPE_SIGNATURE },
@@ -666,6 +669,40 @@ describe("routes", () => {
     const done = await fetch("http://eyes.test/topup/done");
     expect(done.status).toBe(200);
     expect(done.headers.get("content-type")).toContain("text/html");
+  });
+
+  it("refuses a fake-signed Stripe webhook while payments are fake unless EYES_FAKE_WEBHOOKS=1", async () => {
+    const credited: unknown[] = [];
+    const topup = (env: Record<string, string>) =>
+      setup({ creditTopup: async (input) => void credited.push(input) }, env).fetch(
+        "http://eyes.test/webhooks/stripe",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "stripe-signature": FAKE_STRIPE_SIGNATURE },
+          body: JSON.stringify({
+            type: "topup.completed",
+            agent_id: AGENT.id,
+            amount_cents: 100_000,
+            ref: "cs_forged",
+          }),
+        },
+      );
+    const fakePayments: Record<string, string>[] = [
+      {},
+      { EYES_PROVIDERS: "live" },
+      { STRIPE_SECRET_KEY: "sk_test_x" },
+    ];
+    for (const env of fakePayments) {
+      const res = await topup(env);
+      expect(res.status).toBe(404);
+      expect(await res.json()).toMatchObject({ message: "Unknown route.", path: "/webhooks/stripe" });
+    }
+    expect(credited).toEqual([]);
+    const done = await setup().fetch("http://eyes.test/topup/done");
+    expect(done.status).toBe(200);
+    expect((await topup({ EYES_FAKE_WEBHOOKS: "1" })).status).toBe(200);
+    expect((await topup({ EYES_PROVIDERS: "live", STRIPE_SECRET_KEY: "sk_test_x" })).status).toBe(200);
+    expect(credited).toHaveLength(2);
   });
 
   it("reports each provider as live only in live mode with its key", async () => {

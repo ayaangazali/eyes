@@ -41,7 +41,11 @@ Updated: 2026-10-17 03:55 PT by orchestrator. 24 PRs merged this session. Live: 
 | T3.6 list_tasks + honest quote (ADR-013) | ax builder | **merged** #50; 008 applied; live (9 tools) | [#50](https://github.com/ayaangazali/eyes/pull/50) | PASS (160-policy quote-honesty probe, 0 failures) | none |
 | T4.7 CLI write-back guard + safety precision (#42, #36) | builder | **merged** #51 | [#51](https://github.com/ayaangazali/eyes/pull/51) | PASS; 3 guard fixtures added | none |
 | T4.9 payout recovery + no starvation (#46, #52) | engine builder | building | | | none |
-| T4.10 owner link to the Checkout payer (#38, ADR-015) | payments builder | verifying | [#53](https://github.com/ayaangazali/eyes/pull/53) | | none |
+| T4.10 owner link to the Checkout payer (#38, ADR-015) | payments builder | **merging** #53 | [#53](https://github.com/ayaangazali/eyes/pull/53) | security PASS; follow-ups #54 | none |
+| T4.11a honest surfaces (closed sign-up without a line, simulated/classifier status, required idempotency_key; ADR-017) | builder | building | | | none |
+| T4.12 SECURITY: forged Stripe webhook on fake-payment deploys | builder | **building (hotfix)** | | | live deploy exposed until merged + redeployed |
+| Full-main security sweep | auditor | **done**: 1 blocker (forged fake Stripe webhook -> T4.12), 2 major (XFF bypass: refuted on Manufact, gateway appends the real address, 7 spoofed signups hit 429 at the 4th; owner-email relay -> #54), 2 minor (#55) | | | |
+| Fresh-eyes journey audit | auditor | **done**: 2 blockers, 9 major, 9 minor; 68 doc promises: 32 true, 10 false, 26 need keys | | | fixes in T4.11a/b |
 | SPEC coverage ledger | auditor | **done**: 140 rows (62 met, 29 partial, 4 unmet, 33 key, 6 human, 6 in flight); 15 gaps | | | gaps queued in PLAN §3 or filed #27-#34 |
 
 ## Sponsor coverage (update at every gate)
@@ -73,6 +77,8 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 | Owner link goes to an address the agent chooses | PR #35 security | [#38](https://github.com/ayaangazali/eyes/issues/38) |
 | Stripe-refused transfer blocked ~24 h under reused key | PR #45 | [#46](https://github.com/ayaangazali/eyes/issues/46) |
 | Payout batch starvation; opted-out capture-page line | PR #45 r2 | [#52](https://github.com/ayaangazali/eyes/issues/52) |
+| Owner link payer scope, masked owner email, agent name in signup email | PR #53 | [#54](https://github.com/ayaangazali/eyes/issues/54) |
+| Global capture upload cap stalls all workers | security sweep | [#55](https://github.com/ayaangazali/eyes/issues/55) |
 | Money/dispatch failures only in console logs | coverage ledger | [#30](https://github.com/ayaangazali/eyes/issues/30) |
 | Expiry runs in-process only | coverage ledger | [#31](https://github.com/ayaangazali/eyes/issues/31) |
 | Dashboard loopback-only | coverage ledger | [#32](https://github.com/ayaangazali/eyes/issues/32) |
