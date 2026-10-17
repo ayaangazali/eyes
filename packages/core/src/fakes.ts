@@ -76,7 +76,7 @@ export function fakePayments() {
       const existing = byKey.get(i.idempotency_key);
       if (existing) return { transfer_id: existing };
       transfers.push(i);
-      const transfer_id = `tr_fake_${transfers.length}`;
+      const transfer_id = `tr_fake_${transfers.length}_${crypto.randomUUID()}`;
       byKey.set(i.idempotency_key, transfer_id);
       return { transfer_id };
     },

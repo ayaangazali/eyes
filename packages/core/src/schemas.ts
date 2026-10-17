@@ -131,7 +131,9 @@ export const LocationInput = z
       .max(200)
       .describe('Address or "place name, city", e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco"'),
   ])
-  .describe('Where to look. Either {lat, lng} or a string address / "place name, city".');
+  .describe(
+    'Where to look. Either numbers {"lat": 37.7825, "lng": -122.4078} or a string address / "place name, city".',
+  );
 
 export const ResolvedLocation = z.object({ lat: z.number(), lng: z.number(), label: z.string() });
 
@@ -296,6 +298,12 @@ export const SignupOutput = z.object({
   api_key: z.string(),
   balance_usd: Usd,
   top_up_url: z.string().nullable(),
+  email_address: z
+    .string()
+    .nullable()
+    .describe(
+      "Private address for asking Eyes by email. Anyone who knows it can spend your balance, so keep it secret.",
+    ),
   next_step: z.string(),
 });
 

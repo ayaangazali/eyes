@@ -66,6 +66,7 @@ export type PhotoUpload = { bytes: Uint8Array; content_type: string };
 
 export interface EyesService {
   authenticate(apiKey: string): Promise<Agent | null>;
+  agentById(agentId: string): Promise<Agent | null>;
   signupAgent(input: SignupInput): Promise<SignupOutput>;
 
   quoteTask(agent: Agent, input: ToolInput<"quote_task">): Promise<ToolOutput<"quote_task">>;
@@ -105,6 +106,7 @@ export const AppConfig = z.object({
   verify_radius_m: z.int().min(10).default(150),
   signup_grant_cents: z.int().min(0).default(2000),
   test_mode: z.boolean().default(true),
+  email_domain: z.string().min(3).nullable().default(null),
 });
 export type AppConfig = z.output<typeof AppConfig>;
 

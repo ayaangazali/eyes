@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-16 23:10 PT by orchestrator. Gate: **G0 passed** (CI run 39007534836 green, 10/10 jobs). Phase 1 running.
+Updated: 2026-10-17 00:05 PT by orchestrator. Gate: **G0 passed**. First merge done (PR #4). WIP gate clear.
 
 ## Task board
 
@@ -10,17 +10,17 @@ Updated: 2026-10-16 23:10 PT by orchestrator. Gate: **G0 passed** (CI run 390075
 | T0.2 scaffold + CI | orchestrator | done | (initial commit) | n/a | none |
 | T0.3 contracts + migration v1 + fakes | orchestrator | done | (initial commit) | n/a | none |
 | T0.4 agents, hooks, intent system | orchestrator | done | (initial commit) | n/a | none |
-| T1.1 MCP tools + REST + worker API | mcp-builder | building | | | none |
-| T1.2 engine + db | engine-builder | building | | | none |
-| T1.3 Inkbox comms | comms-builder | building | | | none |
-| T1.4 worker web | worker-web-builder | building | | | none |
-| T1.5 safety | safety-builder | queued | | | first free builder slot |
-| T2.1 Stripe | payments-builder | blocked | | | T1.2 |
-| T2.2 verification | verification-builder | queued | | | builder slot |
+| T1.1 MCP tools + REST + worker API | mcp-builder | fix round 1 | [#2](https://github.com/ayaangazali/eyes/pull/2) | spec PASS, test PASS, intent PASS, ax FAIL, security FAIL (photo bytes corrupted by mcp-use listen; unbounded bodies) | byte-preserving Node adapter |
+| T1.2 engine + db | engine-builder | verifying | [#6](https://github.com/ayaangazali/eyes/pull/6) | intent PASS; spec, test, security running | none |
+| T1.3 Inkbox comms | comms-builder | verifying round 2 | [#1](https://github.com/ayaangazali/eyes/pull/1) | round 2: test PASS (50/50 mutants killed); security+spec running | none |
+| T1.4 worker web | worker-web-builder | fix round 1 | [#3](https://github.com/ayaangazali/eyes/pull/3) | intent PASS, spec FAIL, test FAIL (duplicate POST, GPS re-acquire) | none |
+| T1.5 safety | safety-builder | verifying | [#7](https://github.com/ayaangazali/eyes/pull/7) | spec+security, test+intent running | none |
+| T2.1 Stripe | payments-builder | verifying | [#5](https://github.com/ayaangazali/eyes/pull/5) | spec+intent, test, security running | none |
+| T2.2 verification | verification-builder | **merged** [#4](https://github.com/ayaangazali/eyes/pull/4); follow-up PR in progress | [#4](https://github.com/ayaangazali/eyes/pull/4) | spec PASS, test PASS, intent PASS | none |
 | T2.3 deploy | orchestrator | blocked | | | keys, T1.1, T1.2 |
 | T2.4 money tools | mcp-builder | blocked | | | T2.1 |
 | T3.1 Primitive | comms-builder | blocked | | | G2 |
-| T3.2 AX docs + CLI | ax-builder | blocked | | | G2 |
+| T3.2 AX docs + CLI | ax-builder | building | | | none |
 | T3.3 dashboard | dashboard-builder | blocked | | | G2 |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
 
@@ -42,7 +42,7 @@ Keys go in `.env` at the repo root (never committed) and later as Manufact env v
 
 1. InsForge: create a project. `INSFORGE_BASE_URL`, `INSFORGE_ANON_KEY`, `INSFORGE_API_KEY` (ik_...).
 2. Inkbox: console API key `INKBOX_API_KEY`; create identity `eyes-dispatch` with a US number (`INKBOX_PHONE_NUMBER`). Provision at least 1 hour before any live text (10DLC takes 10 to 15 min). Every worker phone must text START to it first.
-3. Stripe: new sandbox, enable Connect and set platform branding. `STRIPE_SECRET_KEY` (sk_test_), webhook secret later. Pre-fund the platform with card 4000 0000 0000 0077 before demos.
+3. Stripe: new sandbox, enable Connect and set platform branding. `STRIPE_SECRET_KEY` (sk_test_). At deploy, two event destinations both pointing to `/webhooks/stripe`: "Your account" with `checkout.session.completed` (`STRIPE_WEBHOOK_SECRET`) and "Connected accounts" with `account.updated` (`STRIPE_CONNECT_WEBHOOK_SECRET`). Pre-fund the platform with card 4000 0000 0000 0077 before demos.
 4. Primitive: sign up, note the auto-assigned `*.primitive.email` domain (`PRIMITIVE_DOMAIN`), `PRIMITIVE_API_KEY`, `PRIMITIVE_WEBHOOK_SECRET`. Ask staff to enable `send_to_any_domain`.
 5. Anthropic: `ANTHROPIC_API_KEY` (vision + safety classifier). Also add it as a repo secret to enable `claude-verifier` and `safety-llm-eval`.
 6. Manufact: `MCP_USE_API_KEY` and org slug.

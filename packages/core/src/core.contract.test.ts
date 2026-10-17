@@ -3,6 +3,8 @@ import { z } from "zod";
 import {
   AskEyesInput,
   AwaitAnswerInput,
+  agentEmailAddress,
+  agentIdFromEmailAddress,
   distanceMeters,
   ERRORS,
   EyesError,
@@ -104,5 +106,19 @@ describe("fake payments", () => {
     const b = await p.payoutWorker(payout);
     expect(a).toEqual(b);
     expect(p.transfers).toHaveLength(1);
+  });
+});
+
+describe("agent email addresses", () => {
+  it("round-trip to the agent id and reject forgeries", () => {
+    const secret = "test-secret-at-least-16";
+    const id = "0b5e6a52-1c2d-4e3f-8a9b-0c1d2e3f4a5b";
+    const address = agentEmailAddress(secret, id, "brave-otter.primitive.email");
+    expect(address.split("@")[0]?.length).toBeLessThanOrEqual(64);
+    expect(agentIdFromEmailAddress(secret, address)).toBe(id);
+    expect(agentIdFromEmailAddress(secret, address.toUpperCase())).toBe(id);
+    expect(agentIdFromEmailAddress("another-secret-16chars", address)).toBeNull();
+    expect(agentIdFromEmailAddress(secret, address.replace(/-\w{16}@/, "-AAAAAAAAAAAAAAAA@"))).toBeNull();
+    expect(agentIdFromEmailAddress(secret, "tasks@brave-otter.primitive.email")).toBeNull();
   });
 });
