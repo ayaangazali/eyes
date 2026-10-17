@@ -478,7 +478,10 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   );
   server.get("/v1/tasks", async (c) => {
     const { status, limit } = c.req.query();
-    const input = parse(ListTasksInput, { status, limit: limit === undefined ? undefined : Number(limit) });
+    const input = parse(ListTasksInput, {
+      status: status || undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
     return c.json(await service.listTasks(c.get("agent"), input));
   });
   server.get("/v1/tasks/:task_id", async (c) =>

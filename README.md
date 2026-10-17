@@ -52,11 +52,11 @@ claude mcp add --transport http eyes https://dark-wave-wfmpm.run.mcp-use.com/mcp
 
 Until the vendor keys land, the deployed server resolves only a few demo places (for example "Ferry Building, San Francisco" or `{lat, lng}`) and has no opted-in workers yet (opting in needs the Inkbox line), so `ask_eyes` there returns `no_workers_nearby` and charges nothing. The whole loop runs on fakes in [e2e/golden-path.spec.ts](e2e/golden-path.spec.ts).
 
-### The 8 tools
+### The 9 tools
 
 | Tool | What it does |
 |---|---|
-| `quote_task` | Free check before spending: workers nearby, estimated minutes, suggested bounty, whether this key may post that task type, and where Eyes thinks the place is. |
+| `quote_task` | Free check before spending: workers nearby, estimated minutes, a suggested bounty that already fits this key's limits and balance, whether this key may post that task type here, and where Eyes thinks the place is. It never sees the question; `ask_eyes` checks that. |
 | `ask_eyes` | Escrows bounty plus fee and texts nearby workers. Always pass an `idempotency_key`; a retry with the same key returns the same task instead of charging twice. |
 | `await_answer` | Long-polls up to 55 s per call ([ADR-002](intent/decisions/ADR-002-await-answer-cap.md)). Call it right after `ask_eyes` and keep calling: agents cannot listen for events in the background, so this loop is how the answer arrives. |
 | `get_task` | Instant status and answer lookup. |
@@ -64,8 +64,9 @@ Until the vendor keys land, the deployed server resolves only a few demo places 
 | `dispute_answer` | Flags a wrong answer; holds the payout if it has not gone out and sends the task to human review. |
 | `get_balance` | Balance, escrowed amount and a top-up link for your human. |
 | `get_spend_policy` | The limits your human set on this key: max bounty, daily cap, remaining today, allowed task types. |
+| `list_tasks` | Your own tasks, newest first, optionally filtered by status. Use it to find a task_id you lost before asking again ([ADR-013](intent/decisions/ADR-013-list-tasks.md)). |
 
-Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`. Every tool description is written for an LLM reader with an example and a "Next:" line ([apps/mcp/src/server.ts](apps/mcp/src/server.ts)). The same capabilities are on REST under `/v1/*` (`HTTP_ROUTES` in [packages/core/src/schemas.ts](packages/core/src/schemas.ts)). `llms.txt`, `openapi.json`, the agent card and the `eyes` CLI are in review in [PR #9](https://github.com/ayaangazali/eyes/pull/9).
+Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`. Every tool description is written for an LLM reader with an example and a "Next:" line ([apps/mcp/src/server.ts](apps/mcp/src/server.ts)). The same capabilities are on REST under `/v1/*` (`HTTP_ROUTES` in [packages/core/src/schemas.ts](packages/core/src/schemas.ts)). `llms.txt`, `openapi.json`, the agent card and the `eyes` CLI are generated from the same schemas ([PR #9](https://github.com/ayaangazali/eyes/pull/9)) and served live at https://dark-wave-wfmpm.run.mcp-use.com/llms.txt.
 
 ### Example exchange
 
@@ -150,7 +151,7 @@ From the coverage table in [STATUS.md](STATUS.md), with the live-verified column
 
 | Sponsor | What we use | Where in the repo | Live-verified |
 |---|---|---|---|
-| Manufact (mcp-use) | MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror and worker API, deployed on Manufact Cloud from the repo Dockerfile | [apps/mcp](apps/mcp), [Dockerfile](Dockerfile) | partial: routing yes, providers fake |
+| Manufact (mcp-use) | MCP server on mcp-use 2.10: 9 tools with LLM-first descriptions, bearer auth, REST mirror and worker API, deployed on Manufact Cloud from the repo Dockerfile | [apps/mcp](apps/mcp), [Dockerfile](Dockerfile) | partial: routing yes, providers fake |
 | InsForge | Postgres (escrow ledger, race-safe claim and expiry as plpgsql over RPC, RLS on every table), `photos` storage bucket, Sites hosting for the worker pages | [packages/db](packages/db), [scripts/insforge-migrate.ts](scripts/insforge-migrate.ts), [apps/web/worker](apps/web/worker) | **yes** (database and Sites; storage waits for the first live capture) |
 | Stripe | Checkout top-ups, per-key spend policy, Connect Express onboarding minted on click, $3 transfer on a verified answer, signed webhooks, refund on expiry or cancel | [packages/payments](packages/payments) | no |
 | Inkbox | iMessage line: offer, capture link and paid texts; signed `imessage.received` webhook for START and YES | [packages/comms/src/inkbox.ts](packages/comms/src/inkbox.ts) | no |

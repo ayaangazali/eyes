@@ -381,12 +381,13 @@ describe("REST mirror", () => {
       fetch(`http://eyes.test/v1/tasks${query}`, { headers: { authorization: `Bearer ${KEY}` } });
     expect((await get("?status=dispatched&limit=5")).status).toBe(200);
     expect((await get("")).status).toBe(200);
+    expect((await get("?status=&limit=")).status).toBe(200);
     for (const bad of ["?limit=51", "?limit=abc", "?status=lost"]) {
       const res = await get(bad);
       expect(res.status, bad).toBe(400);
       expect(await res.json(), bad).toMatchObject({ error: "invalid_input" });
     }
-    expect(inputs).toEqual([{ status: "dispatched", limit: 5 }, { limit: 20 }]);
+    expect(inputs).toEqual([{ status: "dispatched", limit: 5 }, { limit: 20 }, { limit: 20 }]);
   });
 
   it("returns the EyesError status code and body", async () => {
