@@ -8,6 +8,7 @@ import {
   signToken,
   TASK_TYPES,
 } from "@eyes/core";
+import { InkboxAPIError } from "@inkbox/sdk";
 import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import {
   alreadyClaimedText,
@@ -401,6 +402,19 @@ describe("createInkboxMessaging", () => {
     await expect(m.sendText(TO, "a")).rejects.toThrow("identity lookup failed");
     await expect(m.sendText(TO, "b")).resolves.toEqual({ id: "im_1" });
     expect(sdk.getIdentity).toHaveBeenCalledTimes(2);
+  });
+
+  it("names the Inkbox HTTP status and error code on a failed send, without the phone number", async () => {
+    const m = createInkboxMessaging(env);
+    sdk.sendIMessage.mockRejectedValueOnce(
+      new InkboxAPIError(403, { error: "recipient_not_connected", message: `${TO} has not connected` }),
+    );
+    sdk.sendIMessage.mockRejectedValueOnce(new InkboxAPIError(400, `no route to ${TO} (415) 555-0123`));
+    const first = await m.sendOffer(TO, offer()).catch((err: Error) => err);
+    const second = await m.sendText(TO, "a").catch((err: Error) => err);
+    expect(first).toMatchObject({ name: "InkboxSendError(403 recipient_not_connected)" });
+    expect(second).toMatchObject({ name: "InkboxSendError(400 no route to <number>)" });
+    expect(`${first} ${second}`).not.toMatch(/4155550123|555-0123/);
   });
 
   it("propagates SDK send errors", async () => {

@@ -7,7 +7,7 @@ import {
   type RouteDeps,
   type TaskType,
 } from "@eyes/core";
-import { type AgentIdentity, Inkbox, verifyWebhook } from "@inkbox/sdk";
+import { type AgentIdentity, Inkbox, InkboxAPIError, verifyWebhook } from "@inkbox/sdk";
 import { Hono } from "hono";
 
 export type Env = Record<string, string | undefined>;
@@ -129,6 +129,19 @@ export function parseReplyIntent(text: string): ReplyIntent {
   return asked && intent !== "stop" && intent !== "help" ? "unknown" : intent;
 }
 
+function sendError(err: unknown): unknown {
+  if (!(err instanceof InkboxAPIError)) return err;
+  const detail = err.detail;
+  const reason =
+    typeof detail === "string"
+      ? detail
+      : String(detail.error ?? detail.code ?? detail.type ?? "no error code");
+  const safe = reason.replace(/\+?\d[\d\s().-]{5,}\d/g, "<number>").slice(0, 80);
+  return Object.assign(new Error("Inkbox send failed", { cause: err }), {
+    name: `InkboxSendError(${err.statusCode} ${safe})`,
+  });
+}
+
 export function createInkboxMessaging(env: Env): Messaging {
   const apiKey = env.INKBOX_API_KEY;
   const handle = env.INKBOX_AGENT_HANDLE;
@@ -147,7 +160,9 @@ export function createInkboxMessaging(env: Env): Messaging {
       identity = undefined;
       throw err;
     });
-    const sent = await (await identity).sendIMessage({ to, text, idempotencyKey });
+    const sent = await (await identity).sendIMessage({ to, text, idempotencyKey }).catch((err: unknown) => {
+      throw sendError(err);
+    });
     if (sent.status === "error" || sent.status === "declined") {
       throw new Error(`Inkbox iMessage ${sent.status}: ${sent.errorCode ?? "no error code"}`);
     }
