@@ -30,6 +30,9 @@ type AppEnv = { Variables: { agent: Agent } };
 
 const PROGRESS_INTERVAL_MS = 5000;
 const MAX_CAPTURE_UPLOADS = 4;
+const HOUR_MS = 60 * 60 * 1000;
+const PUBLIC_CALLS_PER_HOUR = 5;
+const THROTTLE_MAX_KEYS = 10_000;
 const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
 const AGENT_CARD = "/.well-known/agent-card.json";
 const DOCS = {
@@ -349,9 +352,36 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     (_input, ctx) => run(() => service.getSpendPolicy(ctx.get("agent"))),
   );
 
-  server.post("/v1/signup", async (c) =>
-    c.json(await service.signupAgent(parse(SignupInput, await readJson(c)))),
-  );
+  const hits = new Map<string, number[]>();
+  const throttle = (c: Context) => {
+    const now = deps.providers.clock.now().getTime();
+    for (const [key, times] of hits) {
+      if ((times.at(-1) ?? 0) > now - HOUR_MS && hits.size < THROTTLE_MAX_KEYS) break;
+      hits.delete(key);
+    }
+    const client = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() ?? "";
+    const key = `${c.req.path} ${client}`;
+    const recent = (hits.get(key) ?? []).filter((at) => at > now - HOUR_MS);
+    if (recent.length >= PUBLIC_CALLS_PER_HOUR) {
+      const until = (recent[0] ?? now) + HOUR_MS;
+      const retry_after_s = Math.ceil((until - now) / 1000);
+      throw new EyesError(
+        "rate_limited",
+        { retry_after_s },
+        {
+          fix: `${c.req.path} allows ${PUBLIC_CALLS_PER_HOUR} calls per hour from one address. Wait ${retry_after_s} seconds (until ${new Date(until).toISOString()}) and try again.`,
+        },
+      );
+    }
+    hits.delete(key);
+    hits.set(key, [...recent, now]);
+  };
+
+  server.post("/v1/signup", async (c) => {
+    const input = parse(SignupInput, await readJson(c));
+    throttle(c);
+    return c.json(await service.signupAgent(input));
+  });
   server.post("/v1/quote", async (c) =>
     c.json(await service.quoteTask(c.get("agent"), parse(QuoteTaskInput, await readJson(c)))),
   );
@@ -376,9 +406,11 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   server.get("/v1/spend-policy", async (c) => c.json(await service.getSpendPolicy(c.get("agent"))));
 
   server.use("/w/*", cors({ origin: new URL(config.worker_web_url).origin }));
-  server.post("/w/join", async (c) =>
-    c.json(await service.joinWorker(parse(JoinWorkerInput, await readJson(c)))),
-  );
+  server.post("/w/join", async (c) => {
+    const input = parse(JoinWorkerInput, await readJson(c));
+    throttle(c);
+    return c.json(await service.joinWorker(input));
+  });
   server.get("/w/offers/:token", async (c) => c.json(await service.getOffer(c.req.param("token"))));
   const uploads = new Set<string>();
   server.post("/w/offers/:token/capture", async (c) => {

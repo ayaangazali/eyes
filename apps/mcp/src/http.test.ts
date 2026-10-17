@@ -245,18 +245,21 @@ describe("node adapter on a real socket", () => {
     expect(target.body).toMatchObject({ error: "invalid_input", fix: expect.any(String) });
   });
 
-  it("redacts token-shaped path segments anywhere but keeps file names", async () => {
+  it("logs known routes as their template and every other path as <other>", async () => {
     const base = await start({});
     const log = quiet();
     const token = signToken(config.link_secret, "anything");
 
     await fetch(`${base}/some/${token}/deeper`);
     await fetch(`${base}/llms.txt`);
+    await fetch(`${base}/v1/tasks/${TASK_ID}`);
 
     const lines = log.mock.calls.map((call) => String(call[0]));
-    expect(lines[0]).toMatch(/^GET \/some\/<token>\/deeper 404 \d+ms$/);
+    expect(lines[0]).toMatch(/^GET <other> 404 \d+ms$/);
     expect(lines[1]).toMatch(/^GET \/llms\.txt \d{3} \d+ms$/);
+    expect(lines[2]).toMatch(/^GET \/v1\/tasks\/<task_id> 401 \d+ms$/);
     expect(lines.join("\n")).not.toContain(token);
+    expect(lines.join("\n")).not.toContain(TASK_ID);
   });
 
   const secret = signToken(config.link_secret, "offer-secret");
@@ -291,22 +294,40 @@ describe("node adapter on a real socket", () => {
   });
 
   it.each([
-    ["an encoded slash before it", `/w/offers%2F${secret}`],
-    ["an encoded dot", `/w/offers/${tokenBody}%2E${tokenMac}`],
-    ["full percent-encoding", `/w/offers/${encodeAll(secret)}`],
-    ["a ;x suffix", `/w/offers/${secret};x`],
-    ["a .json suffix", `/w/offers/${secret}.json`],
-    ["an encoded slash after it", `/w/offers/${secret}%2Fcapture`],
-    ["an encoded dot and a bare trailing %", `/w/offers/${tokenBody}%2E${tokenMac}.%`],
-  ])("redacts a token with %s", async (_, path) => {
+    ["an encoded slash before it", `/w/offers%2F${secret}`, "<other>"],
+    ["an encoded dot", `/w/offers/${tokenBody}%2E${tokenMac}`, "/w/offers/<token>"],
+    ["full percent-encoding", `/w/offers/${encodeAll(secret)}`, "/w/offers/<token>"],
+    ["a ;x suffix", `/w/offers/${secret};x`, "/w/offers/<token>"],
+    ["a .json suffix", `/w/offers/${secret}.json`, "/w/offers/<token>"],
+    ["an encoded slash after it", `/w/offers/${secret}%2Fcapture`, "/w/offers/<token>"],
+    ["an encoded dot and a bare trailing %", `/w/offers/${tokenBody}%2E${tokenMac}.%`, "/w/offers/<token>"],
+    ["two dots between the halves", `/w/offers/${tokenBody}..${tokenMac}`, "/w/offers/<token>"],
+    ["the halves in separate segments", `/${tokenBody}/${tokenMac}`, "<other>"],
+    ["a double-encoded dot", `/w/offers/${tokenBody}%252E${tokenMac}`, "/w/offers/<token>"],
+  ])("logs a token with %s as its route template and neither half", async (_, path, route) => {
     const base = await start({ getOffer: offerInvalid });
     silence();
 
     await raw(base, { method: "GET", path }, (req) => req.end());
 
-    expect(logged()).toContain("<token>");
+    expect(logged()).toMatch(new RegExp(`^GET ${route.replaceAll("/", "\\/")} \\d{3} \\d+ms$`));
     expect(logged()).not.toContain(tokenMac);
     expect(logged()).not.toContain(tokenBody);
+  });
+
+  it("writes no decoded control characters into the log", async () => {
+    const base = await start({ getOffer: offerInvalid });
+    silence();
+
+    await raw(base, { method: "GET", path: "/w/offers/x%0D%0AGET%20%2Fhealthz%20200%201ms" }, (req) =>
+      req.end(),
+    );
+    await raw(base, { method: "GET", path: "/%1B%5B2J%0Aforged" }, (req) => req.end());
+
+    expect(logged().split("\n")).toEqual([
+      expect.stringMatching(/^GET \/w\/offers\/<token> 404 \d+ms$/),
+      expect.stringMatching(/^GET <other> 404 \d+ms$/),
+    ]);
   });
 
   it.each([
@@ -327,6 +348,20 @@ describe("node adapter on a real socket", () => {
     expect(logged()).not.toContain("u:p@");
     expect(logged()).not.toContain(tokenMac);
     expect(logged()).not.toContain(tokenBody);
+  });
+
+  it("passes the socket address as X-Forwarded-For only when the request has none", async () => {
+    const seen: Request[] = [];
+    const base = await start({}, seen);
+    quiet();
+
+    await fetch(`${base}/healthz`);
+    await fetch(`${base}/healthz`, { headers: { "x-forwarded-for": "198.51.100.7, 203.0.113.9" } });
+
+    expect(seen.map((request) => request.headers.get("x-forwarded-for"))).toEqual([
+      "127.0.0.1",
+      "198.51.100.7, 203.0.113.9",
+    ]);
   });
 
   it("logs only the error name when the app throws with the URL in its message", async () => {
