@@ -44,6 +44,7 @@ const FINAL: TaskStatus[] = ["expired", "refunded", "disputed"];
 const WALK_METERS_PER_MINUTE = 80;
 const CAPTURE_MINUTES = 3;
 const POLL_MS = 1000;
+const CONNECT_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 
 const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
   dispatched:
@@ -114,7 +115,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const topUpUrl = (agentId: string) =>
     `${config.public_api_url}/topup/${signToken(config.link_secret, `t:${agentId}`)}`;
   const connectUrl = (workerId: string) =>
-    `${config.public_api_url}/w/connect/${signToken(config.link_secret, `c:${workerId}`)}`;
+    `${config.public_api_url}/w/connect/${signToken(config.link_secret, `c:${workerId}`, new Date(now().getTime() + CONNECT_LINK_MS))}`;
   const captureUrl = (task: Task, workerId: string) =>
     `${config.worker_web_url}/capture.html?t=${signToken(config.link_secret, `o:${task.id}:${workerId}`, new Date(task.deadline_at))}`;
 
@@ -461,9 +462,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
       return {
         worker_id: worker.id,
         opt_in_instructions:
-          "Text START to the Eyes number to start getting paid tasks near you. When a task text arrives, reply YES to claim it. Text STOP any time to pause.",
+          "Text START to the Eyes number to start getting paid tasks near you; we reply with your payout setup link. When a task text arrives, reply YES to claim it. Text STOP any time to pause.",
         inkbox_number: null,
-        connect_url: connectUrl(worker.id),
+        connect_url: null,
       };
     },
 
@@ -503,6 +504,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
     async handleWorkerReply({ phone, intent }) {
       const worker = await maybe<Worker>("eyes_worker", { p_worker_id: null, p_phone: phone });
       if (!worker) {
+        if (intent === "stop") return;
         await messaging.sendText(
           phone,
           `You are not signed up for Eyes yet. Join at ${config.worker_web_url} to get paid tasks near you.`,
@@ -510,7 +512,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
         return;
       }
       const reply: Record<ReplyIntent, () => Promise<unknown>> = {
-        start: () => rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: true }),
+        start: async () => {
+          await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: true });
+          await messaging.sendText(
+            phone,
+            `You are in. Eyes will text you paid tasks nearby. Set up payouts here: ${connectUrl(worker.id)}`,
+          );
+        },
         stop: () => rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false }),
         yes: () => claim(worker),
         no: () => messaging.sendText(phone, REPLY_TEXT.no),

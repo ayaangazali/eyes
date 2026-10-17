@@ -113,14 +113,14 @@ begin
     end if;
   end if;
 
-  if coalesce(cardinality(p_worker_ids), 0) = 0 then
-    raise exception 'eyes:no_workers_nearby';
-  end if;
-
   v_spent := eyes_spent_today(p_agent_id, p_now);
   if v_spent + v_total > v_agent.daily_cap_cents then
     raise exception 'eyes:daily_cap_exceeded %',
       json_build_object('daily_cap_cents', v_agent.daily_cap_cents, 'spent_today_cents', v_spent);
+  end if;
+
+  if coalesce(cardinality(p_worker_ids), 0) = 0 then
+    raise exception 'eyes:no_workers_nearby';
   end if;
 
   if v_agent.balance_cents < v_total then
@@ -219,11 +219,17 @@ returns setof workers language sql stable as $$
 $$;
 
 create function eyes_join_worker(p_name text, p_phone text, p_lat double precision, p_lng double precision, p_now timestamptz)
-returns setof workers language sql as $$
+returns setof workers language plpgsql as $$
+begin
+  return query
   insert into workers (name, phone, lat, lng, created_at) values (p_name, p_phone, p_lat, p_lng, p_now)
   on conflict (phone) do update set name = excluded.name, lat = excluded.lat, lng = excluded.lng
-  returning *
-$$;
+  where not workers.opted_in
+  returning *;
+  if not found then
+    return query select * from workers where phone = p_phone;
+  end if;
+end $$;
 
 create function eyes_set_worker_opt_in(p_phone text, p_opted_in boolean)
 returns setof workers language sql as $$
@@ -332,11 +338,21 @@ returns table (task tasks, phone text) language sql stable as $$
   where w.stripe_account_id = p_account_id and t.status = 'verified'
 $$;
 
+alter table agents enable row level security;
+alter table workers enable row level security;
+alter table tasks enable row level security;
+alter table offers enable row level security;
+alter table submissions enable row level security;
+alter table ledger enable row level security;
+
 do $$
 declare
   v_fn regprocedure;
   v_role text;
 begin
+  for v_role in select rolname from pg_roles where rolname in ('anon', 'authenticated') loop
+    execute format('revoke all on agents, workers, tasks, offers, submissions, ledger from %I', v_role);
+  end loop;
   for v_fn in select p.oid::regprocedure from pg_proc p
     where p.pronamespace = 'public'::regnamespace and p.proname like 'eyes\_%'
   loop

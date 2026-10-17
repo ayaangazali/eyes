@@ -54,8 +54,14 @@ describe.skipIf(!url)("engine on Postgres", () => {
   const somewhere = (): LatLng => ({ lat: 10 + Math.random() * 40, lng: -120 + Math.random() * 60 });
   const north = (p: LatLng, meters: number): LatLng => ({ lat: p.lat + meters / 111_320, lng: p.lng });
 
+  const newPhone = () => `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
+
+  const connectToken = (phone: string) =>
+    String(outbox.findLast((m) => m.to === phone && m.kind === "text")?.payload).split("/w/connect/")[1] ??
+    "";
+
   async function worker(at: LatLng, optIn = true) {
-    const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
+    const phone = newPhone();
     const joined = await service.joinWorker({ name: "Test Worker", phone, ...at });
     if (optIn) await service.handleWorkerReply({ phone, intent: "start", text: "START" });
     return { ...joined, phone };
@@ -129,7 +135,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const captureUrl = String(link.payload.capture_url);
     const token = new URL(captureUrl).searchParams.get("t") ?? "";
     expect(await service.getOffer(token)).toMatchObject({ task_id: asked.task_id, claimed_by_you: true });
-    await service.workerConnectUrl(winner.connect_url?.split("/").pop() ?? "");
+    await service.workerConnectUrl(connectToken(winner.phone));
 
     const result = await service.submitCapture(
       token,
@@ -166,6 +172,21 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
   });
 
+  it("never lets a repeat join rewrite an opted-in worker and sends the payout link only by text after START", async () => {
+    const at = somewhere();
+    const phone = newPhone();
+    const first = await service.joinWorker({ name: "Real Worker", phone, ...at });
+    expect(first.connect_url).toBeNull();
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+    expect(connectToken(phone)).not.toBe("");
+
+    const again = await service.joinWorker({ name: "Someone Else", phone, ...north(at, 2000) });
+    expect(again).toEqual(first);
+    expect(await sql`select name, lat from workers where phone = ${phone}`).toEqual([
+      { name: "Real Worker", lat: at.lat },
+    ]);
+  });
+
   it("holds the payout of a worker without Stripe until onboarding finishes, then pays it once", async () => {
     const at = somewhere();
     const w = await worker(north(at, 100));
@@ -184,7 +205,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const photo = { bytes: new Uint8Array([255, 216, 255]), content_type: "image/jpeg" };
 
     expect(await service.submitCapture(token, capture, photo)).toMatchObject({ status: "verified" });
-    await service.workerConnectUrl(w.connect_url?.split("/").pop() ?? "");
+    await service.workerConnectUrl(connectToken(w.phone));
     const account = `acct_fake_${w.worker_id}`;
     await Promise.all([service.markWorkerOnboarded(account), service.markWorkerOnboarded(account)]);
 
