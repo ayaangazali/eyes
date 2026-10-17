@@ -6,6 +6,7 @@ import {
   type AskEyesInput,
   agentEmailAddress,
   CaptureResult,
+  type EngineDeps,
   type EyesError,
   fakeProviders,
   JoinWorkerOutput,
@@ -47,7 +48,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     payload: Record<string, unknown>;
   }[];
   let safety = ALLOW;
-  const service = createEyesService({
+  const deps: EngineDeps = {
     db: { kind: "postgres", url: url ?? "" },
     providers,
     assessTask: async () => safety,
@@ -63,7 +64,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
       link_secret: "test-link-secret-0123456789",
       email_domain: "brave-otter.primitive.email",
     }),
-  });
+  };
+  const service = createEyesService(deps);
 
   beforeAll(() => migrate(url ?? ""));
   afterAll(() => sql.end());
@@ -553,6 +555,23 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(body).toContain("/topup/");
     expect(body).not.toContain(ownerToken);
     expect(body).not.toContain("/owner/");
+  });
+
+  it("claims the owner email was sent only when email delivery is live", async () => {
+    expect(deps.config.email_delivery).toBe(false);
+    const ownerEmail = `owner-${randomUUID()}@example.com`;
+    const simulated = await service.signupAgent({ name: "simulated-mail-agent", owner_email: ownerEmail });
+    expect(simulated.next_step).not.toMatch(/emailed/i);
+    expect(simulated.next_step).toContain(`nothing was sent to ${ownerEmail}`);
+    expect(simulated.next_step).toContain(
+      `Eyes operator, who creates it with pnpm owner-link ${simulated.agent_id}`,
+    );
+    expect(providers.email.outbox.filter((m) => m.to === ownerEmail)).toHaveLength(1);
+
+    const delivering = createEyesService({ ...deps, config: { ...deps.config, email_delivery: true } });
+    const live = await delivering.signupAgent({ name: "live-mail-agent", owner_email: ownerEmail });
+    expect(live.next_step).toContain(`We emailed your user at ${ownerEmail} a private control link`);
+    expect(live.next_step).not.toContain("operator");
   });
 
   it("still signs the agent up when the owner email fails, without logging the owner link", async () => {

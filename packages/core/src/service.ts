@@ -124,6 +124,7 @@ export const AppConfig = z.object({
   signup_grant_cents: z.int().min(0).default(2000),
   test_mode: z.boolean().default(true),
   email_domain: z.string().min(3).nullable().default(null),
+  email_delivery: z.boolean().default(false),
 });
 export type AppConfig = z.output<typeof AppConfig>;
 
