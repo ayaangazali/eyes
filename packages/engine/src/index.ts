@@ -96,6 +96,8 @@ const policyOf = (s: Summary) => ({
   allowed_task_types: s.allowed_task_types,
 });
 
+const MIN_BOUNTY_CENTS = 100;
+
 function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<S> {
   const result = schema.safeParse(input);
   if (result.success) return result.data;
@@ -321,7 +323,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       return (await maybe<Agent>("eyes_agent", { p_agent_id: agentId })) ?? null;
     },
 
-    async quoteTask(_agent, input) {
+    async quoteTask(agent, input) {
       const { location, task_type } = parse(TOOLS.quote_task.input, input);
       const place = await resolve(location);
       const verdict = await deps.assessTask({
@@ -331,16 +333,41 @@ export function createEyesService(deps: EngineDeps): EyesService {
       });
       const workers = await nearby(place, null);
       const nearest = workers[0];
+      const s = await one<Summary>("eyes_agent_summary", { p_agent_id: agent.id, p_now: nowIso() });
+      const fee = config.fee_cents;
+      const left = Math.max(0, s.daily_cap_cents - s.spent_today_cents);
+      const least = MIN_BOUNTY_CENTS + fee;
+      const reset = new Date(now());
+      reset.setUTCHours(24, 0, 0, 0);
+      const reasons = [
+        verdict.allowed
+          ? ""
+          : [verdict.reason, verdict.fix].filter(Boolean).join(" ") || ERRORS.unsafe_task.message,
+        s.allowed_task_types.includes(task_type)
+          ? ""
+          : `This API key may not post ${task_type} tasks; its allowed_task_types are ${s.allowed_task_types.join(", ") || "none"}. Use one of those, or ask your user to allow ${task_type}.`,
+        s.max_bounty_cents >= MIN_BOUNTY_CENTS
+          ? ""
+          : `This API key's max_bounty_usd is ${centsToUsd(s.max_bounty_cents)}, below the ${centsToUsd(MIN_BOUNTY_CENTS)} USD minimum bounty, so it cannot post tasks. Ask your user to raise max_bounty_usd.`,
+        left >= least
+          ? ""
+          : `Only ${centsToUsd(left)} USD of today's spend cap is left, less than the minimum bounty plus fee (${centsToUsd(least)} USD). Wait until the cap resets at ${reset.toISOString()} (midnight UTC), or ask your user to raise daily_cap_usd.`,
+        s.balance_cents >= least
+          ? ""
+          : `Your balance of ${centsToUsd(s.balance_cents)} USD is less than the minimum bounty plus fee (${centsToUsd(least)} USD). Ask your user to top up at ${topUpUrl(agent.id)}, then call get_balance before asking.`,
+      ].filter(Boolean);
+      const bounty = Math.max(
+        MIN_BOUNTY_CENTS,
+        Math.min(config.default_bounty_cents, s.max_bounty_cents, left - fee, s.balance_cents - fee),
+      );
       return {
         workers_nearby: workers.length,
         est_minutes_to_answer: nearest
           ? Math.ceil(nearest.distance_m / WALK_METERS_PER_MINUTE) + CAPTURE_MINUTES
           : null,
-        suggested_bounty_usd: centsToUsd(config.default_bounty_cents),
-        allowed: verdict.allowed,
-        reason_if_not: verdict.allowed
-          ? null
-          : [verdict.reason, verdict.fix].filter(Boolean).join(" ") || ERRORS.unsafe_task.message,
+        suggested_bounty_usd: centsToUsd(bounty),
+        allowed: reasons.length === 0,
+        reason_if_not: reasons.join(" ") || null,
         resolved_location: place,
       };
     },

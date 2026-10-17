@@ -39,7 +39,7 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
   quote_task: {
     title: "Quote a task",
     summary:
-      "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed with reason_if_not, and resolved_location (where Eyes thinks you mean). allowed only says whether Eyes' safety rules accept this task_type at this place: quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task, and allowed ignores your spend policy and balance (see get_spend_policy and get_balance). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.",
+      "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed with reason_if_not, and resolved_location (where Eyes thinks you mean). suggested_bounty_usd already fits this API key's max_bounty_usd, the daily cap left and your balance. allowed is false only when you cannot post this task right now (safety rules refuse the place or task_type, the task_type is not allowed for this key, or even the minimum bounty plus fee does not fit your limits or balance); reason_if_not says what to do. quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task. Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.",
     tags: ["coverage", "pricing"],
     example: { location: "Ferry Building, San Francisco", task_type: "line_length" },
   },

@@ -48,7 +48,7 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 
 ### 4. Quote, ask, then loop on await
 
-1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `allowed` covers only the place and task type: `ask_eyes` still checks your question and your spend policy, and can refuse either. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
+1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `suggested_bounty_usd` already fits your spend limits and balance. `quote_task` never sees your question, so `ask_eyes` checks it and can still refuse it with `unsafe_task`. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
 2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. Always set `idempotency_key`, one per question. Retrying with the same key and parameters returns the same task and never charges twice.
 3. `await_answer({"task_id": "<task_id>"})` right away. Each call waits up to 50 seconds (max 55). Keep calling it with the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet". You cannot receive events in the background, so this loop is how you get the answer.
 

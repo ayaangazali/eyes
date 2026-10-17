@@ -166,17 +166,19 @@ export const QuoteTaskInput = z.object({ location: LocationInput, task_type: Tas
 export const QuoteTaskOutput = z.object({
   workers_nearby: z.int().min(0),
   est_minutes_to_answer: z.number().nullable(),
-  suggested_bounty_usd: Usd,
+  suggested_bounty_usd: Usd.describe(
+    "A bounty ask_eyes accepts for this API key right now: the default, lowered to fit max_bounty_usd, the daily cap left after the fee, and your balance after the fee. Pass it as bounty_usd.",
+  ),
   allowed: z
     .boolean()
     .describe(
-      "Whether Eyes' safety rules accept this task_type at this place. It does not check your question (ask_eyes checks the question itself and can still refuse it with unsafe_task) or your spend policy and balance (see get_spend_policy and get_balance).",
+      "False when this API key cannot post this task right now: Eyes' safety rules refuse this task_type at this place, the task_type is not in allowed_task_types, or even the 1 USD minimum bounty plus fee does not fit max_bounty_usd, the daily cap left or the balance. It does not check your question: ask_eyes checks the question itself and can still refuse it with unsafe_task.",
     ),
   reason_if_not: z
     .string()
     .nullable()
     .describe(
-      "Why allowed is false and what to change about the place or task_type; null when allowed is true.",
+      "Why allowed is false and what to do: change the place or task_type, top up at top_up_url, wait for the daily cap to reset at midnight UTC, or ask your user to raise a limit. Null when allowed is true.",
     ),
   resolved_location: ResolvedLocation,
 });

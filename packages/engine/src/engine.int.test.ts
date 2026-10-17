@@ -12,6 +12,7 @@ import {
   type LatLng,
   OfferView,
   OwnerConsole,
+  type OwnerPolicyInput,
   type SafetyVerdict,
   SignupOutput,
   signToken,
@@ -312,6 +313,50 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await ids(a, { status: "refunded", limit: 20 })).toEqual([mine[1]]);
     expect(await ids(a, { limit: 2 })).toEqual(mine.slice(0, 2));
     await expect(service.listTasks(a, { limit: 51 })).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  describe("quote_task against the key's limits and balance", () => {
+    const at = somewhere();
+    beforeAll(() => worker(north(at, 100)));
+    const fits = (suggested_bounty_usd: number) => ({
+      allowed: true,
+      reason_if_not: null,
+      suggested_bounty_usd,
+    });
+    const blocked = (says: string) => ({ allowed: false, reason_if_not: expect.stringContaining(says) });
+    const cases: [string, Partial<OwnerPolicyInput>, number | null, object][] = [
+      ["suggests the default bounty when it fits", {}, null, fits(3)],
+      ["caps the suggestion at max_bounty_usd", { max_bounty_usd: 2 }, null, fits(2)],
+      ["caps the suggestion at the daily cap left minus the fee", { daily_cap_usd: 3 }, null, fits(2.5)],
+      ["caps the suggestion at the balance minus the fee", {}, 250, fits(2)],
+      [
+        "blocks a task_type the key may not post",
+        { allowed_task_types: ["is_open"] },
+        null,
+        blocked("is_open"),
+      ],
+      ["blocks a max_bounty_usd below the minimum bounty", { max_bounty_usd: 0.5 }, null, blocked("is 0.5")],
+      [
+        "blocks when the minimum does not fit the cap left",
+        { daily_cap_usd: 1 },
+        null,
+        blocked("2026-10-18T00:00:00.000Z"),
+      ],
+      ["blocks when the minimum does not fit the balance", {}, 120, blocked("https://api.eyes.test/topup/")],
+    ];
+
+    it.each(cases)("%s", async (_, policy, balance_cents, expected) => {
+      const a = await agent();
+      await service.updateSpendPolicy(signToken("test-link-secret-0123456789", `p:${a.id}`), {
+        max_bounty_usd: 10,
+        daily_cap_usd: 20,
+        allowed_task_types: ["line_length"],
+        ...policy,
+      });
+      if (balance_cents !== null)
+        await sql`update agents set balance_cents = ${balance_cents} where id = ${a.id}`;
+      expect(await service.quoteTask(a, { location: at, task_type: "line_length" })).toMatchObject(expected);
+    });
   });
 
   it("charges nothing on insufficient balance and tells the agent what it can afford", async () => {
