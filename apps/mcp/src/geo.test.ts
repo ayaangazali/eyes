@@ -42,4 +42,35 @@ describe("createNominatimGeo", () => {
       "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=Grand%20Central%2C%20New%20York",
     );
   });
+
+  it("only trusts a hit that has the house number, retrying once with the street address", async () => {
+    const hits: Record<string, string> = {
+      "Philz Coffee, 3101 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, Noe Valley, 94114",
+      "3101 24th St, San Francisco": "La Rancho Market, 3101, 24th Street, Mission, 94110",
+      "Philz Coffee, 4298 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, Noe Valley, 94114",
+      "Philz Coffee, 9999 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, Noe Valley, 94114",
+      "9999 24th St, San Francisco": "24th Street, Mission, 94110",
+    };
+    const fetch = vi.fn(async (url: string) => {
+      const label = hits[new URL(url).searchParams.get("q") ?? ""];
+      return Response.json(label ? [{ lat: "37.75", lon: "-122.41", display_name: label }] : []);
+    });
+    vi.stubGlobal("fetch", fetch);
+    const geo = createNominatimGeo();
+    const at = (label: string) => ({ lat: 37.75, lng: -122.41, label });
+    expect(await geo.geocode("Philz Coffee, 3101 24th St, San Francisco")).toEqual(
+      at("La Rancho Market, 3101, 24th Street, Mission, 94110"),
+    );
+    expect(await geo.geocode("Philz Coffee, 4298 24th St, San Francisco")).toEqual(
+      at("Philz Coffee, 4298, 24th Street, Noe Valley, 94114"),
+    );
+    expect(await geo.geocode("Philz Coffee, 9999 24th St, San Francisco")).toBeNull();
+    expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get("q"))).toEqual([
+      "Philz Coffee, 3101 24th St, San Francisco",
+      "3101 24th St, San Francisco",
+      "Philz Coffee, 4298 24th St, San Francisco",
+      "Philz Coffee, 9999 24th St, San Francisco",
+      "9999 24th St, San Francisco",
+    ]);
+  });
 });
