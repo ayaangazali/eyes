@@ -213,8 +213,9 @@ ${note ? html`<p class="note${note.error ? " error" : ""}" role="status">${note.
 <dl>
 <dt>Balance</dt><dd>${usd(view.balance_usd)}</dd>
 <dt>Held for open tasks</dt><dd>${usd(view.escrowed_usd)}</dd>
-<dt>Spent today (UTC)</dt><dd>${usd(p.spent_today_usd)} of ${usd(p.daily_cap_usd)}</dd>
+<dt>Spent today (UTC)</dt><dd>${p.daily_cap_usd === 0 ? "Frozen (daily cap $0)" : `${usd(p.spent_today_usd)} of ${usd(p.daily_cap_usd)}`}</dd>
 </dl>
+<p class="hint">Tasks nobody answers before the deadline, or that are cancelled, are refunded in full to the balance.</p>
 ${view.top_up_url ? html`<a class="button" href="${view.top_up_url}">Add funds</a>` : ""}
 <h2>Spending limits</h2>
 <form method="post" action="/owner/${token}/policy">
@@ -293,7 +294,8 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
       const token = c.req.param("token") ?? "";
       return c.html(ownerPage(await deps.service.ownerConsole(token), token, note, fee), status);
     });
-  const formNumber = (v: unknown) => (typeof v === "string" && v.trim() !== "" ? Number(v) : Number.NaN);
+  const formNumber = (v: unknown) =>
+    typeof v === "string" && /^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : Number.NaN;
 
   app.use("/owner/*", async (c, next) => {
     for (const [name, value] of Object.entries(OWNER_HEADERS)) c.header(name, value);

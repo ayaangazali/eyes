@@ -549,7 +549,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_agent_id: agentId,
         p_max_bounty_cents: usdToCents(policy.max_bounty_usd),
         p_daily_cap_cents: usdToCents(policy.daily_cap_usd),
-        p_allowed_task_types: policy.allowed_task_types,
+        p_allowed_task_types: [...new Set(policy.allowed_task_types)],
         p_now: nowIso(),
       });
       if (!s) throw new EyesError("owner_link_invalid");

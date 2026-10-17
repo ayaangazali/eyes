@@ -217,8 +217,13 @@ describe("owner console routes", () => {
   const privateHeaders = (res: Response) => ({
     referrer: res.headers.get("referrer-policy"),
     cache: res.headers.get("cache-control"),
+    csp: res.headers.get("content-security-policy"),
   });
-  const PRIVATE = { referrer: "no-referrer", cache: "no-store" };
+  const PRIVATE = {
+    referrer: "no-referrer",
+    cache: "no-store",
+    csp: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  };
 
   it("renders the console with agent-written text escaped and private-link headers", async () => {
     const { app } = setup();
@@ -262,7 +267,13 @@ describe("owner console routes", () => {
 
   it("re-renders invalid limits without saving, and answers a bad link with a 404 page", async () => {
     const { app, service } = setup();
-    for (const body of ["max_bounty_usd=&daily_cap_usd=20", "max_bounty_usd=500&daily_cap_usd=20"]) {
+    for (const body of [
+      "max_bounty_usd=&daily_cap_usd=20",
+      "max_bounty_usd=500&daily_cap_usd=20",
+      "max_bounty_usd=0x10&daily_cap_usd=20",
+      "max_bounty_usd=1.005&daily_cap_usd=20",
+      "max_bounty_usd=3&daily_cap_usd=0.005",
+    ]) {
       const res = await post(app, "owner-tok", body);
       expect(res.status).toBe(400);
       expect(await res.text()).toContain("Nothing was saved.");

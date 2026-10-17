@@ -20,7 +20,7 @@ import {
 } from "@eyes/core";
 import { migrate } from "@eyes/db";
 import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createEyesService } from "./index.ts";
 
 const url = process.env.DATABASE_URL;
@@ -389,7 +389,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       await service.updateSpendPolicy(ownerToken, {
         max_bounty_usd: 2,
         daily_cap_usd: 20,
-        allowed_task_types: [...types],
+        allowed_task_types: [...types, "is_open"],
       }),
     ).toEqual({
       max_bounty_usd: 2,
@@ -423,6 +423,23 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(body).toContain("/topup/");
     expect(body).not.toContain(ownerToken);
     expect(body).not.toContain("/owner/");
+  });
+
+  it("still signs the agent up when the owner email fails, without logging the owner link", async () => {
+    const send = providers.email.send;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    providers.email.send = async (msg) => {
+      throw new Error(`relay refused: ${msg.text}`);
+    };
+    try {
+      const signup = await service.signupAgent({ name: "unlucky-agent", owner_email: "owner@example.com" });
+      expect(signup.next_step).toContain("could not email your user at owner@example.com");
+      expect(error).toHaveBeenCalled();
+      expect(JSON.stringify(error.mock.calls)).not.toContain("/owner/");
+    } finally {
+      providers.email.send = send;
+      error.mockRestore();
+    }
   });
 
   it("accepts only p: owner tokens for the owner console and policy updates", async () => {
