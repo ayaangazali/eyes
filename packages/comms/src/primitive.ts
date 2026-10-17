@@ -34,11 +34,13 @@ const AWAIT_MAX_FAILURES = 5;
 const AWAIT_RETRY_MS = 5_000;
 const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
 const SEEN_MAX = 10_000;
+const HOUR_MS = 60 * 60 * 1000;
+const EMAILS_PER_AGENT_HOUR = 20;
 const BODY_MAX_CHARS = 20_000;
 const WAITING = new Set(["dispatched", "claimed", "submitted"]);
 const REFUNDED = new Set(["expired", "refunded"]);
 const QUOTE_START = /^(?:--\s?|_{3,}|-{3,}\s*original message\s*-{3,}|sent from my .+)$/i;
-const DIRECTIVE = /^\s*(location|at|type|bounty|deadline)\s*:\s*(.*)$/i;
+const DIRECTIVE = /^\s*(location|at|type|bounty|deadline)\s*:(.*)$/i;
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', "#39": "'", nbsp: " " };
 
 const usd = (amount: number) => `$${amount.toFixed(2)}`;
@@ -150,13 +152,9 @@ export function parseTaskEmail(
     location: fields.location || null,
     task_type: TaskType.safeParse(fields.type?.toLowerCase().replace(/[\s-]+/g, "_")).data ?? "other_public",
     bounty_usd:
-      fields.bounty === undefined
-        ? undefined
-        : Number(fields.bounty.replace(/^\$\s*|\s*(?:usd|dollars?)$/gi, "")),
+      fields.bounty === undefined ? undefined : Number(fields.bounty.replace(/^\$|(?:usd|dollars?)$/gi, "")),
     deadline_minutes:
-      fields.deadline === undefined
-        ? undefined
-        : Number(fields.deadline.replace(/\s*(?:minutes?|mins?)$/i, "")),
+      fields.deadline === undefined ? undefined : Number(fields.deadline.replace(/(?:minutes?|mins?)$/i, "")),
   };
 }
 
@@ -300,6 +298,14 @@ export function primitiveRoutes(deps: RouteDeps, env: Env): Hono {
     for (const key of keys) seen.set(key, now + SEEN_TTL_MS);
     return true;
   };
+  const handled = new Map<string, number[]>();
+  const withinBudget = (agentId: string) => {
+    const now = deps.providers.clock.now().getTime();
+    const recent = (handled.get(agentId) ?? []).filter((at) => at > now - HOUR_MS);
+    if (recent.length >= EMAILS_PER_AGENT_HOUR) return false;
+    handled.set(agentId, [...recent, now]);
+    return true;
+  };
   return new Hono().post("/", async (c) => {
     const raw = Buffer.from(await c.req.arrayBuffer());
     try {
@@ -333,6 +339,12 @@ export function primitiveRoutes(deps: RouteDeps, env: Env): Hono {
     if (!agent) return c.text("ignored");
     if (!firstDelivery([event.data.id, `${agent.id}:${email.thread.messageId ?? email.id}`])) {
       return c.text("duplicate");
+    }
+    if (!withinBudget(agent.id)) {
+      console.warn(
+        `primitive: ignored ${email.id}: agent ${agent.id} is over ${EMAILS_PER_AGENT_HOUR} emails per hour`,
+      );
+      return c.text("rate_limited");
     }
     await handleEmail(deps, agent, email);
     return c.text("ok");

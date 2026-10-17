@@ -44,7 +44,7 @@ describe("main.ts", () => {
     expect(run.stderr).toContain("needs both INSFORGE_BASE_URL and INSFORGE_API_KEY");
   });
 
-  it.each(["abc", "3000.5", "70000", "-1"])("refuses PORT=%s", async (port) => {
+  it.each(["abc", "3000.5", "70000", "-1", " ", "0x50", "1e3"])("refuses PORT=%j", async (port) => {
     const run = await boot({ EYES_PROVIDERS: "fake", PORT: port });
     expect(run.code).toBe(1);
     expect(run.stderr).toContain("PORT must be an integer from 0 to 65535");

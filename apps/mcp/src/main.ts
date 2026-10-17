@@ -42,7 +42,7 @@ if (env.EYES_PROVIDERS === "live" && Boolean(env.INSFORGE_BASE_URL) !== Boolean(
   );
 }
 const port = env.PORT ? Number(env.PORT) : 3000;
-if (!Number.isInteger(port) || port < 0 || port > 65535) {
+if ((env.PORT && !/^\d+$/.test(env.PORT)) || port > 65535) {
   exit(`PORT must be an integer from 0 to 65535, got "${env.PORT}".`);
 }
 
