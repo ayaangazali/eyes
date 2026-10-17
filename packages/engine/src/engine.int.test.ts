@@ -107,7 +107,10 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(asked).toMatchObject({ status: "dispatched", workers_notified: 3, escrowed_usd: 3.5 });
     const offers = outbox.filter((m) => m.kind === "offer" && m.payload.task_id === asked.task_id);
     expect(offers.map((o) => o.to).sort()).toEqual([near.phone, mid.phone, far.phone].sort());
-    expect(offers.find((o) => o.to === near.phone)?.payload.distance_m).toBe(100);
+    expect(offers.find((o) => o.to === near.phone)?.payload).toMatchObject({
+      distance_m: 100,
+      task_type: "line_length",
+    });
 
     let race: Promise<unknown> = Promise.resolve();
     await sql.begin(async (tx) => {

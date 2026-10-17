@@ -301,6 +301,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           workers.map((w) =>
             messaging.sendOffer(w.phone, {
               task_id: task.id,
+              task_type: task.task_type,
               question: task.question,
               place_label: task.place_label,
               bounty_cents: task.bounty_cents,
