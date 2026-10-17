@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 00:40 PT by orchestrator. Gate: **G0 passed**, G1 in progress. Merged: #1 #2 #3 #4 #5 #6 #8 #10 #12 (+#13 merging). **ESCALATED: T1.5 safety (#7) failed verification 3 times; waiting on humans: A = one more round with the verifier's tested fix, B = merge now and follow up.**
+Updated: 2026-10-17 00:30 PT by orchestrator. **G1 fakes half PASSED** (golden path e2e green in CI: MCP -> engine -> signed Inkbox webhook -> capture page -> verification -> fake payout -> answer). G1 live half needs keys (docs/DEPLOY.md). **ESCALATED: T1.5 safety (#7) needs a human A/B decision**; until it merges, quote_task and ask_eyes return not_implemented on a live server.
 
 ## Task board
 
@@ -15,14 +15,14 @@ Updated: 2026-10-17 00:40 PT by orchestrator. Gate: **G0 passed**, G1 in progres
 | T1.3 Inkbox comms | comms-builder | **merged** #1, #10 | [#1](https://github.com/ayaangazali/eyes/pull/1) | r2 all PASS; follow-up #10 PASS | live-verified: no |
 | T1.4 worker web | worker-web-builder | **merged** #3; follow-up #13 merging | [#3](https://github.com/ayaangazali/eyes/pull/3) | r2 PASS; #13 coverage major downgraded by ruling | live-verified: no |
 | T1.5 safety | safety-builder | **ESCALATED** | [#7](https://github.com/ayaangazali/eyes/pull/7) | r1 FAIL, r2 FAIL, r3 FAIL (negation too broad) | human decision A/B |
-| G1 golden path e2e | integration builder | building | | | T1.5 (safety stub on main) |
+| G1 golden path e2e | integration builder | **merged** #16 | [#16](https://github.com/ayaangazali/eyes/pull/16) | integration PASS (3/3 fresh DBs, mutations killed) | unsafe_task test skipped until T1.5 |
 | T2.1 Stripe | payments-builder | **merged** | [#5](https://github.com/ayaangazali/eyes/pull/5) | r1 security PASS, spec+intent PASS, test FAIL; r2 PASS | live-verified: no |
 | T2.2 verification | verification-builder | **merged** #4, #8 | [#4](https://github.com/ayaangazali/eyes/pull/4) | all PASS | live-verified: no |
-| T2.3 deploy | orchestrator | blocked | | | keys |
-| T2.4 MCP wiring + hardening | mcp-builder | building | | | none |
-| T3.1 Primitive | comms-builder | verifying round 2 | [#11](https://github.com/ayaangazali/eyes/pull/11) | r1 security FAIL (open relay), spec+test PASS | none |
-| T3.2 AX docs + CLI | ax-builder | verifying round 2 | [#9](https://github.com/ayaangazali/eyes/pull/9) | r1 spec+intent PASS, test FAIL, ax FAIL | none |
-| T3.3 dashboard | dashboard-builder | building | | | none |
+| T2.3 deploy | orchestrator | artifacts on main (Dockerfile proven locally, InsForge migrate script, docs/DEPLOY.md) | | | keys and logins |
+| T2.4 MCP wiring + hardening | mcp-builder | fix round 1 | [#14](https://github.com/ayaangazali/eyes/pull/14) | spec+ax PASS, security+test FAIL (token in logs via userinfo/encoded targets; ordering untested) | none |
+| T3.1 Primitive | comms-builder | verifying round 3 | [#11](https://github.com/ayaangazali/eyes/pull/11) | r1 security FAIL (open relay), r2 FAIL (HTML ReDoS; DMARC parent domain) | 3rd failure would escalate |
+| T3.2 AX docs + CLI | ax-builder | verifying round 3 | [#9](https://github.com/ayaangazali/eyes/pull/9) | r1 FAIL, r2 FAIL (gateway 5xx double-escrow path) | 3rd failure would escalate |
+| T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
 
 ## Live verification

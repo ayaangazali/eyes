@@ -91,6 +91,8 @@ describe("money, distance and tokens", () => {
     expect(verifyToken(secret, token, now)).toBe("o:task:worker");
     expect(verifyToken("another-secret-16chars", token, now)).toBeNull();
     expect(verifyToken(secret, `${token}x`, now)).toBeNull();
+    expect(verifyToken(secret, `${token}.x`, now)).toBeNull();
+    expect(verifyToken(secret, `${token}.`, now)).toBeNull();
     expect(verifyToken(secret, token, new Date(now.getTime() + 61_000))).toBeNull();
   });
 });

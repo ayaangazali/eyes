@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Eyes live</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+:root {
+  --asphalt: #121820;
+  --panel: #18202a;
+  --line: #2a3543;
+  --ink: #eef3f8;
+  --muted: #98a6b6;
+  --amber: #ffc24b;
+  --cyan: #5cc8ff;
+  --violet: #b99cff;
+  --green: #45e09a;
+  --salmon: #ff8a5c;
+  --red: #ff5c6c;
+  --slate: #7d8a9b;
+  --c: var(--slate);
+  font-size: clamp(13px, min(0.9vw, 1.6vh), 20px);
+}
+.s-dispatched, .t-amber, .l-escrow { --c: var(--amber); }
+.s-claimed, .t-cyan, .l-refund { --c: var(--cyan); }
+.s-submitted, .t-violet, .l-topup { --c: var(--violet); }
+.s-verified, .s-paid, .t-green, .l-release, .l-payout { --c: var(--green); }
+.s-needs_review, .t-salmon { --c: var(--salmon); }
+.s-disputed, .t-red { --c: var(--red); }
+.s-expired, .s-refunded, .t-slate { --c: var(--slate); }
+.l-fee { --c: var(--muted); }
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--asphalt);
+  color: var(--ink);
+  font: 400 1rem/1.35 -apple-system, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+h1, h2, p, ol, ul { margin: 0; }
+ol, ul { list-style: none; padding: 0; }
+h2 { margin-bottom: 0.7rem; color: var(--muted); font-size: 0.95rem; font-weight: 600; }
+header {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+  padding: 0.8rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(30rem, 38%); min-height: 0; }
+aside {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+}
+aside > section { padding: 1.3rem 1.5rem; border-bottom: 1px solid var(--line); }
+aside > section:last-child { border-bottom: 0; }
+
+.brand { display: flex; align-items: center; gap: 0.7rem; font-size: 1.6rem; font-weight: 750; letter-spacing: -0.02em; }
+.mark {
+  width: 1.6rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--asphalt) 0 28%, var(--amber) 30%);
+  box-shadow: 0 0 1rem color-mix(in srgb, var(--amber) 45%, transparent);
+}
+.tagline { color: var(--muted); font-size: 1rem; }
+.status { margin-left: auto; display: flex; align-items: center; gap: 1.5rem; color: var(--muted); }
+.status strong { color: var(--ink); }
+.empty { color: var(--muted); }
+
+.leaflet-container { font: inherit; background: var(--asphalt); }
+.leaflet-control-attribution.leaflet-control { background: rgba(18, 24, 32, 0.8); color: var(--muted); font-size: 0.7rem; }
+.leaflet-control-attribution a { color: var(--muted); }
+.leaflet-tooltip.tip {
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--panel);
+  color: var(--ink);
+  font-size: 1rem;
+  box-shadow: 0 0.4rem 1.5rem rgba(0, 0, 0, 0.5);
+}
+.leaflet-tooltip-top.tip::before { border-top-color: var(--line); }
+.tip strong { display: block; }
+.tip span { color: var(--c); }
+.pin { border-radius: 50%; background: var(--c); box-shadow: 0 0 0 3px var(--asphalt), 0 0 1.1rem var(--c); }
+.pin.old { opacity: 0.55; box-shadow: 0 0 0 2px var(--asphalt); }
+.pin i { position: absolute; inset: -3px; border: 2px solid var(--c); border-radius: 50%; opacity: 0; }
+
+.chip { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--c); font-weight: 650; font-size: 0.95rem; }
+.chip::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--c); }
+
+.row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .phrase { color: var(--c); font-size: 0.9rem; }
+.row > time { color: var(--muted); font-size: 0.85rem; text-align: right; }
+
+.steps { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin: 1.3rem 0 0.4rem; }
+.steps li { position: relative; text-align: center; color: var(--muted); font-size: 0.85rem; }
+.steps b { display: block; font-weight: 600; }
+.steps time { display: block; font-size: 0.75rem; color: var(--muted); }
+.steps li::before {
+  content: "";
+  position: absolute;
+  top: 0.5rem;
+  left: -50%;
+  width: 100%;
+  height: 2px;
+  background: var(--line);
+}
+.steps li:first-child::before { display: none; }
+.dot {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin: 0 auto 0.4rem;
+  border: 2px solid var(--line);
+  border-radius: 50%;
+  background: var(--panel);
+}
+.steps li.done { color: var(--ink); }
+.steps li.done::before { background: var(--c); }
+.steps li.done .dot {
+  background: var(--c);
+  border-color: var(--c);
+  box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--c) 22%, transparent);
+}
+.steps li.next .dot { border-color: var(--c); }
+.steps.mini { margin: 0; }
+.steps.mini li::before { top: 0.25rem; }
+.steps.mini li .dot { width: 0.6rem; height: 0.6rem; margin-bottom: 0; border-width: 1.5px; }
+.steps.mini li b, .steps.mini li time { display: none; }
+
+.totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 0.9rem; }
+.totals strong { display: block; font-size: 1.85rem; font-weight: 700; letter-spacing: -0.01em; }
+.totals span { color: var(--muted); font-size: 0.85rem; }
+
+#live { display: flex; align-items: center; gap: 0.5rem; }
+#live::before { content: ""; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--slate); }
+#live.ok::before { background: var(--green); box-shadow: 0 0 0.6rem var(--green); }
+#live.down { color: var(--red); }
+#live.down::before { background: var(--red); }
+#map { min-height: 0; background: var(--asphalt); }
+#map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.4); }
+#map.nomap { display: grid; place-items: center; color: var(--muted); }
+#headline { margin: 0.35rem 0 0.6rem; font-size: 2.05rem; line-height: 1.12; font-weight: 750; letter-spacing: -0.02em; text-wrap: balance; }
+#question {
+  display: -webkit-box;
+  padding-left: 0.8rem;
+  border-left: 3px solid var(--c);
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 1.15rem;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+#cost { margin-top: 0.5rem; color: var(--muted); font-size: 0.9rem; }
+#proof { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.1rem; align-items: start; margin-top: 1rem; }
+#proof[hidden] { display: none; }
+#photo { width: 100%; max-height: 22vh; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 0.6rem; background: var(--asphalt); }
+#checks li { display: flex; justify-content: space-between; padding: 0.35rem 0; border-bottom: 1px solid var(--line); font-size: 1rem; }
+#checks .ok { color: var(--green); font-weight: 650; }
+#checks .bad { color: var(--red); font-weight: 650; }
+#earlier { min-height: 0; overflow: hidden; container-type: size; }
+@container (max-height: 8rem) {
+  #earlier > * { display: none; }
+}
+#tasks li.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9rem;
+  gap: 0.2rem 1rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  padding: 0.55rem 0 0.55rem 0.8rem;
+  border-left: 3px solid var(--c);
+}
+#escrowed { color: var(--amber); }
+#released, #paidout { color: var(--green); }
+#ledger li {
+  display: grid;
+  grid-template-columns: 6.6rem minmax(0, 1fr) auto;
+  white-space: nowrap;
+  gap: 0.8rem;
+  padding: 0.3rem 0.4rem;
+  border-radius: 0.3rem;
+  font-size: 0.95rem;
+}
+#ledger time { color: var(--muted); }
+@media (max-height: 800px) {
+  #ledger li:nth-child(n + 5) { display: none; }
+}
+#ledger .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#ledger .what span { margin-left: 0.6rem; color: var(--muted); }
+#ledger .amt { color: var(--c); font-weight: 650; text-align: right; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .pin.s-dispatched i, .pin.s-claimed i { animation: sonar 2s ease-out infinite; }
+  .steps li.next .dot { animation: breathe 1.6s ease-in-out infinite; }
+  .steps li.lit .dot { animation: light 0.9s ease-out; }
+  .steps li.lit b { animation: flash 1.6s ease-out; }
+  #now.enter { animation: enter 0.5s ease-out; }
+  #headline.swap { animation: swap 0.45s ease-out; }
+  #photo.lit { animation: enter 0.6s ease-out; }
+  #ledger li.lit { animation: rowflash 2.4s ease-out; }
+}
+@keyframes sonar { from { transform: scale(1); opacity: 0.9; } to { transform: scale(3.2); opacity: 0; } }
+@keyframes breathe { 50% { box-shadow: 0 0 0 0.35rem color-mix(in srgb, var(--c) 30%, transparent); } }
+@keyframes light {
+  from { transform: scale(0.3); box-shadow: 0 0 0 0 var(--c); }
+  60% { transform: scale(1.35); box-shadow: 0 0 0 1rem transparent; }
+}
+@keyframes flash { from { color: var(--c); } }
+@keyframes enter { from { opacity: 0; transform: translateX(1.5rem); } }
+@keyframes swap { from { opacity: 0; transform: translateY(0.4rem); } }
+@keyframes rowflash { from { background: color-mix(in srgb, var(--c) 28%, transparent); } }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="mark"></span>Eyes</div>
+  <p class="tagline">Agents pay people nearby to look at the street for them</p>
+  <div class="status">
+    <p id="online"></p>
+    <p id="live">Connecting</p>
+  </div>
+</header>
+<main>
+  <div id="map"></div>
+  <aside>
+    <section id="now">
+      <p id="chip" class="chip"></p>
+      <h1 id="headline">Waiting for an agent to ask</h1>
+      <p id="question">Ask Claude about a place nearby. The task shows up here as soon as Eyes texts workers.</p>
+      <p id="cost"></p>
+      <ol id="steps" class="steps"></ol>
+      <div id="proof" hidden>
+        <img id="photo" alt="What the worker saw" referrerpolicy="no-referrer">
+        <ul id="checks"></ul>
+      </div>
+    </section>
+    <section>
+      <h2>Money</h2>
+      <div class="totals">
+        <div><strong id="escrowed">$0.00</strong><span>In escrow now</span></div>
+        <div><strong id="released">$0.00</strong><span>Released today</span></div>
+        <div><strong id="paidout">$0.00</strong><span>Paid to workers today</span></div>
+      </div>
+      <ul id="ledger"></ul>
+    </section>
+    <section id="earlier">
+      <h2>Earlier tasks</h2>
+      <ul id="tasks"></ul>
+    </section>
+  </aside>
+</main>
+<script>
+const POLL_MS = 2000;
+const DISPATCH_RADIUS_M = 3000;
+const LEDGER_ROWS = 6;
+const HOME = [37.78246, -122.40776];
+const ACTIVE = ["dispatched", "claimed", "submitted"];
+const PHRASE = {
+  dispatched: "Waiting for a yes",
+  claimed: "On the way",
+  submitted: "Checking the photo",
+  verified: "Verified",
+  paid: "Paid",
+  needs_review: "Needs review",
+  expired: "Expired",
+  refunded: "Cancelled",
+  disputed: "Disputed",
+};
+const LEDGER_TEXT = {
+  topup: "Agent balance topped up",
+  escrow: "Held in escrow",
+  release: "Released for the worker",
+  fee: "Eyes fee",
+  payout: "Paid out to the worker",
+  refund: "Refunded to the agent",
+};
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+const money = (cents) => usd.format(cents / 100);
+const clock = (iso) =>
+  iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+const $ = (id) => document.getElementById(id);
+const notifiedText = (n) => `${n} ${n === 1 ? "worker" : "workers"} notified`;
+$("photo").addEventListener("error", (e) => {
+  e.target.hidden = true;
+});
+
+function h(tag, cls, text) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  if (text != null) el.textContent = text;
+  return el;
+}
+
+function headline(t) {
+  const place = t.place_label;
+  const total = money(t.bounty_cents + t.fee_cents);
+  return {
+    dispatched: `${notifiedText(t.workers_notified)} near ${place}`,
+    claimed: `A worker is on the way to ${place}`,
+    submitted: `Photo in from ${place}, checking it`,
+    verified: `Verified at ${place}, paying the worker`,
+    paid: `Answered at ${place}, worker paid ${money(t.bounty_cents)}`,
+    needs_review: `Answer in from ${place}, it needs a human look`,
+    expired: `Nobody reached ${place} in time, ${total} refunded`,
+    refunded: `Cancelled before anyone claimed it, ${total} refunded`,
+    disputed: `The agent disputed the answer from ${place}`,
+  }[t.status];
+}
+
+function steps(t) {
+  const m = t.money_at ?? {};
+  const list = [
+    { label: "Asked", time: t.created_at, tone: "amber" },
+    { label: `${t.workers_notified} notified`, time: t.created_at, tone: "amber" },
+  ];
+  if (t.claimed_at || !m.refund) list.push({ label: "Claimed", time: t.claimed_at, tone: "cyan" });
+  if (m.refund) {
+    list.push({ label: t.status === "expired" ? "Expired" : "Cancelled", time: m.refund, tone: "slate" });
+    list.push({ label: `${money(t.bounty_cents + t.fee_cents)} refunded`, time: m.refund, tone: "slate" });
+  } else {
+    list.push({ label: t.submitted_at && !t.photo_url ? "Answer" : "Photo", time: t.submitted_at, tone: "violet" });
+    if (t.status === "needs_review") list.push({ label: "Needs review", time: t.submitted_at, tone: "salmon" });
+    else list.push({ label: "Verified", time: m.release, tone: "green" });
+    list.push({ label: `${money(t.bounty_cents)} paid`, time: m.payout, tone: "green" });
+  }
+  if (t.status === "disputed") list.push({ label: "Disputed", time: null, done: true, tone: "red" });
+  for (const s of list) s.done ??= Boolean(s.time);
+  return list;
+}
+
+let seen = new Set();
+let first = true;
+const fresh = (key) => !first && !seen.has(key);
+
+function stepList(t, mini, nextSeen) {
+  const ol = h("ol", mini ? "steps mini" : "steps");
+  const all = steps(t);
+  const next = ACTIVE.includes(t.status) ? all.find((s) => !s.done) : null;
+  for (const s of all) {
+    const key = `${t.id}|${s.label}`;
+    const li = h("li", `t-${s.tone}`);
+    if (s.done) {
+      li.classList.add("done");
+      nextSeen.add(key);
+      if (fresh(key)) li.classList.add("lit");
+    }
+    if (s === next) li.classList.add("next");
+    li.append(h("span", "dot"), h("b", null, s.label));
+    const time = h("time", null, s.done ? clock(s.time) : "");
+    li.append(time);
+    ol.append(li);
+  }
+  return ol;
+}
+
+function featured(tasks) {
+  return tasks.find((t) => ACTIVE.includes(t.status)) ?? tasks[0] ?? null;
+}
+
+let shownId = null;
+let shownHeadline = null;
+
+function replay(el, cls) {
+  el.classList.remove(cls);
+  if (first) return;
+  void el.offsetWidth;
+  el.classList.add(cls);
+}
+
+function renderNow(t, nextSeen) {
+  if (!t) return;
+  const now = $("now");
+  now.className = `s-${t.status}`;
+  if (t.id !== shownId) replay(now, "enter");
+  shownId = t.id;
+  $("chip").textContent = PHRASE[t.status];
+  const text = headline(t);
+  const head = $("headline");
+  if (text !== shownHeadline) {
+    head.textContent = text;
+    replay(head, "swap");
+    shownHeadline = text;
+  }
+  $("question").textContent = `“${t.question}”`;
+  $("cost").textContent = `${money(t.bounty_cents)} to the worker + ${money(t.fee_cents)} fee, expires ${clock(t.deadline_at)}`;
+  $("steps").replaceWith(Object.assign(stepList(t, false, nextSeen), { id: "steps" }));
+
+  const proof = $("proof");
+  proof.hidden = !t.submitted_at;
+  if (!t.submitted_at) return;
+  const photo = $("photo");
+  const src = t.photo_url ?? "";
+  if (photo.getAttribute("src") !== src) {
+    photo.hidden = !src;
+    if (src) {
+      photo.src = src;
+      replay(photo, "lit");
+    } else photo.removeAttribute("src");
+  }
+  const checks = $("checks");
+  checks.replaceChildren();
+  for (const [label, ok] of [
+    ["At the place (GPS)", t.gps_ok],
+    ["Taken just now", t.fresh_ok],
+    ["Photo answers it", t.vision_ok],
+  ]) {
+    const li = h("li", null, label);
+    li.append(h("span", ok ? "ok" : "bad", ok ? "✓" : "✗"));
+    checks.append(li);
+  }
+  const conf = h("li", null, "Confidence");
+  conf.append(h("span", null, `${Math.round(t.confidence * 100)}%`));
+  checks.append(conf);
+}
+
+function renderEarlier(tasks, shown, nextSeen) {
+  const list = $("tasks");
+  list.replaceChildren();
+  const rest = tasks.filter((t) => t !== shown);
+  if (rest.length === 0) list.append(h("li", "empty", "None yet."));
+  for (const t of rest) {
+    const li = h("li", `row s-${t.status}`);
+    li.append(h("strong", null, t.place_label), h("time", null, clock(t.created_at)));
+    li.append(h("span", "phrase", PHRASE[t.status]), stepList(t, true, nextSeen));
+    list.append(li);
+  }
+}
+
+function renderMoney(feed, nextSeen) {
+  $("escrowed").textContent = money(feed.totals.escrowed_cents);
+  $("released").textContent = money(feed.totals.released_today_cents);
+  $("paidout").textContent = money(feed.totals.paid_out_today_cents);
+  const places = new Map(feed.tasks.map((t) => [t.id, t.place_label]));
+  const list = $("ledger");
+  list.replaceChildren();
+  if (feed.ledger.length === 0) list.append(h("li", "empty", "No money has moved yet."));
+  for (const row of feed.ledger.slice(0, LEDGER_ROWS)) {
+    const key = `l|${row.type}|${row.task_id}|${row.created_at}`;
+    const li = h("li", `l-${row.type}`);
+    if (fresh(key)) li.classList.add("lit");
+    nextSeen.add(key);
+    const what = h("span", "what", LEDGER_TEXT[row.type]);
+    const place = places.get(row.task_id);
+    if (place) what.append(h("span", null, place));
+    li.append(h("time", null, clock(row.created_at)), what, h("span", "amt", money(row.amount_cents)));
+    list.append(li);
+  }
+}
+
+const map = window.L ? L.map("map", { zoomControl: false }).setView(HOME, 14) : null;
+const layer = map ? L.layerGroup().addTo(map) : null;
+let focusKey = "";
+if (map) {
+  L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(map);
+} else {
+  $("map").classList.add("nomap");
+  $("map").textContent = "The map needs internet access to load Leaflet and map tiles.";
+}
+
+function renderMap(feed, shown) {
+  if (!map) return;
+  layer.clearLayers();
+  const online = feed.workers.filter((w) => w.available && w.opted_in);
+  for (const w of feed.workers) {
+    const on = w.available && w.opted_in;
+    L.circleMarker([w.lat, w.lng], {
+      radius: 6,
+      color: "#121820",
+      weight: 2,
+      fillColor: on ? "#dbe7f3" : "#4a5666",
+      fillOpacity: 1,
+    }).addTo(layer);
+  }
+  for (const t of [...feed.tasks].reverse()) {
+    const big = t === shown;
+    const size = big ? 24 : ACTIVE.includes(t.status) ? 18 : 12;
+    const icon = L.divIcon({
+      className: `pin s-${t.status}${big || ACTIVE.includes(t.status) ? "" : " old"}`,
+      html: "<i></i>",
+      iconSize: [size, size],
+    });
+    const marker = L.marker([t.lat, t.lng], { icon, zIndexOffset: big ? 1000 : 0 }).addTo(layer);
+    if (big) {
+      const tip = h("div", `s-${t.status}`);
+      tip.append(
+        h("strong", null, t.place_label),
+        h("span", null, t.status === "dispatched" ? notifiedText(t.workers_notified) : PHRASE[t.status]),
+      );
+      marker.bindTooltip(tip, { permanent: true, direction: "top", offset: [0, -16], className: "tip" });
+    }
+  }
+
+  const active = feed.tasks.filter((t) => ACTIVE.includes(t.status));
+  const focus = active.length ? active : shown ? [shown] : [];
+  const key = focus.map((t) => t.id).join(",") || "workers";
+  if (key === focusKey) return;
+  focusKey = key;
+  const notified = (t) => {
+    const at = L.latLng(t.lat, t.lng);
+    return online
+      .map((w) => ({ w, d: at.distanceTo([w.lat, w.lng]) }))
+      .filter((x) => x.d <= DISPATCH_RADIUS_M)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, t.workers_notified)
+      .map((x) => x.w);
+  };
+  const points = [...focus, ...(focus.length ? focus.flatMap(notified) : online)].map((p) => [p.lat, p.lng]);
+  if (points.length === 0) return;
+  const bounds = L.latLngBounds(points);
+  const options = { padding: [90, 90], maxZoom: 16 };
+  if (reduceMotion || first) map.fitBounds(bounds, options);
+  else map.flyToBounds(bounds, { ...options, duration: 1.4 });
+}
+
+function render(feed) {
+  const nextSeen = new Set();
+  const shown = featured(feed.tasks);
+  const online = feed.workers.filter((w) => w.available && w.opted_in).length;
+  $("online").replaceChildren(h("strong", null, String(online)), online === 1 ? " worker online" : " workers online");
+  renderNow(shown, nextSeen);
+  renderEarlier(feed.tasks.slice(0, 12), shown, nextSeen);
+  renderMoney(feed, nextSeen);
+  renderMap(feed, shown);
+  seen = nextSeen;
+  first = false;
+}
+
+let lastText = "";
+async function poll() {
+  const live = $("live");
+  try {
+    const res = await fetch("/feed", { cache: "no-store" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    live.className = "ok";
+    live.textContent = "Live";
+    if (text !== lastText) {
+      lastText = text;
+      render(JSON.parse(text));
+    }
+  } catch (err) {
+    live.className = "down";
+    live.textContent = `Feed offline (${err.message}), retrying`;
+  }
+  setTimeout(poll, POLL_MS);
+}
+poll();
+</script>
+</body>
+</html>
