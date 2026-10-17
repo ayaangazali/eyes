@@ -25,7 +25,7 @@ Updated: 2026-10-17 02:35 PT by orchestrator. #7 safety merged and deployed: liv
 | T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
 | T2.5 owner console (ADR-011) | payments-builder | polish round | [#35](https://github.com/ayaangazali/eyes/pull/35) | security PASS, spec+test PASS (minors being fixed); #38 filed | none |
-| T4.1 hardening (#17-#23, throttles) | mcp/comms builder | verifying | [#37](https://github.com/ayaangazali/eyes/pull/37) | | none |
+| T4.1 hardening (#17-#23, throttles) | mcp/comms builder | **merged** #37 | [#37](https://github.com/ayaangazali/eyes/pull/37) | PASS; XFF key cap queued in T4.4 | none |
 | T2.3b smoke:live | ops builder | **merged** #26 | [#26](https://github.com/ayaangazali/eyes/pull/26) | PASS (2 minors in Known gaps) | none |
 | T4.5 UI fixes (UX audit 0-6, 8, 11, 12, 15-23) | ui builder | building | | | none |
 | T4.6 dispatch skips busy workers; YES claims open offer | engine/comms builder | verifying | [#39](https://github.com/ayaangazali/eyes/pull/39) | | none |
@@ -51,15 +51,10 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 
 ## Deferred (ADR-010; triage at feature freeze, 6:00 AM Sun)
 
+#17-#23 fixed by PR #37 (2026-10-17).
+
 | Item | From | Tracking |
 |---|---|---|
-| Quadratic field regexes on email bodies (authenticated input) | PR #11 r3 | [#17](https://github.com/ayaangazali/eyes/issues/17) |
-| trustedSender fail-closed catch untested | PR #11 r3 | [#18](https://github.com/ayaangazali/eyes/issues/18) |
-| Endless-stream cap test hangs on regression | PR #11 r3 | [#19](https://github.com/ayaangazali/eyes/issues/19) |
-| No per-agent inbound email reply budget | PR #11 r3 | [#20](https://github.com/ayaangazali/eyes/issues/20) |
-| Request log decodes paths (log-line forging); switch to allowlist logging | PR #14 r3 | [#21](https://github.com/ayaangazali/eyes/issues/21) |
-| Mangled token halves can appear in logs | PR #14 r3 | [#22](https://github.com/ayaangazali/eyes/issues/22) |
-| Strict PORT parsing | PR #14 r3 | [#23](https://github.com/ayaangazali/eyes/issues/23) |
 | iMessage from an Apple ID email is ignored (workers must send from the phone number) | PR #24 | [#25](https://github.com/ayaangazali/eyes/issues/25) |
 | Four contrived benign phrasings still rule-blocked | PR #7 r7 | [#36](https://github.com/ayaangazali/eyes/issues/36) |
 | Face-rejected photos stay in the public bucket | coverage ledger | [#27](https://github.com/ayaangazali/eyes/issues/27) |
