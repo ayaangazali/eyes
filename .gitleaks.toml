@@ -1,0 +1,10 @@
+title = "eyes"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Fixture values in test files trip the entropy-based generic rule; provider-specific key rules still scan tests"
+paths = ['''(^|/)[^/]+\.(test|spec)\.ts$''']

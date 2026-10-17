@@ -1,19 +1,19 @@
 # STATUS
 
-Updated: 2026-10-16 22:55 PT by orchestrator. Gate: **G0 in progress**.
+Updated: 2026-10-16 23:10 PT by orchestrator. Gate: **G0 passed** (CI run 39007534836 green, 10/10 jobs). Phase 1 running.
 
 ## Task board
 
 | Task | Owner | State | PR | Verdicts | Blocker |
 |---|---|---|---|---|---|
 | T0.1 vendor notes | docs-researcher x7 | done | (initial commit) | n/a | none |
-| T0.2 scaffold + CI | orchestrator | done locally, CI pending | (initial commit) | n/a | none |
-| T0.3 contracts + migration v1 + fakes | orchestrator | done locally | (initial commit) | n/a | none |
-| T0.4 agents, hooks, intent system | orchestrator | done locally | (initial commit) | n/a | none |
-| T1.1 MCP tools + REST + worker API | mcp-builder | queued | | | G0 |
-| T1.2 engine + db | engine-builder | queued | | | G0 |
-| T1.3 Inkbox comms | comms-builder | queued | | | G0 |
-| T1.4 worker web | worker-web-builder | queued | | | G0 |
+| T0.2 scaffold + CI | orchestrator | done | (initial commit) | n/a | none |
+| T0.3 contracts + migration v1 + fakes | orchestrator | done | (initial commit) | n/a | none |
+| T0.4 agents, hooks, intent system | orchestrator | done | (initial commit) | n/a | none |
+| T1.1 MCP tools + REST + worker API | mcp-builder | building | | | none |
+| T1.2 engine + db | engine-builder | building | | | none |
+| T1.3 Inkbox comms | comms-builder | building | | | none |
+| T1.4 worker web | worker-web-builder | building | | | none |
 | T1.5 safety | safety-builder | queued | | | first free builder slot |
 | T2.1 Stripe | payments-builder | blocked | | | T1.2 |
 | T2.2 verification | verification-builder | queued | | | builder slot |
