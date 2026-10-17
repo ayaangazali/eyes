@@ -1,0 +1,24 @@
+{
+  "name": "@eyes/cli",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.2"
+  },
+  "bin": {
+    "eyes": "./src/main.ts"
+  },
+  "scripts": {
+    "gen:docs": "node src/docs.ts && biome format --write ../docs/public"
+  },
+  "dependencies": {
+    "@eyes/core": "workspace:*",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eyes/db": "workspace:*",
+    "@eyes/engine": "workspace:*",
+    "@eyes/mcp": "workspace:*",
+    "postgres": "3.4.9"
+  }
+}
