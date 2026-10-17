@@ -218,8 +218,8 @@ export const AskEyesInput = z.object({
       error:
         "Required. Pass any unique string for each task you intend to create, for example a UUID, and send the same key again when you retry that task, so the retry returns the original task instead of charging twice.",
     })
-    .min(1)
-    .max(128)
+    .min(1, "Must not be empty. Pass any unique string for each task, for example a UUID.")
+    .max(128, "At most 128 characters. Pass a shorter unique string, for example a UUID (36 characters).")
     .describe(
       "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question.",
     ),

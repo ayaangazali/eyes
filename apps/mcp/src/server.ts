@@ -12,6 +12,7 @@ import {
   DisputeAnswerInput,
   ERRORS,
   EyesError,
+  FAKE_PLACES,
   GetTaskInput,
   JoinWorkerInput,
   ListTasksInput,
@@ -81,6 +82,11 @@ const SIMULATED = {
   messaging: "Texting is simulated: no worker gets a text, so no task gets answered.",
   payments: "Payments are simulated: no real money moves.",
   email: "Email is simulated: no email is sent, including the owner's control link.",
+  geo: `Place lookup is simulated: only {lat, lng} coordinates and these demo places resolve: ${Object.values(
+    FAKE_PLACES,
+  )
+    .map((place) => `"${place.label}"`)
+    .join(", ")}.`,
 } as const;
 
 const layout = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) => html`<!doctype html>

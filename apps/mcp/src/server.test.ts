@@ -414,7 +414,7 @@ describe("REST mirror", () => {
     expect(body.fix).toBe(`${ERRORS.invalid_input.fix} task_type: ${body.issues[0].message}`);
   });
 
-  it("refuses ask_eyes without an idempotency_key over REST and MCP, saying what to pass, before anything runs", async () => {
+  it("refuses ask_eyes with a missing, empty or too long idempotency_key, saying what to pass, before anything runs", async () => {
     let asked = 0;
     const { fetch } = setup({
       askEyes: async () => {
@@ -444,6 +444,19 @@ describe("REST mirror", () => {
     const result = await (await connect(fetch)).callTool({ name: "ask_eyes", arguments: args });
     expect(result.isError).toBe(true);
     expect(JSON.stringify(result.content)).toMatch(explains);
+    for (const [key, says] of [
+      ["", "idempotency_key: Must not be empty."],
+      ["k".repeat(129), "idempotency_key: At most 128 characters."],
+    ]) {
+      const bad = await fetch("http://eyes.test/v1/tasks", {
+        method: "POST",
+        headers: { authorization: `Bearer ${KEY}` },
+        body: JSON.stringify({ ...args, idempotency_key: key }),
+      });
+      const { fix } = await bad.json();
+      expect(fix).toContain(says);
+      expect(fix).not.toContain("Required.");
+    }
     expect(asked).toBe(0);
   });
 
@@ -754,12 +767,23 @@ describe("routes", () => {
       expect(fake, path).toContain("Texting is simulated: no worker gets a text, so no task gets answered.");
       expect(fake, path).toContain("Payments are simulated: no real money moves.");
       expect(fake, path).toContain("Email is simulated");
+      expect(fake, path).toContain(
+        "Place lookup is simulated: only {lat, lng} coordinates and these demo places",
+      );
+      for (const place of [
+        "Blue Bottle Coffee, Mint Plaza, San Francisco",
+        "Ferry Building, San Francisco",
+      ]) {
+        expect(fake, path).toContain(place);
+      }
       const real = await page(live, path);
       expect(real, path).not.toContain("simulated deploy");
       expect(real, path).not.toContain(secret);
       const texting = await page({ EYES_PROVIDERS: "live", INKBOX_API_KEY: "ik_test" }, path);
       expect(texting, path).not.toContain("Texting is simulated");
       expect(texting, path).toContain("Payments are simulated");
+      expect(texting, path).not.toContain("Place lookup is simulated");
+      expect(texting, path).not.toContain("Ferry Building");
     }
     expect(await page({}, "/status")).toContain("Safety review: rules only");
     expect(await page({ ANTHROPIC_API_KEY: secret }, "/status")).toContain(

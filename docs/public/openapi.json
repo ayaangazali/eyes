@@ -3,7 +3,7 @@
   "info": {
     "title": "Eyes",
     "version": "0.1.0",
-    "description": "Eyes pays a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo. Paths are relative to this server's origin. Start with /llms.txt, and check GET /status for which parts of this server are live: a simulated deploy sends no texts and has no workers. The same tools are available over MCP at POST /mcp."
+    "description": "Eyes pays a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo. Paths are relative to this server's origin. Start with /llms.txt, and check GET /status for which parts of this server are live: a simulated deploy sends no texts and has no workers, and with simulated place lookup only {lat, lng} coordinates and the demo places \"Blue Bottle Coffee, Mint Plaza, San Francisco\", \"Ferry Building, San Francisco\", \"Trader Joe's, 401 Bay St, San Francisco\" resolve. The same tools are available over MCP at POST /mcp."
   },
   "servers": [
     {
@@ -68,7 +68,7 @@
         "operationId": "signup",
         "tags": ["agent"],
         "summary": "Create an API key",
-        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.",
+        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance, when payments are live) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: when email is live (see GET /status), Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.",
         "security": [],
         "requestBody": {
           "required": true,
