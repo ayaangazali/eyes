@@ -35,6 +35,7 @@ Sponsor tracks:
 - Contracts are frozen after Gate G0: `packages/core`, MCP tool signatures, merged migrations, provider interfaces, route factory signatures. Changing one needs orchestrator approval, an ADR in `intent/decisions/`, and a notice to every running builder.
 - A PR merges (squash) only when: required CI is green, required verifiers returned `VERDICT: PASS` (recorded in the intent file), the intent file is complete, and no contract conflict is open. Policy for this event: auto-merge on PASS plus green CI.
 - Three failed verifications on one task escalate to the humans with a summary and two options.
+- ADR-010 (humans, 2026-10-17): findings on money, auth/secrets, data integrity, the safety classifier or the demo path block a merge; defense-in-depth edges (log formatting, perf on authenticated input, hardening of already-guarded paths) merge and get a follow-up issue or PR, listed in STATUS.md "Deferred" and in the intent file's Known gaps, triaged at feature freeze.
 - `STATUS.md` is the task board. No sponsor integration is called working until it has worked live once (`live-verified: yes/no`).
 
 ## §3 Agents
