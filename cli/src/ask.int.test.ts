@@ -70,46 +70,59 @@ describe.skipIf(!url)("eyes ask against the real server and Postgres", () => {
     await sql.end();
   });
 
-  it("escrows exactly once per question for a repeated key and for an interrupted ask that is re-run", async () => {
+  const crashingAfterSend = () => {
+    const stop = new AbortController();
+    const crash: typeof fetch = async (input, init) => {
+      await fetch(input, init);
+      stop.abort();
+      throw new DOMException("This operation was aborted", "AbortError");
+    };
+    return deps({ fetch: crash, signal: stop.signal });
+  };
+
+  it("escrows exactly once per question: repeated key, interrupted re-run, and concurrent different asks", async () => {
     expect(await run(["signup", "--name", "cli-int-agent", "--json"], deps())).toBe(0);
     const { agent_id } = JSON.parse(out[0] ?? "") as SignupOutput;
-    const at = `${here.lat},${here.lng}`;
+    const ask = (question: string, type: string) => [
+      "ask",
+      question,
+      "--at",
+      `${here.lat},${here.lng}`,
+      "--type",
+      type,
+      "--no-wait",
+      "--json",
+    ];
 
-    const keyed = ["ask", "Is the cafe open right now?", "--at", at, "--type", "is_open"];
-    const withKey = [...keyed, "--idempotency-key", randomUUID(), "--no-wait", "--json"];
+    const withKey = [...ask("Is the cafe open right now?", "is_open"), "--idempotency-key", randomUUID()];
     out.length = 0;
     expect(await run(withKey, deps())).toBe(0);
     expect(await run(withKey, deps())).toBe(0);
     const [first, second] = out.map((line) => JSON.parse(line));
     expect(second.task_id).toBe(first.task_id);
 
-    const plain = [
-      "ask",
-      "How long is the line right now?",
-      "--at",
-      at,
-      "--type",
-      "line_length",
-      "--no-wait",
-      "--json",
-    ];
-    const stop = new AbortController();
-    const crashAfterSending: typeof fetch = async (input, init) => {
-      await fetch(input, init);
-      stop.abort();
-      throw new DOMException("This operation was aborted", "AbortError");
-    };
-    expect(await run(plain, deps({ fetch: crashAfterSending, signal: stop.signal }))).toBe(130);
-    out.length = 0;
-    expect(await run(plain, deps())).toBe(0);
-    const rerun = JSON.parse(out[0] ?? "");
+    const line = ask("How long is the line right now?", "line_length");
+    expect(await run(line, crashingAfterSend())).toBe(130);
+    expect(await run(line, deps())).toBe(0);
 
-    const tasks = await sql<{ id: string; escrows: number }[]>`
-      select t.id, count(l.id)::int as escrows
+    const bakery = ask("Is the bakery open right now?", "is_open");
+    const plaza = ask("How crowded is the plaza right now?", "crowd_level");
+    expect(await Promise.all([run(bakery, crashingAfterSend()), run(plaza, crashingAfterSend())])).toEqual([
+      130, 130,
+    ]);
+    expect(await Promise.all([run(bakery, deps()), run(plaza, deps())])).toEqual([0, 0]);
+
+    const rows = await sql<{ question: string; tasks: number; escrows: number }[]>`
+      select t.question, count(distinct t.id)::int as tasks, count(l.id)::int as escrows
       from tasks t left join ledger l on l.task_id = t.id and l.type = 'escrow'
       where t.agent_id = ${agent_id}
-      group by t.id`;
-    expect(tasks.map((t) => t.id).sort()).toEqual([first.task_id, rerun.task_id].sort());
-    expect(tasks.map((t) => t.escrows)).toEqual([1, 1]);
+      group by t.question
+      order by t.question`;
+    expect(rows.map((r) => [r.question, r.tasks, r.escrows])).toEqual([
+      ["How crowded is the plaza right now?", 1, 1],
+      ["How long is the line right now?", 1, 1],
+      ["Is the bakery open right now?", 1, 1],
+      ["Is the cafe open right now?", 1, 1],
+    ]);
   });
 });

@@ -1,4 +1,5 @@
-import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
@@ -215,8 +216,11 @@ it("re-running an ask reuses its key while the task is open, gets a new key once
 
   expect(await run(noWait, deps)).toBe(0);
   const first = calls[0]?.body?.idempotency_key;
-  const pendingFile = join(dirname(deps.configPath), "pending-asks.json");
-  expect(statSync(pendingFile).mode & 0o777).toBe(0o600);
+  const pendingDir = join(dirname(deps.configPath), "pending-asks");
+  const files = readdirSync(pendingDir);
+  expect(files).toHaveLength(1);
+  expect(statSync(pendingDir).mode & 0o777).toBe(0o700);
+  expect(statSync(join(pendingDir, files[0] ?? "")).mode & 0o777).toBe(0o600);
 
   expect(await run(noWait, deps)).toBe(0);
   expect(calls[1]).toMatchObject({ method: "GET", url: `https://eyes.test/v1/tasks/${TASK_ID}` });
@@ -244,6 +248,100 @@ it("an ask killed mid-request is re-sent with the same key on the next identical
   expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
   expect(calls).toHaveLength(1);
   expect(calls[0]?.body?.idempotency_key).toBe(idempotency_key);
+});
+
+function fakeServer() {
+  const keys: Record<string, string[]> = {};
+  const tasks = new Map<string, string>();
+  const expired = new Set<string>();
+  const fetch: typeof globalThis.fetch = async (url, init) => {
+    if (init?.method === "POST" && String(url).endsWith("/v1/tasks")) {
+      const body = JSON.parse(String(init.body));
+      keys[body.question] = [...(keys[body.question] ?? []), body.idempotency_key];
+      const taskId = tasks.get(body.idempotency_key) ?? randomUUID();
+      tasks.set(body.idempotency_key, taskId);
+      return Response.json({ ...ASKED, task_id: taskId });
+    }
+    return Response.json(
+      pending(expired.has(String(url).split("/").at(-1) ?? "") ? "expired" : "dispatched"),
+    );
+  };
+  const expireAll = () => {
+    for (const taskId of tasks.values()) expired.add(taskId);
+  };
+  return { fetch, keys, expireAll };
+}
+
+it("two different asks started together on one config dir each keep their own key across re-runs", async () => {
+  const { deps } = setup([]);
+  const server = fakeServer();
+  const other = [
+    "ask",
+    "Is the bakery open right now?",
+    "--at",
+    "Ferry Building, San Francisco",
+    "--type",
+    "is_open",
+  ];
+  const both = () =>
+    Promise.all([
+      run([...ASK, "--no-wait"], { ...deps, fetch: server.fetch }),
+      run([...other, "--no-wait"], { ...deps, fetch: server.fetch }),
+    ]);
+
+  expect(await both()).toEqual([0, 0]);
+  expect(await both()).toEqual([0, 0]);
+
+  const lineKeys = server.keys["How long is the line?"] ?? [];
+  const bakeryKeys = server.keys["Is the bakery open right now?"] ?? [];
+  expect(lineKeys).toHaveLength(2);
+  expect(bakeryKeys).toHaveLength(2);
+  expect(new Set(lineKeys).size).toBe(1);
+  expect(new Set(bakeryKeys).size).toBe(1);
+  expect(lineKeys[0]).not.toBe(bakeryKeys[0]);
+});
+
+it("two identical asks started at the same instant send the same key", async () => {
+  const { deps } = setup([]);
+  const server = fakeServer();
+
+  const codes = await Promise.all(
+    [1, 2, 3].map(() => run([...ASK, "--no-wait"], { ...deps, fetch: server.fetch })),
+  );
+
+  expect(codes).toEqual([0, 0, 0]);
+  const keys = server.keys["How long is the line?"] ?? [];
+  expect(keys).toHaveLength(3);
+  expect(new Set(keys).size).toBe(1);
+});
+
+it("identical re-runs at the same instant after the task settled agree on one new key", async () => {
+  const { deps } = setup([]);
+  const server = fakeServer();
+  const ask = () => run([...ASK, "--no-wait"], { ...deps, fetch: server.fetch });
+
+  expect(await ask()).toBe(0);
+  server.expireAll();
+  expect(await Promise.all([ask(), ask(), ask()])).toEqual([0, 0, 0]);
+
+  const [first, ...rerun] = server.keys["How long is the line?"] ?? [];
+  expect(rerun).toHaveLength(3);
+  expect(new Set(rerun).size).toBe(1);
+  expect(rerun[0]).not.toBe(first);
+});
+
+it("a final status clears the pending ask, so the next identical ask gets a new key without a lookup", async () => {
+  const { deps, calls } = setup([
+    [200, ASKED],
+    [200, ANSWERED],
+    [200, { ...ASKED, task_id: OTHER_TASK_ID }],
+  ]);
+
+  expect(await run(ASK, deps)).toBe(0);
+  expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
+
+  expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "POST"]);
+  expect(calls[2]?.body?.idempotency_key).not.toBe(calls[0]?.body?.idempotency_key);
 });
 
 it.each(["expired", "refunded", "disputed"])("ask stops waiting on %s and exits 1", async (status) => {

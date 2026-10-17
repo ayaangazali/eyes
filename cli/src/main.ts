@@ -21,7 +21,7 @@ import type { z } from "zod";
 
 type Json = Record<string, unknown>;
 type Config = { api_url?: string; api_key?: string };
-type PendingAsks = Record<string, { idempotency_key: string; task_id: string | null }>;
+type PendingAsk = { idempotency_key: string; task_id: string | null };
 export type Deps = {
   fetch: typeof fetch;
   env: Record<string, string | undefined>;
@@ -128,19 +128,61 @@ const lines = (value: Json, prefix = ""): string[] =>
       : [`${prefix}${key}: ${typeof v === "object" ? JSON.stringify(v) : v}`],
   );
 
-async function readPrivate<T>(path: string, empty: T, fix: string): Promise<T> {
+async function readConfig(path: string): Promise<Config> {
   try {
-    return JSON.parse(await readFile(path, "utf8")) ?? empty;
+    return JSON.parse(await readFile(path, "utf8")) ?? {};
   } catch (e) {
-    if ((e as { code?: string }).code === "ENOENT") return empty;
-    return fail(`Could not read ${path}: ${(e as Error).message}`, fix, "config_error");
+    if ((e as { code?: string }).code === "ENOENT") return {};
+    return fail(
+      `Could not read ${path}: ${(e as Error).message}`,
+      `Fix or delete ${path}, or set EYES_API_URL and EYES_API_KEY.`,
+      "config_error",
+    );
   }
 }
 
-async function writePrivate(path: string, value: unknown) {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
-  await chmod(path, 0o600);
+const nextKey = (taskId: string) => createHash("sha256").update(`eyes-next-ask:${taskId}`).digest("hex");
+
+async function readPending(file: string): Promise<PendingAsk | null> {
+  for (let tries = 0; tries < 100; tries++) {
+    const text = await readFile(file, "utf8").catch((e: { code?: string }) =>
+      e.code === "ENOENT" ? null : Promise.reject(e),
+    );
+    if (text === null) return null;
+    try {
+      return JSON.parse(text);
+    } catch {
+      await delay(10);
+    }
+  }
+  return fail(
+    `${file} is not valid JSON.`,
+    `Delete ${file}, or pass --idempotency-key <your own unique key>.`,
+    "config_error",
+  );
+}
+
+async function claimPending(
+  file: string,
+  settled: (taskId: string) => Promise<boolean>,
+): Promise<PendingAsk> {
+  await mkdir(dirname(file), { recursive: true, mode: 0o700 });
+  await chmod(dirname(file), 0o700);
+  for (;;) {
+    const fresh: PendingAsk = { idempotency_key: crypto.randomUUID(), task_id: null };
+    try {
+      await writeFile(file, JSON.stringify(fresh), { flag: "wx", mode: 0o600 });
+      return fresh;
+    } catch (e) {
+      if ((e as { code?: string }).code !== "EEXIST") throw e;
+    }
+    const entry = await readPending(file);
+    if (!entry) continue;
+    if (!entry.task_id || !(await settled(entry.task_id))) return entry;
+    const next: PendingAsk = { idempotency_key: nextKey(entry.task_id), task_id: null };
+    await writeFile(file, JSON.stringify(next));
+    return next;
+  }
 }
 
 export async function run(argv: string[], deps: Deps): Promise<number> {
@@ -200,11 +242,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
       );
     }
     const [arg] = args;
-    const file = await readPrivate<Config>(
-      deps.configPath,
-      {},
-      `Fix or delete ${deps.configPath}, or set EYES_API_URL and EYES_API_KEY.`,
-    );
+    const file = await readConfig(deps.configPath);
     const config: Config = {
       api_url: deps.env.EYES_API_URL || file.api_url,
       api_key: deps.env.EYES_API_KEY || file.api_key,
@@ -253,7 +291,15 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
       throw Object.assign(new Error(String(error.message)), { body: error, status: res.status });
     };
 
-    const waitFor = async (taskId: string, timeout: number | undefined, last: string, key?: string) => {
+    const waitFor = async (
+      taskId: string,
+      {
+        timeout,
+        last = "",
+        key,
+        pendingFile,
+      }: { timeout?: number; last?: string; key?: string; pendingFile?: string },
+    ) => {
       try {
         let failingSince: number | null = null;
         let attempt = 0;
@@ -301,6 +347,10 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           if (json && (status !== last || done)) deps.out(JSON.stringify(reply));
           if (!json && status !== last && !done) deps.out(`status: ${status}`);
           if (done) {
+            if (pendingFile) {
+              const next: PendingAsk = { idempotency_key: nextKey(taskId), task_id: null };
+              await writeFile(pendingFile, JSON.stringify(next)).catch(() => undefined);
+            }
             if (!json) deps.out(lines(reply).join("\n"));
             return reply.answered === true ? 0 : 1;
           }
@@ -331,7 +381,13 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         const out = await call<SignupOutput>("POST /v1/signup", input);
         print(out);
         try {
-          await writePrivate(deps.configPath, { api_url: config.api_url, api_key: out.api_key });
+          await mkdir(dirname(deps.configPath), { recursive: true, mode: 0o700 });
+          await writeFile(
+            deps.configPath,
+            `${JSON.stringify({ api_url: config.api_url, api_key: out.api_key }, null, 2)}\n`,
+            { mode: 0o600 },
+          );
+          await chmod(deps.configPath, 0o600);
         } catch (e) {
           return fail(
             `Could not save ${deps.configPath}: ${(e as Error).message}`,
@@ -353,35 +409,31 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         };
         const explicit = o["idempotency-key"];
         check(AskEyesInput, { ...params, idempotency_key: explicit }, usage);
-        const pendingPath = join(dirname(deps.configPath), "pending-asks.json");
         const id = createHash("sha256")
-          .update(JSON.stringify([config.api_url, config.api_key, params]))
+          .update(JSON.stringify([config.api_url, config.api_key, AskEyesInput.parse(params)]))
           .digest("hex");
-        const pending = explicit
-          ? {}
-          : await readPrivate<PendingAsks>(
-              pendingPath,
-              {},
-              `Delete ${pendingPath}, or pass --idempotency-key <your own unique key> and reuse it on every retry.`,
-            );
-        const prior = pending[id];
-        const priorStatus = prior?.task_id
-          ? await call(`GET /v1/tasks/${prior.task_id}`).then(
-              (t) => t.status,
-              () => undefined,
-            )
-          : undefined;
-        const reuse = prior && !SETTLED.includes(String(priorStatus));
-        const key = explicit ?? (reuse ? prior.idempotency_key : crypto.randomUUID());
-        if (!explicit) {
-          pending[id] = { idempotency_key: key, task_id: reuse ? prior.task_id : null };
-          await writePrivate(pendingPath, pending).catch((e: Error) =>
-            fail(
-              `Could not save ${pendingPath} before sending: ${e.message}`,
-              `Nothing was sent. Pass --idempotency-key <your own unique key> and reuse it on every retry, or make ${dirname(pendingPath)} writable.`,
-              "config_error",
+        const pendingFile = join(dirname(deps.configPath), "pending-asks", `${id}.json`);
+        const settled = async (taskId: string) =>
+          SETTLED.includes(
+            String(
+              await call(`GET /v1/tasks/${taskId}`).then(
+                (t) => t.status,
+                () => undefined,
+              ),
             ),
           );
+        let key = explicit;
+        if (!key) {
+          try {
+            key = (await claimPending(pendingFile, settled)).idempotency_key;
+          } catch (e) {
+            if ((e as { body?: Json }).body) throw e;
+            return fail(
+              `Could not save ${pendingFile} before sending: ${(e as Error).message}`,
+              `Nothing was sent. Pass --idempotency-key <your own unique key> and reuse it on every retry, or make ${dirname(pendingFile)} writable.`,
+              "config_error",
+            );
+          }
         }
         deps.err(JSON.stringify({ idempotency_key: key }));
         let task: ToolOutput<"ask_eyes">;
@@ -404,19 +456,23 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           throw e;
         }
         if (!explicit) {
-          pending[id] = { idempotency_key: key, task_id: task.task_id };
-          await writePrivate(pendingPath, pending).catch(() => undefined);
+          const entry: PendingAsk = { idempotency_key: key, task_id: task.task_id };
+          await writeFile(pendingFile, JSON.stringify(entry)).catch(() => undefined);
         }
         print({ ...task, idempotency_key: key });
         if (o["no-wait"]) return 0;
         if (!json)
           deps.out(`Waiting for the answer. Ctrl-C stops waiting; resume with: eyes await ${task.task_id}`);
-        return await waitFor(task.task_id, undefined, task.status, key);
+        return await waitFor(task.task_id, {
+          last: task.status,
+          key,
+          pendingFile: explicit ? undefined : pendingFile,
+        });
       }
       case "await": {
         const input = { task_id: arg, timeout_seconds: num(o.timeout) };
         check(AwaitAnswerInput, input, usage);
-        return await waitFor(input.task_id as string, input.timeout_seconds, "");
+        return await waitFor(input.task_id as string, { timeout: input.timeout_seconds });
       }
       case "quote": {
         const input = { location: location(o.at), task_type: o.type };
