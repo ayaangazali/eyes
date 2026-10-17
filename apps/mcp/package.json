@@ -17,6 +17,7 @@
     "@eyes/payments": "workspace:*",
     "@eyes/safety": "workspace:*",
     "@eyes/verify": "workspace:*",
+    "@eyes/web-dashboard": "workspace:*",
     "hono": "4.13.13",
     "mcp-use": "2.10.0",
     "zod": "4.6.7"

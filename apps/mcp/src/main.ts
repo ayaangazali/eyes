@@ -2,7 +2,7 @@ import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { createInkboxMessaging, createPrimitiveEmail } from "@eyes/comms";
 import { AppConfig, type DbConfig, fakeProviders, type Providers } from "@eyes/core";
-import { createInsforgeStorage } from "@eyes/db";
+import { createInsforgeStorage, createRpc } from "@eyes/db";
 import { createEyesService } from "@eyes/engine";
 import { createStripePayments } from "@eyes/payments";
 import { createAssessTask } from "@eyes/safety";
@@ -44,6 +44,9 @@ if (env.EYES_PROVIDERS === "live" && Boolean(env.INSFORGE_BASE_URL) !== Boolean(
     "Live photo storage needs both INSFORGE_BASE_URL and INSFORGE_API_KEY. Set both, or unset both to keep fake storage.",
   );
 }
+if (env.EYES_OPS_KEY && env.EYES_OPS_KEY.length < 32) {
+  exit("EYES_OPS_KEY must be at least 32 random characters. Leave it empty to keep the ops dashboard off.");
+}
 const port = env.PORT ? Number(env.PORT) : 3000;
 if ((env.PORT && !/^\d+$/.test(env.PORT)) || port > 65535) {
   exit(`PORT must be an integer from 0 to 65535, got "${env.PORT}".`);
@@ -82,7 +85,7 @@ setInterval(() => {
   service.retryPayouts().catch((err) => console.error("retryPayouts failed", err));
 }, EXPIRE_EVERY_MS);
 
-const server = createServer({ service, providers, config, env });
+const server = createServer({ service, providers, config, env, rpc: createRpc(db) });
 const host = env.HOST || "0.0.0.0";
 const http = createHttpServer(toNodeListener(server.fetch));
 http.listen(port, host, () => {
