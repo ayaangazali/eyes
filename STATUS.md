@@ -1,26 +1,26 @@
 # STATUS
 
-Updated: 2026-10-16 22:55 PT by orchestrator. Gate: **G0 in progress**.
+Updated: 2026-10-16 23:15 PT by orchestrator. Gate: **G0 passed**. Phase 1 + early Phase 2/3 running (T2.1, T2.2, T3.2 started early: their inputs are frozen contracts; ledger moved to engine per ADR-003).
 
 ## Task board
 
 | Task | Owner | State | PR | Verdicts | Blocker |
 |---|---|---|---|---|---|
 | T0.1 vendor notes | docs-researcher x7 | done | (initial commit) | n/a | none |
-| T0.2 scaffold + CI | orchestrator | done locally, CI pending | (initial commit) | n/a | none |
-| T0.3 contracts + migration v1 + fakes | orchestrator | done locally | (initial commit) | n/a | none |
-| T0.4 agents, hooks, intent system | orchestrator | done locally | (initial commit) | n/a | none |
-| T1.1 MCP tools + REST + worker API | mcp-builder | queued | | | G0 |
-| T1.2 engine + db | engine-builder | queued | | | G0 |
-| T1.3 Inkbox comms | comms-builder | queued | | | G0 |
-| T1.4 worker web | worker-web-builder | queued | | | G0 |
-| T1.5 safety | safety-builder | queued | | | first free builder slot |
-| T2.1 Stripe | payments-builder | blocked | | | T1.2 |
-| T2.2 verification | verification-builder | queued | | | builder slot |
+| T0.2 scaffold + CI | orchestrator | done | (initial commit) | n/a | none |
+| T0.3 contracts + migration v1 + fakes | orchestrator | done | (initial commit) | n/a | none |
+| T0.4 agents, hooks, intent system | orchestrator | done | (initial commit) | n/a | none |
+| T1.1 MCP tools + REST + worker API | mcp-builder | verifying | [#2](https://github.com/ayaangazali/eyes/pull/2) | spec PASS, test PASS, intent PASS, ax FAIL (2 major), security pending | fix round after security |
+| T1.2 engine + db | engine-builder | building | | | none |
+| T1.3 Inkbox comms | comms-builder | fix round 1 | [#1](https://github.com/ayaangazali/eyes/pull/1) | intent PASS, spec FAIL, security FAIL, test FAIL | no free text in cold offer (ADR-005) |
+| T1.4 worker web | worker-web-builder | verifying | [#3](https://github.com/ayaangazali/eyes/pull/3) | intent PASS, spec/test pending | none |
+| T1.5 safety | safety-builder | building | | | none |
+| T2.1 Stripe | payments-builder | building | | | none |
+| T2.2 verification | verification-builder | verifying | [#4](https://github.com/ayaangazali/eyes/pull/4) | intent PASS, spec/test pending | none |
 | T2.3 deploy | orchestrator | blocked | | | keys, T1.1, T1.2 |
 | T2.4 money tools | mcp-builder | blocked | | | T2.1 |
 | T3.1 Primitive | comms-builder | blocked | | | G2 |
-| T3.2 AX docs + CLI | ax-builder | blocked | | | G2 |
+| T3.2 AX docs + CLI | ax-builder | building | | | none |
 | T3.3 dashboard | dashboard-builder | blocked | | | G2 |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
 

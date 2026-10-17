@@ -88,7 +88,7 @@ export const ERRORS = {
   internal_error: {
     status: 500,
     message: "Something went wrong on our side.",
-    fix: "Retry with the same idempotency_key; retries are safe. If it persists, call get_task to check the task state.",
+    fix: "Retry the same call. If you passed an idempotency_key, reuse it; retries are safe. If it keeps failing on a task, call get_task to check its state.",
   },
 } as const satisfies Record<string, { status: number; message: string; fix: string }>;
 

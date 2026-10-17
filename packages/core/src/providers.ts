@@ -4,6 +4,7 @@ export type SentMessage = { id: string };
 
 export type OfferMessage = {
   task_id: string;
+  task_type: TaskType;
   question: string;
   place_label: string;
   bounty_cents: number;
