@@ -17,5 +17,9 @@ export function createInsforgeStorage(env: Env): Storage {
       if (!data) throw error;
       return { url: data.url };
     },
+    async deletePhoto({ key }) {
+      const { error } = await bucket.remove(key);
+      if (error) throw error;
+    },
   };
 }

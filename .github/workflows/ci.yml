@@ -62,6 +62,7 @@ jobs:
       - uses: ./.github/actions/setup
       - run: pnpm db:migrate
       - run: pnpm test:integration
+      - run: pnpm ax:eval
 
   e2e:
     runs-on: ubuntu-latest

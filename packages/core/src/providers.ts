@@ -73,6 +73,7 @@ export interface Payments {
 
 export interface Storage {
   putPhoto(i: { key: string; bytes: Uint8Array; content_type: string }): Promise<{ url: string }>;
+  deletePhoto(i: { key: string }): Promise<void>;
 }
 
 export type VisionJudgeInput = {

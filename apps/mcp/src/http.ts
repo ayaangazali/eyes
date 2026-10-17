@@ -12,6 +12,7 @@ const LOGGED_ROUTES = [
   "/",
   "/agents.md",
   "/robots.txt",
+  "/status",
   "/topup/done",
   "/topup/cancel",
   "/w/connect/done",
@@ -91,7 +92,7 @@ async function respond(req: IncomingMessage, url: URL, fetch: Fetch, signal: Abo
   for (const [name, value] of Object.entries(req.headers)) {
     if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value);
   }
-  if (!headers.has("x-forwarded-for")) headers.set("x-forwarded-for", req.socket.remoteAddress ?? "");
+  if (!headers.get("x-forwarded-for")?.trim()) headers.set("x-forwarded-for", req.socket.remoteAddress ?? "");
   const state = { overflow: false };
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const mcp = url.pathname === "/mcp" || url.pathname.startsWith("/mcp/");
