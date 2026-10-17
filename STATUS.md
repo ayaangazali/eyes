@@ -48,7 +48,9 @@ Updated: 2026-10-17 06:20 PT by orchestrator. 44 PRs merged in total (GitHub cou
 | T4.18 re-offer on release; no orphan photos (#62) | builder | **merged** #66; 013 applied; live | [#66](https://github.com/ayaangazali/eyes/pull/66) | PASS; re-offer capped once per worker per task | none |
 | T4.19 ops dashboard on the deployed server (#32) | builder | **merged** #67; live at /ops/<key> | [#67](https://github.com/ayaangazali/eyes/pull/67) | PASS (no feed read on a wrong key; key in 0 logs) | key held by the orchestrator; ask for the link |
 | T4.20 owner link scope (#54) | builder | **merged** #68; 014 applied; live | [#68](https://github.com/ayaangazali/eyes/pull/68) | security PASS; race test added | masked owner email (item 2) dropped: needs a column |
-| T5.2 docs refresh | docs builder | building | | | none |
+| T5.2 docs refresh | docs builder | verifying | [#69](https://github.com/ayaangazali/eyes/pull/69) | | none |
+| Second full-main security sweep | auditor | **done**: 0 blocker, 0 major, 3 minor (public page headers, /w/join membership oracle, precise worker coords on the hosted ops feed); token matrix, rotation, money invariants and grants all sound | | | minors in T4.21 |
+| T4.21 sweep-2 minors | builder | building | | | none |
 | T4.11b honest owner-email claim (ADR-018) | builder | **merged** #59 | [#59](https://github.com/ayaangazali/eyes/pull/59) | PASS | none |
 | T4.13 user-facing text matches the running system | builder | **merged** #60 | [#60](https://github.com/ayaangazali/eyes/pull/60) | PASS | none |
 | T4.10 owner link to the Checkout payer (#38, ADR-015) | payments builder | **merged** #53 | [#53](https://github.com/ayaangazali/eyes/pull/53) | security PASS; follow-ups #54 | none |
