@@ -327,7 +327,7 @@ Example: quote_task({ "location": "Ferry Building, San Francisco", "task_type": 
 Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`,
       inputSchema: TOOLS.quote_task.input,
       outputSchema: TOOLS.quote_task.output,
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
     },
     (input, ctx) => run(() => service.quoteTask(ctx.get("agent"), input)),
   );
@@ -366,7 +366,7 @@ Example: await_answer({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
 Next: follow next_step in the response.`,
       inputSchema: TOOLS.await_answer.input,
       outputSchema: TOOLS.await_answer.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (input, ctx) =>
       run(async () => {
@@ -398,7 +398,7 @@ Example: get_task({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
 Next: to wait for an answer call await_answer instead of polling get_task.`,
       inputSchema: TOOLS.get_task.input,
       outputSchema: TOOLS.get_task.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
   );
@@ -414,7 +414,7 @@ Example: list_tasks({ "status": "dispatched", "limit": 5 })
 Next: for a task with status dispatched, claimed or submitted, call await_answer with its task_id. For a task where answered is true, call get_task to read the answer. Call ask_eyes only if no listed task covers your question.`,
       inputSchema: TOOLS.list_tasks.input,
       outputSchema: TOOLS.list_tasks.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (input, ctx) => run(() => service.listTasks(ctx.get("agent"), input)),
   );
@@ -466,7 +466,7 @@ Example: get_balance({})
 Next: if balance_usd is less than bounty_usd + 0.50, give your user top_up_url and wait for them to fund it, or lower bounty_usd.`,
       inputSchema: TOOLS.get_balance.input,
       outputSchema: TOOLS.get_balance.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (_input, ctx) => run(() => service.getBalance(ctx.get("agent"))),
   );
@@ -480,7 +480,7 @@ Example: get_spend_policy({})
 Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd when you call ask_eyes, and use only allowed_task_types. Only your user can change these limits.`,
       inputSchema: TOOLS.get_spend_policy.input,
       outputSchema: TOOLS.get_spend_policy.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (_input, ctx) => run(() => service.getSpendPolicy(ctx.get("agent"))),
   );

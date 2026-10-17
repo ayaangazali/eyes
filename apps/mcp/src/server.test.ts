@@ -336,6 +336,11 @@ describe("MCP tools", () => {
     ]) {
       expect(hints[name]?.readOnlyHint, name).toBe(true);
     }
+    for (const t of tools) {
+      for (const hint of ["readOnlyHint", "destructiveHint", "openWorldHint"] as const) {
+        expect(typeof t.annotations?.[hint], `${t.name}.${hint}`).toBe("boolean");
+      }
+    }
     expect(hints.ask_eyes).toMatchObject({ readOnlyHint: false, idempotentHint: true });
     expect(tools.every((t) => t.outputSchema && (t.description ?? "").includes("Next:"))).toBe(true);
   });
