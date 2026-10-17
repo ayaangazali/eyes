@@ -1,0 +1,27 @@
+{
+  "name": "@eyes/mcp",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "dev": "node --watch src/main.ts"
+  },
+  "dependencies": {
+    "@eyes/comms": "workspace:*",
+    "@eyes/core": "workspace:*",
+    "@eyes/db": "workspace:*",
+    "@eyes/engine": "workspace:*",
+    "@eyes/payments": "workspace:*",
+    "@eyes/safety": "workspace:*",
+    "@eyes/verify": "workspace:*",
+    "hono": "4.13.13",
+    "mcp-use": "2.10.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.3.1"
+  }
+}
