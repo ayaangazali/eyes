@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 03:55 PT by orchestrator. 24 PRs merged this session. Live: Manufact (9 tools) + InsForge (DB 001-008, Sites). Open: #53 (owner link to payer). Building: T4.9 payouts. Auditing: full-main security sweep, fresh-eyes journeys. Waits on vendor keys: docs/PLAN.md §4.
+Updated: 2026-10-17 04:05 PT by orchestrator. 27 PRs merged. Security blocker (forged fake Stripe webhook) fixed and closed live. Live: Manufact deploy 6fbfd899 (main 2607ed5, 9 tools) + InsForge (DB 001-008, Sites). Open: #57 payouts (adversarial verify). Building: T4.11a, T4.11b. Waits on vendor keys: docs/PLAN.md §4.
 
 ## Task board
 
@@ -40,10 +40,11 @@ Updated: 2026-10-17 03:55 PT by orchestrator. 24 PRs merged this session. Live: 
 | T5.1 README, submission, demo runbook | docs builder | **merged** #41 | [#41](https://github.com/ayaangazali/eyes/pull/41) | r1 FAIL (2 majors), fixed | TODO slots after keys |
 | T3.6 list_tasks + honest quote (ADR-013) | ax builder | **merged** #50; 008 applied; live (9 tools) | [#50](https://github.com/ayaangazali/eyes/pull/50) | PASS (160-policy quote-honesty probe, 0 failures) | none |
 | T4.7 CLI write-back guard + safety precision (#42, #36) | builder | **merged** #51 | [#51](https://github.com/ayaangazali/eyes/pull/51) | PASS; 3 guard fixtures added | none |
-| T4.9 payout recovery + no starvation (#46, #52) | engine builder | building | | | none |
-| T4.10 owner link to the Checkout payer (#38, ADR-015) | payments builder | **merging** #53 | [#53](https://github.com/ayaangazali/eyes/pull/53) | security PASS; follow-ups #54 | none |
+| T4.9 payout recovery + no starvation (#46, #52) | engine builder | adversarial verify | [#57](https://github.com/ayaangazali/eyes/pull/57) | | 009 must reach InsForge before the engine deploys |
+| T4.11b honest owner-email claim (ADR-018) | builder | building | | | none |
+| T4.10 owner link to the Checkout payer (#38, ADR-015) | payments builder | **merged** #53 | [#53](https://github.com/ayaangazali/eyes/pull/53) | security PASS; follow-ups #54 | none |
 | T4.11a honest surfaces (closed sign-up without a line, simulated/classifier status, required idempotency_key; ADR-017) | builder | building | | | none |
-| T4.12 SECURITY: forged Stripe webhook on fake-payment deploys | builder | **building (hotfix)** | | | live deploy exposed until merged + redeployed |
+| T4.12 SECURITY: forged Stripe webhook on fake-payment deploys | builder | **merged** #56; **closed live** (deploy 6fbfd899: forged POST /webhooks/stripe -> 404) | [#56](https://github.com/ayaangazali/eyes/pull/56) | security PASS (26 variants) | none |
 | Full-main security sweep | auditor | **done**: 1 blocker (forged fake Stripe webhook -> T4.12), 2 major (XFF bypass: refuted on Manufact, gateway appends the real address, 7 spoofed signups hit 429 at the 4th; owner-email relay -> #54), 2 minor (#55) | | | |
 | Fresh-eyes journey audit | auditor | **done**: 2 blockers, 9 major, 9 minor; 68 doc promises: 32 true, 10 false, 26 need keys | | | fixes in T4.11a/b |
 | SPEC coverage ledger | auditor | **done**: 140 rows (62 met, 29 partial, 4 unmet, 33 key, 6 human, 6 in flight); 15 gaps | | | gaps queued in PLAN §3 or filed #27-#34 |
