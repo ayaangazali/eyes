@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 02:35 PT by orchestrator. #7 safety merged and deployed: live quote works, live refusal works (rules layer). #26 smoke:live merged. Verifying #35 (polish), #37, #39, #9 r6. Building: T3.5a, T4.5, T5.1. Plan: docs/PLAN.md.
+Updated: 2026-10-17 02:55 PT by orchestrator. Merged: #7 safety, #26 smoke, #35 owner console (live-verified), #37 hardening. Merging: #9 (docs/CLI, fixing owner-route doc exclusion), #41 (README/submission/demo). Verifying: #39 r2, #40. Building: T4.5 UI, T3.4a AX eval, T4.4 pages, T4.2 money. Plan: docs/PLAN.md.
 
 ## Task board
 
@@ -24,7 +24,7 @@ Updated: 2026-10-17 02:35 PT by orchestrator. #7 safety merged and deployed: liv
 | T3.2 AX docs + CLI | ax-builder | round 6 fixing | [#9](https://github.com/ayaangazali/eyes/pull/9) | r5 FAIL: waitFor rewrite can replay a settled task (blocking) | none |
 | T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
-| T2.5 owner console (ADR-011) | payments-builder | polish round | [#35](https://github.com/ayaangazali/eyes/pull/35) | security PASS, spec+test PASS (minors being fixed); #38 filed | none |
+| T2.5 owner console (ADR-011) | payments-builder | **merged** #35, live-verified | [#35](https://github.com/ayaangazali/eyes/pull/35) | security PASS, spec+test PASS, polish reviewed; #38 filed | none |
 | T4.1 hardening (#17-#23, throttles) | mcp/comms builder | **merged** #37 | [#37](https://github.com/ayaangazali/eyes/pull/37) | PASS; XFF key cap queued in T4.4 | none |
 | T2.3b smoke:live | ops builder | **merged** #26 | [#26](https://github.com/ayaangazali/eyes/pull/26) | PASS (2 minors in Known gaps) | none |
 | T4.5 UI fixes (UX audit 0-6, 8, 11, 12, 15-23) | ui builder | building | | | none |
@@ -78,6 +78,7 @@ Earlier verifier minors (non-blocking by severity) are in each task's intent Kno
 | Inkbox outbound + inbound | no | |
 | Stripe Checkout + Connect + transfer | no | |
 | Primitive inbound + threaded reply | no | |
+| Owner console (ADR-011, Stripe user control) | **yes** (2026-10-17 02:55 PT) | Migration 005 applied to InsForge (201; anon gets 404 on both functions). Deploy e444ec99 (main c8b4af8): owner link from `scripts/owner-link.ts` -> GET 200 with `cache-control: no-store`, `referrer-policy: no-referrer`; form POST max $2 / cap $5 / 2 types -> 303; the agent's `GET /v1/spend-policy` shows the new limits; the agent's next $3 ask -> `bounty_exceeds_max` with fix "Lower bounty_usd to 2 or less"; refund copy on the page; malformed token -> 404. |
 | Safety gate, rules layer | **yes** (2026-10-17 02:33 PT) | Deploy 9e99b696 (main 433b76a): live `POST /v1/tasks` "Photograph the house at 12 Pine St." -> 422 `unsafe_task` / private_residence with a fix; live `POST /v1/quote` for the Ferry Building -> 200 (`allowed: true`); a safe ask -> 409 `no_workers_nearby`, nothing charged. Classifier layer not live (no ANTHROPIC_API_KEY). |
 | Claude vision verification | no | |
 | Armature analytics | no | |
