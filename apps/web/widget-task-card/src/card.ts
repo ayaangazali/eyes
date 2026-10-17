@@ -2,7 +2,7 @@ import type { Answer, TaskStatus } from "@eyes/core";
 import { createElement as h, type ReactNode, useEffect, useState, useSyncExternalStore } from "react";
 import type { WidgetBridge } from "./bridge.ts";
 import { FIXTURE_PHOTO, safePhotoUrl } from "./photo.ts";
-import type { AskArgs, CardData, CardState, Check, ToolCall } from "./types.ts";
+import type { AskArgs, CardData, CardState, Check, Theme, ToolCall } from "./types.ts";
 
 type Tone = "neutral" | "info" | "good" | "warn" | "bad";
 type Media = { kind: "map" } | { kind: "photo"; src: string } | null;
@@ -283,6 +283,15 @@ function Photo({ src }: { src: string }): ReactNode {
 const media = (m: NonNullable<Media>) =>
   m.kind === "map" ? map() : m.src === FIXTURE_PHOTO ? samplePhoto() : h(Photo, { src: m.src });
 
+type CardProps = {
+  view: CardView;
+  theme: Theme;
+  sandbox: boolean;
+  toast: string | null;
+  bridge: WidgetBridge;
+  onToast: (text: string) => void;
+};
+
 export function TaskCard({ bridge }: { bridge: WidgetBridge }): ReactNode {
   const data = useSyncExternalStore(bridge.onUpdate, bridge.getToolOutput, bridge.getToolOutput);
   const theme = useSyncExternalStore(bridge.onUpdate, bridge.getTheme, bridge.getTheme);
@@ -293,15 +302,21 @@ export function TaskCard({ bridge }: { bridge: WidgetBridge }): ReactNode {
     const timer = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(timer);
   }, [toast]);
+  return cardTree({
+    view: cardView(data, key),
+    theme,
+    sandbox: data.sandbox,
+    toast,
+    bridge,
+    onToast: setToast,
+  });
+}
 
-  const view = cardView(data, key);
-  const run = (call: ToolCall) => {
+export function cardTree({ view, theme, sandbox, toast, bridge, onToast }: CardProps): ReactNode {
+  const run = (call: ToolCall) =>
     bridge
       .callTool(call.name, call.args)
-      .then(setToast, (err: unknown) =>
-        setToast(err instanceof Error ? err.message : "Something went wrong"),
-      );
-  };
+      .then(onToast, (err: unknown) => onToast(err instanceof Error ? err.message : "Something went wrong"));
 
   return h(
     "article",
@@ -313,7 +328,7 @@ export function TaskCard({ bridge }: { bridge: WidgetBridge }): ReactNode {
       h(
         "span",
         { className: "eyes-pills" },
-        data.sandbox && h("span", { className: "eyes-pill", "data-tone": "neutral" }, "Sandbox"),
+        sandbox && h("span", { className: "eyes-pill", "data-tone": "neutral" }, "Sandbox"),
         h("span", { className: "eyes-pill", "data-tone": view.pill[1] }, view.pill[0]),
       ),
     ),

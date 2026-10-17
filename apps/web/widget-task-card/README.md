@@ -6,12 +6,14 @@ One compact card for an Eyes task, built for MCP Apps hosts (ChatGPT, Claude). T
 
 ```sh
 pnpm install
-pnpm --filter @eyes/widget-task-card preview   # Vite dev server, opens /preview/
-pnpm --filter @eyes/widget-task-card shots     # rewrites docs/manufact/widget/*.png
+pnpm --filter @eyes/widget-task-card preview
+pnpm --filter @eyes/widget-task-card shots
 pnpm exec vitest run --project unit apps/web/widget-task-card
 ```
 
-The preview shows all ten states in a 320px and a 420px column, a Dark/Light toggle (the first theme follows the OS), and a demo card at the top. **Demo play** steps that card through quote, dispatched, claimed, verifying and answered every 1.8 s, for screen recording. Buttons call the mock bridge and show a toast such as `Mock call: dispute_answer`.
+`preview` starts the Vite dev server and opens `/preview/`. `shots` rewrites `docs/manufact/widget/*.png`. The last line runs the widget's unit tests.
+
+The preview shows all ten states in a 320px and a 420px column, a Dark/Light toggle (the first theme follows the OS), and a demo card at the top. **Demo play** steps that card through quote, dispatched, claimed, verifying and answered every 1.8 s, for screen recording. Buttons call the mock bridge, which logs the call to the console and shows it in a toast, such as `Mock call: dispute_answer {"task_id":"...","reason":"Disputed from the Eyes task card"}`.
 
 `shots` starts Vite in-process, screenshots every state at 420px in light and dark (plus the answered state at 320px) with headless Chromium, clicks Dispute to check the toast, fails if the page requests anything off the dev server, and closes everything it started.
 
@@ -20,7 +22,7 @@ The preview shows all ten states in a 320px and a 420px column, a Dark/Light tog
 | Path | What |
 |---|---|
 | `src/types.ts` | `CardData`, the adapter shape the card renders: core `quote_task` / `get_task` / `ask_eyes` types plus the fields core does not have yet. |
-| `src/card.ts` | `cardView(data, key)` turns `CardData` into what the card shows (pill, media, lines, badges, footer, buttons and their tool calls); `TaskCard` renders it with React. |
+| `src/card.ts` | `cardView(data, key)` turns `CardData` into what the card shows (pill, media, lines, badges, footer, buttons and their tool calls); `cardTree` renders a view and wires each button to `bridge.callTool` and the toast; `TaskCard` holds the React state (bridge snapshot, theme, idempotency key, toast) and calls `cardTree`. |
 | `src/card.css` | Flat styles, light and dark tokens keyed on `data-theme`, reduced-motion guard on the pulse. |
 | `src/photo.ts` | `safePhotoUrl`: the photo allowlist. |
 | `src/bridge.ts` | `WidgetBridge`, `MockBridge`, `HostBridge` stub. |
@@ -54,7 +56,7 @@ A Sandbox pill shows whenever `sandbox` is true. Badges: green passed, amber pen
 
 `WidgetBridge` is `callTool(name, args)` (resolves to the toast text), `getToolOutput()`, `onUpdate(cb)` (returns an unsubscribe, the shape `useSyncExternalStore` wants) and `getTheme()`.
 
-`MockBridge` records every call in `calls` and resolves `Mock call: <tool>`. Button calls:
+`MockBridge` records every call in `calls`, logs `Mock call: <tool> <args as JSON>` with `console.info`, and resolves that line as the toast text. Button calls:
 
 - Confirm $3.50 and Request fresh check: `ask_eyes` with the fixture's ask args plus an `idempotency_key` made once per mounted card, so a double click is one charge.
 - Dispute: `dispute_answer` with `{ task_id, reason: "Disputed from the Eyes task card" }`.
@@ -66,7 +68,7 @@ A Sandbox pill shows whenever `sandbox` is true. Badges: green passed, amber pen
 ## Security
 
 - Every worker- or agent-supplied string (answer text, vision reason, refusal reason, error message) is a React text child. The package has no `dangerouslySetInnerHTML` and no `innerHTML`.
-- `safePhotoUrl` shows a photo only when the URL parses with origin exactly `https://7t6779x4.us-east.insforge.app`, has no username or password, and its normalised path starts with `/api/storage/buckets/photos/objects/` followed by a key; the bundled fixture photo is the exact string `fixture:line-photo`. Anything else (other hosts, `http:`, `javascript:`, `data:`, protocol-relative, relative, credentials, other ports, look-alike or IDN hosts, backslashes, `../` out of the bucket, empty keys) shows the map placeholder. The `<img>` sends no referrer, and one that fails to load also falls back to the placeholder.
+- `safePhotoUrl` shows a photo only when the URL parses with origin exactly `https://7t6779x4.us-east.insforge.app`, has no username or password, and its path is `/api/storage/buckets/photos/objects/` followed by exactly the engine's key shape, `<task uuid>/<uuid>.jpg` (`packages/engine/src/index.ts`), with the `/` written literally or as `%2F`, since the InsForge SDK builds object URLs with `encodeURIComponent(key)`; the bundled fixture photo is the exact string `fixture:line-photo`. Anything else (other hosts, `http:`, `javascript:`, `data:`, protocol-relative, relative, credentials, other ports, look-alike or IDN hosts, backslashes, `../` out of the bucket, percent-encoded traversal such as `..%2f` or `%252e%252e/`, `%5c`, any other key shape, empty keys) shows the map placeholder. The `<img>` sends no referrer, and one that fails to load also falls back to the placeholder.
 - No fetch, fonts, external images or scripts. The map and the sample photo are inline SVG.
 
 ## W2 handoff
@@ -80,7 +82,8 @@ Core gaps, each carried by a local field in `CardData` today:
 - `worker.distance_m` and `worker.eta_minutes` while claimed: core has no live worker position or ETA.
 - `kind: "cached"` (`checked_at`, cached `answer`): core has no cached checks.
 - `kind: "rejected"`: an `unsafe_task` error from `ask_eyes`, or `quote_task` with `allowed: false`; but `allowed: false` also covers balance and cap limits, and core gives no machine-readable code to tell a safety refusal apart.
-- `kind: "error"` with `retry`: the host bridge must remember the failed call to retry it.
+- `ask` on quote and cached cards (question, bounty, deadline, photo flag): no core source, because `quote_task` input is only `{ location, task_type }`; W2 has to carry the agent's intended `ask_eyes` args alongside the quote.
+- `kind: "error"` with `retry`: the host bridge must remember the failed call to retry it. In W2, Retry must accept only the expected tool names, validate the args with `TOOLS[name].input` before sending, and show the amount on the button when the retry spends money (an `ask_eyes` retry).
 - Verifying badges: core sets `gps_ok`, `fresh_ok` and `vision_ok` at submission; the card shows them amber while the status is `submitted`.
 - Tip: `tip_worker` does not exist.
 - Dispute reason is a fixed string; W2 should collect one, or use `sendFollowUp` so the model asks the user.

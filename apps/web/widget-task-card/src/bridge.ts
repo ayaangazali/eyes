@@ -20,7 +20,9 @@ export class MockBridge implements WidgetBridge {
 
   callTool = async (name: string, args: Record<string, unknown>) => {
     this.calls.push({ name, args });
-    return `Mock call: ${name}`;
+    const line = `Mock call: ${name} ${JSON.stringify(args)}`;
+    console.info(line);
+    return line;
   };
 
   getToolOutput = () => this.#data;

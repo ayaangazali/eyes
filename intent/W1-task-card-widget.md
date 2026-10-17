@@ -61,11 +61,11 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 ## What
 - `apps/web/widget-task-card/package.json`: the `@eyes/widget-task-card` workspace package (picked up by the existing `apps/web/*` glob). `preview` runs Vite on `/preview/`, `shots` writes the screenshots. No `build` script, so `pnpm build` skips it.
 - `src/types.ts`: `CardData`, the adapter the card renders. It reuses core's `quote_task` and `get_task` outputs, `ask_eyes` input and `Answer` types read-only, and adds only what core lacks (sandbox flag, snapshot time, quote fee, workers notified, walking worker, cached check, refusal, error with retry).
-- `src/card.ts`: `cardView(data, key)` maps a snapshot to everything the card shows, including each button's tool call; `TaskCard` renders it with React and a toast. Task statuses map to card states through a `Record<TaskStatus, CardState>`, so a new core status fails the root typecheck.
+- `src/card.ts`: `cardView(data, key)` maps a snapshot to everything the card shows, including each button's tool call. `cardTree` renders a view and wires each button to `bridge.callTool` and the toast, and `TaskCard` holds the React state and calls it. Task statuses map to card states through a `Record<TaskStatus, CardState>`, so a new core status fails the root typecheck.
 - `src/card.css`: flat light and dark tokens on `data-theme`, max 420px, wraps cleanly at 320px, pulse dot off under `prefers-reduced-motion`.
-- `src/photo.ts`: the photo allowlist (InsForge origin, photos bucket path, the bundled fixture photo).
-- `src/bridge.ts`: `WidgetBridge`, `MockBridge` (records calls, resolves a toast, `play()` for the demo) and the `HostBridge` stub.
-- `src/card.test.ts`: 32 unit tests run by the root `unit` project.
+- `src/photo.ts`: the photo allowlist (InsForge origin, photos bucket path, the engine's `<uuid>/<uuid>.jpg` key shape, the bundled fixture photo).
+- `src/bridge.ts`: `WidgetBridge`, `MockBridge` (records calls, logs and toasts `Mock call: <tool> <args JSON>`, `play()` for the demo) and the `HostBridge` stub.
+- `src/card.test.ts`: 40 unit tests run by the root `unit` project.
 - `fixtures/*.json` and `fixtures/index.ts`: one snapshot per state and their display order.
 - `preview/index.html`, `preview/main.ts`: every state in 320px and 420px columns, theme toggle, demo play.
 - `scripts/shots.ts`: in-process Vite plus headless Chromium; writes the PNGs, clicks Dispute and checks the toast, fails on any request off the dev server.
@@ -79,6 +79,10 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 - No code comments. The owner's text asked for `// TODO(W2): map from core` comments, but the repo's standing rule is zero added comments, so every W2 gap is a bullet in the README "W2 handoff" and below, and `HostBridge` throws `W2: HostBridge is not wired to the MCP Apps host yet`.
 - `apps/web/widget-task-card/` (owner's choice) instead of `apps/mcp/views/`: a folder under `views/` is picked up by `mcp-use build`, which would change the shipped server build.
 - New deps only in the widget package, exact versions: `@types/react` 19.3.0 and `@types/react-dom` 19.3.0 (both published 2026-09-09; React 19 ships no types and the root strict typecheck needs them), which bring `csstype` 3.2.3 (2025-11-17). `react`, `react-dom` 19.3.0 and `vite` 8.3.4 match versions already in the lockfile. `@playwright/test` resolves from the root. No JSX plugin.
+- Button wiring is tested through `cardTree`, a plain function the tests call with a `MockBridge` and then click every rendered button on. Rejected: happy-dom as a widget devDependency. It is an optional peer of vitest, so installing it rewrote the root importer's `vitest` entry in `pnpm-lock.yaml`, which is more than "the widget's deps". Without a DOM, the image `onError` fallback and the one-key-per-mounted-card guard stay untested (both live in hooks); the preview and `shots` exercise them in a real browser.
+- Photo keys must match the engine's shape, `${task.id}/${randomUUID()}.jpg` (`packages/engine/src/index.ts`), with the separator written as `/` or `%2F`. The verifier suggested rejecting `%2f` outright, but the InsForge SDK builds object URLs with `encodeURIComponent(key)` (`@insforge/sdk` 1.5.2 `dist/index.js`, and `packages/db/src/storage.test.ts` expects `task-1%2Fphoto%201.jpg`), so a live photo URL most likely reads `<uuid>%2F<uuid>.jpg`. The strict key pattern already rejects `..%2f`, `%252e%252e/`, `%5c` and anything else in the key.
+- `new URL` in a `try`, not `URL.parse`, so Safari and WebViews older than 18 fall back to the placeholder instead of throwing.
+- Screenshots are committed under `docs/manufact/widget/` because the owner's brief asked for it and main already keeps `docs/manufact/*.png` (T4.30). They are 22 small PNGs, 828 KB in total.
 - One idempotency key per mounted card. A host view latches one tool result for its lifetime, so Confirm or Request fresh check clicked twice is one charge.
 - Untrusted strings only as React text; the media falls back to the map placeholder for any photo URL off the allowlist, and on load error.
 - Retry resends the stored failed call unchanged; an `ask_eyes` retry keeps its original key.
@@ -93,7 +97,8 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 - Walking worker distance and ETA: not in core.
 - Cached checks: not in core.
 - Safety refusal: `unsafe_task` from `ask_eyes`, or `quote_task` `allowed: false`, which also covers balance and caps with no machine-readable code.
-- Error retry: the host bridge must remember the failed call.
+- `ask` on quote and cached cards (question, bounty, deadline, photo flag): no core source, because `quote_task` input is only `{ location, task_type }` (`packages/core/src/schemas.ts`); W2 carries the intended `ask_eyes` args with the quote.
+- Error retry: the host bridge must remember the failed call; Retry must accept only expected tool names, validate args with `TOOLS[name].input`, and show the amount when the retry spends money.
 - Verifying badges: shown amber while `submitted`, though core already has the booleans.
 - Tip: `tip_worker` is not an Eyes tool, only a logged intent.
 - Dispute reason is fixed; collect one or use `sendFollowUp`.
@@ -101,21 +106,35 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 
 ## Assumptions
 - Live photos are public objects at `https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/<key>` (owner's placeholder origin; docs/vendor/insforge.md gives the URL shape).
-- `URL.parse` exists in the hosts' browsers (Chrome 126, Safari 18, Firefox 126) and in Node 24.
+- Live photo URLs carry the engine key `<task uuid>/<uuid>.jpg`, URL-encoded by the SDK as `<task uuid>%2F<uuid>.jpg`. Not yet seen live: STATUS says no capture has gone through InsForge storage.
 - The 0.50 USD fee matches core's `fee_cents` default (50).
 
 ## Verification
-- `pnpm verify:fast` passes on top of 668754a (after T4.29, #84): Biome "Checked 124 files ... No fixes applied", `tsc` clean, unit 568 passed in 18 files (536 before, plus the widget's 32), contract 12 passed, safety 139 passed, "intent check ok: 48 changed files, 1 intent files".
-- `pnpm exec vitest run --project unit apps/web/widget-task-card`: 32 passed (10 fixture renders, fixtures parse with core's `QuoteTaskOutput`, `AskEyesInput`, `Answer`, `GetTaskOutput` and the retry tool's input schema, escaping, one allowlisted photo, 18 rejected photo URLs, button calls).
+- `pnpm verify:fast` passes on top of 668754a (after T4.29, #84), first run, no flake: Biome "Checked 124 files ... No fixes applied", `tsc` clean, unit 576 passed in 18 files (536 before, plus the widget's 40), contract 12 passed, safety 139 passed, "intent check ok: 48 changed files, 1 intent files".
+- `pnpm exec vitest run --project unit apps/web/widget-task-card`: 40 passed (10 fixture renders, fixtures parse with core's `QuoteTaskOutput`, `AskEyesInput`, `Answer`, `GetTaskOutput` and the retry tool's input schema, escaping, two allowlisted photo URLs (`/` and `%2F`), 24 rejected photo URLs, every rendered button clicked through `cardTree` into `MockBridge` with the toast and console line checked, a rejected bridge call toasting its error).
 - Fail on broken behaviour, each mutation run then reverted (files byte-identical after): allowlist bypassed (`safePhotoUrl` returns any URL): 17 failed; credential check removed: 1 failed (the `user:pw@` URL); refusal reason rendered with `dangerouslySetInnerHTML`: 1 failed, "expected '<article class=\"eyes-card\" ...' not to contain '<script'"; Dispute sending `cancel_task`: 1 failed; Confirm without `idempotency_key`: 1 failed. Restored: 32 passed.
+- Round 1 mutations, same method: every rendered button firing `buttons[0].call`: 1 failed; `run` calling `.callTool("noop", {})`: 1 failed (both passed 32/32 before this round); toast without the args: 1 failed; no `console.info`: 1 failed. The six new encoded-traversal and key-shape URLs against the round-0 `photo.ts`: 6 failed. Restored: 40 passed.
+- `shots` rerun after round 1: both themes print the same lines and all 22 PNGs are byte-identical (`git status` clean), so the refactor changed no rendering.
 - `pnpm --filter @eyes/widget-task-card shots`: "light: 11 shots, Dispute click logged, no foreign requests" and the same for dark; 22 PNGs, 25 to 48 KB each, 828 KB total.
 - Preview, driven headlessly on a Vite dev server (port 5199, stopped by PID after): Demo play went "quote -> dispatched -> claimed -> verifying -> answered"; the toggle set `data-theme="dark"` on the cards and the page; Confirm $3.50 showed "Mock call: ask_eyes"; the pulse had `animation-name: eyes-pulse`, and `none` under reduced motion; no console errors.
 - `pnpm build`: worker and `@eyes/mcp` build as before ("built views/entry.ts + views (task-card)"); the widget has no `build` script and is skipped.
 - `pnpm exec playwright test --list`: "Total: 27 tests in 4 files", none from the widget folder.
 - `pnpm install --frozen-lockfile` after the lockfile change: "Already up to date".
 - gitleaks v8.28.0 (Docker, `dir` mode, repo `.gitleaks.toml`) over every new text file: no leaks; the same run flags the UUID version of `fixtures/error.json` as `generic-api-key`.
-- `grep -rnE "innerHTML|dangerouslySetInnerHTML|fetch\(|XMLHttpRequest|WebSocket"` over the package (outside `node_modules`): no matches.
+- `grep -rnE "innerHTML|dangerouslySetInnerHTML|fetch\(|XMLHttpRequest|WebSocket"` over the package's code (outside `node_modules`, excluding Markdown, whose prose names `innerHTML`): no matches in code.
 - Not covered by CI: the preview, the `shots` script and the click check; the PNGs are generated locally and committed.
 
 ## Verifier verdicts
-Left for the orchestrator.
+- Round 1 (PR #87 at 33ecdd0): spec PASS (4 minor), security PASS (3 minor; 214 cases, 212 passed), test+intent PASS (1 major, 7 minor; 27 mutations, 15 caught).
+- Fixed in round 2:
+  - Major, the rendered-button to bridge wiring was untested. It now runs through `cardTree` and is tested; both reported mutations fail.
+  - Security:
+    - Encoded traversal is closed by the strict key shape, accepting `%2F` only as the SDK's separator.
+    - `URL.parse` became `new URL` in a `try`.
+  - Spec: the toast and `console.info` show the tool and its args.
+  - Intent and README:
+    - The `ask` field gap and the Retry validation note are in the W2 handoff.
+    - The grep wording says "no matches in code".
+    - The reason for committing the PNGs is recorded.
+    - The README shell notes moved out of the code block.
+  - Not done: the image `onError` fallback and one-key-per-mount tests. Both need a DOM, and a DOM dependency would change the root lockfile entry.

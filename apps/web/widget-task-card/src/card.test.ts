@@ -1,10 +1,10 @@
 import { Answer, AskEyesInput, GetTaskOutput, QuoteTaskOutput, TOOLS, type ToolName } from "@eyes/core";
-import { createElement } from "react";
+import { createElement, isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { FIXTURES } from "../fixtures/index.ts";
 import { MockBridge } from "./bridge.ts";
-import { cardView, TaskCard } from "./card.ts";
+import { cardTree, cardView, TaskCard } from "./card.ts";
 import type { CardData, CardState } from "./types.ts";
 
 const render = (data: CardData) =>
@@ -41,9 +41,19 @@ function shown(html: string) {
   };
 }
 
+type Props = { children?: ReactNode; onClick?: () => unknown };
+const buttons = (node: ReactNode): { label: string; click: () => unknown }[] => {
+  if (Array.isArray(node)) return node.flatMap(buttons);
+  if (!isValidElement<Props>(node)) return [];
+  if (node.type !== "button") return buttons(node.props.children);
+  return [{ label: String(node.props.children), click: node.props.onClick ?? (() => undefined) }];
+};
+
 const ASK = FIXTURES.quote.kind === "quote" ? FIXTURES.quote.ask : null;
 const TASK_A = "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b";
 const TASK_B = "8b1d2c3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e";
+const PHOTOS = "https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/";
+const KEY = "9b2f4c1e-6d3a-4f8b-a1c2-7e5d9f0b3a4c.jpg";
 const LIVE = ["passed", "passed", "passed"];
 const PENDING = ["pending", "pending", "pending"];
 
@@ -207,10 +217,12 @@ describe("task card", () => {
     }
   });
 
-  it("shows an allowlisted InsForge photo", () => {
-    const url = "https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/tasks/a.jpg";
-    expect(render(withAnswer({ photo_url: url }))).toContain(`<img src="${url}"`);
-  });
+  it.each([`${PHOTOS}${TASK_A}%2F${KEY}`, `${PHOTOS}${TASK_A}/${KEY}`])(
+    "shows the InsForge photo %s",
+    (url) => {
+      expect(render(withAnswer({ photo_url: url }))).toContain(`<img src="${url}"`);
+    },
+  );
 
   it.each([
     "https://evil.example/api/storage/buckets/photos/objects/a.jpg",
@@ -229,6 +241,12 @@ describe("task card", () => {
     "https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/../../avatars/objects/a.jpg",
     "https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/",
     "https://evil.example/?u=https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/a.jpg",
+    `${PHOTOS}..%2f..%2favatars%2fobjects%2fa.jpg`,
+    `${PHOTOS}%252e%252e/%252e%252e/avatars/objects/a.jpg`,
+    `${PHOTOS}${TASK_A}%5c${KEY}`,
+    `${PHOTOS}${TASK_A}%2F${KEY}%2f..%2f..%2favatars%2fa.jpg`,
+    `${PHOTOS}${TASK_A}/${KEY}.png`,
+    `${PHOTOS}a.jpg`,
     "fixture:other",
     "",
   ])("falls back to the placeholder for %s", (url) => {
@@ -237,21 +255,35 @@ describe("task card", () => {
     expect(html).not.toContain("<img");
   });
 
-  it("sends each button's tool call through the bridge", async () => {
-    const key = "key-1";
+  it("each rendered button sends its call through the bridge and toasts it", async () => {
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const sent: Record<string, unknown> = {};
     for (const [state, data] of Object.entries(FIXTURES)) {
       const bridge = new MockBridge(data);
-      for (const b of cardView(data, key).buttons) {
-        expect(await bridge.callTool(b.call.name, b.call.args)).toBe(`Mock call: ${b.call.name}`);
-        if (b.call.name in TOOLS) TOOLS[b.call.name as ToolName].input.parse(b.call.args);
-      }
+      const toasts: string[] = [];
+      const view = cardView(data, "key-1");
+      const tree = cardTree({
+        view,
+        theme: "light",
+        sandbox: false,
+        toast: null,
+        bridge,
+        onToast: (t) => toasts.push(t),
+      });
+      const shownButtons = buttons(tree);
+      expect(shownButtons.map((b) => b.label)).toEqual(EXPECTED[state as CardState].buttons);
+      for (const b of shownButtons) await b.click();
+      const lines = bridge.calls.map((c) => `Mock call: ${c.name} ${JSON.stringify(c.args)}`);
+      expect(toasts).toEqual(lines);
+      for (const line of lines) expect(info).toHaveBeenCalledWith(line);
+      for (const c of bridge.calls) if (c.name in TOOLS) TOOLS[c.name as ToolName].input.parse(c.args);
       sent[state] = bridge.calls;
     }
+    info.mockRestore();
     const reason = "Disputed from the Eyes task card";
     expect(sent).toEqual({
-      quote: [{ name: "ask_eyes", args: { ...ASK, idempotency_key: key } }],
-      cached: [{ name: "ask_eyes", args: { ...ASK, idempotency_key: key } }],
+      quote: [{ name: "ask_eyes", args: { ...ASK, idempotency_key: "key-1" } }],
+      cached: [{ name: "ask_eyes", args: { ...ASK, idempotency_key: "key-1" } }],
       dispatched: [],
       claimed: [],
       verifying: [],
@@ -264,5 +296,24 @@ describe("task card", () => {
       rejected_safety: [],
       error: [FIXTURES.error.kind === "error" && FIXTURES.error.retry],
     });
+  });
+
+  it("toasts the error when a bridge call fails", async () => {
+    const bridge = {
+      ...new MockBridge(FIXTURES.error),
+      callTool: () => Promise.reject(new Error("offline")),
+    };
+    const toasts: string[] = [];
+    const view = cardView(FIXTURES.error, "key-1");
+    const tree = cardTree({
+      view,
+      theme: "dark",
+      sandbox: false,
+      toast: null,
+      bridge,
+      onToast: (t) => toasts.push(t),
+    });
+    for (const b of buttons(tree)) await b.click();
+    expect(toasts).toEqual(["offline"]);
   });
 });
