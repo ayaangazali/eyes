@@ -428,6 +428,24 @@ export const CaptureFields = z.object({
   answer_text: z.string().max(1000).nullable().default(null),
   answer_bool: z.boolean().nullable().default(null),
 });
+export const WorkerEarnings = z.object({
+  paid_usd: Usd,
+  pending_usd: Usd,
+  tasks: z
+    .array(
+      z.object({
+        task_id: Id,
+        place_label: z.string(),
+        status: TaskStatus,
+        bounty_usd: Usd,
+        payout: z.enum(["paid", "pending", "waiting_for_payout_setup"]).nullable(),
+        claimed_at: Timestamp,
+        paid_at: Timestamp.nullable(),
+      }),
+    )
+    .max(50),
+});
+
 export const CaptureResult = z.object({
   task_id: Id,
   status: TaskStatus,
@@ -447,6 +465,7 @@ export type CaptureResult = z.output<typeof CaptureResult>;
 export type ResolvedLocation = z.output<typeof ResolvedLocation>;
 export type OwnerPolicyInput = z.output<typeof OwnerPolicyInput>;
 export type OwnerConsole = z.output<typeof OwnerConsole>;
+export type WorkerEarnings = z.output<typeof WorkerEarnings>;
 
 export const HTTP_ROUTES = {
   health: "GET /healthz",
@@ -466,6 +485,7 @@ export const HTTP_ROUTES = {
   owner_policy: "POST /owner/:token/policy",
   worker_join: "POST /w/join",
   worker_connect_redirect: "GET /w/connect/:token",
+  worker_earnings: "GET /w/earnings/:token",
   offer_view: "GET /w/offers/:token",
   offer_capture: "POST /w/offers/:token/capture",
   webhook_inkbox: "POST /webhooks/inkbox",

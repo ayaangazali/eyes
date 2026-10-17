@@ -5,6 +5,7 @@ import {
   type EyesService,
   fakeProviders,
   type OfferMessage,
+  signToken,
   TASK_TYPES,
 } from "@eyes/core";
 import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
@@ -38,6 +39,7 @@ vi.mock("@inkbox/sdk", async (importOriginal) => ({
 const KEY = "test-signing-key";
 const NOW = new Date("2026-10-17T19:00:00.000Z");
 const TO = "+14155550123";
+const EARNINGS_URL = "https://api.eyes.test/w/earnings/x";
 
 const textReceived = (text: string) => ({
   event_type: "text.received",
@@ -317,7 +319,12 @@ describe("createInkboxMessaging", () => {
       capture_url: "https://w.eyes.test/c/x",
       deadline_at: "2026-10-17T19:30:00.000Z",
     };
-    const paid = { task_id: "t1", place_label: "Ferry Building", amount_cents: 300 };
+    const paid = {
+      task_id: "t1",
+      place_label: "Ferry Building",
+      amount_cents: 300,
+      earnings_url: EARNINGS_URL,
+    };
     expect(await m.sendOffer(TO, offer())).toEqual({ id: "im_1" });
     expect(await m.sendCaptureLink(TO, capture)).toEqual({ id: "im_1" });
     expect(await m.sendAlreadyClaimed(TO, { place_label: "Ferry Building" })).toEqual({ id: "im_1" });
@@ -445,7 +452,7 @@ describe("place label in every template", () => {
         deadline_at: NOW.toISOString(),
       }),
       alreadyClaimedText({ place_label }),
-      paidText({ task_id: "t", place_label, amount_cents: 300 }),
+      paidText({ task_id: "t", place_label, amount_cents: 300, earnings_url: EARNINGS_URL }),
     ];
     for (const text of texts) expect(text).toContain(` at ${expected}`);
     expect(offerText(offer({ place_label }))).toBe(
@@ -468,8 +475,20 @@ describe("post-reply templates", () => {
   });
 
   it("paid text shows whole and fractional dollars", () => {
-    expect(paidText({ task_id: "t", place_label: "Ferry Building", amount_cents: 350 })).toContain("$3.50 ");
-    expect(paidText({ task_id: "t", place_label: "Ferry Building", amount_cents: 300 })).toContain("$3 ");
+    const paid = { task_id: "t", place_label: "Ferry Building", earnings_url: EARNINGS_URL };
+    expect(paidText({ ...paid, amount_cents: 350 })).toContain("$3.50 ");
+    expect(paidText({ ...paid, amount_cents: 300 })).toContain("$3 ");
+  });
+
+  it("paid text ends with the earnings link and stays within the 1600-character text limit", () => {
+    const earnings_url = `https://eyes-production-0123456789.example.app/w/earnings/${signToken(
+      "a-link-secret-of-32-characters-0",
+      `e:${crypto.randomUUID()}`,
+      new Date("2026-10-24T19:00:00.000Z"),
+    )}`;
+    const text = paidText({ task_id: "t", place_label: "W".repeat(40), amount_cents: 4999, earnings_url });
+    expect(text.endsWith(` Your earnings: ${earnings_url}`)).toBe(true);
+    expect(text.length).toBeLessThanOrEqual(1600);
   });
 });
 

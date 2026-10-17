@@ -21,7 +21,7 @@ export interface Messaging {
   sendAlreadyClaimed(to: string, msg: { place_label: string }): Promise<SentMessage>;
   sendPaid(
     to: string,
-    msg: { task_id: string; place_label: string; amount_cents: number },
+    msg: { task_id: string; place_label: string; amount_cents: number; earnings_url: string },
   ): Promise<SentMessage>;
   sendText(to: string, body: string): Promise<SentMessage>;
 }

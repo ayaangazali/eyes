@@ -10,8 +10,9 @@ import {
   TASK_TYPES,
   type TaskType,
   usdToCents,
+  type WorkerEarnings,
 } from "@eyes/core";
-import { type Context, Hono } from "hono";
+import { type Context, Hono, type Next } from "hono";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -244,6 +245,36 @@ const usd = (n: number) => `$${n.toFixed(2)}`;
 const when = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
 const shortId = (id: string) => id.slice(0, 8);
 
+const PAYOUT_LABELS: Record<NonNullable<WorkerEarnings["tasks"][number]["payout"]>, string> = {
+  paid: "Paid",
+  pending: "Not sent yet",
+  waiting_for_payout_setup: "Waiting for your payout setup",
+};
+
+function earningsPage(view: WorkerEarnings) {
+  const waiting = view.tasks.some((t) => t.payout === "waiting_for_payout_setup");
+  return shell(
+    "Your Eyes earnings",
+    html`<h1>Your earnings</h1>
+<p>Keep this link private: anyone who has it can see where and when you did tasks. Links stop working 7 days after we text them; text HELP to the Eyes number for a new one.</p>
+<dl>
+<dt>Paid to you</dt><dd>${usd(view.paid_usd)}</dd>
+<dt>Earned, not sent yet</dt><dd>${usd(view.pending_usd)}</dd>
+</dl>
+${waiting ? html`<p class="note">Some of your earnings are waiting for you to set up payouts. Open the payout link we texted you, or text START to the Eyes number for a new one.</p>` : ""}
+<h2>Your recent tasks</h2>
+${
+  view.tasks.length
+    ? html`<div class="scroll"><table>
+<thead><tr><th scope="col">Place</th><th scope="col">Bounty</th><th scope="col">Task</th><th scope="col">Payout</th><th scope="col">Claimed</th></tr></thead>
+<tbody>${view.tasks.map((t) => html`<tr><td>${t.place_label}</td><td>${usd(t.bounty_usd)}</td><td>${t.status.replaceAll("_", " ")}</td><td>${t.payout ? PAYOUT_LABELS[t.payout] : ""}${t.paid_at ? ` ${when(t.paid_at)}` : ""}</td><td>${when(t.claimed_at)}</td></tr>`)}</tbody>
+</table></div>`
+    : html`<p>No tasks yet. Reply YES to a task text to claim one.</p>`
+}`,
+    OWNER_STYLE,
+  );
+}
+
 function ownerPage(view: OwnerConsole, token: string, note: Note | null, feeUsd: number) {
   const p = view.policy;
   return shell(
@@ -345,10 +376,12 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
   const formNumber = (v: unknown) =>
     typeof v === "string" && /^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : Number.NaN;
 
-  app.use("/owner/*", async (c, next) => {
+  const privateLink = async (c: Context, next: Next) => {
     for (const [name, value] of Object.entries(OWNER_HEADERS)) c.header(name, value);
     await next();
-  });
+  };
+  app.use("/owner/*", privateLink);
+  app.use("/w/earnings/*", privateLink);
   app.get("/owner/:token", (c) => ownerView(c, c.req.query("saved") === undefined ? null : SAVED));
   app.post("/owner/:token/policy", async (c) => {
     const form = await c.req.parseBody({ all: true });
@@ -372,6 +405,9 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
         "You can close this tab. If Stripe still needs details from you, open the Eyes payout link again to finish.",
       ),
     ),
+  );
+  app.get("/w/earnings/:token", (c) =>
+    explained(c, async () => c.html(earningsPage(await deps.service.workerEarnings(c.req.param("token"))))),
   );
   app.get("/w/connect/:token", (c) =>
     redirectTo(c, () => deps.service.workerConnectUrl(c.req.param("token"))),

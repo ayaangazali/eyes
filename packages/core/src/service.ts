@@ -16,6 +16,7 @@ import type {
   TaskType,
   ToolInput,
   ToolOutput,
+  WorkerEarnings,
 } from "./schemas.ts";
 
 export const SAFETY_CATEGORIES = [
@@ -100,6 +101,7 @@ export interface EyesService {
   workerConnectUrl(token: string): Promise<string>;
   markWorkerOnboarded(account_id: string): Promise<void>;
   handleWorkerReply(input: { phone: string; intent: ReplyIntent; text: string }): Promise<void>;
+  workerEarnings(token: string): Promise<WorkerEarnings>;
   getOffer(token: string): Promise<OfferView>;
   submitCapture(token: string, fields: CaptureFields, photo: PhotoUpload | null): Promise<CaptureResult>;
 
