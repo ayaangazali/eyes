@@ -1,4 +1,4 @@
-import { fakeVision, type Task, type VerifyInput, type Vision } from "@eyes/core";
+import { distanceMeters, fakeVision, type Task, type VerifyInput, type Vision } from "@eyes/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createClaudeVision, verifySubmission } from "./index.ts";
 
@@ -25,8 +25,12 @@ const task: Task = {
 
 const north = (m: number) => task.lat + m / 111_195;
 
-const input = (sub: Partial<VerifyInput["submission"]> = {}, vision: Vision = fakeVision()): VerifyInput => ({
-  task,
+const input = (
+  sub: Partial<VerifyInput["submission"]> = {},
+  vision: Vision = fakeVision(),
+  t: Partial<Task> = {},
+): VerifyInput => ({
+  task: { ...task, ...t },
   vision,
   submission: {
     lat: north(100),
@@ -57,9 +61,26 @@ describe("verifySubmission", () => {
     expect(r.auto_approve).toBe(false);
   });
 
+  it("passes at exactly the radius and fails 1 mm beyond it", async () => {
+    const d = distanceMeters({ lat: north(100), lng: task.lng }, task);
+    expect((await verifySubmission(input({ accuracy_m: 0 }, fakeVision(), { radius_m: d }))).gps_ok).toBe(
+      true,
+    );
+    expect(
+      (await verifySubmission(input({ accuracy_m: 0 }, fakeVision(), { radius_m: d - 0.001 }))).gps_ok,
+    ).toBe(false);
+  });
+
   it("lets reported accuracy cover a fix just outside the radius", async () => {
-    expect((await verifySubmission(input({ lat: north(200), accuracy_m: 60 }))).gps_ok).toBe(true);
-    expect((await verifySubmission(input({ lat: north(200), accuracy_m: 40 }))).gps_ok).toBe(false);
+    expect((await verifySubmission(input({ lat: north(190), accuracy_m: 60 }))).gps_ok).toBe(true);
+    expect((await verifySubmission(input({ lat: north(190), accuracy_m: 30 }))).gps_ok).toBe(false);
+  });
+
+  it("caps the accuracy slack at 50 m beyond the radius", async () => {
+    const d = distanceMeters({ lat: north(100), lng: task.lng }, task);
+    const fix = { accuracy_m: 100 };
+    expect((await verifySubmission(input(fix, fakeVision(), { radius_m: d - 50 }))).gps_ok).toBe(true);
+    expect((await verifySubmission(input(fix, fakeVision(), { radius_m: d - 50.001 }))).gps_ok).toBe(false);
   });
 
   it("never passes a fix with accuracy worse than 100 m, even on the spot", async () => {
@@ -67,12 +88,12 @@ describe("verifySubmission", () => {
     expect((await verifySubmission(input({ lat: task.lat, accuracy_m: 101 }))).gps_ok).toBe(false);
   });
 
-  it("fails freshness after the deadline", async () => {
-    const r = await verifySubmission(
-      input({ captured_at: "2026-10-17T19:30:30.000Z", received_at: "2026-10-17T19:31:00.000Z" }),
-    );
-    expect(r.fresh_ok).toBe(false);
-    expect(r.auto_approve).toBe(false);
+  it("passes freshness at the deadline and fails 1 ms after it", async () => {
+    const at = (received_at: string) => input({ captured_at: "2026-10-17T19:29:30.000Z", received_at });
+    expect((await verifySubmission(at("2026-10-17T19:30:00.000Z"))).fresh_ok).toBe(true);
+    const late = await verifySubmission(at("2026-10-17T19:30:00.001Z"));
+    expect(late.fresh_ok).toBe(false);
+    expect(late.auto_approve).toBe(false);
   });
 
   it("fails freshness for a photo captured more than 5 minutes before upload", async () => {
@@ -81,8 +102,8 @@ describe("verifySubmission", () => {
   });
 
   it("fails freshness for captured_at in the future beyond 60 s of clock skew", async () => {
-    expect((await verifySubmission(input({ captured_at: "2026-10-17T19:10:30.000Z" }))).fresh_ok).toBe(true);
-    expect((await verifySubmission(input({ captured_at: "2026-10-17T19:11:01.000Z" }))).fresh_ok).toBe(false);
+    expect((await verifySubmission(input({ captured_at: "2026-10-17T19:11:00.000Z" }))).fresh_ok).toBe(true);
+    expect((await verifySubmission(input({ captured_at: "2026-10-17T19:11:00.001Z" }))).fresh_ok).toBe(false);
   });
 
   it("rejects photos with prominent faces and says so", async () => {
@@ -99,19 +120,49 @@ describe("verifySubmission", () => {
     expect(r).toMatchObject({ vision_ok: false, vision_reason: "Blank wall.", auto_approve: false });
   });
 
-  it("turns a vision failure into vision_ok false instead of throwing", async () => {
+  it("turns a vision failure into vision_ok false without leaking the error text", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const broken: Vision = {
       judge: async () => {
-        throw new Error("Request timed out.");
+        throw Object.assign(new Error("upstream detail"), { name: "APIConnectionTimeoutError" });
       },
     };
     const r = await verifySubmission(input({}, broken));
-    expect(r.vision_ok).toBe(false);
-    expect(r.vision_reason).toMatch(/unavailable/i);
-    expect(r.auto_approve).toBe(false);
+    expect(r).toMatchObject({
+      vision_ok: false,
+      vision_reason: "Vision check unavailable; the photo needs manual review.",
+      auto_approve: false,
+    });
+    expect(log).toHaveBeenCalledWith(expect.any(String), "APIConnectionTimeoutError");
+    expect(JSON.stringify(log.mock.calls)).not.toContain("upstream detail");
+    log.mockRestore();
   });
 
-  it("marks a photo-less answer for review without calling vision", async () => {
+  it("treats a vision call that stalls for 25 s as unavailable", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const stalled: Vision = { judge: () => new Promise(() => {}) };
+    const pending = verifySubmission(input({}, stalled));
+    await vi.advanceTimersByTimeAsync(25_000);
+    const r = await pending;
+    expect(r).toMatchObject({ vision_ok: false, auto_approve: false });
+    expect(r.vision_reason).toMatch(/unavailable/);
+    log.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("approves on gps and freshness alone when no photo was required or sent", async () => {
+    const vision = fakeVision();
+    const r = await verifySubmission(input({ photo_url: null }, vision, { require_photo: false }));
+    expect(r).toMatchObject({ vision_ok: true, vision_reason: "No photo required", auto_approve: true });
+    expect(vision.calls).toHaveLength(0);
+    const far = await verifySubmission(
+      input({ photo_url: null, lat: north(500) }, vision, { require_photo: false }),
+    );
+    expect(far.auto_approve).toBe(false);
+  });
+
+  it("marks a missing required photo for review without calling vision", async () => {
     const vision = fakeVision();
     const r = await verifySubmission(input({ photo_url: null }, vision));
     expect(r).toMatchObject({ vision_ok: false, vision_reason: "no photo", auto_approve: false });
@@ -120,10 +171,12 @@ describe("verifySubmission", () => {
 
   it("keeps confidence within [0, 1]", async () => {
     const best = await verifySubmission(input({}, fakeVision({ confidence: 5 })));
+    const nan = await verifySubmission(input({}, fakeVision({ confidence: Number.NaN })));
     const worst = await verifySubmission(
       input({ lat: north(5000), received_at: "2026-10-17T20:00:00.000Z", photo_url: null }),
     );
     expect(best.confidence).toBe(1);
+    expect(nan.confidence).toBe(0.5);
     expect(worst.confidence).toBe(0);
   });
 });
