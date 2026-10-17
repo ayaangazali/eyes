@@ -54,6 +54,7 @@ const TASK_A = "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b";
 const TASK_B = "8b1d2c3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e";
 const PHOTOS = "https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/";
 const KEY = "9b2f4c1e-6d3a-4f8b-a1c2-7e5d9f0b3a4c.jpg";
+const OBJ = `${TASK_A}/${KEY}`;
 const LIVE = ["passed", "passed", "passed"];
 const PENDING = ["pending", "pending", "pending"];
 
@@ -225,27 +226,30 @@ describe("task card", () => {
   );
 
   it.each([
-    "https://evil.example/api/storage/buckets/photos/objects/a.jpg",
-    "http://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/a.jpg",
+    `https://evil.example/api/storage/buckets/photos/objects/${OBJ}`,
+    `http://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/${OBJ}`,
     "javascript:alert(1)",
     "data:image/svg+xml,<svg onload=alert(1)>",
-    "//7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/a.jpg",
-    "/api/storage/buckets/photos/objects/a.jpg",
-    "https://user:pw@7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/a.jpg",
-    "https://7t6779x4.us-east.insforge.app.evil.example/api/storage/buckets/photos/objects/a.jpg",
-    "https://7t6779x4.us-east.insforgе.app/api/storage/buckets/photos/objects/a.jpg",
-    "https://7t6779x4-us-east.insforge.app/api/storage/buckets/photos/objects/a.jpg",
-    "https://7t6779x4.us-east.insforge.app:8443/api/storage/buckets/photos/objects/a.jpg",
-    "https:\\\\evil.example\\api\\storage\\buckets\\photos\\objects\\a.jpg",
-    "https://7t6779x4.us-east.insforge.app/api/storage/buckets/avatars/objects/a.jpg",
-    "https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/../../avatars/objects/a.jpg",
-    "https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/",
-    "https://evil.example/?u=https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/a.jpg",
-    `${PHOTOS}..%2f..%2favatars%2fobjects%2fa.jpg`,
+    `//7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/${OBJ}`,
+    `/api/storage/buckets/photos/objects/${OBJ}`,
+    `https://user:pw@7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/${OBJ}`,
+    `https://user@7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/${OBJ}`,
+    `https://:pw@7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/${OBJ}`,
+    `https://7t6779x4.us-east.insforge.app.evil.example/api/storage/buckets/photos/objects/${OBJ}`,
+    `https://7t6779x4.us-east.insforgе.app/api/storage/buckets/photos/objects/${OBJ}`,
+    `https://7t6779x4-us-east.insforge.app/api/storage/buckets/photos/objects/${OBJ}`,
+    `https://7t6779x4.us-east.insforge.app:8443/api/storage/buckets/photos/objects/${OBJ}`,
+    `https:\\\\evil.example\\api\\storage\\buckets\\photos\\objects\\${TASK_A}\\${KEY}`,
+    `https://evil.example/?u=${PHOTOS}${OBJ}`,
+    `https://7t6779x4.us-east.insforge.app/api/storage/buckets/avatar/objects/${OBJ}`,
+    `${PHOTOS}../../avatars/objects/${OBJ}`,
+    `${PHOTOS}`,
+    `${PHOTOS}..%2f..%2favatars%2fobjects%2f${TASK_A}%2f${KEY}`,
     `${PHOTOS}%252e%252e/%252e%252e/avatars/objects/a.jpg`,
     `${PHOTOS}${TASK_A}%5c${KEY}`,
-    `${PHOTOS}${TASK_A}%2F${KEY}%2f..%2f..%2favatars%2fa.jpg`,
-    `${PHOTOS}${TASK_A}/${KEY}.png`,
+    `${PHOTOS}${OBJ}%2f..%2f..%2favatars%2fa.jpg`,
+    `${PHOTOS}${OBJ}.png`,
+    `${PHOTOS}${TASK_A}/${KEY.replace(".jpg", ".svg")}`,
     `${PHOTOS}a.jpg`,
     "fixture:other",
     "",
@@ -296,6 +300,21 @@ describe("task card", () => {
       rejected_safety: [],
       error: [FIXTURES.error.kind === "error" && FIXTURES.error.retry],
     });
+  });
+
+  it("passes the theme and the toast through to the card", () => {
+    const view = cardView(FIXTURES.answered, "key-1");
+    const bridge = new MockBridge(FIXTURES.answered);
+    for (const theme of ["light", "dark"] as const) {
+      const props = { view, theme, sandbox: false, toast: "Sent", bridge, onToast: () => undefined };
+      const html = renderToStaticMarkup(cardTree(props));
+      expect(html).toContain(`<article class="eyes-card" data-theme="${theme}"`);
+      expect(html).toContain('<p class="eyes-toast" role="status">Sent</p>');
+      const mounted = renderToStaticMarkup(
+        createElement(TaskCard, { bridge: new MockBridge(FIXTURES.answered, theme) }),
+      );
+      expect(mounted).toContain(`<article class="eyes-card" data-theme="${theme}"`);
+    }
   });
 
   it("toasts the error when a bridge call fails", async () => {

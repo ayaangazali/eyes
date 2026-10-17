@@ -95,8 +95,9 @@ Wiring:
 - Import `src/card.css` from the view entry.
 - If the photos bucket becomes private, InsForge serves presigned URLs that may live on another host; the allowlist and CSP must follow.
 - Replace the hard-coded photo origin with the deployment's `INSFORGE_BASE_URL` origin, as `show_task` does for its CSP.
+- Require the photo key's first UUID to equal the card's `task_id`, so a card can only show its own task's photo.
 
 ## What CI runs
 
 - `pnpm lint` (Biome), `pnpm typecheck` (root tsconfig, now including every widget `.ts`) and `pnpm test` (the unit project picks up `src/card.test.ts`).
-- Not run in CI: the preview and `shots`. The root Playwright config has fixed test directories, so the screenshots are generated locally and committed. The package has no `build` script, so `pnpm build` skips it.
+- Not run in CI: the preview and `shots`. CSS colours, the reduced-motion guard and the look of each theme are checked only by the committed PNGs, which CI does not regenerate; unit tests check only that the theme reaches `data-theme`. The root Playwright config has fixed test directories, so the screenshots are generated locally and committed. The package has no `build` script, so `pnpm build` skips it.

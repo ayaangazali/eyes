@@ -65,7 +65,7 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 - `src/card.css`: flat light and dark tokens on `data-theme`, max 420px, wraps cleanly at 320px, pulse dot off under `prefers-reduced-motion`.
 - `src/photo.ts`: the photo allowlist (InsForge origin, photos bucket path, the engine's `<uuid>/<uuid>.jpg` key shape, the bundled fixture photo).
 - `src/bridge.ts`: `WidgetBridge`, `MockBridge` (records calls, logs and toasts `Mock call: <tool> <args JSON>`, `play()` for the demo) and the `HostBridge` stub.
-- `src/card.test.ts`: 40 unit tests run by the root `unit` project.
+- `src/card.test.ts`: 44 unit tests run by the root `unit` project.
 - `fixtures/*.json` and `fixtures/index.ts`: one snapshot per state and their display order.
 - `preview/index.html`, `preview/main.ts`: every state in 320px and 420px columns, theme toggle, demo play.
 - `scripts/shots.ts`: in-process Vite plus headless Chromium; writes the PNGs, clicks Dispute and checks the toast, fails on any request off the dev server.
@@ -98,6 +98,7 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 - Cached checks: not in core.
 - Safety refusal: `unsafe_task` from `ask_eyes`, or `quote_task` `allowed: false`, which also covers balance and caps with no machine-readable code.
 - `ask` on quote and cached cards (question, bounty, deadline, photo flag): no core source, because `quote_task` input is only `{ location, task_type }` (`packages/core/src/schemas.ts`); W2 carries the intended `ask_eyes` args with the quote.
+- Photo key: require the key's first UUID to equal the card's `task_id`, so a card can only show its own task's photo (optional hardening from security round 2).
 - Error retry: the host bridge must remember the failed call; Retry must accept only expected tool names, validate args with `TOOLS[name].input`, and show the amount when the retry spends money.
 - Verifying badges: shown amber while `submitted`, though core already has the booleans.
 - Tip: `tip_worker` is not an Eyes tool, only a logged intent.
@@ -110,11 +111,42 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 - The 0.50 USD fee matches core's `fee_cents` default (50).
 
 ## Verification
-- `pnpm verify:fast` passes on top of 668754a (after T4.29, #84), first run, no flake: Biome "Checked 124 files ... No fixes applied", `tsc` clean, unit 576 passed in 18 files (536 before, plus the widget's 40), contract 12 passed, safety 139 passed, "intent check ok: 48 changed files, 1 intent files".
-- `pnpm exec vitest run --project unit apps/web/widget-task-card`: 40 passed (10 fixture renders, fixtures parse with core's `QuoteTaskOutput`, `AskEyesInput`, `Answer`, `GetTaskOutput` and the retry tool's input schema, escaping, two allowlisted photo URLs (`/` and `%2F`), 24 rejected photo URLs, every rendered button clicked through `cardTree` into `MockBridge` with the toast and console line checked, a rejected bridge call toasting its error).
-- Fail on broken behaviour, each mutation run then reverted (files byte-identical after): allowlist bypassed (`safePhotoUrl` returns any URL): 17 failed; credential check removed: 1 failed (the `user:pw@` URL); refusal reason rendered with `dangerouslySetInnerHTML`: 1 failed, "expected '<article class=\"eyes-card\" ...' not to contain '<script'"; Dispute sending `cancel_task`: 1 failed; Confirm without `idempotency_key`: 1 failed. Restored: 32 passed.
-- Round 1 mutations, same method: every rendered button firing `buttons[0].call`: 1 failed; `run` calling `.callTool("noop", {})`: 1 failed (both passed 32/32 before this round); toast without the args: 1 failed; no `console.info`: 1 failed. The six new encoded-traversal and key-shape URLs against the round-0 `photo.ts`: 6 failed. Restored: 40 passed.
-- `shots` rerun after round 1: both themes print the same lines and all 22 PNGs are byte-identical (`git status` clean), so the refactor changed no rendering.
+- `pnpm verify:fast` passes on top of 668754a (after T4.29, #84), first run, no flake: Biome "Checked 124 files ... No fixes applied", `tsc` clean, unit 580 passed in 18 files (536 before, plus the widget's 44), contract 12 passed, safety 139 passed, "intent check ok: 48 changed files, 1 intent files".
+- `pnpm exec vitest run --project unit apps/web/widget-task-card`: 44 passed:
+  - 10 fixture renders.
+  - Fixtures parse with core's `QuoteTaskOutput`, `AskEyesInput`, `Answer`, `GetTaskOutput` and the retry tool's input schema.
+  - Escaping.
+  - Two allowlisted photo URLs (`/` and `%2F`).
+  - 27 rejected photo URLs. Each URL with a host, scheme, credential, prefix, anchor or extension defect carries a valid `<uuid>/<uuid>.jpg` key, so it breaks exactly one check.
+  - Every rendered button clicked through `cardTree` into `MockBridge`, with the toast and console line checked.
+  - Theme and toast passed through `cardTree` and `TaskCard`.
+  - A rejected bridge call toasting its error.
+- Mutation matrix at round 3, each mutant applied, run, then reverted (sources byte-identical after); all 21 caught, failures out of 44:
+
+  | Mutant | Failed |
+  |---|---|
+  | Allowlist bypassed (return any URL) | 26 |
+  | Origin check removed | 7 |
+  | Both credential checks removed | 3 |
+  | Username check removed | 1 |
+  | Password check removed | 1 |
+  | Path prefix check removed | 1 |
+  | Key `^` anchor removed | 1 |
+  | Key `$` anchor removed | 2 |
+  | `.jpg` widened to any extension | 1 |
+  | Separator widened to `%5c` | 1 |
+  | Any `fixture:` URL accepted | 1 |
+  | Every rendered button fires `buttons[0].call` | 1 |
+  | `run` calls `.callTool("noop", {})` | 1 |
+  | Refusal note via `dangerouslySetInnerHTML` | 1 |
+  | Dispute sends `cancel_task` | 1 |
+  | Confirm without `idempotency_key` | 1 |
+  | `cardTree` ignores theme | 1 |
+  | Toast row dropped | 1 |
+  | `TaskCard` ignores the bridge theme | 1 |
+  | Toast without args | 1 |
+  | No `console.info` | 1 |
+- `shots` rerun after round 1 (head 631c128): both themes print the same lines and all 22 PNGs are byte-identical (`git status` clean), so the refactor changed no rendering. Round 3 changes only tests and docs.
 - `pnpm --filter @eyes/widget-task-card shots`: "light: 11 shots, Dispute click logged, no foreign requests" and the same for dark; 22 PNGs, 25 to 48 KB each, 828 KB total.
 - Preview, driven headlessly on a Vite dev server (port 5199, stopped by PID after): Demo play went "quote -> dispatched -> claimed -> verifying -> answered"; the toggle set `data-theme="dark"` on the cards and the page; Confirm $3.50 showed "Mock call: ask_eyes"; the pulse had `animation-name: eyes-pulse`, and `none` under reduced motion; no console errors.
 - `pnpm build`: worker and `@eyes/mcp` build as before ("built views/entry.ts + views (task-card)"); the widget has no `build` script and is skipped.
@@ -122,7 +154,7 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
 - `pnpm install --frozen-lockfile` after the lockfile change: "Already up to date".
 - gitleaks v8.28.0 (Docker, `dir` mode, repo `.gitleaks.toml`) over every new text file: no leaks; the same run flags the UUID version of `fixtures/error.json` as `generic-api-key`.
 - `grep -rnE "innerHTML|dangerouslySetInnerHTML|fetch\(|XMLHttpRequest|WebSocket"` over the package's code (outside `node_modules`, excluding Markdown, whose prose names `innerHTML`): no matches in code.
-- Not covered by CI: the preview, the `shots` script and the click check; the PNGs are generated locally and committed.
+- Not covered by CI: the preview, the `shots` script and the click check; the PNGs are generated locally and committed. CSS colours, the reduced-motion guard and how each theme looks are checked only by those committed PNGs (and the headless preview run above), which CI never regenerates; unit tests check only that the theme reaches `data-theme`.
 
 ## Verifier verdicts
 - Round 1 (PR #87 at 33ecdd0): spec PASS (4 minor), security PASS (3 minor; 214 cases, 212 passed), test+intent PASS (1 major, 7 minor; 27 mutations, 15 caught).
@@ -138,3 +170,11 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
     - The reason for committing the PNGs is recorded.
     - The README shell notes moved out of the code block.
   - Not done: the image `onError` fallback and one-key-per-mount tests. Both need a DOM, and a DOM dependency would change the root lockfile entry.
+- Round 2 (631c128): security PASS (80 named cases plus 500k fuzz; `%2F` reaches only the same object, per InsForge's Express decode), test+intent FAIL on coverage only.
+- Fixed in round 3:
+  - Major: the strict key pattern masked the credential, prefix, `^` anchor and extension checks. Each rejected URL now carries a valid key and breaks one check; origin cases got valid keys too, plus username-only and password-only credential cases. All 21 mutants above fail the suite.
+  - Minors:
+    - Theme and toast are pinned through `cardTree` and `TaskCard`.
+    - The W2 handoff adds the `task_id` match on the photo key.
+    - CSS, reduced-motion and theme are recorded as PNG-only coverage.
+  - Not done: the `disputed`, `refunded` and `verified` statuses have no fixtures, so their mappings are untested (`disputed` to the "Disputed" review card without Dispute, `refunded` to "Cancelled. $3.50 refunded.", `verified` to the answered card). Adding fixtures would add preview cells and screenshots.
