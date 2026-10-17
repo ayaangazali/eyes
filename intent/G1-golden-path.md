@@ -2,7 +2,7 @@
 task: G1-e2e
 title: Gate G1 golden path end to end on fakes
 agent: e2e-builder
-pr: pending
+pr: https://github.com/ayaangazali/eyes/pull/16
 files: [e2e/**, playwright.config.ts, package.json, pnpm-lock.yaml]
 spec_refs: [§1 Flow, §5 Gate G1, §6, §13 steps 2-4]
 vendor_refs: [docs/vendor/inkbox.md]
