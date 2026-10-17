@@ -331,7 +331,7 @@ export const GetSpendPolicyOutput = z.object({
 });
 
 export const OwnerPolicyInput = z.object({
-  max_bounty_usd: z.number().min(0).max(100),
+  max_bounty_usd: z.number().min(0).max(50),
   daily_cap_usd: z.number().min(0).max(1000),
   allowed_task_types: z.array(TaskType),
 });

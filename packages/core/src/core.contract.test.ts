@@ -110,6 +110,16 @@ describe("fake payments", () => {
     expect(a).toEqual(b);
     expect(p.transfers).toHaveLength(1);
   });
+
+  it("sends a top-up to our own done page marked simulated instead of an unreachable checkout", async () => {
+    const { url } = await fakePayments().createTopupCheckout({
+      agent_id: "a",
+      amount_cents: 2000,
+      success_url: "https://api.eyes.test/topup/done",
+      cancel_url: "https://api.eyes.test/topup/cancel",
+    });
+    expect(url).toBe("https://api.eyes.test/topup/done?simulated=1");
+  });
 });
 
 describe("agent email addresses", () => {

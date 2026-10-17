@@ -65,10 +65,9 @@ export function fakePayments() {
   const payments: Payments = {
     createTopupCheckout: async (i) => {
       seq += 1;
-      return {
-        url: `https://checkout.fake.test/${i.agent_id}/${i.amount_cents}`,
-        session_id: `cs_fake_${seq}`,
-      };
+      const done = new URL(i.success_url);
+      done.searchParams.set("simulated", "1");
+      return { url: done.href, session_id: `cs_fake_${seq}` };
     },
     createWorkerAccount: async (i) => ({ account_id: `acct_fake_${i.worker_id}` }),
     createOnboardingLink: async (i) => ({ url: `https://connect.fake.test/onboard/${i.account_id}` }),
