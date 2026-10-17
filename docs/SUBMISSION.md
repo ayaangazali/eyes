@@ -57,7 +57,9 @@ InsForge is the backend for everything stateful. Postgres holds the escrow ledge
 
 ### Armature: Best Agent Experience (AX)
 
-An agent can go from nothing to a verified answer without a human dashboard: `POST /v1/signup` returns an API key, a test balance and a funding link for its human. Every error is `{error, message, fix}` with the numbers the agent needs (how far to lower the bounty, how much cap is left today), tool descriptions tell the agent what to call next, and `idempotency_key` makes every retry safe. `llms.txt`, `llms-full.txt`, `openapi.json`, an agent card and an `eyes` CLI are generated from the same frozen schemas (PR #9).
+An agent can go from nothing to a verified answer without a human dashboard: `POST /v1/signup` returns an API key, a test balance and a funding link for its human. Every error is `{error, message, fix}` with the numbers the agent needs (how far to lower the bounty, how much cap is left today), tool descriptions tell the agent what to call next, and `idempotency_key` makes every retry safe. `llms.txt`, `llms-full.txt`, `openapi.json`, an agent card and an `eyes` CLI generated from the same frozen schemas are in review in PR #9.
+
+- **TODO** once PR #9 merges: say these are served from the deployed server and drop "in review".
 
 - **TODO** live fact: AX verifier agent completed signup, ask and answer from public docs only on `<date/time>`; Armature analytics or eval run `<link>` (wiring waits on Armature's answer about mcp-use support).
 
@@ -69,13 +71,13 @@ Each agent gets its own Eyes email address at signup, a capability address with 
 
 ### Inkbox
 
-Eyes' dispatcher is an Inkbox identity with an iMessage line: it sends the offer, receives the YES claim, sends the capture link and the paid confirmation. We followed Inkbox's rules: workers opt in by texting START, the first message has no link and stays under 159 characters, and the inbound `imessage.received` webhook is signature-verified. The offer never includes the agent's question, so no free text from an agent reaches a stranger's phone before they claim.
+Eyes' dispatcher is an Inkbox identity with an iMessage line: it sends the offer, receives the YES claim, sends the capture link and the paid confirmation. We followed Inkbox's rules: workers opt in by texting START, the first message has no link and is at most 159 characters, and the inbound `imessage.received` webhook is signature-verified. The offer never includes the agent's question, so no free text from an agent reaches a stranger's phone before they claim.
 
 - **TODO** live fact: teammate iPhone received a live offer, replied YES and got the capture link on `<date/time>`.
 
 ### Stripe
 
-The agent spends money for a resource it cannot get any other way, and its human sets the rules. Humans fund the agent through Stripe Checkout; each key has a max bounty, a daily cap and allowed task types that `ask_eyes` enforces with fixable errors; an owner console the agent never sees changes those limits or freezes spending (PR #35). The bounty is escrowed on ask, paid to the worker's Connect Express account as a $3 transfer only after verification, and refunded on expiry or cancel.
+The agent spends money for a resource it cannot get any other way, and its human sets the rules. Humans fund the agent through Stripe Checkout; each key has a max bounty, a daily cap and allowed task types that `ask_eyes` enforces with fixable errors; an owner console the agent never sees changes those limits or freezes spending (ADR-011). The bounty is escrowed on ask, paid to the worker's Connect Express account as a $3 transfer only after verification, and refunded on expiry or cancel.
 
 - **TODO** live fact: Checkout top-up credited the balance and a verified answer created a $3 transfer visible in the Stripe dashboard (test mode) on `<date/time>`.
 

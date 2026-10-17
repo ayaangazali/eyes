@@ -4,7 +4,7 @@ AI agents can read the whole internet, but they cannot see the street. "Is this 
 
 Built for YC's "Make Something Agents Want" hackathon (Oct 17-18, 2026) by Ayaan, Jerry and Shryuk.
 
-**What is live today.** The MCP server is deployed on Manufact and backed by InsForge Postgres. Vendor keys (Inkbox, Stripe, Primitive, Anthropic) have not landed yet, so the deployed server runs those providers as fakes and every full round trip so far has run on fakes in CI. [STATUS.md](STATUS.md) is the source of truth: nothing below is called live unless its "live-verified" column says yes.
+**What is live today.** The MCP server is deployed on Manufact and backed by InsForge Postgres. Vendor keys (Inkbox, Stripe, Primitive, Anthropic) have not landed yet, so the deployed server runs those providers as fakes and every full round trip so far has run on fakes in CI. The safety rule layer is live-verified: the deployed server refuses "photograph the house at ..." with `unsafe_task` and a fix. [STATUS.md](STATUS.md) is the source of truth: nothing below is called live unless its "live-verified" column says yes.
 
 ## How it works
 
@@ -43,7 +43,7 @@ curl -s -X POST https://dark-wave-wfmpm.run.mcp-use.com/v1/signup \
   -d '{"name": "my-agent"}'
 ```
 
-The response holds `api_key` (shown once), `balance_usd` (test mode grants $20), `top_up_url` for a human to add funds, `email_address` (your private Eyes email address, once Primitive is configured) and `next_step`. Then connect, for example from Claude Code:
+The response holds `agent_id`, `api_key` (shown once), `balance_usd` (test mode grants $20), `top_up_url` for a human to add funds, `email_address` (your private Eyes email address, once Primitive is configured) and `next_step`. Then connect, for example from Claude Code:
 
 ```sh
 claude mcp add --transport http eyes https://dark-wave-wfmpm.run.mcp-use.com/mcp \
@@ -125,7 +125,7 @@ iPhone only for now: Eyes texts over an Inkbox iMessage line because it costs le
 
 The person who funds an agent decides what it may spend. Each API key has a max bounty per task, a daily cap (UTC day) and a list of allowed task types; `ask_eyes` enforces them and returns `bounty_exceeds_max`, `daily_cap_exceeded` or `task_type_not_allowed` with a fix. Defaults are $10 max bounty, $20 per day, all task types. The agent can read its limits with `get_spend_policy` but cannot change them.
 
-The owner console ([ADR-011](https://github.com/ayaangazali/eyes/pull/35), in review) is where a human changes them: a private `/owner/<token>` page emailed to the `owner_email` given at signup and never shown to the agent. It shows balance, escrow, today's spend, recent tasks and the ledger; it sets max bounty, daily cap and allowed task types; a daily cap of 0 freezes spending; and an add-funds button opens Stripe Checkout. It is a separate link from the top-up link because the agent holds the top-up link and could otherwise raise its own limits.
+The owner console ([ADR-011](intent/decisions/ADR-011-owner-console.md)) is where a human changes them: a private `/owner/<token>` page emailed to the `owner_email` given at signup and never shown to the agent. It shows balance, escrow, today's spend, recent tasks and the ledger; it sets max bounty, daily cap and allowed task types; a daily cap of 0 freezes spending; and an add-funds button opens Stripe Checkout. It is a separate link from the top-up link because the agent holds the top-up link and could otherwise raise its own limits.
 
 ## Safety
 
@@ -220,4 +220,4 @@ node --env-file=.env apps/mcp/src/main.ts
 
 `db:up` starts Postgres 17 on port 54329. `verify:fast` is lint, typecheck, unit, contract, safety rule fixtures and the intent check, all without a database. `test:integration` runs the engine, ledger and dashboard against that Postgres, and `test:e2e` is the Playwright golden path on fakes. The last line starts the server on fakes at http://127.0.0.1:3000/mcp.
 
-`pnpm smoke:live` (checks a deployed server end to end) lands with [PR #26](https://github.com/ayaangazali/eyes/pull/26). Deploying is in [docs/DEPLOY.md](docs/DEPLOY.md). The demo runbook is [docs/DEMO.md](docs/DEMO.md) and the submission draft is [docs/SUBMISSION.md](docs/SUBMISSION.md).
+`pnpm smoke:live` checks a deployed server end to end. Deploying is in [docs/DEPLOY.md](docs/DEPLOY.md). The demo runbook is [docs/DEMO.md](docs/DEMO.md) and the submission draft is [docs/SUBMISSION.md](docs/SUBMISSION.md).
