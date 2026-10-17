@@ -507,6 +507,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const mail = providers.email.outbox.find((m) => m.to === ownerEmail);
     const ownerToken = mail?.text.match(/\/owner\/([\w.-]+)/)?.[1] ?? "";
     expect(ownerToken).not.toBe("");
+    expect(mail?.text).toContain(`An AI agent (Eyes agent id ${signup.agent_id})`);
+    expect(mail?.text).not.toContain("owned-agent");
     expect(signup.next_step).toContain(ownerEmail);
     const fresh = async () => (await service.authenticate(signup.api_key)) as Agent;
     const a = await fresh();
@@ -605,7 +607,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
-  it("emails whoever pays a working owner link, credits a replayed top-up once, and never shows the link to the agent", async () => {
+  it("emails only the first payer a working owner link, once, and never shows the link to the agent", async () => {
     const a = await agent();
     const payer = `payer-${randomUUID()}@example.com`;
     const topup = {
@@ -625,12 +627,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
     await service.creditTopup(topup);
     expect(await service.getBalance(a)).toMatchObject({ balance_usd: 35 });
-    const replayed = providers.email.outbox.slice(before + 1);
-    expect(replayed.map((m) => m.to)).toEqual([payer]);
-    expect(replayed[0]?.text).toContain(`/owner/${ownerToken}`);
+    expect(providers.email.outbox).toHaveLength(before + 1);
 
-    await service.creditTopup({ ...topup, stripe_ref: `cs_${randomUUID()}`, payer_email: null });
-    expect(providers.email.outbox).toHaveLength(before + 2);
+    const later = `later-${randomUUID()}@example.com`;
+    await service.creditTopup({ ...topup, stripe_ref: `cs_${randomUUID()}`, payer_email: later });
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 50 });
+    expect(providers.email.outbox).toHaveLength(before + 1);
     for (const out of [await service.getBalance(a), await service.getSpendPolicy(a)]) {
       expect(JSON.stringify(out)).not.toContain("/owner/");
     }

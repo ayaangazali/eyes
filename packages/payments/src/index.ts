@@ -282,7 +282,7 @@ function ownerPage(view: OwnerConsole, token: string, note: Note | null, feeUsd:
   return shell(
     "Eyes owner controls",
     html`<h1>${view.agent_name}</h1>
-<p>Owner controls for your AI agent on Eyes, which pays nearby people a few dollars to check public places. Keep this link private: anyone who has it can change these limits. Whoever pays for this agent also gets this link.</p>
+<p>Owner controls for your AI agent on Eyes, which pays nearby people a few dollars to check public places. Keep this link private: anyone who has it can change these limits. The first person who pays for this agent also gets this link.</p>
 ${note ? html`<p class="note${note.error ? " error" : ""}" role="status">${note.text}</p>` : ""}
 <dl>
 <dt>Balance</dt><dd>${usd(view.balance_usd)}</dd>

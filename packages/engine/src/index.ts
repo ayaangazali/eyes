@@ -187,7 +187,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
     return agentId;
   }
 
-  async function emailOwner(to: string, agent: Agent, subject: string, intro: string): Promise<boolean> {
+  async function emailOwner(to: string, agentId: string, subject: string, intro: string): Promise<boolean> {
     try {
       await providers.email.send({
         to,
@@ -195,15 +195,15 @@ export function createEyesService(deps: EngineDeps): EyesService {
         text: [
           intro,
           "Eyes lets AI agents pay a nearby person a few dollars to check something in the real world right now, such as whether a store is open or how long a line is. Each task is paid from the agent's prepaid balance.",
-          `Your private control link:\n${ownerUrl(agent.id)}`,
+          `Your private control link:\n${ownerUrl(agentId)}`,
           "There you can see the balance and every task, set the most the agent may pay per task, set a daily spending cap (a cap of 0 stops all spending), choose which kinds of tasks it may post, and add funds.",
-          "Keep this link secret, and do not give it to your agent: anyone who has it can change these limits. Whoever pays for this agent also gets this link.",
+          "Keep this link secret, and do not give it to your agent: anyone who has it can change these limits. The first person who pays for this agent also gets this link.",
         ].join("\n\n"),
       });
       return true;
     } catch (err) {
       console.error(
-        `owner email for agent ${agent.id} failed: ${err instanceof Error ? err.name : "unknown"}`,
+        `owner email for agent ${agentId} failed: ${err instanceof Error ? err.name : "unknown"}`,
       );
       return false;
     }
@@ -375,9 +375,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
         ? ""
         : (await emailOwner(
               owner_email,
-              agent,
+              agent.id,
               "Your AI agent's Eyes spending controls",
-              `Your AI agent ${JSON.stringify(agent.name)} signed up for Eyes and listed this address as its owner.`,
+              `An AI agent (Eyes agent id ${agent.id}) signed up for Eyes and listed this address as its owner.`,
             ))
           ? config.email_delivery
             ? ` We emailed your user at ${owner_email} a private control link to set your spend limits and add funds; only they can change your limits.`
@@ -634,18 +634,18 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async creditTopup({ agent_id, amount_cents, stripe_ref, payer_email }) {
-      const agent = await one<Agent>("eyes_credit_topup", {
+      const { first_paid } = await one<{ first_paid: boolean }>("eyes_credit_paid_topup", {
         p_agent_id: agent_id,
         p_amount_cents: amount_cents,
         p_stripe_ref: stripe_ref,
         p_now: nowIso(),
       });
-      if (!payer_email) return;
+      if (!payer_email || !first_paid) return;
       await emailOwner(
         payer_email,
-        agent,
+        agent_id,
         `You added ${dollars(amount_cents)} to your AI agent's Eyes balance`,
-        `Thank you for adding ${dollars(amount_cents)} to the Eyes balance of your AI agent ${JSON.stringify(agent.name)}. Because you pay for it, you also get its owner controls.`,
+        `Thank you for adding ${dollars(amount_cents)} to the Eyes balance of your AI agent (Eyes agent id ${agent_id}). You are the first person to pay for it, so you also get its owner controls.`,
       );
     },
 
