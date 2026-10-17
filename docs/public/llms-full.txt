@@ -263,5 +263,6 @@ Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...cont
 - offer_invalid (HTTP 404): This task link is invalid or has expired. Fix: Open the newest link Eyes texted you. Expired tasks cannot be submitted.
 - task_already_claimed (HTTP 409): Another worker already claimed this task. Fix: No action needed. Watch for the next task text.
 - rate_limited (HTTP 429): Too many requests. Fix: Wait {retry_after_s} seconds and retry with the same idempotency_key.
+- owner_link_invalid (HTTP 404): This owner control link is invalid. Fix: Open the newest owner link from your signup email, or ask the Eyes operator for a fresh one.
 - not_implemented (HTTP 501): This capability is not available yet. Fix: Check /llms.txt for the currently supported tools.
 - internal_error (HTTP 500): Something went wrong on our side. Fix: Retry the same call. If you passed an idempotency_key, reuse it; retries are safe. If it keeps failing on a task, call get_task to check its state.

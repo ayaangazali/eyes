@@ -5,7 +5,12 @@ import { z } from "zod";
 type Json = Record<string, unknown>;
 type Documented = Exclude<
   keyof typeof HTTP_ROUTES,
-  "health" | "topup_redirect" | `worker_${string}` | `offer_${string}` | `webhook_${string}`
+  | "health"
+  | "topup_redirect"
+  | `owner_${string}`
+  | `worker_${string}`
+  | `offer_${string}`
+  | `webhook_${string}`
 >;
 type Op = {
   id: string;
