@@ -12,7 +12,8 @@ import {
   usdToCents,
 } from "@eyes/core";
 import { type Context, Hono } from "hono";
-import { html } from "hono/html";
+import { html, raw } from "hono/html";
+import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import Stripe from "stripe";
 
@@ -25,10 +26,17 @@ export function createStripePayments(env: Env): Payments {
       "STRIPE_SECRET_KEY is not set. Copy the secret key from your Stripe sandbox (Dashboard > Developers > API keys).",
     );
   }
+  if (/^[rs]k_live_/.test(key) && env.EYES_TEST_MODE !== "false") {
+    throw new Error(
+      'STRIPE_SECRET_KEY is a live key, which moves real money, but EYES_TEST_MODE is not "false". Use a test key (sk_test_...) from your Stripe sandbox, or set EYES_TEST_MODE=false to take real payments on purpose.',
+    );
+  }
   const stripe = new Stripe(key);
 
   return {
     async createTopupCheckout({ agent_id, amount_cents, success_url, cancel_url }) {
+      const done = new URL(success_url);
+      done.searchParams.set("amount_cents", String(amount_cents));
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: [
@@ -45,7 +53,7 @@ export function createStripePayments(env: Env): Payments {
         client_reference_id: agent_id,
         metadata: { agent_id, topup_cents: String(amount_cents) },
         payment_intent_data: { metadata: { agent_id }, transfer_group: `topup_${agent_id}` },
-        success_url,
+        success_url: done.href,
         cancel_url,
       });
       if (!session.url) throw new Error(`Stripe returned Checkout Session ${session.id} without a url`);
@@ -132,12 +140,25 @@ export function createStripePayments(env: Env): Payments {
   };
 }
 
-const page = (title: string, text: string) =>
+const BRAND_STYLE = `*{box-sizing:border-box}
+body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#121820;background:#fafafa}
+header{background:#121820;padding:.75rem max(1rem,calc(50% - 19rem))}
+header a{display:inline-flex;align-items:center;gap:.6rem;color:#eef3f8;font-size:1.25rem;font-weight:750;letter-spacing:-.02em;text-decoration:none}
+.mark{width:1.6rem;height:1rem;border-radius:50%;background:radial-gradient(circle,#121820 0 28%,#ffc24b 30%);box-shadow:0 0 .8rem rgba(255,194,75,.45)}
+main{max-width:40rem;margin:0 auto;padding:1rem 1rem 3rem}
+h1{font-size:1.5rem;margin:.5rem 0}`;
+
+const shell = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>, style = "") =>
   html`<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>
-<body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 3rem auto; padding: 0 1rem"><h1>${title}</h1><p>${text}</p></body>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title>
+<style>${raw(BRAND_STYLE + style)}</style></head>
+<body><header><a href="/"><span class="mark"></span>Eyes</a></header>
+<main>${body}</main>
+</body>
 </html>`;
+
+const page = (title: string, text: string) => shell(title, html`<h1>${title}</h1><p>${text}</p>`);
 
 async function explained(c: Context, respond: () => Promise<Response>) {
   try {
@@ -184,30 +205,27 @@ const INVALID: Note = {
   error: true,
 };
 
+const OWNER_STYLE = `
+h2{font-size:1.2rem;margin-top:2rem}
+dl{display:grid;grid-template-columns:auto 1fr;gap:.25rem 1rem}dt{color:#555}dd{margin:0;font-weight:600}
+label{display:block;margin-top:1rem;font-weight:600}
+input[type=number]{display:block;width:100%;font-size:1rem;padding:.6rem;margin-top:.25rem;border:1px solid #888;border-radius:.4rem}
+fieldset{margin-top:1rem;border:1px solid #ccc;border-radius:.4rem}fieldset label{font-weight:400;margin-top:.5rem}
+input[type=checkbox]{width:1.25rem;height:1.25rem;vertical-align:middle;margin:0 .5rem 0 0}
+button,.button{display:inline-block;font-size:1rem;padding:.75rem 1.25rem;margin-top:1rem;border:0;border-radius:.5rem;background:#121820;color:#fff;text-decoration:none}
+.note{padding:.75rem;border-radius:.5rem;background:#e6f4ea}.error{background:#fdecea}.hint{color:#555}
+ul{padding-left:1.25rem}li{margin-bottom:.75rem}
+.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:.35rem .25rem;border-bottom:1px solid #ddd}`;
+
 const usd = (n: number) => `$${n.toFixed(2)}`;
 const when = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
 const shortId = (id: string) => id.slice(0, 8);
 
 function ownerPage(view: OwnerConsole, token: string, note: Note | null, feeUsd: number) {
   const p = view.policy;
-  return html`<!doctype html>
-<html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Eyes owner controls</title>
-<style>
-body{font:16px/1.5 system-ui,sans-serif;max-width:40rem;margin:0 auto;padding:1rem;color:#111;background:#fff}
-h1{font-size:1.5rem;margin:.5rem 0}h2{font-size:1.2rem;margin-top:2rem}
-dl{display:grid;grid-template-columns:auto 1fr;gap:.25rem 1rem}dt{color:#555}dd{margin:0;font-weight:600}
-label{display:block;margin-top:1rem;font-weight:600}
-input[type=number]{display:block;width:100%;box-sizing:border-box;font-size:1rem;padding:.6rem;margin-top:.25rem;border:1px solid #888;border-radius:.4rem}
-fieldset{margin-top:1rem;border:1px solid #ccc;border-radius:.4rem}fieldset label{font-weight:400;margin-top:.5rem}
-input[type=checkbox]{width:1.25rem;height:1.25rem;vertical-align:middle;margin:0 .5rem 0 0}
-button,.button{display:inline-block;font-size:1rem;padding:.75rem 1.25rem;margin-top:1rem;border:0;border-radius:.5rem;background:#111;color:#fff;text-decoration:none}
-.note{padding:.75rem;border-radius:.5rem;background:#e6f4ea}.error{background:#fdecea}.hint{color:#555}
-ul{padding-left:1.25rem}li{margin-bottom:.75rem}
-.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:.35rem .25rem;border-bottom:1px solid #ddd}
-</style></head>
-<body>
-<h1>${view.agent_name}</h1>
+  return shell(
+    "Eyes owner controls",
+    html`<h1>${view.agent_name}</h1>
 <p>Owner controls for your AI agent on Eyes, which pays nearby people a few dollars to check public places. Keep this link private: anyone who has it can change these limits.</p>
 ${note ? html`<p class="note${note.error ? " error" : ""}" role="status">${note.text}</p>` : ""}
 <dl>
@@ -239,9 +257,9 @@ ${
 <div class="scroll"><table>
 <thead><tr><th scope="col">What</th><th scope="col">Amount</th><th scope="col">Task</th><th scope="col">When</th></tr></thead>
 <tbody>${view.ledger.map((l) => html`<tr><td>${LEDGER_LABELS[l.type]}</td><td>${usd(l.amount_usd)}</td><td>${l.task_id ? shortId(l.task_id) : ""}</td><td>${when(l.created_at)}</td></tr>`)}</tbody>
-</table></div>
-</body>
-</html>`;
+</table></div>`,
+    OWNER_STYLE,
+  );
 }
 
 export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
@@ -270,16 +288,22 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
     return c.json({ received: true });
   });
 
-  app.get("/topup/done", (c) =>
+  app.get("/topup/done", (c) => {
+    const cents = c.req.query("amount_cents") ?? "";
+    const added = /^\d{1,6}$/.test(cents)
+      ? `${usd(centsToUsd(Number(cents)))} added to your agent's balance.`
+      : "Your payment was added to your agent's balance.";
+    return c.html(
+      page("Payment received", `${added} It can take a few seconds to show. You can close this page.`),
+    );
+  });
+  app.get("/topup/cancel", (c) =>
     c.html(
       page(
-        "Payment received",
-        "Your agent's Eyes balance updates within a few seconds. You can close this tab.",
+        "Top-up cancelled",
+        "Nothing was charged. To try again, reopen the top-up link your agent gave you. You can close this page.",
       ),
     ),
-  );
-  app.get("/topup/cancel", (c) =>
-    c.html(page("Top-up cancelled", "Nothing was charged. You can close this tab.")),
   );
   app.get("/topup/:token", (c) => {
     const query = c.req.query("amount_usd");

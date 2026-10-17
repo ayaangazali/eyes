@@ -226,6 +226,61 @@ describe("signup and join throttle", () => {
     expect((await call("203.0.113.9")).status).toBe(200);
   });
 
+  const caller = () => {
+    const { fetch } = setup({
+      joinWorker: async () => ({
+        worker_id: AGENT.id,
+        opt_in_instructions: "Text START.",
+        inkbox_number: null,
+        connect_url: null,
+      }),
+    });
+    return (path: string, forwardedFor: string) =>
+      fetch(`http://eyes.test${path}`, {
+        method: "POST",
+        headers: { "x-forwarded-for": forwardedFor },
+        body: JSON.stringify(
+          path === "/w/join"
+            ? { name: "Ana Diaz", phone: "+14155550121", lat: 37.78246, lng: -122.40776 }
+            : { name: "my-agent" },
+        ),
+      });
+  };
+
+  it("gives signup and join separate budgets for one address", async () => {
+    const call = caller();
+    for (let i = 0; i < 5; i++) await call("/v1/signup", "203.0.113.9");
+    expect((await call("/v1/signup", "203.0.113.9")).status).toBe(429);
+    expect((await call("/w/join", "203.0.113.9")).status).toBe(200);
+  });
+
+  it("keys a client on the first 64 characters of its address", async () => {
+    const call = caller();
+    const long = "x".repeat(64);
+    for (let i = 0; i < 5; i++) expect((await call("/v1/signup", `${long}${i}`)).status).toBe(200);
+    expect((await call("/v1/signup", `${long}9`)).status).toBe(429);
+  });
+
+  it("keys an IPv6 client on its /64 and an IPv4-mapped client on its IPv4 address", async () => {
+    const call = caller();
+    for (const address of [
+      "2001:db8:1:2::1",
+      "2001:0DB8:0001:0002:ffff::9",
+      "2001:db8:1:2:3:4:5:6",
+      "2001:db8:1:2::1.2.3.4",
+      "2001:db8:1:2::",
+    ]) {
+      expect((await call("/v1/signup", address)).status).toBe(200);
+    }
+    expect((await call("/v1/signup", "2001:db8:1:2:aaaa:bbbb:cccc:dddd")).status).toBe(429);
+    expect((await call("/v1/signup", "2001:db8:1::2:3:4:5")).status).toBe(200);
+    expect((await call("/v1/signup", "2001:db8:1:3::1")).status).toBe(200);
+
+    for (let i = 0; i < 5; i++) await call("/v1/signup", "::ffff:198.51.100.7");
+    expect((await call("/v1/signup", "198.51.100.7")).status).toBe(429);
+    expect((await call("/v1/signup", "::ffff:198.51.100.8")).status).toBe(200);
+  });
+
   it("forgets the oldest address once 10,000 are held", async () => {
     const { fetch } = setup();
     const signup = (forwardedFor: string) =>
@@ -566,6 +621,46 @@ describe("routes", () => {
     expect(await health(insforge)).toMatchObject({ storage: "fake", geo: "fake" });
   });
 
+  it("shows each provider, the database and the deployed commit on /status", async () => {
+    const env = { EYES_PROVIDERS: "live", INKBOX_API_KEY: "ik_test", EYES_COMMIT: "0123456789abcdef" };
+    const res = await setup({}, env).fetch("http://eyes.test/status");
+    expect(res.status).toBe(200);
+    const page = await res.text();
+    expect(page).toContain("Texting: live");
+    expect(page).toContain("Payments: simulated");
+    expect(page).toContain("Database: InsForge");
+    expect(page).toContain("<code>0123456789ab</code>");
+    const bare = await (
+      await setup({}, { DATABASE_URL: "postgres://x" }).fetch("http://eyes.test/status")
+    ).text();
+    expect(bare).toContain("Texting: simulated");
+    expect(bare).toContain("Database: Postgres");
+    expect(bare).toContain("Deployed commit: not recorded");
+  });
+
+  it("fills the Inkbox number on /w/join from INKBOX_PHONE_NUMBER when the engine has none", async () => {
+    const join = async (inkbox_number: string | null) => {
+      const { fetch } = setup(
+        {
+          joinWorker: async () => ({
+            worker_id: AGENT.id,
+            opt_in_instructions: "Text START.",
+            inkbox_number,
+            connect_url: null,
+          }),
+        },
+        { INKBOX_PHONE_NUMBER: "+14155550199" },
+      );
+      const res = await fetch("http://eyes.test/w/join", {
+        method: "POST",
+        body: JSON.stringify({ name: "Ana Diaz", phone: "+14155550121", lat: 37.78246, lng: -122.40776 }),
+      });
+      return (await res.json()).inkbox_number;
+    };
+    expect(await join(null)).toBe("+14155550199");
+    expect(await join("+14155550100")).toBe("+14155550100");
+  });
+
   it("answers an unknown route with a JSON error that points at the docs", async () => {
     const res = await setup().fetch("http://eyes.test/nope");
     expect(res.status).toBe(404);
@@ -603,8 +698,16 @@ describe("agent docs", () => {
     expect(res.status).toBe(200);
     expect(res.headers.get("link")).toBe(LINK);
     const html = await res.text();
-    expect(html).toContain("<h1>Eyes</h1>");
-    for (const href of ["/llms.txt", "/openapi.json", "/.well-known/agent-card.json", "/agents.md"]) {
+    expect(html).toContain("AI agents pay people nearby about $3 to check public places.");
+    expect(html).toContain('<a class="button" href="http://worker.eyes.test">');
+    expect(html).toContain("Reply <b>STOP</b> to stop all texts from Eyes");
+    for (const href of [
+      "/llms.txt",
+      "/openapi.json",
+      "/.well-known/agent-card.json",
+      "/agents.md",
+      "/status",
+    ]) {
       expect(html).toContain(`href="${href}"`);
     }
     expect(html).toContain("<code>POST /mcp</code>");
