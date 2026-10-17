@@ -47,10 +47,8 @@ export const block = (category: SafetyCategory, layer: "rules" | "classifier"): 
 const REL =
   "(?:ex|ex-?(?:wife|husband|boyfriend|girlfriend|partner)|wife|husband|spouse|boyfriend|girlfriend|partner|fianc[eé]e?|boss|coworker|co-worker|colleague|friend|neighbou?r|son|daughter|kid|child|mom|mother|dad|father|brother|sister|cousin|roommate|landlord|tenant|date|crush)";
 const PERSON = "(?:man|woman|guy|girl|boy|person|lady|gentleman|kid|child|couple)";
-const STAFF =
-  "(?:cashier|barista|bartender|bouncer|security guard|guard|employee|worker|owner|waiter|waitress)";
-const SOMEONE = `(?:him|her|someone|somebody|(?:my|his|her|their) ${REL}|(?:that|the|this) ${PERSON})\\b(?!')`;
-const POSS = "(?:his|her|someone's|somebody's|(?:my|his|her|their|our) [a-z-]+'s)";
+const SOMEONE = `(?:him|her|(?:my|his|her|their) ${REL}|(?:that|this) ${PERSON})\\b(?!')`;
+const POSS = "(?:his|her|(?:my|his|her|their|our) [a-z-]+'s)";
 const VEHICLE =
   "(?:car|truck|van|minivan|suv|sedan|jeep|vehicle|motorcycle|motorbike|scooter|tesla|prius|honda|toyota|bmw)";
 const PLATE = "(?:licen[cs]e plate|number plate|plate number)";
@@ -83,17 +81,15 @@ const RULES: [SafetyCategory, RegExp[]][] = [
     "following",
     [
       re(
-        `\\b(?:follow|following|followed|tail|tailing|shadow|shadowing)\\s+(?:${SOMEONE}|(?:that|the) (?:car|vehicle|truck|van)\\b|a (?:${PERSON}|car)\\b)`,
+        `\\b(?:follow|following|followed|tail|tailing|shadow|shadowing)\\s+(?:${SOMEONE}|(?:that|this) (?:car|vehicle|truck|van)\\b)`,
       ),
-      re(`\\bstalk(?:ing|ed)?\\s+(?:${SOMEONE}|the ${STAFF})`),
+      re(`\\bstalk(?:ing|ed)?\\s+${SOMEONE}`),
       re(`\\bspy(?:ing)? on\\s+${SOMEONE}`),
       re(`\\bkeep (?:an eye|tabs|watch) on\\s+${SOMEONE}`),
       re(
-        `\\b(?:track|tracking|monitor|monitoring|watch|watching|observe|observing)\\s+(?:${SOMEONE}|that (?:car|vehicle|truck|van)\\b)`,
+        `\\b(?:track|tracking|monitor|monitoring|watch|watching|observe|observing)\\s+(?:${SOMEONE}|(?:that|this) (?:car|vehicle|truck|van)\\b)`,
       ),
-      re(
-        "\\b(?:his|her|their|someone's|somebody's)\\s+(?:whereabouts|movements|comings and goings|daily routine)\\b",
-      ),
+      re("\\b(?:his|her|their)\\s+(?:whereabouts|movements|comings and goings|daily routine)\\b"),
       re(
         `\\b(?:when|what time) (?:does|did|will|do) (?:he|she|(?:my|his|her) ${REL}) (?:leave|arrive|get|come|go|head)\\b`,
       ),
@@ -107,7 +103,7 @@ const RULES: [SafetyCategory, RegExp[]][] = [
     "vehicle",
     [
       re(
-        `\\b${PLATE}\\s+(?:numbers?\\s+)?(?:of|on|for)\\s+(?:the|that|this|a|an|his|her|their|my|someone's|somebody's)\\s+(?:[a-z-]+\\s+){0,3}?${VEHICLE}\\b`,
+        `\\b${PLATE}\\s+(?:numbers?\\s+)?(?:of|on|for)\\s+(?:that|this|his|her|their|my)\\s+(?:[a-z-]+\\s+){0,3}?${VEHICLE}\\b`,
       ),
       re(`\\b${POSS}\\s+${PLATE}`),
       re(`\\b${POSS}\\s+(?:(?!food\\b)[a-z]+\\s+)?${VEHICLE}\\b`),
@@ -120,14 +116,18 @@ const RULES: [SafetyCategory, RegExp[]][] = [
     "private_residence",
     [
       re(`\\b(?:(?:my|his|her|their|your) [a-z-]+'s|[a-z]+s'|his|her)\\s+(?:home|house|apartment)\\b${ENDS}`),
-      re("\\b(?:the|his|her|their|my|your|someone's|somebody's) (?:home|residential) address\\b"),
-      re("\\bwhere (?:(?:does|do|did) .{1,40}? (?:live|reside)|is .{1,40}? (?:living|residing))\\b"),
-      re("\\bwho (?:lives?|is living|resides)\\b(?!-)"),
-      re("\\b(?:apartment|apt\\.?)\\s*(?:#|no\\.?|number)?\\s*\\d+[a-z]?\\b"),
-      re("\\bis (?:anyone|anybody|someone|somebody|he|she) (?:at )?home\\b"),
+      re(`\\b(?:his|her|their|(?:my|his|her|their) ${REL}'s) (?:home|residential) address\\b`),
       re(
-        "\\b(?:the|a|this|that|his|her|their|my) (?:house|home|residence)s?(?: (?:located|situated))? (?:(?:at|on)(?: number| no\\.?| #)?|number|#) ?\\d",
+        `\\bhome address of (?:him|her|the owner of|(?:that|this) ${PERSON}|(?:my|his|her|their) ${REL})\\b`,
       ),
+      re(
+        `\\bwhere (?:(?:does|do|did) .{1,40}? (?:live|reside)|is .{1,40}? (?:living|residing))\\b(?=\\s*(?:$|[.,!?;:)]|(?:in|at|on|near|by|around|now|these days|nowadays|with)\\b))`,
+      ),
+      re(
+        "(?:,|\\b(?:st|street|ave|avenue|rd|road|blvd|dr|drive|ln|lane|ct|court|way|pl|place|ter|terrace)\\.?)\\s*(?:apartment|apt\\.?)\\s*(?:#|no\\.?|number)?\\s*\\d+[a-z]?\\b",
+      ),
+      re("\\bis (?:anyone|anybody|someone|somebody|he|she) (?:at )?home\\b"),
+      /\b(?:[Tt]he|[Aa]|[Tt]his|[Tt]hat|[Hh]is|[Hh]er|[Tt]heir|[Mm]y) (?:house|home|residence)s?(?: (?:located|situated))? (?:(?:at|on)(?: number| no\.?| #)?|number|#) ?\d/,
     ],
   ],
 ];

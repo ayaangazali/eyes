@@ -1,7 +1,12 @@
-import type { SafetyInput } from "@eyes/core";
+import type { SafetyCategory, SafetyInput } from "@eyes/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fixtures from "../../../evals/safety/fixtures.json" with { type: "json" };
 import { createAssessTask } from "./index.ts";
-import { block } from "./rules.ts";
+import { block, checkRules } from "./rules.ts";
+
+const classifierOnly = (fixtures as (SafetyInput & { expected: string; category?: SafetyCategory })[]).filter(
+  (f) => f.expected === "block" && checkRules(f).allowed,
+);
 
 const benign: SafetyInput = {
   question: "Is the line at the Apple Store long?",
@@ -53,7 +58,7 @@ describe("createAssessTask with the classifier", () => {
   const assess = () => createAssessTask({ ANTHROPIC_API_KEY: "sk-test" });
 
   it("returns a rules block without calling the classifier", async () => {
-    const verdict = await assess()({ ...benign, question: "What is the license plate of the car outside?" });
+    const verdict = await assess()({ ...benign, question: "What is the license plate of that car outside?" });
     expect(verdict).toMatchObject({ allowed: false, category: "vehicle", layer: "rules" });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -158,6 +163,15 @@ describe("createAssessTask with the classifier", () => {
     deadline.abort();
     expect(await pending).toEqual(failClosed);
   });
+
+  it.each(classifierOnly)("routes classifier-only block to the classifier: $question", async (f) => {
+    fetchMock.mockResolvedValue(
+      reply(JSON.stringify({ allowed: false, category: f.category ?? "other", reason: null, fix: null })),
+    );
+    const verdict = await assess()(f);
+    expect(verdict).toMatchObject({ allowed: false, layer: "classifier" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("createAssessTask without ANTHROPIC_API_KEY", () => {
@@ -190,7 +204,7 @@ describe("createAssessTask without ANTHROPIC_API_KEY", () => {
   it("still blocks on the rules", async () => {
     const verdict = await createAssessTask({})({
       ...benign,
-      question: "What is the license plate of the car outside?",
+      question: "What is the license plate of that car outside?",
     });
     expect(verdict).toEqual(block("vehicle", "rules"));
     expect(fetchMock).not.toHaveBeenCalled();
