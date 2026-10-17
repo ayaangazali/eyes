@@ -1,5 +1,5 @@
 import type { JoinWorkerOutput } from "@eyes/core";
-import { $, call, Problem, showError } from "./api.ts";
+import { $, call, LOCATION_HELP, Problem, showError } from "./api.ts";
 
 const form = $<HTMLFormElement>("join");
 const error = $("error");
@@ -11,6 +11,14 @@ function toE164(input: string): string | null {
   return /^\+(1[2-9]\d\d[2-9]\d{6}|[2-9]\d{6,14})$/.test(e164) ? e164 : null;
 }
 
+function invalid(id: string, problem: Problem) {
+  const field = $(id);
+  field.setAttribute("aria-invalid", "true");
+  field.setAttribute("aria-describedby", "error");
+  field.focus();
+  showError(error, problem);
+}
+
 $("locate").addEventListener("click", () => {
   error.hidden = true;
   $("where").textContent = "Finding you...";
@@ -19,13 +27,16 @@ $("locate").addEventListener("click", () => {
       spot = { lat: coords.latitude, lng: coords.longitude };
       $("where").textContent = `Location set (within ${Math.round(coords.accuracy)} m).`;
     },
-    () => {
+    (err) => {
       $("where").textContent = "";
+      $("locate").textContent = "Try location again";
       showError(
         error,
         new Problem(
           "We could not get your location.",
-          "Allow location access for this page, then tap again.",
+          err.code === err.PERMISSION_DENIED
+            ? LOCATION_HELP
+            : "Move near a window or step outside, then tap Try location again.",
         ),
       );
     },
@@ -36,15 +47,19 @@ $("locate").addEventListener("click", () => {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   error.hidden = true;
+  for (const field of form.querySelectorAll("[aria-invalid]")) {
+    field.removeAttribute("aria-invalid");
+    field.removeAttribute("aria-describedby");
+  }
   const data = new FormData(form);
   const name = String(data.get("name")).trim();
   const phone = toE164(String(data.get("phone")));
   if (name.length < 2) {
-    return showError(error, new Problem("Please enter your name.", "Use at least 2 letters."));
+    return invalid("name", new Problem("Please enter your name.", "Use at least 2 letters."));
   }
   if (!phone) {
-    return showError(
-      error,
+    return invalid(
+      "phone",
       new Problem(
         "That phone number does not look right.",
         "Enter a US mobile number like (415) 555-0123, or start with + and your country code.",
@@ -52,9 +67,12 @@ form.addEventListener("submit", async (event) => {
     );
   }
   if (!spot) {
-    return showError(
-      error,
-      new Problem("We need your location to send you nearby tasks.", "Tap Use my location and allow access."),
+    return invalid(
+      "locate",
+      new Problem(
+        "We need your location to send you nearby tasks.",
+        "Tap the location button and allow access.",
+      ),
     );
   }
   const submit = $<HTMLButtonElement>("submit");

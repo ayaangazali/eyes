@@ -5,7 +5,7 @@ export default defineConfig({
   appType: "mpa",
   build: {
     rolldownOptions: {
-      input: [resolve(import.meta.dirname, "index.html"), resolve(import.meta.dirname, "capture.html")],
+      input: ["index.html", "capture.html", "privacy.html"].map((page) => resolve(import.meta.dirname, page)),
     },
   },
 });

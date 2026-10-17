@@ -22,7 +22,7 @@
   --red: #ff5c6c;
   --slate: #7d8a9b;
   --c: var(--slate);
-  font-size: clamp(13px, min(0.9vw, 1.6vh), 20px);
+  font-size: clamp(16px, 1.6vh, 22px);
 }
 .s-dispatched, .t-amber, .l-escrow { --c: var(--amber); }
 .s-claimed, .t-cyan, .l-refund { --c: var(--cyan); }
@@ -99,16 +99,17 @@ aside > section:last-child { border-bottom: 0; }
 .pin i { position: absolute; inset: -3px; border: 2px solid var(--c); border-radius: 50%; opacity: 0; }
 
 .chip { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--c); font-weight: 650; font-size: 0.95rem; }
+.chip:empty { display: none; }
 .chip::before { content: ""; width: 0.6rem; height: 0.6rem; border-radius: 50%; background: var(--c); }
 
 .row strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.row .phrase { color: var(--c); font-size: 0.9rem; }
-.row > time { color: var(--muted); font-size: 0.85rem; text-align: right; }
+.row .phrase { color: var(--c); font-size: 0.95rem; }
+.row > time { color: var(--muted); font-size: 0.95rem; text-align: right; }
 
 .steps { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); margin: 1.3rem 0 0.4rem; }
-.steps li { position: relative; text-align: center; color: var(--muted); font-size: 0.85rem; }
+.steps li { position: relative; text-align: center; color: var(--muted); font-size: 0.95rem; }
 .steps b { display: block; font-weight: 600; }
-.steps time { display: block; font-size: 0.75rem; color: var(--muted); }
+.steps time { display: block; font-size: 0.95rem; color: var(--muted); }
 .steps li::before {
   content: "";
   position: absolute;
@@ -145,7 +146,7 @@ aside > section:last-child { border-bottom: 0; }
 
 .totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin-bottom: 0.9rem; }
 .totals strong { display: block; font-size: 1.85rem; font-weight: 700; letter-spacing: -0.01em; }
-.totals span { color: var(--muted); font-size: 0.85rem; }
+.totals span { color: var(--muted); font-size: 0.95rem; }
 
 #live { display: flex; align-items: center; gap: 0.5rem; }
 #live::before { content: ""; width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--slate); }
@@ -153,7 +154,7 @@ aside > section:last-child { border-bottom: 0; }
 #live.down { color: var(--red); }
 #live.down::before { background: var(--red); }
 #map { min-height: 0; background: var(--asphalt); }
-#map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.85) saturate(0.4); }
+#map .leaflet-tile-pane { filter: grayscale(1) invert(1) brightness(0.75) contrast(0.8); }
 #map.nomap { display: grid; place-items: center; color: var(--muted); }
 #headline { margin: 0.35rem 0 0.6rem; font-size: 2.05rem; line-height: 1.12; font-weight: 750; letter-spacing: -0.02em; text-wrap: balance; }
 #question {
@@ -166,7 +167,7 @@ aside > section:last-child { border-bottom: 0; }
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
-#cost { margin-top: 0.5rem; color: var(--muted); font-size: 0.9rem; }
+#cost { margin-top: 0.5rem; color: var(--muted); font-size: 1rem; }
 #proof { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 1.1rem; align-items: start; margin-top: 1rem; }
 #proof[hidden] { display: none; }
 #photo { width: 100%; max-height: 22vh; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 0.6rem; background: var(--asphalt); }
@@ -190,7 +191,7 @@ aside > section:last-child { border-bottom: 0; }
 #released, #paidout { color: var(--green); }
 #ledger li {
   display: grid;
-  grid-template-columns: 6.6rem minmax(0, 1fr) auto;
+  grid-template-columns: 5rem minmax(0, 1fr) auto;
   white-space: nowrap;
   gap: 0.8rem;
   padding: 0.3rem 0.4rem;
@@ -294,7 +295,7 @@ const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
 const money = (cents) => usd.format(cents / 100);
 const clock = (iso) =>
-  iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+  iso ? new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "";
 const $ = (id) => document.getElementById(id);
 const notifiedText = (n) => `${n} ${n === 1 ? "worker" : "workers"} notified`;
 $("photo").addEventListener("error", (e) => {
@@ -309,7 +310,7 @@ function h(tag, cls, text) {
 }
 
 function headline(t) {
-  const place = t.place_label;
+  const place = t.place_label.split(",")[0];
   const total = money(t.bounty_cents + t.fee_cents);
   return {
     dispatched: `${notifiedText(t.workers_notified)} near ${place}`,
@@ -481,12 +482,23 @@ function renderMap(feed, shown) {
   if (!map) return;
   layer.clearLayers();
   const online = feed.workers.filter((w) => w.available && w.opted_in);
+  const notified = (t) => {
+    const at = L.latLng(t.lat, t.lng);
+    return online
+      .map((w) => ({ w, d: at.distanceTo([w.lat, w.lng]) }))
+      .filter((x) => x.d <= DISPATCH_RADIUS_M)
+      .sort((a, b) => a.d - b.d)
+      .slice(0, t.workers_notified)
+      .map((x) => x.w);
+  };
+  const active = feed.tasks.filter((t) => ACTIVE.includes(t.status));
+  const ringed = new Set(active.flatMap(notified));
   for (const w of feed.workers) {
     const on = w.available && w.opted_in;
     L.circleMarker([w.lat, w.lng], {
-      radius: 6,
-      color: "#121820",
-      weight: 2,
+      radius: 10,
+      color: ringed.has(w) ? "#5cc8ff" : "#121820",
+      weight: ringed.has(w) ? 4 : 2,
       fillColor: on ? "#dbe7f3" : "#4a5666",
       fillOpacity: 1,
     }).addTo(layer);
@@ -510,20 +522,10 @@ function renderMap(feed, shown) {
     }
   }
 
-  const active = feed.tasks.filter((t) => ACTIVE.includes(t.status));
   const focus = active.length ? active : shown ? [shown] : [];
   const key = focus.map((t) => t.id).join(",") || "workers";
   if (key === focusKey) return;
   focusKey = key;
-  const notified = (t) => {
-    const at = L.latLng(t.lat, t.lng);
-    return online
-      .map((w) => ({ w, d: at.distanceTo([w.lat, w.lng]) }))
-      .filter((x) => x.d <= DISPATCH_RADIUS_M)
-      .sort((a, b) => a.d - b.d)
-      .slice(0, t.workers_notified)
-      .map((x) => x.w);
-  };
   const points = [...focus, ...(focus.length ? focus.flatMap(notified) : online)].map((p) => [p.lat, p.lng]);
   if (points.length === 0) return;
   const bounds = L.latLngBounds(points);
