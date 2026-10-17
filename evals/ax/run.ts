@@ -2,6 +2,8 @@ import { createHmac, randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import Anthropic from "@anthropic-ai/sdk";
+import { mcpTools } from "@anthropic-ai/sdk/helpers/beta/mcp";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { toNodeListener } from "../../apps/mcp/src/http.ts";
 import { createServer } from "../../apps/mcp/src/server.ts";
@@ -18,8 +20,6 @@ import {
 } from "../../packages/core/src/index.ts";
 import { migrate } from "../../packages/db/src/index.ts";
 import { createEyesService } from "../../packages/engine/src/index.ts";
-import { mcpTools } from "../../packages/safety/node_modules/@anthropic-ai/sdk/helpers/beta/mcp.mjs";
-import Anthropic from "../../packages/safety/node_modules/@anthropic-ai/sdk/index.mjs";
 import { createAssessTask } from "../../packages/safety/src/index.ts";
 import { verifySubmission } from "../../packages/verify/src/index.ts";
 import { type Call, type Expect, grade } from "./grade.ts";
