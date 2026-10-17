@@ -83,7 +83,7 @@ export const ERRORS = {
   owner_link_invalid: {
     status: 404,
     message: "This owner control link is invalid.",
-    fix: "Open the newest owner link from your signup email, or ask the Eyes operator for a fresh one.",
+    fix: "Open the newest owner link you have: from the signup email, a top-up receipt, or the Eyes operator, who can make a fresh one.",
   },
   not_implemented: {
     status: 501,

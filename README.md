@@ -40,17 +40,17 @@ MCP URL: `https://dark-wave-wfmpm.run.mcp-use.com/mcp` (bearer auth). Get a key 
 ```sh
 curl -s -X POST https://dark-wave-wfmpm.run.mcp-use.com/v1/signup \
   -H 'content-type: application/json' \
-  -d '{"name": "my-agent"}'
+  -d '{"name": "my-agent", "owner_email": "owner@example.com"}'
 ```
 
-The response holds `agent_id`, `api_key` (shown once), `balance_usd` (test mode grants $20), `top_up_url` for a human to add funds, `email_address` (your private Eyes email address, once Primitive is configured) and `next_step`. Then connect, for example from Claude Code:
+Put the human owner's email in `owner_email`: that is how they get the private owner console for this key's limits ([Owner controls](#owner-controls)), which the agent never sees. The response holds `agent_id`, `api_key` (shown once), `balance_usd` (test mode grants $20), `top_up_url` for a human to add funds (a real Stripe Checkout once Stripe is configured), `email_address` (your private Eyes email address, once Primitive is configured) and `next_step`. Then connect, for example from Claude Code:
 
 ```sh
 claude mcp add --transport http eyes https://dark-wave-wfmpm.run.mcp-use.com/mcp \
   --header "Authorization: Bearer $EYES_API_KEY"
 ```
 
-Until the vendor keys land, the deployed server resolves only a few demo places (for example "Ferry Building, San Francisco" or `{lat, lng}`) and has no opted-in workers yet (opting in needs the Inkbox line), so `ask_eyes` there returns `no_workers_nearby` and charges nothing. The whole loop runs on fakes in [e2e/golden-path.spec.ts](e2e/golden-path.spec.ts).
+Until the vendor keys land, the deployed server resolves only `{lat, lng}` coordinates and three demo places ("Blue Bottle Coffee, Mint Plaza, San Francisco", "Ferry Building, San Francisco" and "Trader Joe's, 401 Bay St, San Francisco") and has no opted-in workers yet (opting in needs the Inkbox line), so `ask_eyes` there returns `no_workers_nearby` and charges nothing. Its `/status` page says which parts are live and which are simulated. The whole loop runs on fakes in [e2e/golden-path.spec.ts](e2e/golden-path.spec.ts).
 
 ### The 9 tools
 
@@ -66,7 +66,7 @@ Until the vendor keys land, the deployed server resolves only a few demo places 
 | `get_spend_policy` | The limits your human set on this key: max bounty, daily cap, remaining today, allowed task types. |
 | `list_tasks` | Your own tasks, newest first, optionally filtered by status. Use it to find a task_id you lost before asking again ([ADR-013](intent/decisions/ADR-013-list-tasks.md)). |
 
-Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`. Every tool description is written for an LLM reader with an example and a "Next:" line ([apps/mcp/src/server.ts](apps/mcp/src/server.ts)). The same capabilities are on REST under `/v1/*` (`HTTP_ROUTES` in [packages/core/src/schemas.ts](packages/core/src/schemas.ts)). `llms.txt`, `openapi.json`, the agent card and the `eyes` CLI are generated from the same schemas ([cli/src/docs.ts](cli/src/docs.ts)) and served live at https://dark-wave-wfmpm.run.mcp-use.com/llms.txt.
+Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`. Every tool description is written for an LLM reader with an example and a "Next:" line ([apps/mcp/src/server.ts](apps/mcp/src/server.ts)). The same capabilities are on REST under `/v1/*` (`HTTP_ROUTES` in [packages/core/src/schemas.ts](packages/core/src/schemas.ts)). `llms-full.txt`, `openapi.json` and the agent card are generated from the same schemas ([cli/src/docs.ts](cli/src/docs.ts)), the `eyes` CLI ([cli](cli)) validates with them, and the docs, starting with the hand-written `llms.txt`, are served live at https://dark-wave-wfmpm.run.mcp-use.com/llms.txt.
 
 ### Example exchange
 
@@ -104,7 +104,7 @@ A few `await_answer` calls later:
 
 ### Errors say what to do next
 
-Every refusal is `{ error, message, fix, ...context }` and the `fix` is an instruction an agent can follow ([packages/core/src/errors.ts](packages/core/src/errors.ts)). Asking Eyes to "Photograph the house at 123 Oak St" returns:
+Every refusal is `{ error, message, fix, ...context }` and the `fix` is an instruction an agent can follow ([packages/core/src/errors.ts](packages/core/src/errors.ts)). One exception: over MCP, arguments that do not match a tool's input schema come back as a plain "Input validation error" text that names each bad field, because the MCP SDK checks them before the tool runs. Asking Eyes to "Photograph the house at 123 Oak St" returns:
 
 ```json
 { "category": "private_residence",
@@ -118,7 +118,7 @@ Money errors carry the numbers: `insufficient_balance` says how far to lower `bo
 
 ## Be a worker
 
-Open the JOIN page at **https://7t6779x4.insforge.site** on your iPhone, enter your name and number, share your location once, then text **START** to the Eyes number it shows. Eyes cannot text you until you do (Inkbox requires recipients to opt in). After START you get a payout setup link for Stripe; then tasks arrive by text when one is near you. Reply YES to claim, open the link, take one photo, and you are paid when it verifies.
+Sign-up opens once the Eyes texting line is set up; until then the JOIN page at **https://7t6779x4.insforge.site** says "Worker sign-up opens soon" and collects nothing. Once it is open: on your iPhone, enter your name and number, share your location once, then text **START** to the Eyes number it shows. Eyes cannot text you until you do (Inkbox requires recipients to opt in). After START you get a payout setup link for Stripe; then tasks arrive by text when one is near you. Reply YES to claim, open the link, take one photo, and you are paid when it verifies.
 
 iPhone only for now: Eyes texts over an Inkbox iMessage line because it costs less than SMS. Send from your phone number, not an Apple ID email ([#25](https://github.com/ayaangazali/eyes/issues/25)). Never photograph faces.
 
@@ -126,13 +126,13 @@ iPhone only for now: Eyes texts over an Inkbox iMessage line because it costs le
 
 The person who funds an agent decides what it may spend. Each API key has a max bounty per task, a daily cap (UTC day) and a list of allowed task types; `ask_eyes` enforces them and returns `bounty_exceeds_max`, `daily_cap_exceeded` or `task_type_not_allowed` with a fix. Defaults are $10 max bounty, $20 per day, all task types. The agent can read its limits with `get_spend_policy` but cannot change them.
 
-The owner console ([ADR-011](intent/decisions/ADR-011-owner-console.md)) is where a human changes them: a private `/owner/<token>` page emailed to the `owner_email` given at signup and never shown to the agent. It shows balance, escrow, today's spend, recent tasks and the ledger; it sets max bounty, daily cap and allowed task types; a daily cap of 0 freezes spending; and an add-funds button opens Stripe Checkout. It is a separate link from the top-up link because the agent holds the top-up link and could otherwise raise its own limits.
+The owner console ([ADR-011](intent/decisions/ADR-011-owner-console.md)) is where a human changes them: a private `/owner/<token>` page that is never shown to the agent. When email delivery is set up, Eyes emails the link to the `owner_email` given at signup and to whoever pays a top-up through Checkout ([ADR-015](intent/decisions/ADR-015-owner-link-to-payer.md)); the operator can always print it with `pnpm owner-link <agent_id>`. It shows balance, escrow, today's spend, recent tasks and the ledger; it sets max bounty, daily cap and allowed task types; a daily cap of 0 freezes spending; and an add-funds button opens Stripe Checkout once Stripe is configured. It is a separate link from the top-up link because the agent holds the top-up link and could otherwise raise its own limits.
 
 ## Safety
 
 Eyes sends real people to real places, so it only accepts tasks about public, commercial or civic places ([SPEC §12](docs/SPEC.md)). Refused: targeting a specific private person, private homes or home addresses, a person's vehicle or license plate, entering private property, photographing or identifying people, following anyone, and anything illegal or dangerous.
 
-- **Rules, then a classifier.** Every task passes a deterministic rule layer and then a Claude Haiku classifier before any money moves ([packages/safety](packages/safety)). The rules are kept narrow (29 patterns that need no negation logic) because "don't photograph faces" must pass while "take a photo of her face" must not; that judgment goes to the classifier. If the classifier is unavailable the task is refused and nothing is charged, and the server will not start in live mode without the classifier key. 192 labelled fixtures live in [evals/safety](evals/safety).
+- **Rules, then a classifier.** Every task passes a deterministic rule layer before any money moves, and then a Claude Haiku classifier when `ANTHROPIC_API_KEY` is set ([packages/safety](packages/safety)); `/status` says which. Without the key (the deployed server today) only the rules run: they refuse homes and home addresses, but some tasks about a specific person or vehicle get past them; those are left to the classifier. The rules are kept narrow (31 patterns that need no negation logic) because "don't photograph faces" must pass while "take a photo of her face" must not; that judgment goes to the classifier. If the classifier is on but unavailable, the task is refused and nothing is charged, and the server will not start in live mode without the classifier key. 200 labelled fixtures live in [evals/safety](evals/safety).
 - **Faces.** Workers are told never to photograph faces, on the JOIN page, in the capture text and on the capture page. The vision check rejects photos with prominent faces, which sends the task to review with escrow held.
 - **No agent text in a cold text.** The first message to a worker names only the kind of check, the place and the pay ([ADR-005](intent/decisions/ADR-005-offer-task-type-and-field-docs.md)). An ASCII filter cannot keep Unicode links and phone numbers out of free text, so the question is shown only after a worker claims.
 

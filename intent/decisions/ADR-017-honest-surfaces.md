@@ -24,3 +24,7 @@ Status: accepted (2026-10-17, orchestrator, T4.11a). Changes the frozen contract
 - A client that never sent a key now gets a validation error with the fix instead of a task. Our own clients already send one.
 - Tool schema snapshot regenerated (`required` gains `idempotency_key`). `llms-full.txt`, `openapi.json` and the agent card regenerated.
 - REST `invalid_input` fixes now end with the failing fields and their messages; MCP schema errors were already plain text that named them.
+
+## Addendum (T4.13, 2026-10-17)
+- `idempotency_key` length errors get their own messages. Zod applies the schema-level `error` to the `.min(1)` and `.max(128)` checks too, so an agent that sent `""` or a 200-character hash was told the key is "Required" and nothing about the limit. Now `.min(1)` says "Must not be empty. Pass any unique string for each task, for example a UUID." and `.max(128)` says "At most 128 characters. Pass a shorter unique string, for example a UUID (36 characters)." The "Required. Pass any unique string ..." text stays for a missing or non-string key, as Decision 1 says. The JSON Schema (and the tool snapshot) does not change, because zod messages are not part of it.
+- `ERRORS.owner_link_invalid.fix` no longer assumes a signup email: with email simulated none is sent, and since ADR-015 the Checkout payer gets the link in a top-up receipt. It now reads "Open the newest owner link you have: from the signup email, a top-up receipt, or the Eyes operator, who can make a fresh one." No code, status or type changes.

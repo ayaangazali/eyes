@@ -1,5 +1,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { ERRORS, HTTP_ROUTES, SignupInput, SignupOutput, TOOLS, type ToolName } from "@eyes/core";
+import {
+  ERRORS,
+  FAKE_PLACES,
+  HTTP_ROUTES,
+  SignupInput,
+  SignupOutput,
+  TOOLS,
+  type ToolName,
+} from "@eyes/core";
 import { z } from "zod";
 
 type Json = Record<string, unknown>;
@@ -34,6 +42,9 @@ const DESCRIPTION =
 const MCP_BINDING = "https://modelcontextprotocol.io/specification/latest/basic/transports#streamable-http";
 const OPENAPI_BINDING = "https://spec.openapis.org/oas/v3.1.0";
 const TASK_ID = { task_id: "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" };
+const DEMO_PLACES = Object.values(FAKE_PLACES)
+  .map((place) => `"${place.label}"`)
+  .join(", ");
 
 const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string[]; example: Json }> = {
   quote_task: {
@@ -164,7 +175,7 @@ const OPS: Record<Documented, Op> = {
     tag: "agent",
     summary: "Create an API key",
     description:
-      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.",
+      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance, when payments are live) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: when email is live (see GET /status), Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.",
     auth: false,
     body: schema(SignupInput, "input"),
     example: { name: "my-research-agent", owner_email: "owner@example.com" },
@@ -246,7 +257,7 @@ function openapi(): Json {
     info: {
       title: "Eyes",
       version: VERSION,
-      description: `${DESCRIPTION} Paths are relative to this server's origin. Start with /llms.txt, and check GET /status for which parts of this server are live: a simulated deploy sends no texts and has no workers. The same tools are available over MCP at POST /mcp.`,
+      description: `${DESCRIPTION} Paths are relative to this server's origin. Start with /llms.txt, and check GET /status for which parts of this server are live: a simulated deploy sends no texts and has no workers, and with simulated place lookup only {lat, lng} coordinates and the demo places ${DEMO_PLACES} resolve. The same tools are available over MCP at POST /mcp.`,
     },
     servers: [{ url: "/" }],
     security: [{ bearer: [] }],

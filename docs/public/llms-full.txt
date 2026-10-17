@@ -8,9 +8,9 @@ All paths below are relative to this server's origin: the scheme and host you fe
 
 - Does: send a registered human nearby to look at a public, commercial or civic place (store, cafe, park, transit stop, venue) and answer your question with a live photo, GPS and a verification report.
 - Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`.
-- Does not: anything about specific private people, homes or home addresses, someone's vehicle, entering private property, photographing identifiable people, following anyone, or illegal or dangerous tasks. These are refused with `unsafe_task` before anything is charged.
+- Does not: anything about specific private people, homes or home addresses, someone's vehicle, entering private property, photographing identifiable people, following anyone, or illegal or dangerous tasks. A task the safety review flags is refused with `unsafe_task` before anything is charged.
 - Coverage depends on workers near the place. `quote_task` tells you for free before you pay. Answers usually take 5 to 20 minutes.
-- Check `GET /status` first: it says in plain words which parts of this server are live. On a simulated deploy, texting, payments and email are test stand-ins: no texts are sent and there are no workers, so no task gets answered; no real money moves; no email is sent.
+- Check `GET /status` first: it says in plain words which parts of this server are live. On a simulated deploy, texting, payments and email are test stand-ins: no texts are sent and there are no workers, so no task gets answered; no real money moves and `top_up_url` is not a real checkout; no email is sent. When place lookup is simulated, only `{lat, lng}` coordinates and the demo places "Blue Bottle Coffee, Mint Plaza, San Francisco", "Ferry Building, San Francisco" and "Trader Joe's, 401 Bay St, San Francisco" resolve; any other place returns `location_not_found`.
 
 ## Pricing, escrow and refunds
 
@@ -25,15 +25,15 @@ All paths below are relative to this server's origin: the scheme and host you fe
 
 ### 1. Sign up (no dashboard, no human needed)
 
-    curl -X POST <origin>/v1/signup -H 'content-type: application/json' -d '{"name": "my-research-agent", "owner_email": "<your human's email>"}'
+    curl -X POST <origin>/v1/signup -H 'content-type: application/json' -d '{"name": "my-research-agent", "owner_email": "owner@example.com"}'
 
-Ask your human for their email and pass it as `owner_email`: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link.
+Ask your human for their email and pass it as `owner_email`: when email is live on this server (see `GET /status`), Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Otherwise the Eyes operator can give them the link.
 
 The response has `api_key`, `balance_usd`, `top_up_url`, `email_address` and `next_step`. The `api_key` is shown only once: store it now, for example as the env var `EYES_API_KEY`. `email_address` (null if email is not set up) lets you ask Eyes by email; anyone who knows it can spend your balance, so keep it secret.
 
 ### 2. Give the top-up link to your human
 
-Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. In test mode you can skip this step and use the 20 USD grant.
+Send `top_up_url` to your user. When payments are live on this server, it opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. In test mode you can skip this step and use the 20 USD grant.
 
 ### 3. Connect MCP with the bearer header
 
@@ -97,7 +97,7 @@ A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` an
 
 ## Signup (REST only)
 
-POST /v1/signup. Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.
+POST /v1/signup. Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance, when payments are live) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: when email is live (see GET /status), Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.
 
 Input:
 ```json
@@ -285,6 +285,6 @@ Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...cont
 - offer_invalid (HTTP 404): This task link is invalid or has expired. Fix: Open the newest link Eyes texted you. Expired tasks cannot be submitted.
 - task_already_claimed (HTTP 409): Another worker already claimed this task. Fix: No action needed. Watch for the next task text.
 - rate_limited (HTTP 429): Too many requests. Fix: Wait {retry_after_s} seconds and retry with the same idempotency_key.
-- owner_link_invalid (HTTP 404): This owner control link is invalid. Fix: Open the newest owner link from your signup email, or ask the Eyes operator for a fresh one.
+- owner_link_invalid (HTTP 404): This owner control link is invalid. Fix: Open the newest owner link you have: from the signup email, a top-up receipt, or the Eyes operator, who can make a fresh one.
 - not_implemented (HTTP 501): This capability is not available yet. Fix: Check /llms.txt for the currently supported tools.
 - internal_error (HTTP 500): Something went wrong on our side. Fix: Retry the same call. If you passed an idempotency_key, reuse it; retries are safe. If it keeps failing on a task, call get_task to check its state.
