@@ -739,7 +739,14 @@ export function createEyesService(deps: EngineDeps): EyesService {
     async workerConnectUrl(token) {
       const workerId = tokenPayload(token, "c");
       if (!workerId)
-        throw new EyesError("offer_invalid", {}, { message: "This payout setup link is invalid." });
+        throw new EyesError(
+          "offer_invalid",
+          {},
+          {
+            message: "This payout setup link is invalid or has expired.",
+            fix: "Text START to the Eyes number for a fresh payout setup link.",
+          },
+        );
       const worker = await one<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null });
       let accountId = worker.stripe_account_id;
       if (!accountId) {
