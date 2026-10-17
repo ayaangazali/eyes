@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eyes task card preview</title>
+    <link rel="stylesheet" href="../src/card.css" />
+    <style>
+      :root {
+        color-scheme: light;
+        --page: #f4f5f7;
+        --ink: #1f2937;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --page: #0c0e11;
+        --ink: #d1d5db;
+      }
+      body {
+        margin: 0;
+        padding: 16px;
+        background: var(--page);
+        color: var(--ink);
+        font: 14px/1.4 system-ui, sans-serif;
+      }
+      .bar {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 16px;
+      }
+      .bar button {
+        font: inherit;
+        padding: 6px 12px;
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: 320px 420px;
+        gap: 16px 24px;
+        align-items: start;
+      }
+      .cols h2 {
+        grid-column: 1 / -1;
+        margin: 16px 0 0;
+        font-size: 13px;
+        font-weight: 600;
+        font-family: ui-monospace, monospace;
+      }
+      .cell {
+        padding: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="bar">
+      <strong>Eyes task card, placeholder data</strong>
+      <button type="button" id="theme">Dark</button>
+      <button type="button" id="play">Demo play</button>
+    </div>
+    <div class="cell" id="demo" style="width: 428px"></div>
+    <div class="cols" id="cols"></div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,119 @@
+---
+task: W1
+title: Eyes task card widget, placeholder phase (fixtures, mock bridge, not registered)
+agent: builder
+pr: TBD
+spec_refs: [§6, §7, §10, §12]
+vendor_refs: [docs/vendor/mcp-apps.md]
+status: in_review
+files:
+  - apps/web/widget-task-card/package.json
+  - apps/web/widget-task-card/README.md
+  - apps/web/widget-task-card/src/types.ts
+  - apps/web/widget-task-card/src/card.ts
+  - apps/web/widget-task-card/src/card.css
+  - apps/web/widget-task-card/src/photo.ts
+  - apps/web/widget-task-card/src/bridge.ts
+  - apps/web/widget-task-card/src/card.test.ts
+  - apps/web/widget-task-card/fixtures/index.ts
+  - apps/web/widget-task-card/fixtures/quote.json
+  - apps/web/widget-task-card/fixtures/cached.json
+  - apps/web/widget-task-card/fixtures/dispatched.json
+  - apps/web/widget-task-card/fixtures/claimed.json
+  - apps/web/widget-task-card/fixtures/verifying.json
+  - apps/web/widget-task-card/fixtures/answered.json
+  - apps/web/widget-task-card/fixtures/needs_review.json
+  - apps/web/widget-task-card/fixtures/expired_refunded.json
+  - apps/web/widget-task-card/fixtures/rejected_safety.json
+  - apps/web/widget-task-card/fixtures/error.json
+  - apps/web/widget-task-card/preview/index.html
+  - apps/web/widget-task-card/preview/main.ts
+  - apps/web/widget-task-card/scripts/shots.ts
+  - docs/vendor/mcp-apps.md
+  - docs/manufact/widget/quote-light.png
+  - docs/manufact/widget/quote-dark.png
+  - docs/manufact/widget/cached-light.png
+  - docs/manufact/widget/cached-dark.png
+  - docs/manufact/widget/dispatched-light.png
+  - docs/manufact/widget/dispatched-dark.png
+  - docs/manufact/widget/claimed-light.png
+  - docs/manufact/widget/claimed-dark.png
+  - docs/manufact/widget/verifying-light.png
+  - docs/manufact/widget/verifying-dark.png
+  - docs/manufact/widget/answered-light.png
+  - docs/manufact/widget/answered-dark.png
+  - docs/manufact/widget/answered-light-320.png
+  - docs/manufact/widget/answered-dark-320.png
+  - docs/manufact/widget/needs_review-light.png
+  - docs/manufact/widget/needs_review-dark.png
+  - docs/manufact/widget/expired_refunded-light.png
+  - docs/manufact/widget/expired_refunded-dark.png
+  - docs/manufact/widget/rejected_safety-light.png
+  - docs/manufact/widget/rejected_safety-dark.png
+  - docs/manufact/widget/error-light.png
+  - docs/manufact/widget/error-dark.png
+  - pnpm-lock.yaml
+  - intent/INDEX.md
+---
+## Why
+The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes at more moments than that: a quote before paying, a cached answer that is free, a task waiting for a worker, a worker walking over, a photo being checked, a held payout, a refund, a refusal, an error. W1 designs that one compact card for all ten moments and proves it renders safely, on fixture data and a mock bridge, without touching anything that ships. W2 wires it to a real MCP Apps host.
+
+## What
+- `apps/web/widget-task-card/package.json`: the `@eyes/widget-task-card` workspace package (picked up by the existing `apps/web/*` glob). `preview` runs Vite on `/preview/`, `shots` writes the screenshots. No `build` script, so `pnpm build` skips it.
+- `src/types.ts`: `CardData`, the adapter the card renders. It reuses core's `quote_task` and `get_task` outputs, `ask_eyes` input and `Answer` types read-only, and adds only what core lacks (sandbox flag, snapshot time, quote fee, workers notified, walking worker, cached check, refusal, error with retry).
+- `src/card.ts`: `cardView(data, key)` maps a snapshot to everything the card shows, including each button's tool call; `TaskCard` renders it with React and a toast. Task statuses map to card states through a `Record<TaskStatus, CardState>`, so a new core status fails the root typecheck.
+- `src/card.css`: flat light and dark tokens on `data-theme`, max 420px, wraps cleanly at 320px, pulse dot off under `prefers-reduced-motion`.
+- `src/photo.ts`: the photo allowlist (InsForge origin, photos bucket path, the bundled fixture photo).
+- `src/bridge.ts`: `WidgetBridge`, `MockBridge` (records calls, resolves a toast, `play()` for the demo) and the `HostBridge` stub.
+- `src/card.test.ts`: 32 unit tests run by the root `unit` project.
+- `fixtures/*.json` and `fixtures/index.ts`: one snapshot per state and their display order.
+- `preview/index.html`, `preview/main.ts`: every state in 320px and 420px columns, theme toggle, demo play.
+- `scripts/shots.ts`: in-process Vite plus headless Chromium; writes the PNGs, clicks Dispute and checks the toast, fails on any request off the dev server.
+- `README.md`: how to run it, states, bridge calls, security, W2 handoff, CI coverage.
+- `docs/vendor/mcp-apps.md`: cited notes on receiving tool output, theme, calling tools, CSP and sizing in MCP Apps, mcp-use 2.10 and the ChatGPT Apps SDK.
+- `docs/manufact/widget/*.png`: 22 screenshots, every state light and dark at 420px plus answered at 320px.
+- `pnpm-lock.yaml` (generated, +42 lines: the new importer, `@types/react`, `@types/react-dom`, `csstype`) and `intent/INDEX.md` (generated by `node scripts/check-intent.ts --write-index`).
+
+## Decisions & alternatives rejected
+- Components in `.ts` with `React.createElement`, not `.tsx`. The brief asked for `.tsx` components with `.ts` tests, but tests must render the card and the root `unit` project only runs `*.test.ts`; a `.test.ts` importing a `.tsx` pulls it into the root `pnpm typecheck`, which failed with `TS6142: Module './a.tsx' was resolved to ..., but '--jsx' is not set` in a scratch check. The root tsconfig is out of scope. Rejected: hiding the import from tsc with a non-literal dynamic import (tests lose types and it reads as dodging the checker). Result: the root typecheck covers every line of the widget, and Vite and Vitest need no JSX transform or plugin.
+- No code comments. The owner's text asked for `// TODO(W2): map from core` comments, but the repo's standing rule is zero added comments, so every W2 gap is a bullet in the README "W2 handoff" and below, and `HostBridge` throws `W2: HostBridge is not wired to the MCP Apps host yet`.
+- `apps/web/widget-task-card/` (owner's choice) instead of `apps/mcp/views/`: a folder under `views/` is picked up by `mcp-use build`, which would change the shipped server build.
+- New deps only in the widget package, exact versions: `@types/react` 19.3.0 and `@types/react-dom` 19.3.0 (both published 2026-09-09; React 19 ships no types and the root strict typecheck needs them), which bring `csstype` 3.2.3 (2025-11-17). `react`, `react-dom` 19.3.0 and `vite` 8.3.4 match versions already in the lockfile. `@playwright/test` resolves from the root. No JSX plugin.
+- One idempotency key per mounted card. A host view latches one tool result for its lifetime, so Confirm or Request fresh check clicked twice is one charge.
+- Untrusted strings only as React text; the media falls back to the map placeholder for any photo URL off the allowlist, and on load error.
+- Retry resends the stored failed call unchanged; an `ask_eyes` retry keeps its original key.
+- `disputed` shares the needs_review card (pill "Disputed", no Dispute button); `refunded` shares the expired card ("Cancelled. $3.50 refunded.").
+
+## W2 handoff
+- `sandbox`: T4.29's sandbox is a separate server; `ask_eyes` and `await_answer` `next_step` carry the sandbox sentence, `get_task` and `quote_task` carry no flag. Sandbox photo URLs (`storage.fake.test`) fail the allowlist and show the map.
+- `as_of`: set when the tool result arrives.
+- Quote fee: `quote_task` has no fee field; the card adds `fee_usd`.
+- `workers_notified`: in `ask_eyes` output, not in `get_task`.
+- Walking worker distance and ETA: not in core.
+- Cached checks: not in core.
+- Safety refusal: `unsafe_task` from `ask_eyes`, or `quote_task` `allowed: false`, which also covers balance and caps with no machine-readable code.
+- Error retry: the host bridge must remember the failed call.
+- Verifying badges: shown amber while `submitted`, though core already has the booleans.
+- Tip: `tip_worker` is not an Eyes tool, only a logged intent.
+- Dispute reason is fixed; collect one or use `sendFollowUp`.
+- `HostBridge`: `useToolContext().toolOutput` to `CardData`, `useCallTool`/`useDynamicTool` plus `toolResultText`, `useViewTheme()`; bind a new view-bound tool so existing tools' results stay unchanged; photo origin from `INSFORGE_BASE_URL` in `csp.resourceDomains`; import `src/card.css`. A private bucket's presigned URLs may need another host.
+
+## Assumptions
+- Live photos are public objects at `https://7t6779x4.us-east.insforge.app/api/storage/buckets/photos/objects/<key>` (owner's placeholder origin; docs/vendor/insforge.md gives the URL shape).
+- `URL.parse` exists in the hosts' browsers (Chrome 126, Safari 18, Firefox 126) and in Node 24.
+- The 0.50 USD fee matches core's `fee_cents` default (50).
+
+## Verification
+- `pnpm verify:fast` passes on top of T4.29 (5364bf6): Biome "Checked 124 files ... No fixes applied", `tsc` clean, unit 568 passed in 18 files (536 before, plus the widget's 32), contract 12 passed, safety 139 passed, "intent check ok: 48 changed files, 1 intent files".
+- `pnpm exec vitest run --project unit apps/web/widget-task-card`: 32 passed (10 fixture renders, fixtures parse with core's `QuoteTaskOutput`, `AskEyesInput`, `Answer`, `GetTaskOutput` and the retry tool's input schema, escaping, one allowlisted photo, 18 rejected photo URLs, button calls).
+- Fail on broken behaviour, each mutation run then reverted (files byte-identical after): allowlist bypassed (`safePhotoUrl` returns any URL): 17 failed; credential check removed: 1 failed (the `user:pw@` URL); refusal reason rendered with `dangerouslySetInnerHTML`: 1 failed, "expected '<article class=\"eyes-card\" ...' not to contain '<script'"; Dispute sending `cancel_task`: 1 failed; Confirm without `idempotency_key`: 1 failed. Restored: 32 passed.
+- `pnpm --filter @eyes/widget-task-card shots`: "light: 11 shots, Dispute click logged, no foreign requests" and the same for dark; 22 PNGs, 25 to 48 KB each, 828 KB total.
+- Preview, driven headlessly on a Vite dev server (port 5199, stopped by PID after): Demo play went "quote -> dispatched -> claimed -> verifying -> answered"; the toggle set `data-theme="dark"` on the cards and the page; Confirm $3.50 showed "Mock call: ask_eyes"; the pulse had `animation-name: eyes-pulse`, and `none` under reduced motion; no console errors.
+- `pnpm build`: worker and `@eyes/mcp` build as before ("built views/entry.ts + views (task-card)"); the widget has no `build` script and is skipped.
+- `pnpm exec playwright test --list`: "Total: 27 tests in 4 files", none from the widget folder.
+- `pnpm install --frozen-lockfile` after the lockfile change: "Already up to date".
+- `grep -rnE "innerHTML|dangerouslySetInnerHTML|fetch\(|XMLHttpRequest|WebSocket"` over the package (outside `node_modules`): no matches.
+- Not covered by CI: the preview, the `shots` script and the click check; the PNGs are generated locally and committed.
+
+## Verifier verdicts
+Left for the orchestrator.

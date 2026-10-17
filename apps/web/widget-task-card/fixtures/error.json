@@ -1,0 +1,18 @@
+{
+  "as_of": "2026-10-17T18:06:00Z",
+  "sandbox": false,
+  "kind": "error",
+  "message": "The Eyes server did not answer in time.",
+  "retry": {
+    "name": "ask_eyes",
+    "args": {
+      "question": "How long is the line at Blue Bottle right now?",
+      "location": "Blue Bottle Coffee, Mint Plaza, San Francisco",
+      "task_type": "line_length",
+      "bounty_usd": 3,
+      "deadline_minutes": 30,
+      "require_photo": true,
+      "idempotency_key": "0d6f3c2b-7a91-4e5b-8c3d-2f1e0a9b8c7d"
+    }
+  }
+}
