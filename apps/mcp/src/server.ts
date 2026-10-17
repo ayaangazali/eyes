@@ -33,6 +33,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { MCPServer } from "mcp-use";
 import type { z } from "zod";
+import { keylessAgents, SANDBOX, SANDBOX_NOTICE } from "./sandbox.ts";
 
 type Env = Record<string, string | undefined>;
 type AppEnv = { Variables: { agent: Agent } };
@@ -110,19 +111,22 @@ const layout = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedStri
 
 type Live = ReturnType<typeof liveProviders>;
 
-const simulatedNotice = (live: Live) => {
-  const fake = (Object.keys(SIMULATED) as (keyof typeof SIMULATED)[]).filter((name) => !live[name]);
-  return fake.length
-    ? html`<section class="box"><h2>This is a simulated deploy</h2><ul>${fake.map((name) => html`<li>${SIMULATED[name]}</li>`)}</ul></section>`
+const simulatedNotice = (live: Live, sandbox: boolean) => {
+  const fake = (Object.keys(SIMULATED) as (keyof typeof SIMULATED)[])
+    .filter((name) => !live[name] && !(sandbox && name === "messaging"))
+    .map((name) => SIMULATED[name]);
+  const lines = sandbox ? [SANDBOX_NOTICE, ...fake] : fake;
+  return lines.length
+    ? html`<section class="box"><h2>This is a simulated deploy</h2><ul>${lines.map((line) => html`<li>${line}</li>`)}</ul></section>`
     : "";
 };
 
-const homePage = (joinUrl: string, live: Live, classifier: boolean) =>
+const homePage = (joinUrl: string, live: Live, classifier: boolean, sandbox: boolean) =>
   layout(
     "Eyes",
     html`<h1>AI agents pay people nearby about $3 to check public places.</h1>
 <p>Is the cafe open? How long is the line? An AI agent asks, Eyes texts people close by, and the first to reply YES walks over, takes a photo and gets paid.</p>
-${simulatedNotice(live)}
+${simulatedNotice(live, sandbox)}
 <a class="button" href="${joinUrl}">Join to get paid tasks</a>
 <section class="box">
 <h2>Got a text from Eyes?</h2>
@@ -135,12 +139,18 @@ ${simulatedNotice(live)}
 <p class="muted"><a href="/status">Service status</a></p>`,
   );
 
-const statusPage = (live: Live, classifier: boolean, db: string, commit: string | undefined) =>
+const statusPage = (
+  live: Live,
+  classifier: boolean,
+  db: string,
+  commit: string | undefined,
+  sandbox: boolean,
+) =>
   layout(
     "Eyes status",
     html`<h1>Service status</h1>
 <p>Eyes is up. A live part uses the real service. A simulated part is a test stand-in: nothing real is sent, charged or stored through it.</p>
-${simulatedNotice(live)}
+${simulatedNotice(live, sandbox)}
 <ul class="rows">
 ${Object.entries(PROVIDER_LINES).map(([name, [label, meaning]]) => {
   const on = live[name as keyof typeof live];
@@ -276,12 +286,14 @@ async function readCapture(c: Context) {
 
 export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
   const { service, config, env } = deps;
+  const sandbox = env.EYES_SANDBOX === "1";
+  const note = (text: string) => (sandbox ? `${SANDBOX} ${text}` : text);
   const server = new MCPServer<never, AppEnv>({
     name: "eyes",
     title: "Eyes",
     version: "0.1.0",
-    description: "Pay a nearby human a few dollars to check something in the physical world right now.",
-    instructions: INSTRUCTIONS,
+    description: note("Pay a nearby human a few dollars to check something in the physical world right now."),
+    instructions: note(INSTRUCTIONS),
     logging: { enabled: false },
   });
 
@@ -304,10 +316,16 @@ export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
     c.res = c.json(unknown.toBody(), 404);
   });
 
+  const keyless = sandbox ? keylessAgents(deps) : null;
   const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (c.req.method === "POST" && c.req.path === "/v1/signup") return next();
-    const key = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1];
-    const agent = key ? await service.authenticate(key) : null;
+    const header = c.req.header("authorization");
+    const key = /^Bearer\s+(\S+)\s*$/i.exec(header ?? "")?.[1];
+    const agent = key
+      ? await service.authenticate(key)
+      : keyless && header === undefined
+        ? await keyless(clientKey(c.req.header("x-forwarded-for")))
+        : null;
     if (!agent) return c.json(new EyesError("unauthorized").toBody(), 401);
     c.set("agent", agent);
     await next();
@@ -336,12 +354,13 @@ Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same loc
     {
       name: "ask_eyes",
       title: "Ask a human to check",
-      description: `Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site, and Eyes verifies it (GPS within about 150 m, photo taken live before the deadline, vision check) before you receive it.
+      description:
+        note(`Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site, and Eyes verifies it (GPS within about 150 m, photo taken live before the deadline, vision check) before you receive it.
 Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now. The worker is paid only after a verified answer. If nobody answers before deadline_minutes (default 30), or you cancel_task before a worker claims it, everything is refunded.
 Only public, commercial or civic places: stores, cafes, parks, transit stops, venues. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
 idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
-Next: immediately call await_answer with the returned task_id and keep calling it until answered is true.`,
+Next: immediately call await_answer with the returned task_id and keep calling it until answered is true.`),
       inputSchema: TOOLS.ask_eyes.input,
       outputSchema: TOOLS.ask_eyes.output,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -606,7 +625,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   };
   const live = liveProviders(env);
   const classifier = Boolean(env.ANTHROPIC_API_KEY);
-  const home = homePage(config.worker_web_url, live, classifier);
+  const home = homePage(config.worker_web_url, live, classifier, sandbox);
   server.get("/", (c) => c.html(home, 200, { link: LINK, ...PAGE_HEADERS }));
   for (const [path, contentType] of Object.entries(DOCS)) {
     server.get(path, async (c) => {
@@ -633,7 +652,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     );
     return c.json({ ok: true, providers, db });
   });
-  const status = statusPage(live, classifier, db, env.EYES_COMMIT);
+  const status = statusPage(live, classifier, db, env.EYES_COMMIT, sandbox);
   server.get("/status", (c) => c.html(status, 200, PAGE_HEADERS));
 
   const { rpc } = deps;

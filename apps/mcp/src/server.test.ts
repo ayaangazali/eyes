@@ -12,10 +12,13 @@ import {
   FAKE_STRIPE_SIGNATURE,
   fakeProviders,
   type OfferView,
+  type OwnerPolicyInput,
   type PhotoUpload,
   QuoteTaskOutput,
   signToken,
+  TaskType,
   TOOLS,
+  verifyToken,
 } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
 import { PAGE } from "@eyes/web-dashboard";
@@ -210,6 +213,69 @@ describe("auth", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ api_key: KEY });
+  });
+
+  it("gives a keyless caller one sandbox agent per address only with EYES_SANDBOX=1, capped per minute", async () => {
+    const signupAgent = vi.fn(async () => ({
+      agent_id: AGENT.id,
+      api_key: KEY,
+      balance_usd: 20,
+      top_up_url: null,
+      email_address: null,
+      next_step: "Call quote_task.",
+    }));
+    const updateSpendPolicy = vi.fn(async (_token: string, _policy: OwnerPolicyInput) => ({
+      max_bounty_usd: 10,
+      daily_cap_usd: 1000,
+      spent_today_usd: 0,
+      remaining_today_usd: 1000,
+      allowed_task_types: TaskType.options,
+    }));
+    const creditTopup = vi.fn(async () => undefined);
+    const services = { signupAgent, updateSpendPolicy, creditTopup };
+    const { fetch, clock } = setup(services, { EYES_SANDBOX: "1" });
+    const quote = (headers: Record<string, string> = {}) =>
+      fetch("http://eyes.test/v1/quote", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ location: "Ferry Building, San Francisco", task_type: "line_length" }),
+      });
+
+    expect((await setup(services).fetch("http://eyes.test/v1/quote", { method: "POST" })).status).toBe(401);
+    const client = new Client({ name: "eyes-test", version: "1.0.0" });
+    await client.connect(new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), { fetch }));
+    const tool = await client.callTool({
+      name: "quote_task",
+      arguments: { location: "Ferry Building, San Francisco", task_type: "line_length" },
+    });
+    expect(tool.structuredContent).toEqual(QUOTE);
+    expect((await quote()).status).toBe(200);
+    expect(signupAgent).toHaveBeenCalledTimes(1);
+    const [token, policy] = updateSpendPolicy.mock.calls[0] ?? [];
+    expect(verifyToken(SECRET, token ?? "")).toBe(`p:${AGENT.id}`);
+    expect(policy).toEqual({ max_bounty_usd: 10, daily_cap_usd: 1000, allowed_task_types: TaskType.options });
+    expect(creditTopup).toHaveBeenCalledWith({
+      agent_id: AGENT.id,
+      amount_cents: 100_000,
+      stripe_ref: expect.stringMatching(/^sandbox:/),
+    });
+
+    expect((await quote({ authorization: "Bearer nope" })).status).toBe(401);
+    expect((await quote({ authorization: `Bearer ${KEY}`, "x-forwarded-for": "203.0.113.50" })).status).toBe(
+      200,
+    );
+    expect(signupAgent).toHaveBeenCalledTimes(1);
+
+    for (let i = 1; i < 30; i++)
+      expect((await quote({ "x-forwarded-for": `198.51.100.${i}` })).status).toBe(200);
+    expect(signupAgent).toHaveBeenCalledTimes(30);
+    const limited = await quote({ "x-forwarded-for": "198.51.100.99" });
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toMatchObject({ error: "rate_limited", retry_after_s: 60 });
+    expect((await quote({ "x-forwarded-for": "198.51.100.1" })).status).toBe(200);
+    clock.advance(60_000);
+    expect((await quote({ "x-forwarded-for": "198.51.100.99" })).status).toBe(200);
+    expect(signupAgent).toHaveBeenCalledTimes(31);
   });
 });
 
