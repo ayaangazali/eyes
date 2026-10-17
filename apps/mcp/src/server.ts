@@ -45,6 +45,18 @@ const THROTTLE_MAX_KEYS = 10_000;
 const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
 const VIEWS_MANIFEST = fileURLToPath(new URL("../.mcp-use/build/manifest.json", import.meta.url));
 const TASK_CARD = "task-card";
+
+function taskCard(file: string) {
+  if (!existsSync(file)) return undefined;
+  try {
+    return (JSON.parse(readFileSync(file, "utf8")) as { views?: ViewsManifest }).views?.[TASK_CARD];
+  } catch (err) {
+    console.error(
+      `views manifest ${file} is unreadable, so show_task has no card: ${err instanceof Error ? err.name : typeof err}`,
+    );
+    return undefined;
+  }
+}
 const AGENT_CARD = "/.well-known/agent-card.json";
 const DOCS = {
   "/llms.txt": "text/plain; charset=utf-8",
@@ -406,10 +418,7 @@ Next: to wait for an answer call await_answer instead of polling get_task.`,
     (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
   );
 
-  const viewsFile = env.EYES_VIEWS_MANIFEST || VIEWS_MANIFEST;
-  const card = existsSync(viewsFile)
-    ? (JSON.parse(readFileSync(viewsFile, "utf8")) as { views: ViewsManifest }).views[TASK_CARD]
-    : undefined;
+  const card = taskCard(env.EYES_VIEWS_MANIFEST || VIEWS_MANIFEST);
   if (card) server[registerViews]({ [TASK_CARD]: card });
   server.tool(
     {

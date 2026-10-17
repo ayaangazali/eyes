@@ -52,7 +52,7 @@ export default function TaskCard() {
   if (view.status === "pending") return <p className="p-4 text-sm text-slate-500">Loading the task…</p>;
   if (view.status === "error") return <p className="p-4 text-sm text-red-700">{view.error.message}</p>;
   const task = view.toolOutput as ToolOutput<"get_task">;
-  const [label, tone, money] = STATUS[task.status];
+  const [label, tone, money] = STATUS[task.status] ?? [task.status, STATUS.dispatched[1], "Held"];
   const answer = task.answer;
   return (
     <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white font-sans text-slate-900">

@@ -394,6 +394,25 @@ describe("MCP tools", () => {
     expect(tools.every((t) => t._meta === undefined)).toBe(true);
   });
 
+  it("serves show_task without a card when the views manifest is unreadable, instead of failing to start", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "eyes-bad-views-"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const body of ['{"views":{"task-card":{"kind"', "{}"]) {
+        const manifest = join(dir, "manifest.json");
+        await writeFile(manifest, body);
+        const client = await connect(
+          setup({ getTask: async () => PAID_TASK }, { EYES_VIEWS_MANIFEST: manifest }).fetch,
+        );
+        const { tools } = await client.listTools();
+        expect(tools.find((t) => t.name === "show_task")?._meta).toBeUndefined();
+      }
+      expect(error).toHaveBeenCalledOnce();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
   it("binds only show_task to the built task-card view, allowing the photo host", async () => {
     const dir = await mkdtemp(join(tmpdir(), "eyes-views-"));
     const manifest = join(dir, "manifest.json");
