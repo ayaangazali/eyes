@@ -326,13 +326,30 @@ describe("createInkboxMessaging", () => {
     expect(sdk.created).toHaveBeenCalledWith({ apiKey: "key_test" });
     expect(sdk.getIdentity).toHaveBeenCalledWith("eyes-dispatch");
     expect(sdk.sendIMessage.mock.calls.map(([options]) => options)).toEqual([
-      { to: TO, text: offerText(offer()), idempotencyKey: `offer:${offer().task_id}:${TO}` },
+      { to: TO, text: offerText(offer()), idempotencyKey: undefined },
       { to: TO, text: captureLinkText(capture), idempotencyKey: `capture:t1:${TO}` },
       { to: TO, text: alreadyClaimedText({ place_label: "Ferry Building" }), idempotencyKey: undefined },
       { to: TO, text: paidText(paid), idempotencyKey: `paid:t1:${TO}` },
       { to: TO, text: "raw body", idempotencyKey: undefined },
     ]);
     expect(sdk.sendText).not.toHaveBeenCalled();
+  });
+
+  it("delivers a second offer for the same task to the same worker instead of replaying the first", async () => {
+    const delivered: string[] = [];
+    const replies = new Map<string, unknown>();
+    sdk.sendIMessage.mockImplementation(async ({ text, idempotencyKey }) => {
+      const key = idempotencyKey ?? crypto.randomUUID();
+      if (!replies.has(key)) {
+        delivered.push(text);
+        replies.set(key, { id: `im_${delivered.length}`, status: "queued" });
+      }
+      return replies.get(key);
+    });
+    const m = createInkboxMessaging(env);
+    expect(await m.sendOffer(TO, offer())).toEqual({ id: "im_1" });
+    expect(await m.sendOffer(TO, offer())).toEqual({ id: "im_2" });
+    expect(delivered).toEqual([offerText(offer()), offerText(offer())]);
   });
 
   it.each(["error", "declined"])("throws when Inkbox answers the send with status %s", async (status) => {
