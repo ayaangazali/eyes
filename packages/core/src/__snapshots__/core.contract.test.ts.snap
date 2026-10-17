@@ -50,13 +50,13 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "object",
             },
             {
-              "description": "Address or "place name, city", e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco"",
+              "description": "A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.",
               "maxLength": 200,
               "minLength": 2,
               "type": "string",
             },
           ],
-          "description": "Where to look. Either numbers {"lat": 37.7825, "lng": -122.4078} or a string address / "place name, city".",
+          "description": "The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user's own location or a home address.",
         },
         "question": {
           "description": "What the human should check, in plain words, e.g. "How many people are in line right now?"",
@@ -775,13 +775,13 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "object",
             },
             {
-              "description": "Address or "place name, city", e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco"",
+              "description": "A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.",
               "maxLength": 200,
               "minLength": 2,
               "type": "string",
             },
           ],
-          "description": "Where to look. Either numbers {"lat": 37.7825, "lng": -122.4078} or a string address / "place name, city".",
+          "description": "The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user's own location or a home address.",
         },
         "task_type": {
           "enum": [

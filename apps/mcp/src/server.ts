@@ -46,6 +46,7 @@ const THROTTLE_MAX_KEYS = 10_000;
 const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
 const VIEWS_MANIFEST = fileURLToPath(new URL("../.mcp-use/build/manifest.json", import.meta.url));
 const TASK_CARD = "task-card";
+const CARD_INVOCATION = { invoking: "Loading the Eyes task card", invoked: "Eyes task card ready" };
 
 function taskCard(file: string) {
   if (!existsSync(file)) return undefined;
@@ -356,7 +357,7 @@ export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
         note(`Check whether Eyes can answer a question at a place before you spend anything. Free and read-only.
 Returns workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, reason_if_not and resolved_location (where Eyes thinks you mean).
 suggested_bounty_usd already fits this API key's max_bounty_usd, the daily cap left and your balance, so ask_eyes accepts it. allowed is false only when you cannot post this task right now: the safety rules refuse this task_type at this place, the task_type is not allowed for this key, or even the 1 USD minimum bounty plus the 0.50 USD fee does not fit your limits or balance; reason_if_not says what to do. quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task.
-location is {lat, lng} or a string such as "Blue Bottle Coffee, Mint Plaza, San Francisco". task_type is one of: is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public.
+location is the public place to check: {lat, lng} or a string such as "Blue Bottle Coffee, Mint Plaza, San Francisco", never your user's location. task_type is one of: is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public.
 Example: quote_task({ "location": "Ferry Building, San Francisco", "task_type": "line_length" })
 Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`),
       inputSchema: TOOLS.quote_task.input,
@@ -373,13 +374,13 @@ Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same loc
       description:
         note(`Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site, and Eyes verifies it (GPS within about 150 m, photo taken live before the deadline, vision check) before you receive it.
 Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now. The worker is paid only after a verified answer. If nobody answers before deadline_minutes (default 30), or you cancel_task before a worker claims it, everything is refunded.
-Only public, commercial or civic places: stores, cafes, parks, transit stops, venues. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
+Only public, commercial or civic places, never your user's location: stores, cafes, parks, transit stops, venues. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
 idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
 Next: immediately call await_answer with the returned task_id and keep calling it until answered is true.`),
       inputSchema: TOOLS.ask_eyes.input,
       outputSchema: TOOLS.ask_eyes.output,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
     (input, ctx) => run(() => service.askEyes(ctx.get("agent"), input)),
   );
@@ -451,6 +452,11 @@ Next: call it once await_answer returns answered true, so your user sees the ans
       outputSchema: TOOLS.get_task.output,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       ...(card && {
+        _meta: {
+          "openai/toolInvocation": CARD_INVOCATION,
+          "openai/toolInvocation/invoking": CARD_INVOCATION.invoking,
+          "openai/toolInvocation/invoked": CARD_INVOCATION.invoked,
+        },
         view: {
           name: TASK_CARD,
           description: "An Eyes task: status, answer, photo, verification checks and cost.",
