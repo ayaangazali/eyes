@@ -27,6 +27,7 @@ const parsed = AppConfig.safeParse({
   link_secret: env.EYES_LINK_SECRET,
   test_mode: env.EYES_TEST_MODE ? env.EYES_TEST_MODE === "true" : undefined,
   email_domain: env.PRIMITIVE_DOMAIN || undefined,
+  email_delivery: liveProviders(env).email,
 });
 if (!parsed.success) exit(`Invalid EYES_* environment (see .env.example):\n${z.prettifyError(parsed.error)}`);
 const config = parsed.data;
