@@ -7,6 +7,7 @@ import { EyesError, HTTP_ROUTES } from "@eyes/core";
 const MB = 1024 * 1024;
 const CAPTURE_LIMIT = 21 * MB;
 const DEFAULT_LIMIT = MB;
+const READ_DEADLINE_MS = 60_000;
 const CAPTURE_PATH = /^\/w\/offers\/[^/]+\/capture$/;
 const LOGGED_ROUTES = [
   "/",
@@ -52,13 +53,18 @@ function badTarget(req: IncomingMessage): Response {
 
 async function* limited(req: IncomingMessage, limit: number, state: { overflow: boolean }) {
   let seen = 0;
-  for await (const chunk of req.iterator({ destroyOnReturn: false })) {
-    seen += chunk.length;
-    if (seen > limit) {
-      state.overflow = true;
-      throw new Error("request body too large");
+  const deadline = setTimeout(() => req.destroy(), READ_DEADLINE_MS);
+  try {
+    for await (const chunk of req.iterator({ destroyOnReturn: false })) {
+      seen += chunk.length;
+      if (seen > limit) {
+        state.overflow = true;
+        throw new Error("request body too large");
+      }
+      yield new Uint8Array(chunk);
     }
-    yield new Uint8Array(chunk);
+  } finally {
+    clearTimeout(deadline);
   }
 }
 

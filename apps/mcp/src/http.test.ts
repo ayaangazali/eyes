@@ -7,6 +7,7 @@ import {
   type Server,
 } from "node:http";
 import type { AddressInfo } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import {
   type Agent,
   AppConfig,
@@ -35,6 +36,7 @@ const config = AppConfig.parse({
 let http: Server | undefined;
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.restoreAllMocks();
   http?.closeAllConnections();
   await new Promise((resolve) => http?.close(resolve));
@@ -178,6 +180,49 @@ describe("node adapter on a real socket", () => {
     expect(res.body).toMatchObject({ error: "invalid_input", max_bytes: MB });
     expect(process.memoryUsage().rss - rss).toBeLessThan(16 * MB);
     expect(submitCapture).not.toHaveBeenCalled();
+  });
+
+  it("cuts off a capture body that stalls for 60 seconds and frees the token for a retry", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const submitCapture = vi.fn(async () => ({
+      task_id: TASK_ID,
+      status: "submitted" as const,
+      verification: { gps_ok: true, fresh_ok: true, vision_ok: true, vision_reason: "ok" },
+      message: "Thanks!",
+    }));
+    const base = await start({
+      getOffer: async () => ({ status: "claimed", claimed_by_you: true }) as OfferView,
+      submitCapture,
+    });
+    quiet();
+    const url = `${base}/w/offers/${signToken(config.link_secret, "offer-1")}/capture`;
+    let closed = false;
+    const stalled = request(url, {
+      method: "POST",
+      headers: { "content-type": "multipart/form-data; boundary=zzz" },
+    });
+    stalled.on("error", () => undefined);
+    stalled.on("close", () => {
+      closed = true;
+    });
+    stalled.write('--zzz\r\ncontent-disposition: form-data; name="lat"\r\n\r\n37.78246\r\n');
+    await vi.waitFor(() => expect(vi.getTimerCount()).toBe(1));
+
+    await vi.advanceTimersByTimeAsync(59_000);
+    await sleep(100);
+    expect(closed).toBe(false);
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(closed).toBe(true));
+    vi.useRealTimers();
+
+    const form = new FormData();
+    form.set("lat", "37.78246");
+    form.set("lng", "-122.40776");
+    form.set("accuracy_m", "8");
+    form.set("captured_at", "2026-10-17T19:05:00.000Z");
+    const retry = await fetch(url, { method: "POST", body: form });
+    expect(retry.status).toBe(200);
+    expect(submitCapture).toHaveBeenCalledTimes(1);
   });
 
   it("drops content-type on bodiless requests and answers malformed JSON with invalid_input", async () => {
