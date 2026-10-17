@@ -23,6 +23,7 @@ const http = vi.hoisted(() => ({
   captured: [] as Captured[],
   response: {} as Record<string, unknown>,
   queue: [] as Record<string, unknown>[],
+  config: undefined as unknown,
 }));
 
 vi.mock("stripe", async (importOriginal) => {
@@ -34,13 +35,25 @@ vi.mock("stripe", async (importOriginal) => {
       headers: Object.fromEntries(new Headers(init?.headers).entries()),
       body: Object.fromEntries(new URLSearchParams(String(init?.body ?? "")).entries()),
     });
-    return new Response(JSON.stringify(http.queue.shift() ?? http.response), {
-      status: 200,
-      headers: { "content-type": "application/json", "request-id": "req_1" },
+    const next = (http.queue.shift() ?? http.response) as {
+      status_code?: number;
+      should_retry?: boolean;
+      network_error?: boolean;
+    };
+    if (next.network_error) throw new TypeError("fetch failed");
+    const { status_code = 200, should_retry = false, ...body } = next;
+    return new Response(JSON.stringify(body), {
+      status: status_code,
+      headers: {
+        "content-type": "application/json",
+        "request-id": "req_1",
+        "stripe-should-retry": String(should_retry),
+      },
     });
   };
   class StubbedStripe extends mod.default {
-    constructor(key: string) {
+    constructor(key: string, config?: unknown) {
+      http.config = config;
       super(key, { httpClient: mod.default.createFetchHttpClient(stubFetch) });
     }
   }
@@ -390,16 +403,23 @@ describe("outbound Stripe requests", () => {
     idempotency_key: "payout:tsk_5",
   };
 
+  const ACTIVE = { id: "acct_1", object: "account", capabilities: { transfers: "active" } };
+  const transferList = (data: Record<string, unknown>[]) => ({
+    object: "list",
+    url: "/v1/transfers",
+    has_more: false,
+    data,
+  });
+  const LOOKUP = "https://api.stripe.com/v1/transfers?transfer_group=task_tsk_5&limit=1";
+
   it("pays a worker with a Transfer carrying the caller's idempotency key once transfers are active", async () => {
-    http.queue.push(
-      { id: "acct_1", object: "account", capabilities: { transfers: "active" } },
-      { id: "tr_1", object: "transfer" },
-    );
+    http.queue.push(ACTIVE, transferList([]), { id: "tr_1", object: "transfer" });
     const out = await payments.payoutWorker(payout);
     expect(out).toEqual({ transfer_id: "tr_1" });
-    const [check, req] = http.captured;
+    const [check, lookup, req] = http.captured;
     expect(check).toMatchObject({ method: "GET", url: "https://api.stripe.com/v1/accounts/acct_1" });
     expect(check?.headers["idempotency-key"]).toBeUndefined();
+    expect(lookup).toMatchObject({ method: "GET", url: LOOKUP });
     expect(req?.url).toBe("https://api.stripe.com/v1/transfers");
     expect(req?.headers["idempotency-key"]).toBe("payout:tsk_5");
     expect(req?.body).toEqual({
@@ -411,6 +431,17 @@ describe("outbound Stripe requests", () => {
     });
   });
 
+  it("returns the Transfer an earlier attempt made for the task instead of sending another", async () => {
+    http.queue.push(ACTIVE, transferList([{ id: "tr_earlier", object: "transfer" }]));
+    expect(await payments.payoutWorker({ ...payout, idempotency_key: "payout:tsk_5:2" })).toEqual({
+      transfer_id: "tr_earlier",
+    });
+    expect(http.captured.map((r) => `${r.method} ${r.url}`)).toEqual([
+      "GET https://api.stripe.com/v1/accounts/acct_1",
+      `GET ${LOOKUP}`,
+    ]);
+  });
+
   it("refuses an account whose transfers capability is not active without sending the idempotent Transfer", async () => {
     for (const capabilities of [{ transfers: "inactive" }, { transfers: "pending" }, {}, undefined]) {
       http.captured.length = 0;
@@ -418,6 +449,51 @@ describe("outbound Stripe requests", () => {
       await expect(payments.payoutWorker(payout)).rejects.toThrow(/acct_1 cannot receive transfers yet/);
       expect(http.captured.map((r) => r.url)).toEqual(["https://api.stripe.com/v1/accounts/acct_1"]);
     }
+  });
+
+  it("marks every failed Transfer as outcome unknown except a 400, 402 or 404 refusal", async () => {
+    const refusal = (status_code: number, type: string, should_retry = false) => ({
+      status_code,
+      should_retry,
+      error: { type, message: "refused" },
+    });
+    const rateLimited = refusal(429, "rate_limit_error");
+    const rows: [string, Record<string, unknown>[], boolean][] = [
+      ["400", [refusal(400, "invalid_request_error")], false],
+      ["402", [refusal(402, "card_error")], false],
+      ["404", [refusal(404, "invalid_request_error")], false],
+      ["401", [refusal(401, "authentication_error")], true],
+      ["403", [refusal(403, "invalid_request_error")], true],
+      ["409", [refusal(409, "idempotency_error")], true],
+      ["429", [rateLimited], true],
+      ["500", [refusal(500, "api_error")], true],
+      ["timeout, then 429", [{ network_error: true }, rateLimited], true],
+      ["503, then 429", [refusal(503, "api_error", true), rateLimited], true],
+      [
+        "timeout, then 400 marked retryable twice",
+        [
+          { network_error: true },
+          refusal(400, "invalid_request_error", true),
+          refusal(400, "invalid_request_error", true),
+        ],
+        true,
+      ],
+    ];
+    for (const [label, responses, unknown] of rows) {
+      http.queue.push(ACTIVE, transferList([]), ...responses);
+      const err: { outcome_unknown?: boolean } = await payments.payoutWorker(payout).then(
+        () => ({}),
+        (e) => e,
+      );
+      expect(http.queue, label).toEqual([]);
+      expect(err, label).toBeInstanceOf(Error);
+      expect(err.outcome_unknown === true, label).toBe(unknown);
+    }
+  });
+
+  it("bounds every Stripe request: 80 s timeout and 2 network retries", () => {
+    createStripePayments({ STRIPE_SECRET_KEY: "sk_test_unit" });
+    expect(http.config).toMatchObject({ timeout: 80_000, maxNetworkRetries: 2 });
   });
 });
 
