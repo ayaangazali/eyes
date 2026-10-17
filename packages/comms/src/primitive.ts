@@ -14,11 +14,12 @@ import {
 } from "@eyes/core";
 import {
   createPrimitiveClient,
+  type EmailReceivedEvent,
+  isTrustedSender,
   normalizeReceivedEmail,
   PRIMITIVE_SIGNATURE_HEADER,
   type ReceivedEmail,
   safeValidateEmailReceivedEvent,
-  validateEmailAuth,
   verifyWebhookSignature,
 } from "@primitivedotdev/sdk";
 import { Hono } from "hono";
@@ -33,6 +34,7 @@ const AWAIT_MAX_FAILURES = 5;
 const AWAIT_RETRY_MS = 5_000;
 const SEEN_TTL_MS = 24 * 60 * 60 * 1000;
 const SEEN_MAX = 10_000;
+const BODY_MAX_CHARS = 20_000;
 const WAITING = new Set(["dispatched", "claimed", "submitted"]);
 const REFUNDED = new Set(["expired", "refunded"]);
 const QUOTE_START = /^(?:--\s?|_{3,}|-{3,}\s*original message\s*-{3,}|sent from my .+)$/i;
@@ -106,9 +108,10 @@ export function createPrimitiveEmail(env: Env): Email {
 
 const htmlToText = (html: string) =>
   html
-    .replace(/<(style|script)[\s\S]*?<\/\1>/gi, "")
-    .replace(/<br\s*\/?>|<\/(?:p|div|li|tr|h\d)>/gi, "\n")
-    .replace(/<[^>]*>/g, "")
+    .slice(0, BODY_MAX_CHARS)
+    .replace(/<(style|script)\b[^<>]*>[^<]*<\/\1>/gi, "")
+    .replace(/<br\b[^<>]*>|<\/(?:p|div|li|tr|h\d)>/gi, "\n")
+    .replace(/<[^<>]*>/g, "")
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name: string) => ENTITIES[name] ?? "");
 
 export function parseTaskEmail(
@@ -122,7 +125,7 @@ export function parseTaskEmail(
   bounty_usd?: number;
   deadline_minutes?: number;
 } {
-  const lines = (text ?? (html ? htmlToText(html) : "")).split(/\r?\n/);
+  const lines = (text?.slice(0, BODY_MAX_CHARS) ?? (html ? htmlToText(html) : "")).split(/\r?\n/);
   const body: string[] = [];
   const fields: Record<string, string> = {};
   for (const [i, line] of lines.entries()) {
@@ -215,7 +218,10 @@ async function handleEmail(deps: RouteDeps, agent: Agent, email: ReceivedEmail) 
   const send = (text: string, attachments?: EmailAttachment[]) =>
     deps.providers.email.send({
       to: email.sender.address,
-      subject: email.replySubject.slice(0, SUBJECT_MAX_CHARS),
+      subject: email.replySubject
+        .replace(/[\r\n]/g, " ")
+        .slice(0, SUBJECT_MAX_CHARS)
+        .replace(/\p{Cs}$/u, ""),
       text,
       in_reply_to: messageId,
       references: [...email.thread.references, ...(messageId ? [messageId] : [])].slice(-MAX_REFERENCES),
@@ -266,6 +272,14 @@ async function handleEmail(deps: RouteDeps, agent: Agent, email: ReceivedEmail) 
   );
 }
 
+function trustedSender(event: EmailReceivedEvent, domain: string, sender: string): boolean {
+  try {
+    return isTrustedSender(event, { domain, sender }).trusted;
+  } catch {
+    return false;
+  }
+}
+
 function parseJson(raw: Buffer): unknown {
   try {
     return JSON.parse(raw.toString("utf8"));
@@ -306,14 +320,10 @@ export function primitiveRoutes(deps: RouteDeps, env: Env): Hono {
     if (event.data.event !== "email.received") return c.text("ignored");
     const email = normalizeReceivedEmail(event.data);
     const sender = email.sender.address.toLowerCase();
-    const senderDomain = sender.split("@").pop();
-    const auth = validateEmailAuth(email.auth);
-    if (
-      auth.verdict !== "legit" ||
-      senderDomain !== email.auth.dmarcFromDomain?.toLowerCase() ||
-      senderDomain === deps.config.email_domain?.toLowerCase()
-    ) {
-      console.warn(`primitive: ignored ${email.id}: sender not authenticated or our own (${auth.verdict})`);
+    const senderDomain = sender.slice(sender.lastIndexOf("@") + 1);
+    const ownDomains = [env.PRIMITIVE_DOMAIN, deps.config.email_domain].map((d) => d?.toLowerCase());
+    if (!trustedSender(event.data, senderDomain, sender) || ownDomains.includes(senderDomain)) {
+      console.warn(`primitive: ignored ${email.id}: sender not authenticated or our own`);
       return c.text("ignored");
     }
     const agentId = email.receivedByAll

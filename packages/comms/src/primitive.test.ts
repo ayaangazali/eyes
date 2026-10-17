@@ -84,6 +84,7 @@ function emailEvent(
     id?: string;
     from?: string;
     replyTo?: string;
+    headerTo?: string[];
     html?: string;
     auth?: Record<string, unknown>;
   } = {},
@@ -103,7 +104,7 @@ function emailEvent(
         message_id: o.messageId === undefined ? "<m1@agent.test>" : o.messageId,
         subject: o.subject === undefined ? "Line check" : o.subject,
         from: o.from ?? "Agent <agent@agent.test>",
-        to: rcpt.join(", "),
+        to: (o.headerTo ?? rcpt).join(", "),
         date: null,
       },
       content: { raw: null, download: null },
@@ -118,7 +119,7 @@ function emailEvent(
         reply_to: o.replyTo ? [{ address: o.replyTo, name: null }] : null,
         cc: null,
         bcc: null,
-        to_addresses: rcpt.map((address) => ({ address, name: null })),
+        to_addresses: (o.headerTo ?? rcpt).map((address) => ({ address, name: null })),
         in_reply_to: null,
         references: o.references === undefined ? ["<m0@agent.test>"] : o.references,
         attachments: [],
@@ -154,6 +155,7 @@ function setup(
     Record<"agentById" | "askEyes" | "awaitAnswer", (...args: never[]) => Promise<unknown>>
   > = {},
   env: Record<string, string> = { PRIMITIVE_WEBHOOK_SECRET: SECRET },
+  email_domain: string | null = DOMAIN,
 ) {
   const providers = fakeProviders();
   providers.clock.set(NOW);
@@ -161,7 +163,7 @@ function setup(
     public_api_url: "https://api.eyes.test",
     worker_web_url: "https://w.eyes.test",
     link_secret: LINK_SECRET,
-    email_domain: DOMAIN,
+    email_domain,
   });
   const svc = {
     agentById: vi.fn(async (id: string) => (id === AGENT_ID ? AGENT : null)),
@@ -250,6 +252,14 @@ describe("recipient address", () => {
     expect(outbox).toHaveLength(0);
   });
 
+  it("ignores a capability address that is only in the header To, not in the SMTP recipients", async () => {
+    const { post, svc, outbox } = setup();
+    const res = await post(JSON.stringify(emailEvent({ rcpt: [`tasks@${DOMAIN}`], headerTo: [ADDRESS] })));
+    expect(await res.text()).toBe("ignored");
+    expect(svc.agentById).not.toHaveBeenCalled();
+    expect(outbox).toHaveLength(0);
+  });
+
   it("uses the first recipient that is a valid agent address", async () => {
     const { post, svc } = setup();
     await post(JSON.stringify(emailEvent({ rcpt: [`tasks@${DOMAIN}`, forged, ADDRESS] })));
@@ -297,7 +307,9 @@ describe("sender authentication", () => {
     ["a DMARC temperror", { auth: { dmarc: "temperror" } }],
     ["DMARC passing for a different domain than From", { auth: { dmarcFromDomain: "relay.test" } }],
     ["a sender on our own domain", { from: `Eyes <eyes@${DOMAIN}>`, auth: { dmarcFromDomain: DOMAIN } }],
-  ])("processes nothing and sends nothing for %s", async (_, overrides) => {
+    ["an unparsable From that would fall back to the envelope sender", { from: "undisclosed-recipients:;" }],
+    ["two From addresses", { from: "agent@agent.test, other@agent.test" }],
+  ])("processes nothing, sends nothing and logs no address for %s", async (_, overrides) => {
     const { post, svc, outbox } = setup();
     const res = await post(JSON.stringify(emailEvent({ ...overrides, replyTo: "victim@third.test" })));
     expect(res.status).toBe(200);
@@ -305,10 +317,56 @@ describe("sender authentication", () => {
     expect(svc.agentById).not.toHaveBeenCalled();
     expect(svc.askEyes).not.toHaveBeenCalled();
     expect(outbox).toHaveLength(0);
+    expect(warn).toHaveBeenCalledOnce();
+    expect([...warn.mock.calls, ...error.mock.calls].join(" ")).not.toContain("@");
+  });
+
+  it("ignores our own domain from PRIMITIVE_DOMAIN when config.email_domain is null", async () => {
+    const { post, svc } = setup({}, { PRIMITIVE_WEBHOOK_SECRET: SECRET, PRIMITIVE_DOMAIN: DOMAIN }, null);
+    const own = { from: `Eyes <eyes@${DOMAIN}>`, auth: { dmarcFromDomain: DOMAIN } };
+    expect(await (await post(JSON.stringify(emailEvent(own)))).text()).toBe("ignored");
+    expect(svc.agentById).not.toHaveBeenCalled();
+  });
+
+  it("accepts a Primitive mailbox on a subdomain covered by primitive.email DMARC and aligned DKIM", async () => {
+    const { post, svc, outbox } = setup();
+    const managed = {
+      from: "Bot <bot@calm-heron.primitive.email>",
+      auth: {
+        dmarcFromDomain: "primitive.email",
+        dmarcDkimAligned: true,
+        dkimSignatures: [
+          {
+            domain: "primitive.email",
+            selector: "s1",
+            result: "pass",
+            aligned: true,
+            keyBits: 2048,
+            algo: "rsa-sha256",
+          },
+        ],
+      },
+    };
+    expect(await (await post(JSON.stringify(emailEvent(managed)))).text()).toBe("ok");
+    expect(svc.askEyes).toHaveBeenCalledOnce();
+    expect(outbox[0]?.to).toBe("bot@calm-heron.primitive.email");
   });
 });
 
 describe("redelivery", () => {
+  it("forgets the oldest emails once more than 10,000 keys are held", async () => {
+    const { post } = setup({ askEyes: async () => Promise.reject(new EyesError("no_workers_nearby")) });
+    const nth = (i: number) =>
+      JSON.stringify(
+        emailEvent({ id: `evt_${i.toString(16).padStart(64, "0")}`, messageId: `<m${i}@agent.test>` }),
+      );
+    expect(await (await post(nth(0))).text()).toBe("ok");
+    for (let i = 1; i < 5_000; i++) await post(nth(i));
+    expect(await (await post(nth(0))).text()).toBe("duplicate");
+    await post(nth(5_000));
+    expect(await (await post(nth(0))).text()).toBe("ok");
+  }, 30_000);
+
   it("sends nothing for a redelivered event or Message-ID after the answer went out, until the TTL passes", async () => {
     const { post, svc, outbox, clock } = setup();
     await post(JSON.stringify(emailEvent()));
@@ -454,13 +512,35 @@ describe("parseTaskEmail", () => {
 
   it("falls back to body_html with tags and entities stripped when there is no plain text", () => {
     const html =
-      "<div>Is the <b>patio</b> open &amp; busy?</div><div>Location: Zeitgeist, Valencia St</div><style>p{}</style><blockquote>Location: quoted</blockquote>";
+      '<div>Is the <b>patio</b> open &amp; busy?<br class="x">Location: Zeitgeist, Valencia St</div><style type="text/css">p{color:red}</style><blockquote>Location: quoted</blockquote>';
     expect(parseTaskEmail("Patio", null, html)).toEqual({
       question: "Patio. Is the patio open & busy?",
       location: "Zeitgeist, Valencia St",
       task_type: "other_public",
     });
     expect(parseTaskEmail("Patio", "plain wins\nLocation: A", html).location).toBe("A");
+  });
+
+  it.each([
+    ["<a", "<a".repeat(100_000)],
+    ["<style", "<style".repeat(34_000)],
+    ["<br", "<br".repeat(70_000)],
+    ["<script> without a close", `<script>${"x<".repeat(100_000)}`],
+  ])("parses 200 KB of hostile HTML (%s) in under 50 ms, in practice under 5", (_, html) => {
+    const runs = [0, 1, 2].map(() => {
+      const start = performance.now();
+      parseTaskEmail("Q", null, html);
+      return performance.now() - start;
+    });
+    expect(Math.max(...runs)).toBeLessThan(50);
+    expect(Math.min(...runs)).toBeLessThan(5);
+  });
+
+  it("reads only the first 20,000 characters of the text or HTML body", () => {
+    const filler = "x".repeat(20_000);
+    expect(parseTaskEmail("Q", `${filler}\nLocation: Late place`).location).toBeNull();
+    expect(parseTaskEmail("Q", null, `<p>${filler}</p><p>Location: Late place</p>`).location).toBeNull();
+    expect(parseTaskEmail("Q", `Location: Early place\n${filler}`).location).toBe("Early place");
   });
 
   it("caps the question at 500 chars without leaving half a surrogate pair", () => {
@@ -511,10 +591,14 @@ describe("in-thread replies", () => {
     expect(outbox[0]).toMatchObject({ in_reply_to: undefined, references: ["<m0@agent.test>"] });
   });
 
-  it("caps the reply subject at 200 characters", async () => {
+  it("caps the reply subject at 200 characters on one line without half a surrogate pair", async () => {
     const { post, outbox } = setup();
-    await post(JSON.stringify(emailEvent({ subject: `Q ${"x".repeat(300)}` })));
-    expect(outbox[0]?.subject.length).toBeLessThanOrEqual(200);
+    await post(JSON.stringify(emailEvent({ subject: `Q\r\n${"a".repeat(192)}🍩 tail ${"x".repeat(300)}` })));
+    const subject = outbox[0]?.subject ?? "";
+    expect(subject.startsWith(`Re: Q  ${"a".repeat(192)}`)).toBe(true);
+    expect(subject.length).toBeLessThanOrEqual(200);
+    expect(subject).not.toMatch(/[\r\n]/);
+    expect(subject).not.toMatch(/\p{Cs}/u);
   });
 
   it("answers 200 and logs when every reply send fails", async () => {
@@ -626,6 +710,25 @@ describe("answer loop", () => {
     expect(awaitAnswer).toHaveBeenCalledOnce();
     await vi.advanceTimersByTimeAsync(1_000);
     await vi.waitFor(() => expect(outbox).toHaveLength(2));
+    expect(outbox[1]?.text).toContain(ANSWER.answer_text);
+  });
+
+  it("resets the error count after a successful round", async () => {
+    vi.useFakeTimers();
+    const down = new Error("db down");
+    const awaitAnswer = vi.fn();
+    for (let i = 0; i < 4; i++) awaitAnswer.mockRejectedValueOnce(down);
+    awaitAnswer.mockResolvedValueOnce(pending("claimed"));
+    for (let i = 0; i < 4; i++) awaitAnswer.mockRejectedValueOnce(down);
+    awaitAnswer.mockResolvedValueOnce(answered);
+    const { post, outbox } = setup({ awaitAnswer });
+    await post(JSON.stringify(emailEvent()));
+    for (let failures = 1; failures <= 8; failures++) {
+      await vi.waitFor(() => expect(error).toHaveBeenCalledTimes(failures));
+      await vi.advanceTimersByTimeAsync(5_000);
+    }
+    await vi.waitFor(() => expect(outbox).toHaveLength(2));
+    expect(awaitAnswer).toHaveBeenCalledTimes(10);
     expect(outbox[1]?.text).toContain(ANSWER.answer_text);
   });
 
