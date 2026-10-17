@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { createHash } from "node:crypto";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
@@ -157,9 +157,15 @@ async function readPending(file: string): Promise<PendingAsk | null> {
   }
   return fail(
     `${file} is not valid JSON.`,
-    `Delete ${file}, or pass --idempotency-key <your own unique key>.`,
+    "Pass --idempotency-key <the last idempotency_key printed on stderr for this ask> and reuse it on every retry. If none was printed, nothing was sent.",
     "config_error",
   );
+}
+
+async function savePending(file: string, entry: PendingAsk) {
+  const temp = `${file}.${crypto.randomUUID()}.tmp`;
+  await writeFile(temp, JSON.stringify(entry), { mode: 0o600 });
+  await rename(temp, file);
 }
 
 async function claimPending(
@@ -180,7 +186,7 @@ async function claimPending(
     if (!entry) continue;
     if (!entry.task_id || !(await settled(entry.task_id))) return entry;
     const next: PendingAsk = { idempotency_key: nextKey(entry.task_id), task_id: null };
-    await writeFile(file, JSON.stringify(next));
+    await savePending(file, next);
     return next;
   }
 }
@@ -293,12 +299,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
 
     const waitFor = async (
       taskId: string,
-      {
-        timeout,
-        last = "",
-        key,
-        pendingFile,
-      }: { timeout?: number; last?: string; key?: string; pendingFile?: string },
+      { timeout, last = "", key }: { timeout?: number; last?: string; key?: string },
     ) => {
       try {
         let failingSince: number | null = null;
@@ -347,10 +348,6 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           if (json && (status !== last || done)) deps.out(JSON.stringify(reply));
           if (!json && status !== last && !done) deps.out(`status: ${status}`);
           if (done) {
-            if (pendingFile) {
-              const next: PendingAsk = { idempotency_key: nextKey(taskId), task_id: null };
-              await writeFile(pendingFile, JSON.stringify(next)).catch(() => undefined);
-            }
             if (!json) deps.out(lines(reply).join("\n"));
             return reply.answered === true ? 0 : 1;
           }
@@ -456,18 +453,15 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           throw e;
         }
         if (!explicit) {
-          const entry: PendingAsk = { idempotency_key: key, task_id: task.task_id };
-          await writeFile(pendingFile, JSON.stringify(entry)).catch(() => undefined);
+          await savePending(pendingFile, { idempotency_key: key, task_id: task.task_id }).catch(
+            () => undefined,
+          );
         }
         print({ ...task, idempotency_key: key });
         if (o["no-wait"]) return 0;
         if (!json)
           deps.out(`Waiting for the answer. Ctrl-C stops waiting; resume with: eyes await ${task.task_id}`);
-        return await waitFor(task.task_id, {
-          last: task.status,
-          key,
-          pendingFile: explicit ? undefined : pendingFile,
-        });
+        return await waitFor(task.task_id, { last: task.status, key });
       }
       case "await": {
         const input = { task_id: arg, timeout_seconds: num(o.timeout) };

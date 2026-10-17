@@ -235,6 +235,37 @@ it("re-running an ask reuses its key while the task is open, gets a new key once
   expect(calls[5]?.body?.idempotency_key).toBe("mine");
 });
 
+it("status lookup 5xx keeps the key", async () => {
+  const { deps, calls } = setup([
+    [200, ASKED],
+    [500, SERVER_ERROR],
+    [200, ASKED],
+  ]);
+
+  expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
+  expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
+
+  expect(calls[1]).toMatchObject({ method: "GET", url: `https://eyes.test/v1/tasks/${TASK_ID}` });
+  expect(calls[2]?.body?.idempotency_key).toBe(calls[0]?.body?.idempotency_key);
+});
+
+it("empty winner file is retried", async () => {
+  const { deps, calls } = setup([
+    [200, ASKED],
+    [200, ASKED],
+  ]);
+  expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
+  const dir = join(dirname(deps.configPath), "pending-asks");
+  const file = join(dir, readdirSync(dir)[0] ?? "");
+  writeFileSync(file, "");
+  setTimeout(() => writeFileSync(file, JSON.stringify({ idempotency_key: "winner-key", task_id: null })), 50);
+
+  expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
+
+  expect(calls).toHaveLength(2);
+  expect(calls[1]?.body?.idempotency_key).toBe("winner-key");
+});
+
 it("an ask killed mid-request is re-sent with the same key on the next identical run", async () => {
   const { deps, calls, err } = setup([[200, ASKED]]);
   const stop = new AbortController();
@@ -301,6 +332,18 @@ it("two different asks started together on one config dir each keep their own ke
   expect(lineKeys[0]).not.toBe(bakeryKeys[0]);
 });
 
+it("same question with a different bounty gets a different key", async () => {
+  const { deps } = setup([]);
+  const server = fakeServer();
+
+  expect(await run([...ASK, "--no-wait"], { ...deps, fetch: server.fetch })).toBe(0);
+  expect(await run([...ASK, "--bounty", "5", "--no-wait"], { ...deps, fetch: server.fetch })).toBe(0);
+
+  const keys = server.keys["How long is the line?"] ?? [];
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).not.toBe(keys[1]);
+});
+
 it("two identical asks started at the same instant send the same key", async () => {
   const { deps } = setup([]);
   const server = fakeServer();
@@ -330,9 +373,10 @@ it("identical re-runs at the same instant after the task settled agree on one ne
   expect(rerun[0]).not.toBe(first);
 });
 
-it("a final status clears the pending ask, so the next identical ask gets a new key without a lookup", async () => {
+it("after waiting to a final status, the next identical ask looks the task up and gets a new key", async () => {
   const { deps, calls } = setup([
     [200, ASKED],
+    [200, ANSWERED],
     [200, ANSWERED],
     [200, { ...ASKED, task_id: OTHER_TASK_ID }],
   ]);
@@ -340,8 +384,9 @@ it("a final status clears the pending ask, so the next identical ask gets a new 
   expect(await run(ASK, deps)).toBe(0);
   expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
 
-  expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "POST"]);
-  expect(calls[2]?.body?.idempotency_key).not.toBe(calls[0]?.body?.idempotency_key);
+  expect(calls.map((call) => call.method)).toEqual(["POST", "POST", "GET", "POST"]);
+  expect(calls[2]?.url).toBe(`https://eyes.test/v1/tasks/${TASK_ID}`);
+  expect(calls[3]?.body?.idempotency_key).not.toBe(calls[0]?.body?.idempotency_key);
 });
 
 it.each(["expired", "refunded", "disputed"])("ask stops waiting on %s and exits 1", async (status) => {
