@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-16 23:15 PT by orchestrator. Gate: **G0 passed**. Phase 1 + early Phase 2/3 running (T2.1, T2.2, T3.2 started early: their inputs are frozen contracts; ledger moved to engine per ADR-003).
+Updated: 2026-10-17 00:05 PT by orchestrator. Gate: **G0 passed**. First merge done (PR #4). WIP gate clear.
 
 ## Task board
 
@@ -10,13 +10,13 @@ Updated: 2026-10-16 23:15 PT by orchestrator. Gate: **G0 passed**. Phase 1 + ear
 | T0.2 scaffold + CI | orchestrator | done | (initial commit) | n/a | none |
 | T0.3 contracts + migration v1 + fakes | orchestrator | done | (initial commit) | n/a | none |
 | T0.4 agents, hooks, intent system | orchestrator | done | (initial commit) | n/a | none |
-| T1.1 MCP tools + REST + worker API | mcp-builder | verifying | [#2](https://github.com/ayaangazali/eyes/pull/2) | spec PASS, test PASS, intent PASS, ax FAIL (2 major), security pending | fix round after security |
-| T1.2 engine + db | engine-builder | building | | | none |
-| T1.3 Inkbox comms | comms-builder | fix round 1 | [#1](https://github.com/ayaangazali/eyes/pull/1) | intent PASS, spec FAIL, security FAIL, test FAIL | no free text in cold offer (ADR-005) |
-| T1.4 worker web | worker-web-builder | verifying | [#3](https://github.com/ayaangazali/eyes/pull/3) | intent PASS, spec/test pending | none |
-| T1.5 safety | safety-builder | building | | | none |
-| T2.1 Stripe | payments-builder | building | | | none |
-| T2.2 verification | verification-builder | verifying | [#4](https://github.com/ayaangazali/eyes/pull/4) | intent PASS, spec/test pending | none |
+| T1.1 MCP tools + REST + worker API | mcp-builder | fix round 1 | [#2](https://github.com/ayaangazali/eyes/pull/2) | spec PASS, test PASS, intent PASS, ax FAIL, security FAIL (photo bytes corrupted by mcp-use listen; unbounded bodies) | byte-preserving Node adapter |
+| T1.2 engine + db | engine-builder | verifying | [#6](https://github.com/ayaangazali/eyes/pull/6) | intent PASS; spec, test, security running | none |
+| T1.3 Inkbox comms | comms-builder | verifying round 2 | [#1](https://github.com/ayaangazali/eyes/pull/1) | round 2: test PASS (50/50 mutants killed); security+spec running | none |
+| T1.4 worker web | worker-web-builder | fix round 1 | [#3](https://github.com/ayaangazali/eyes/pull/3) | intent PASS, spec FAIL, test FAIL (duplicate POST, GPS re-acquire) | none |
+| T1.5 safety | safety-builder | verifying | [#7](https://github.com/ayaangazali/eyes/pull/7) | spec+security, test+intent running | none |
+| T2.1 Stripe | payments-builder | verifying | [#5](https://github.com/ayaangazali/eyes/pull/5) | spec+intent, test, security running | none |
+| T2.2 verification | verification-builder | **merged** [#4](https://github.com/ayaangazali/eyes/pull/4); follow-up PR in progress | [#4](https://github.com/ayaangazali/eyes/pull/4) | spec PASS, test PASS, intent PASS | none |
 | T2.3 deploy | orchestrator | blocked | | | keys, T1.1, T1.2 |
 | T2.4 money tools | mcp-builder | blocked | | | T2.1 |
 | T3.1 Primitive | comms-builder | blocked | | | G2 |
