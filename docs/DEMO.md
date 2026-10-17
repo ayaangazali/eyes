@@ -108,8 +108,8 @@ curl -s -X POST https://dark-wave-wfmpm.run.mcp-use.com/v1/tasks \
 2. Start a new Claude conversation. A retry with an old `idempotency_key` and the same question returns the old task instead of asking again.
 3. Owner console: set max bounty back to 10 and save.
 4. Budget: each run spends $3.50 of the key's daily cap ($20 by default, per UTC day, which resets at 5 PM PDT). Check `get_spend_policy` shows `remaining_today_usd` of at least 3.50 and `get_balance` at least 3.50; raise the cap in the owner console or top up through `top_up_url` if not.
-5. Stripe: platform available balance at least $3; rerun the fund script if lower.
+5. Stripe (skip while payments are simulated): platform available balance at least $3; rerun the fund script if lower.
 6. Cafe worker back at the door with Messages open. Room phone untouched.
-7. Send the next email thread with a new subject.
+7. Send the next email thread (skip while email is simulated) with a new subject.
 8. Dashboard needs nothing; reload the tab if the map drifted.
 9. Note pass or fail and what broke. Three passes in a row is G3.

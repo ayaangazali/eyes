@@ -18,7 +18,7 @@ Hacking: Sat Oct 17 10:30 AM to Sun Oct 18 10:00 AM (submissions). Feature freez
 
 | Task | What | Status |
 |---|---|---|
-| T4.26 (#80) | fewer false refusals from the Claude classifier; recall stayed 1.000 on 3 runs, 34 adversarial tasks blocked | PASS, merging; needs a server redeploy |
+| T4.26 (#80) | fewer false refusals from the Claude classifier; recall stayed 1.000 on 3 runs, 34 adversarial tasks blocked | merged 10:51 PT; needs a server redeploy |
 | T4.27 (#81, fixes #78) | place lookup must not pick the wrong branch of a chain store | verifying |
 
 Every PR: spec + test + intent verifiers, security on money/auth/webhooks/safety, ax on agent surfaces. Auto-merge on PASS + green CI. ADR-010 decides blocking vs deferred. Verdicts live in `intent/verdicts/`.
@@ -39,8 +39,8 @@ Set server env with `npx mcp-use servers env set 0526925a-58ae-4d83-9c3b-ed37892
 
 | Key | Steps | Proof (live-verified) |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | done 2026-10-17 ~10:00 PT: set on the server with `EYES_PROVIDERS=live`, added as the repo secret; `pnpm safety:eval` precision 0.946, recall 1.000 | STATUS: classifier refusals, vision verdicts and face deletion live-verified |
-| Inkbox iMessage line | done 2026-10-17: free plan, shared line +16504849720, identity `hackathon`, `imessage.received` subscribed to `/webhooks/inkbox`, `INKBOX_API_KEY`, `INKBOX_AGENT_HANDLE`, signing key and auth token set on the server. `INKBOX_PHONE_NUMBER=+16504849720` set and Sites built with `VITE_INKBOX_NUMBER=+16504849720 VITE_INKBOX_CONNECT="connect @hackathon"` at 09:45 PT (add `VITE_LIVE_PAYOUTS=true` and redeploy Sites once `STRIPE_SECRET_KEY` is set); each worker iPhone texts `connect @hackathon`, then START | G1 live: Claude -> ask_eyes -> teammate iPhone gets the offer -> YES -> capture link -> photo -> Claude gets the answer |
+| `ANTHROPIC_API_KEY` | done 2026-10-17 09:40 PT: set on the server with `EYES_PROVIDERS=live`, added as the repo secret; `pnpm safety:eval` precision 0.946, recall 1.000 | STATUS: classifier refusals, vision verdicts and face deletion live-verified |
+| Inkbox iMessage line | done 2026-10-17: free plan, shared line +16504849720, identity `hackathon`, `imessage.received` subscribed to `/webhooks/inkbox`, `INKBOX_API_KEY`, `INKBOX_AGENT_HANDLE`, signing key and auth token set on the server. `INKBOX_PHONE_NUMBER=+16504849720` set on the server at 09:45 PT (deploy c1824102); Sites built with `VITE_INKBOX_NUMBER=+16504849720 VITE_INKBOX_CONNECT="connect @hackathon"` (6ac27658, now ca4391f9) (add `VITE_LIVE_PAYOUTS=true` and redeploy Sites once `STRIPE_SECRET_KEY` is set); each worker iPhone texts `connect @hackathon`, then START | G1 live: Claude -> ask_eyes -> teammate iPhone gets the offer -> YES -> capture link -> photo -> Claude gets the answer |
 | Stripe sandbox | set `STRIPE_SECRET_KEY`, then rebuild the worker web with `VITE_LIVE_PAYOUTS=true` and redeploy Sites (without it the JOIN and capture pages keep saying payouts are simulated); create both event destinations (account: `checkout.session.completed`; connected accounts: `account.updated`) to `/webhooks/stripe`, set both secrets; pre-fund with 4000 0000 0000 0077; worker texts START and onboards through the payout link | G2: top-up via Checkout credits the balance; verified answer creates a $3 transfer visible in the Stripe dashboard; expiry refunds |
 | Primitive | set `PRIMITIVE_API_KEY`, `PRIMITIVE_WEBHOOK_SECRET`, `PRIMITIVE_DOMAIN`; deploy the inbound function to POST `/webhooks/primitive`; ask staff for `send_to_any_domain` | an agent emails its Eyes address and gets a threaded reply with the photo; the owner link email arrives |
 | Armature | set `ANALYTICS_INGEST_API_KEY`; wire T3.4 | events visible in Armature; eval run recorded |
@@ -62,6 +62,6 @@ Claude asks "Is the line at Blue Bottle Coffee, Mint Plaza long right now? Use E
 |---|---|
 | Inkbox iMessage line not provisioned in time, or a worker texts from an Apple ID email (#25) | teammate phones send from their numbers; worst case run G1 on the fake messenger and show the capture page on a phone |
 | Stripe Connect onboarding friction | pre-onboard one teammate worker before demos; show the transfer in the dashboard |
-| Claude API slow or down during the demo | the classifier fails closed after 12 seconds (refusal, nothing charged) and vision sends the task to review; rules still refuse the demo's unsafe task |
+| Claude API slow or down during the demo | the classifier fails closed within 12 seconds (refusal, nothing charged) and vision sends the task to review; rules still refuse the demo's unsafe task |
 | Venue GPS drift | verify radius 150 m; capture at the cafe door |
 | Manufact deploy breaks on a merge | redeploy the previous deployment (`npx mcp-use deployments restart <id>`); the same Docker image runs anywhere |
