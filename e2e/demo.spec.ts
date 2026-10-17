@@ -1,9 +1,9 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { createServer as createHttpServer, type Server } from "node:http";
-import { createRequire } from "node:module";
 import type { AddressInfo } from "node:net";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { expect, test } from "@playwright/test";
+import postgres from "postgres";
 import { toNodeListener } from "../apps/mcp/src/http.ts";
 import { createServer } from "../apps/mcp/src/server.ts";
 import { createDashboardServer } from "../apps/web/dashboard/src/server.ts";
@@ -59,7 +59,7 @@ const sent = (to: string, kind: string) =>
 const captureLink = (phone: string) =>
   sent(phone, "capture_link").at(-1)?.payload as { task_id: string; capture_url: string } | undefined;
 
-let admin: { unsafe(query: string): Promise<unknown>; end(): Promise<void> } | undefined;
+let admin: postgres.Sql | undefined;
 let dbName = "";
 let api: Server | undefined;
 let dashboard: Server | undefined;
@@ -171,11 +171,14 @@ async function emailEyes(to: string, messageId: string, subject: string, text: s
   expect(await res.text()).toBe("ok");
 }
 
-test.skip(!DATABASE_URL, "Set DATABASE_URL to a Postgres server the spec may create a database on.");
+test.skip(
+  !DATABASE_URL && !process.env.CI,
+  "Set DATABASE_URL to a Postgres server the spec may create a database on.",
+);
 
 test.beforeAll(async () => {
-  const pg = createRequire(new URL("../packages/db/package.json", import.meta.url))("postgres");
-  const sql = pg(DATABASE_URL, { onnotice: () => {} });
+  if (!DATABASE_URL) throw new Error("CI must set DATABASE_URL: the G3 demo check cannot pass by skipping.");
+  const sql = postgres(DATABASE_URL, { onnotice: () => {} });
   admin = sql;
   dbName = `eyes_demo_${randomBytes(4).toString("hex")}`;
   await sql.unsafe(`create database ${dbName}`);
@@ -307,12 +310,20 @@ test("demo: Claude asks about the cafe line, a texted worker answers on site, Cl
     expect(result.answer?.worker_distance_m).toBeLessThan(150);
   });
 
-  await test.step("one $3.00 transfer, one escrow, release, fee and payout row, released on the dashboard", async () => {
+  await test.step("the agent's $20 top-up, one $3.00 transfer, one row per money move, released on the dashboard", async () => {
     expect(providers.payments.transfers).toEqual([
       expect.objectContaining({ amount_cents: 300, task_id: taskId }),
     ]);
-    const rows = (await feed()).ledger.filter((l) => l.task_id === taskId);
-    expect(rows.map((l) => [l.type, l.amount_cents]).sort()).toEqual([
+    const { ledger } = await feed();
+    expect(ledger.filter((l) => l.type === "topup").map((l) => [l.amount_cents, l.task_id])).toEqual([
+      [2000, null],
+    ]);
+    expect(
+      ledger
+        .filter((l) => l.task_id === taskId)
+        .map((l) => [l.type, l.amount_cents])
+        .sort(),
+    ).toEqual([
       ["escrow", 350],
       ["fee", 50],
       ["payout", 300],

@@ -12,10 +12,10 @@ export type Fate = "paid" | "claimed" | "cancelled" | "expired";
 
 const SEED = 20261017;
 const WORKER_COUNT = 40;
-const POST_WINDOW_S = 36;
+const POST_WINDOW_S = 45;
 const EXPIRING_DEADLINE_MIN = 5;
 const DEADLINE_MIN = 30;
-const CLAIM_CUTOFF_S = 48;
+const CLAIM_CUTOFF_S = 52;
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
 const BOUNTIES = [2, 3, 3, 3, 4, 5];
@@ -152,7 +152,7 @@ export function plan(agents: number, perAgent: number, seed = SEED): Planned[] {
     const place = pick(PLACES);
     const roll = rand();
     const postAt = after(0, 0, POST_WINDOW_S);
-    const actAt = after(postAt, 3, 12);
+    const actAt = after(postAt, 1, 5);
     return {
       agent: i % agents,
       place,
@@ -161,7 +161,7 @@ export function plan(agents: number, perAgent: number, seed = SEED): Planned[] {
       fate: roll < 0.5 ? "paid" : roll < 0.7 ? "claimed" : roll < 0.85 ? "cancelled" : "expired",
       postAt,
       actAt,
-      captureAt: after(actAt, 4, 12),
+      captureAt: after(actAt, 3, 8),
     };
   }).sort((a, b) => a.postAt - b.postAt);
 }
@@ -234,8 +234,9 @@ async function run(url: string, agentCount: number, perAgent: number) {
   const posted = new Map<Planned, { id: string; phones: string[]; token?: string }>();
   const open = new Map<string, { sentAt: number; deadline: number }>();
   const offers = new Map<string, string[]>();
+  const busy = new Map<string, Planned>();
   const claimable = (phone: string) =>
-    (offers.get(phone) ?? [])
+    (busy.has(phone) ? [] : (offers.get(phone) ?? []))
       .filter((id) => (open.get(id)?.deadline ?? 0) > Date.now())
       .sort((a, b) => (open.get(b)?.sentAt ?? 0) - (open.get(a)?.sentAt ?? 0))[0];
   const name = (t: Planned) => t.place.label.replace(/,.*/, "");
@@ -277,7 +278,12 @@ async function run(url: string, agentCount: number, perAgent: number) {
     if (!task) return;
     const phone = task.phones.find((p) => claimable(p) === task.id);
     if (!phone && Date.now() - started < CLAIM_CUTOFF_S * 1000) return later(2, () => claim(t));
-    if (!phone) return say(`no claim  ${name(t)}: every notified worker still has a newer offer`);
+    if (!phone) {
+      const held = task.phones.filter((p) => busy.has(p)).length;
+      return say(
+        `no claim  ${name(t)}: ${held} of ${task.phones.length} notified workers busy, the rest hold newer offers`,
+      );
+    }
     await service.handleWorkerReply({ phone, intent: "yes", text: "YES" });
     const link = outbox.findLast((m) => m.to === phone && m.kind === "capture_link")?.payload as {
       task_id: string;
@@ -286,6 +292,7 @@ async function run(url: string, agentCount: number, perAgent: number) {
     if (link.task_id !== task.id) throw new Error(`worker claimed ${link.task_id}, expected ${task.id}`);
     open.delete(task.id);
     task.token = new URL(link.capture_url).searchParams.get("t") ?? "";
+    busy.set(phone, t);
     say(`claimed   ${name(t)}`);
     if (t.fate === "paid") later(t.captureAt - t.actAt, () => capture(t));
   }
@@ -306,6 +313,7 @@ async function run(url: string, agentCount: number, perAgent: number) {
       },
       { bytes: JPEG, content_type: "image/jpeg" },
     );
+    for (const [phone, held] of busy) if (held === t) busy.delete(phone);
     say(`${result.status.padEnd(9)} ${name(t)}: ${kind.answer}`);
   }
 
