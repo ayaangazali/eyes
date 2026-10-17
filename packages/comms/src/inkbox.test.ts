@@ -151,6 +151,7 @@ const offer = (o: Partial<OfferMessage> = {}): OfferMessage => ({
   bounty_cents: 300,
   distance_m: 640,
   deadline_at: "2026-10-17T19:30:00.000Z",
+  live_payouts: true,
   ...o,
 });
 
@@ -324,6 +325,7 @@ describe("createInkboxMessaging", () => {
       place_label: "Ferry Building",
       amount_cents: 300,
       earnings_url: EARNINGS_URL,
+      live_payouts: true,
     };
     expect(await m.sendOffer(TO, offer())).toEqual({ id: "im_1" });
     expect(await m.sendCaptureLink(TO, capture)).toEqual({ id: "im_1" });
@@ -429,6 +431,42 @@ describe("offer template", () => {
   });
 });
 
+describe("simulated payouts", () => {
+  it.each(TASK_TYPES)(
+    "an offer is marked as an unpaid test instead of naming the bounty, within 159 chars (%s)",
+    (task_type) => {
+      const text = offerText(
+        offer({
+          task_type,
+          place_label: "Westfield San Francisco Centre Food Hall Level One, San Francisco",
+          bounty_cents: 4999,
+          distance_m: 40_000_000,
+          live_payouts: false,
+        }),
+      );
+      expect(text).toMatch(
+        /^Eyes test \(\$0\): .+ at Westfield San Francisco Centre Food Hall \(24854\.8 mi\) by 12:30 PM PDT\. Reply YES to claim, STOP to opt out\.$/,
+      );
+      expect(text).not.toContain("49.99");
+      expect(text.length).toBeLessThanOrEqual(159);
+    },
+  );
+
+  it("the paid text says the answer was accepted and no money was sent", () => {
+    expect(
+      paidText({
+        task_id: "t",
+        place_label: "Ferry Building, San Francisco",
+        amount_cents: 300,
+        earnings_url: EARNINGS_URL,
+        live_payouts: false,
+      }),
+    ).toBe(
+      `Eyes: your answer for the task at Ferry Building was accepted. No money was sent because payouts are simulated on this test server. Your earnings: ${EARNINGS_URL}`,
+    );
+  });
+});
+
 describe("place label in every template", () => {
   it.each([
     ["Blue Bottle Coffee, Mint Plaza, San Francisco", "Blue Bottle Coffee"],
@@ -469,7 +507,21 @@ describe("place label in every template", () => {
         deadline_at: NOW.toISOString(),
       }),
       alreadyClaimedText({ place_label }),
-      paidText({ task_id: "t", place_label, amount_cents: 300, earnings_url: EARNINGS_URL }),
+      paidText({
+        task_id: "t",
+        place_label,
+        amount_cents: 300,
+        earnings_url: EARNINGS_URL,
+        live_payouts: true,
+      }),
+      offerText(offer({ place_label, live_payouts: false })),
+      paidText({
+        task_id: "t",
+        place_label,
+        amount_cents: 300,
+        earnings_url: EARNINGS_URL,
+        live_payouts: false,
+      }),
     ];
     for (const text of texts) expect(text).toContain(` at ${expected}`);
     expect(offerText(offer({ place_label }))).toBe(
@@ -492,7 +544,12 @@ describe("post-reply templates", () => {
   });
 
   it("paid text shows whole and fractional dollars", () => {
-    const paid = { task_id: "t", place_label: "Ferry Building", earnings_url: EARNINGS_URL };
+    const paid = {
+      task_id: "t",
+      place_label: "Ferry Building",
+      earnings_url: EARNINGS_URL,
+      live_payouts: true,
+    };
     expect(paidText({ ...paid, amount_cents: 350 })).toContain("$3.50 ");
     expect(paidText({ ...paid, amount_cents: 300 })).toContain("$3 ");
   });
@@ -503,7 +560,13 @@ describe("post-reply templates", () => {
       `e:${crypto.randomUUID()}`,
       new Date("2026-10-24T19:00:00.000Z"),
     )}`;
-    const text = paidText({ task_id: "t", place_label: "W".repeat(40), amount_cents: 4999, earnings_url });
+    const text = paidText({
+      task_id: "t",
+      place_label: "W".repeat(40),
+      amount_cents: 4999,
+      earnings_url,
+      live_payouts: true,
+    });
     expect(text.endsWith(` Your earnings: ${earnings_url}`)).toBe(true);
     expect(text.length).toBeLessThanOrEqual(1600);
   });

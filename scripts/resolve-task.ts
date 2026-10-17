@@ -52,6 +52,7 @@ const service = createEyesService({
     link_secret: env.EYES_LINK_SECRET,
     test_mode: env.EYES_TEST_MODE ? env.EYES_TEST_MODE === "true" : undefined,
     email_domain: env.PRIMITIVE_DOMAIN || undefined,
+    live_payouts: live.payments,
   }),
 });
 

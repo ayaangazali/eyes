@@ -10,6 +10,7 @@ export type OfferMessage = {
   bounty_cents: number;
   distance_m: number;
   deadline_at: string;
+  live_payouts: boolean;
 };
 
 export interface Messaging {
@@ -21,7 +22,13 @@ export interface Messaging {
   sendAlreadyClaimed(to: string, msg: { place_label: string }): Promise<SentMessage>;
   sendPaid(
     to: string,
-    msg: { task_id: string; place_label: string; amount_cents: number; earnings_url: string },
+    msg: {
+      task_id: string;
+      place_label: string;
+      amount_cents: number;
+      earnings_url: string;
+      live_payouts: boolean;
+    },
   ): Promise<SentMessage>;
   sendText(to: string, body: string): Promise<SentMessage>;
 }

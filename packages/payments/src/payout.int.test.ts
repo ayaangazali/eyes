@@ -100,6 +100,7 @@ describe.skipIf(!url)("a payout whose first try Stripe runs late while a retry i
       public_api_url: "https://api.eyes.test",
       worker_web_url: "https://w.eyes.test",
       link_secret: "test-link-secret-0123456789",
+      live_payouts: true,
     }),
   });
   const outbox = providers.messaging.outbox as { to: string; kind: string; payload: unknown }[];

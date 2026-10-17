@@ -194,6 +194,7 @@ test.beforeAll(async () => {
     worker_web_url: WEB,
     link_secret: "e2e-demo-link-secret-0123456789",
     email_domain: EMAIL_DOMAIN,
+    live_payouts: true,
   });
   const db = { kind: "postgres" as const, url: url.href };
   const service = createEyesService({

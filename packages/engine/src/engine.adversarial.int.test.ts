@@ -43,6 +43,7 @@ function make(opts: { maxWorkers?: number; verify?: () => Promise<VerificationRe
       worker_web_url: "https://w.eyes.test",
       link_secret: "test-link-secret-0123456789",
       dispatch_max_workers: opts.maxWorkers ?? 3,
+      live_payouts: true,
     }),
   });
   return { providers, service, outbox: providers.messaging.outbox as Msg[] };

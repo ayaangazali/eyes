@@ -64,6 +64,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       worker_web_url: "https://w.eyes.test",
       link_secret: "test-link-secret-0123456789",
       email_domain: "brave-otter.primitive.email",
+      live_payouts: true,
     }),
   };
   const service = createEyesService(deps);
@@ -599,6 +600,69 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const live = await delivering.signupAgent({ name: "live-mail-agent", owner_email: ownerEmail });
     expect(live.next_step).toContain(`We emailed your user at ${ownerEmail} a private control link`);
     expect(live.next_step).not.toContain("operator");
+  });
+
+  it("tells workers payouts are simulated and never texts a payout link when payouts are not live", async () => {
+    const simulated = "This is a test server and payouts are simulated, so no real money is paid.";
+    const sim = createEyesService({ ...deps, config: { ...deps.config, live_payouts: false } });
+    const at = somewhere();
+    const phone = newPhone();
+    const last = (kind: string) => outbox.findLast((m) => m.to === phone && m.kind === kind)?.payload;
+    const capture = async (extra: Partial<AskEyesInput> = {}) => {
+      const asked = await sim.askEyes(await agent(), {
+        question: "Is the line long right now?",
+        location: at,
+        task_type: "line_length",
+        bounty_usd: 3,
+        deadline_minutes: 30,
+        require_photo: true,
+        idempotency_key: randomUUID(),
+        ...extra,
+      });
+      expect(last("offer")).toMatchObject({ task_id: asked.task_id, live_payouts: false });
+      await sim.handleWorkerReply({ phone, intent: "yes", text: "YES" });
+      const token = new URL(String(last("capture_link")?.capture_url)).searchParams.get("t") ?? "";
+      const result = await sim.submitCapture(
+        token,
+        {
+          lat: at.lat,
+          lng: at.lng,
+          accuracy_m: 5,
+          captured_at: providers.clock.now().toISOString(),
+          answer_text: "short",
+          answer_bool: null,
+        },
+        { bytes: new Uint8Array([1]), content_type: "image/jpeg" },
+      );
+      return { task_id: asked.task_id, result };
+    };
+
+    await sim.handleWorkerReply({ phone, intent: "start", text: "START" });
+    expect(last("text")).toBe(
+      `You are not signed up for Eyes yet. Join at https://w.eyes.test to get paid tasks near you. ${simulated}`,
+    );
+    const joined = await sim.joinWorker({ name: "Test Worker", phone, ...at });
+    expect(joined.opt_in_instructions).toBe(
+      `Text START to the Eyes number to start getting paid tasks near you. When a task text arrives, reply YES to claim it. Text STOP any time to pause. ${simulated}`,
+    );
+    await sim.handleWorkerReply({ phone, intent: "start", text: "START" });
+    expect(last("text")).toBe(`You are in. Eyes will text you paid tasks nearby. ${simulated}`);
+    await sim.handleWorkerReply({ phone, intent: "help", text: "HELP" });
+    expect(String(last("text"))).toContain(`STOP to opt out. ${simulated} More: `);
+
+    const verified = await capture();
+    expect(verified.result).toMatchObject({ status: "verified", message: `Verified. ${simulated}` });
+    expect(last("paid")).toMatchObject({ task_id: verified.task_id, live_payouts: false });
+
+    providers.vision.setVerdict({ answers_question: false, reason: "No line in the photo." });
+    const review = await capture();
+    expect(review.result).toMatchObject({
+      status: "needs_review",
+      message: `Thanks, we got it. Your answer needs a quick manual check (No line in the photo.). ${simulated}`,
+    });
+    expect(outbox.some((m) => m.to === phone && JSON.stringify(m.payload).includes("/w/connect/"))).toBe(
+      false,
+    );
   });
 
   it("still signs the agent up when the owner email fails, without logging the owner link", async () => {

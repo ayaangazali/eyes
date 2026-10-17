@@ -257,7 +257,7 @@ const PAYOUT_LABELS: Record<NonNullable<WorkerEarnings["tasks"][number]["payout"
   waiting_for_payout_setup: "Waiting for your payout setup",
 };
 
-function earningsPage(view: WorkerEarnings) {
+function earningsPage(view: WorkerEarnings, livePayouts: boolean) {
   const waiting = view.tasks.some((t) => t.payout === "waiting_for_payout_setup");
   return shell(
     "Your Eyes earnings",
@@ -267,13 +267,13 @@ function earningsPage(view: WorkerEarnings) {
 <dt>Paid to you</dt><dd>${usd(view.paid_usd)}</dd>
 <dt>Earned, not sent yet</dt><dd>${usd(view.pending_usd)}</dd>
 </dl>
-${waiting ? html`<p class="note">Some of your earnings are waiting for you to set up payouts. Open the payout link we texted you, or text START to the Eyes number for a new one.</p>` : ""}
+${!livePayouts ? html`<p class="note">This is a test server and payouts are simulated, so the amounts on this page are not real money and nothing is sent to you.</p>` : waiting ? html`<p class="note">Some of your earnings are waiting for you to set up payouts. Open the payout link we texted you, or text START to the Eyes number for a new one.</p>` : ""}
 <h2>Your recent tasks</h2>
 ${
   view.tasks.length
     ? html`<div class="scroll"><table>
 <thead><tr><th scope="col">Place</th><th scope="col">Bounty</th><th scope="col">Task</th><th scope="col">Payout</th><th scope="col">Claimed</th></tr></thead>
-<tbody>${view.tasks.map((t) => html`<tr><td>${t.place_label}</td><td>${usd(t.bounty_usd)}</td><td>${t.status.replaceAll("_", " ")}</td><td>${t.payout ? PAYOUT_LABELS[t.payout] : ""}${t.paid_at ? ` ${when(t.paid_at)}` : ""}</td><td>${when(t.claimed_at)}</td></tr>`)}</tbody>
+<tbody>${view.tasks.map((t) => html`<tr><td>${t.place_label}</td><td>${usd(t.bounty_usd)}</td><td>${t.status.replaceAll("_", " ")}</td><td>${t.payout ? (livePayouts ? PAYOUT_LABELS[t.payout] : "Simulated, nothing sent") : ""}${livePayouts && t.paid_at ? ` ${when(t.paid_at)}` : ""}</td><td>${when(t.claimed_at)}</td></tr>`)}</tbody>
 </table></div>`
     : html`<p>No tasks yet. Reply YES to a task text to claim one.</p>`
 }`,
@@ -444,10 +444,19 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
     ),
   );
   app.get("/w/earnings/:token", (c) =>
-    explained(c, async () => c.html(earningsPage(await deps.service.workerEarnings(c.req.param("token"))))),
+    explained(c, async () =>
+      c.html(earningsPage(await deps.service.workerEarnings(c.req.param("token")), deps.config.live_payouts)),
+    ),
   );
   app.get("/w/connect/:token", (c) =>
-    redirectTo(c, () => deps.service.workerConnectUrl(c.req.param("token"))),
+    deps.config.live_payouts
+      ? redirectTo(c, () => deps.service.workerConnectUrl(c.req.param("token")))
+      : c.html(
+          page(
+            "Payouts are simulated",
+            "This is a test server and payouts are simulated, so there is nothing to set up and no real money is paid. You can close this page.",
+          ),
+        ),
   );
 
   return app;
