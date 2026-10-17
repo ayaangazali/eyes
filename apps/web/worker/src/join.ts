@@ -74,8 +74,10 @@ form.addEventListener("submit", async (event) => {
           textContent: `Text START to ${number}`,
         }),
       );
-      $("start").hidden = false;
+    } else {
+      $("start").textContent = out.opt_in_instructions;
     }
+    $("start").hidden = false;
     form.hidden = true;
     $("done").hidden = false;
   } catch (err) {
