@@ -209,6 +209,7 @@ async function run(url: string, agentCount: number, perAgent: number) {
       public_api_url: "http://127.0.0.1:3000",
       worker_web_url: "http://127.0.0.1:4173",
       link_secret: randomUUID(),
+      live_payouts: true,
     }),
   });
   const outbox = providers.messaging.outbox;

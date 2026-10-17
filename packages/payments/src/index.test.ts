@@ -139,7 +139,7 @@ const PRIVATE = {
   csp: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };
 
-function setup(payments: Payments = fakeProviders().payments) {
+function setup(payments: Payments = fakeProviders().payments, live_payouts = true) {
   const service = {
     creditTopup: vi.fn(async () => {}),
     markWorkerOnboarded: vi.fn(async () => {}),
@@ -180,6 +180,7 @@ function setup(payments: Payments = fakeProviders().payments) {
     public_api_url: "https://api.eyes.test",
     worker_web_url: "https://w.eyes.test",
     link_secret: "0123456789abcdef",
+    live_payouts,
   });
   const app = stripeRoutes(
     { service: service as unknown as EyesService, providers: { ...fakeProviders(), payments }, config },
@@ -300,6 +301,18 @@ describe("stripeRoutes", () => {
     const res = await app.request("/w/connect/tok");
     expect(res.status).toBe(302);
     expect(res.headers.get("location")).toBe("https://connect.test/tok");
+  });
+
+  it("shows a simulated page for a worker connect link when payouts are simulated, minting no onboarding link", async () => {
+    const { app, service } = setup(undefined, false);
+    const res = await app.request("/w/connect/tok");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+    expect(privateHeaders(res)).toEqual(PRIVATE);
+    expect(await res.text()).toContain(
+      "This is a test server and payouts are simulated, so there is nothing to set up and no real money is paid.",
+    );
+    expect(service.workerConnectUrl).not.toHaveBeenCalled();
   });
 
   it("explains an EyesError with its status", async () => {
@@ -446,6 +459,19 @@ describe("worker earnings page", () => {
     expect(body).toContain(
       "<td>Ferry Building</td><td>$3.00</td><td>paid</td><td>Paid 2026-10-17 09:40 UTC</td>",
     );
+  });
+
+  it("says the amounts are not real money, instead of asking for payout setup, when payouts are simulated", async () => {
+    const { app } = setup(undefined, false);
+    const body = await (await app.request("/w/earnings/earnings-tok")).text();
+    expect(body).toContain(
+      "This is a test server and payouts are simulated, so the amounts on this page are not real money and nothing is sent to you.",
+    );
+    expect(body).not.toContain("waiting for you to set up payouts");
+    expect(body).toContain(
+      "<td>Ferry Building</td><td>$3.00</td><td>paid</td><td>Simulated, nothing sent</td>",
+    );
+    expect(body).not.toMatch(/Waiting for your payout setup|Not sent yet|Paid 2026/);
   });
 
   it("answers an invalid or expired link with a 404 page that says how to get a new one", async () => {

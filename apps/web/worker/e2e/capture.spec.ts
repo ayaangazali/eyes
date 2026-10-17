@@ -98,7 +98,7 @@ test("capture sends a live photo with GPS and shows the verification", async ({ 
   await expect(page.getByRole("heading", { name: offer.question })).toBeVisible();
   await expect(page.getByText(/You are \d{4} m from the place\./)).toBeVisible();
   await page.context().setGeolocation({ latitude: 37.78246, longitude: -122.40776, accuracy: 10 });
-  await expect(page.getByText("$3.00")).toBeVisible();
+  await expect(page.getByText("Test task, no real pay")).toBeVisible();
   await expect(page.getByText(/\d+:\d\d left/)).toBeVisible();
   await expect(page.getByRole("link", { name: /Blue Bottle Coffee/ })).toHaveAttribute(
     "href",
@@ -112,7 +112,7 @@ test("capture sends a live photo with GPS and shows the verification", async ({ 
   await page.getByLabel("Anything to add?").fill("Two cartons left");
   await page.getByRole("button", { name: "Send to Eyes" }).click();
 
-  await expect(page.getByRole("heading", { name: "Verified, payout pending" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Verified", exact: true })).toBeVisible();
   await expect(page.getByText(okResult.message)).toBeVisible();
   await expect(page.getByText("Photo answers the question: passed")).toBeVisible();
   await expect(page.getByText(okResult.verification.vision_reason)).toBeVisible();

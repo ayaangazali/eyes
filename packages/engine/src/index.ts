@@ -107,6 +107,7 @@ const REPLY_TEXT: Record<"no" | "released" | "help" | "unknown", string> = {
   help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out.",
   unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
+const SIMULATED_PAY = "This is a test server and payouts are simulated, so no real money is paid.";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const iso = (s: string) => new Date(s).toISOString();
@@ -162,6 +163,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const nowIso = () => now().toISOString();
   const maybe = async <T>(fn: string, args: RpcArgs) => (await rpc<T>(fn, args))[0];
   const one = async <T>(fn: string, args: RpcArgs) => (await rpc<T>(fn, args))[0] as T;
+  const simulatedPay = config.live_payouts ? "" : ` ${SIMULATED_PAY}`;
 
   const topUpUrl = (agentId: string) =>
     `${config.public_api_url}/topup/${signToken(config.link_secret, `t:${agentId}`)}`;
@@ -296,6 +298,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
     await send().catch(() => console.error(`text to the worker for task ${taskId} failed`));
   }
 
+  const notifyPaid = (task: Task, worker: Worker) =>
+    textWorker(worker, task.id, () =>
+      messaging.sendPaid(worker.phone, {
+        task_id: task.id,
+        place_label: task.place_label,
+        amount_cents: task.bounty_cents,
+        earnings_url: earningsUrl(worker.id),
+        live_payouts: config.live_payouts,
+      }),
+    );
+
   async function payOut(task: Task, worker: Payee): Promise<Task> {
     let paid: Task | undefined;
     try {
@@ -323,15 +336,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       console.error(`payout for task ${task.id} failed`, err);
     }
     if (!paid) return task;
-    const { id, place_label, bounty_cents } = paid;
-    await textWorker(worker, id, () =>
-      messaging.sendPaid(worker.phone, {
-        task_id: id,
-        place_label,
-        amount_cents: bounty_cents,
-        earnings_url: earningsUrl(worker.id),
-      }),
-    );
+    await notifyPaid(paid, worker);
     return paid;
   }
 
@@ -339,6 +344,10 @@ export function createEyesService(deps: EngineDeps): EyesService {
     if (task.status !== "verified") return task;
     const { stripe_account_id } = worker;
     if (stripe_account_id) return payOut(task, { ...worker, stripe_account_id });
+    if (!config.live_payouts) {
+      await notifyPaid(task, worker);
+      return task;
+    }
     await textWorker(worker, task.id, () =>
       messaging.sendText(
         worker.phone,
@@ -524,6 +533,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
               bounty_cents: task.bounty_cents,
               distance_m: Math.round(w.distance_m),
               deadline_at: iso(task.deadline_at),
+              live_payouts: config.live_payouts,
             }),
           ),
         );
@@ -729,8 +739,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_now: nowIso(),
       });
       return {
-        opt_in_instructions:
-          "Text START to the Eyes number to start getting paid tasks near you; we reply with your payout setup link. When a task text arrives, reply YES to claim it. Text STOP any time to pause.",
+        opt_in_instructions: `Text START to the Eyes number to start getting paid tasks near you${config.live_payouts ? "; we reply with your payout setup link" : ""}. When a task text arrives, reply YES to claim it. Text STOP any time to pause.${simulatedPay}`,
         inkbox_number: null,
         connect_url: null,
       };
@@ -779,7 +788,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         if (intent === "stop") return;
         await messaging.sendText(
           phone,
-          `You are not signed up for Eyes yet. Join at ${config.worker_web_url} to get paid tasks near you.`,
+          `You are not signed up for Eyes yet. Join at ${config.worker_web_url} to get paid tasks near you.${simulatedPay}`,
         );
         return;
       }
@@ -789,7 +798,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: true });
           await messaging.sendText(
             phone,
-            `You are in. Eyes will text you paid tasks nearby. Set up payouts here: ${connectUrl(worker.id)}`,
+            `You are in. Eyes will text you paid tasks nearby. ${config.live_payouts ? `Set up payouts here: ${connectUrl(worker.id)}` : SIMULATED_PAY}`,
           );
         },
         stop: async () => {
@@ -822,6 +831,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
                 bounty_cents: released.bounty_cents,
                 distance_m: Math.round(distanceMeters(released, w)),
                 deadline_at: iso(released.deadline_at),
+                live_payouts: config.live_payouts,
               }),
             ),
           );
@@ -829,7 +839,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         help: () =>
           messaging.sendText(
             phone,
-            `${REPLY_TEXT.help} More: ${config.worker_web_url} Your earnings: ${earningsUrl(worker.id)}`,
+            `${REPLY_TEXT.help}${simulatedPay} More: ${config.worker_web_url} Your earnings: ${earningsUrl(worker.id)}`,
           ),
         unknown: () => messaging.sendText(phone, REPLY_TEXT.unknown),
       };
@@ -962,15 +972,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const settled = await settle(submitted, worker);
       const amount = dollars(settled.bounty_cents);
       const message =
-        settled.status === "paid"
-          ? `Verified and paid. ${amount} is on its way to your account. Thank you!`
-          : settled.status === "needs_review"
-            ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). You will be paid once it is approved.`
-            : worker.stripe_account_id
-              ? `Verified. Your ${amount} payout did not go through yet; it will be retried.`
-              : worker.opted_in
-                ? `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`
-                : `Verified. To get your ${amount}, set up payouts here: ${connectUrl(worker.id)}`;
+        settled.status === "needs_review"
+          ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). ${config.live_payouts ? "You will be paid once it is approved." : SIMULATED_PAY}`
+          : !config.live_payouts
+            ? `Verified. ${SIMULATED_PAY}`
+            : settled.status === "paid"
+              ? `Verified and paid. ${amount} is on its way to your account. Thank you!`
+              : worker.stripe_account_id
+                ? `Verified. Your ${amount} payout did not go through yet; it will be retried.`
+                : worker.opted_in
+                  ? `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`
+                  : `Verified. To get your ${amount}, set up payouts here: ${connectUrl(worker.id)}`;
       return {
         task_id: settled.id,
         status: settled.status,

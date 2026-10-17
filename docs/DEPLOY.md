@@ -17,7 +17,7 @@ Run from the repo root. Keys go in `.env` (never committed). Names are in `.env.
 4. Check that the gateway forwards non-`/mcp` paths (unverified, ADR-004): `curl -s https://<slug>.run.mcp-use.com/healthz` and `/llms.txt`. If they 404, run the same image elsewhere (`docker build -t eyes-mcp . && docker run -p 3000:3000 --env-file .env eyes-mcp`, e.g. Fly, Railway, Render) and use that URL for webhooks, REST, docs and the worker web API, keeping Manufact for `/mcp`.
 
 ## 3. Worker web on InsForge Sites
-1. `VITE_EYES_API_URL=https://<public api origin> VITE_INKBOX_NUMBER=+1XXXXXXXXXX pnpm --filter @eyes/web-worker build`. On the shared Inkbox line (no dedicated number), also set `VITE_INKBOX_CONNECT="connect @<agent handle>"`: the JOIN page then asks for that text before START.
+1. `VITE_EYES_API_URL=https://<public api origin> VITE_INKBOX_NUMBER=+1XXXXXXXXXX pnpm --filter @eyes/web-worker build`. On the shared Inkbox line (no dedicated number), also set `VITE_INKBOX_CONNECT="connect @<agent handle>"`: the JOIN page then asks for that text before START. Set `VITE_LIVE_PAYOUTS=true` only when the server has `STRIPE_SECRET_KEY`; without it the JOIN and capture pages say payouts are simulated and show no amounts, matching what the server texts workers.
 2. `npx @insforge/cli deployments deploy ./apps/web/worker/dist` (static output; camera and GPS need the HTTPS `*.insforge.site` URL).
 
 ## 4. Webhooks

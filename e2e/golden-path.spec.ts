@@ -102,6 +102,7 @@ test.beforeAll(async () => {
     public_api_url: API,
     worker_web_url: WEB,
     link_secret: "e2e-golden-link-secret-0123456789",
+    live_payouts: true,
   });
   const service = createEyesService({
     db: { kind: "postgres", url: DATABASE_URL },
@@ -179,10 +180,12 @@ test("an agent asks over MCP, a texted worker captures on site, the agent gets a
 
   await page.goto(link.capture_url);
   await expect(page.getByRole("heading", { name: QUESTION })).toBeVisible();
+  await expect(page.getByText("$3.00 for this task")).toBeVisible();
   await page.getByRole("button", { name: "Take photo" }).click();
   await expect(page.getByAltText("What you captured")).toBeVisible();
   await page.getByLabel("Anything to add?").fill(ANSWER);
   await page.getByRole("button", { name: "Send to Eyes" }).click();
+  await expect(page.getByRole("heading", { name: "Verified and paid" })).toBeVisible();
   await expect(page.getByText("Verified and paid. $3.00 is on its way to your account.")).toBeVisible();
   for (const check of ["Location matches the place", "Photo taken in time", "Photo answers the question"]) {
     await expect(page.getByText(`${check}: passed`)).toBeVisible();
@@ -215,6 +218,7 @@ test("an agent asks over MCP, a texted worker captures on site, the agent gets a
       place_label: CAFE.label,
       amount_cents: 300,
       earnings_url: expect.stringContaining(`${API}/w/earnings/`),
+      live_payouts: true,
     },
   ]);
 });
