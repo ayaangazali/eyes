@@ -237,6 +237,7 @@ fieldset{margin-top:1rem;border:1px solid #ccc;border-radius:.4rem}fieldset labe
 input[type=checkbox]{width:1.25rem;height:1.25rem;vertical-align:middle;margin:0 .5rem 0 0}
 button,.button{display:inline-block;font-size:1rem;padding:.75rem 1.25rem;margin-top:1rem;border:0;border-radius:.5rem;background:#121820;color:#fff;text-decoration:none}
 .note{padding:.75rem;border-radius:.5rem;background:#e6f4ea}.error{background:#fdecea}.hint{color:#555}
+.danger{background:#a4231a}.key{font:1rem ui-monospace,monospace;word-break:break-all;padding:.75rem;border:1px solid #888;border-radius:.4rem;background:#fff}
 ul{padding-left:1.25rem}li{margin-bottom:.75rem}
 .scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:.35rem .25rem;border-bottom:1px solid #ddd}`;
 
@@ -280,10 +281,26 @@ ${
 <div class="scroll"><table>
 <thead><tr><th scope="col">What</th><th scope="col">Amount</th><th scope="col">Task</th><th scope="col">When</th></tr></thead>
 <tbody>${view.ledger.map((l) => html`<tr><td>${LEDGER_LABELS[l.type]}</td><td>${usd(l.amount_usd)}</td><td>${l.task_id ? shortId(l.task_id) : ""}</td><td>${when(l.created_at)}</td></tr>`)}</tbody>
-</table></div>`,
+</table></div>
+<h2>Replace this agent's API key</h2>
+<p>If the API key may have leaked, replace it. The old key stops working immediately, so your agent cannot use Eyes until you give it the new key. The new key is shown once, on the next page.</p>
+<form method="post" action="/owner/${token}/rotate-key">
+<button class="danger" type="submit">Replace the API key</button>
+</form>`,
     OWNER_STYLE,
   );
 }
+
+const newKeyPage = (apiKey: string, token: string) =>
+  shell(
+    "New API key",
+    html`<h1>New API key</h1>
+<p>The old key has stopped working. Give this new key to your agent now. This page shows it only once and Eyes cannot show it again; if you lose it, replace the key again.</p>
+<p class="key">${apiKey}</p>
+<p class="hint">Your agent sends it as the header Authorization: Bearer followed by the key.</p>
+<a class="button" href="/owner/${token}">Back to owner controls</a>`,
+    OWNER_STYLE,
+  );
 
 export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
   const app = new Hono();
@@ -364,6 +381,12 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
       return c.redirect(`/owner/${token}?saved=1`, 303);
     });
   });
+  app.post("/owner/:token/rotate-key", (c) =>
+    explained(c, async () => {
+      const token = c.req.param("token");
+      return c.html(newKeyPage((await deps.service.rotateApiKey(token)).api_key, token));
+    }),
+  );
 
   app.get("/w/connect/done", (c) =>
     c.html(
