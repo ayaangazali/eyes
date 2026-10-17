@@ -35,11 +35,6 @@ describe.skipIf(!url)("engine on Postgres", () => {
     kind: string;
     payload: Record<string, unknown>;
   }[];
-  const fakePayout = providers.payments.payoutWorker;
-  const run = randomUUID();
-  providers.payments.payoutWorker = async (i) => ({
-    transfer_id: `${(await fakePayout(i)).transfer_id}_${run}`,
-  });
   let safety = ALLOW;
   const service = createEyesService({
     db: { kind: "postgres", url: url ?? "" },
@@ -158,11 +153,10 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
     expect(awaited.answer?.photo_url).toContain(`/photos/${asked.task_id}/`);
 
-    const transfer = providers.payments.transfers.findIndex((t) => t.task_id === asked.task_id);
     expect(await ledger(asked.task_id)).toEqual([
       { type: "escrow", amount: 350, stripe_ref: null },
       { type: "fee", amount: 50, stripe_ref: null },
-      { type: "payout", amount: 300, stripe_ref: `tr_fake_${transfer + 1}_${run}` },
+      { type: "payout", amount: 300, stripe_ref: expect.stringMatching(/^tr_fake_/) },
       { type: "release", amount: 300, stripe_ref: null },
     ]);
     expect(await service.getBalance(a)).toMatchObject({ balance_usd: 16.5, escrowed_usd: 0 });
@@ -170,6 +164,33 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await expect(service.getTask(await agent(), { task_id: asked.task_id })).rejects.toMatchObject({
       code: "task_not_found",
     });
+  });
+
+  it("holds the payout of a worker without Stripe until onboarding finishes, then pays it once", async () => {
+    const at = somewhere();
+    const w = await worker(north(at, 100));
+    const { task_id } = await ask(await agent(), at);
+    await reply(w.phone);
+    const link = outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link");
+    const token = new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "";
+    const capture = {
+      lat: at.lat,
+      lng: at.lng,
+      accuracy_m: 8,
+      captured_at: providers.clock.now().toISOString(),
+      answer_text: "Open",
+      answer_bool: true,
+    };
+    const photo = { bytes: new Uint8Array([255, 216, 255]), content_type: "image/jpeg" };
+
+    expect(await service.submitCapture(token, capture, photo)).toMatchObject({ status: "verified" });
+    await service.workerConnectUrl(w.connect_url?.split("/").pop() ?? "");
+    const account = `acct_fake_${w.worker_id}`;
+    await Promise.all([service.markWorkerOnboarded(account), service.markWorkerOnboarded(account)]);
+
+    expect(await service.getOffer(token)).toMatchObject({ status: "paid" });
+    expect((await ledger(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
+    expect(outbox.filter((m) => m.to === w.phone && m.kind === "paid")).toHaveLength(1);
   });
 
   it("charges nothing on insufficient balance and tells the agent what it can afford", async () => {

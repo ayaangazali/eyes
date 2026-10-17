@@ -322,9 +322,15 @@ begin
   insert into ledger (worker_id, task_id, type, amount_cents, stripe_ref, created_at)
   select claimed_by, id, 'payout', bounty_cents, p_transfer_id, p_now from tasks where id = p_task_id
   on conflict (task_id, type) where task_id is not null do nothing;
-  update tasks set status = 'paid' where id = p_task_id and status = 'verified';
-  return query select * from tasks where id = p_task_id;
+  return query update tasks set status = 'paid' where id = p_task_id and status = 'verified' returning *;
 end $$;
+
+create function eyes_pending_payouts(p_account_id text)
+returns table (task tasks, phone text) language sql stable as $$
+  select t, w.phone
+  from workers w join tasks t on t.claimed_by = w.id
+  where w.stripe_account_id = p_account_id and t.status = 'verified'
+$$;
 
 do $$
 declare

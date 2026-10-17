@@ -199,6 +199,32 @@ export function createEyesService(deps: EngineDeps): EyesService {
     });
   }
 
+  async function payOut(task: Task, accountId: string, phone: string): Promise<Task> {
+    let paid: Task | undefined;
+    try {
+      const { transfer_id } = await payments.payoutWorker({
+        account_id: accountId,
+        amount_cents: task.bounty_cents,
+        task_id: task.id,
+        idempotency_key: `payout:${task.id}`,
+      });
+      paid = await maybe<Task>("eyes_record_payout", {
+        p_task_id: task.id,
+        p_transfer_id: transfer_id,
+        p_now: nowIso(),
+      });
+    } catch (err) {
+      console.error(`payout for task ${task.id} failed`, err);
+    }
+    if (!paid) return task;
+    await messaging.sendPaid(phone, {
+      task_id: paid.id,
+      place_label: paid.place_label,
+      amount_cents: paid.bounty_cents,
+    });
+    return paid;
+  }
+
   return {
     async authenticate(apiKey) {
       return (await maybe<Agent>("eyes_agent_by_key_hash", { p_api_key_hash: sha256(apiKey) })) ?? null;
@@ -408,7 +434,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const { url } = await payments.createTopupCheckout({
         agent_id: agentId,
         amount_cents,
-        success_url: `${config.public_api_url}/topup/success`,
+        success_url: `${config.public_api_url}/topup/done`,
         cancel_url: `${config.public_api_url}/topup/cancel`,
       });
       return url;
@@ -462,12 +488,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const { url } = await payments.createOnboardingLink({
         account_id: accountId,
         refresh_url: `${config.public_api_url}/w/connect/${token}`,
-        return_url: config.worker_web_url,
+        return_url: `${config.public_api_url}/w/connect/done`,
       });
       return url;
     },
 
-    async markWorkerOnboarded() {},
+    async markWorkerOnboarded(account_id) {
+      const pending = await rpc<{ task: Task; phone: string }>("eyes_pending_payouts", {
+        p_account_id: account_id,
+      });
+      for (const { task, phone } of pending) await payOut(task, account_id, phone);
+    },
 
     async handleWorkerReply({ phone, intent }) {
       const worker = await maybe<Worker>("eyes_worker", { p_worker_id: null, p_phone: phone });
@@ -542,7 +573,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         },
         vision: providers.vision,
       });
-      let settled = await one<Task>("eyes_submit", {
+      const submitted = await one<Task>("eyes_submit", {
         p_task_id: task.id,
         p_worker_id: workerId,
         p_photo_url: photo_url,
@@ -560,39 +591,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_now: nowIso(),
       });
       const worker = await one<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null });
-      if (settled.status === "verified" && worker.stripe_account_id) {
-        try {
-          const { transfer_id } = await payments.payoutWorker({
-            account_id: worker.stripe_account_id,
-            amount_cents: settled.bounty_cents,
-            task_id: settled.id,
-            idempotency_key: `payout:${settled.id}`,
-          });
-          settled = await one<Task>("eyes_record_payout", {
-            p_task_id: settled.id,
-            p_transfer_id: transfer_id,
-            p_now: nowIso(),
-          });
-        } catch (err) {
-          console.error(`payout for task ${settled.id} failed`, err);
-        }
-        if (settled.status === "paid") {
-          await messaging.sendPaid(worker.phone, {
-            task_id: settled.id,
-            place_label: settled.place_label,
-            amount_cents: settled.bounty_cents,
-          });
-        }
-      }
+      const settled =
+        submitted.status === "verified" && worker.stripe_account_id
+          ? await payOut(submitted, worker.stripe_account_id, worker.phone)
+          : submitted;
       const amount = `$${centsToUsd(settled.bounty_cents).toFixed(2)}`;
       const message =
         settled.status === "paid"
           ? `Verified and paid. ${amount} is on its way to your account. Thank you!`
           : settled.status === "needs_review"
             ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). You will be paid once it is approved.`
-            : worker.stripe_account_id
-              ? `Verified. Your ${amount} payout is delayed; the Eyes team will follow up.`
-              : `Verified. Set up payouts to receive your ${amount}: ${connectUrl(workerId)}`;
+            : `Verified. Finish payout setup and your ${amount} is sent automatically: ${connectUrl(workerId)}`;
       return {
         task_id: settled.id,
         status: settled.status,
