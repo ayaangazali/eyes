@@ -9,6 +9,8 @@ const benign: SafetyInput = {
   place_label: "Apple Union Square, 300 Post St, San Francisco",
 };
 
+const facePhoto: SafetyInput = { ...benign, question: "Get a pic of the guy at the counter." };
+
 const failClosed = {
   allowed: false,
   category: "other",
@@ -70,24 +72,25 @@ describe("createAssessTask with the classifier", () => {
     expect(JSON.parse(content.slice("<task>".length, -"</task>".length))).toEqual({ ...benign, question });
   });
 
-  it("passes the classifier's category, reason and fix through on a block", async () => {
+  it("blocks a face/person photo request through the classifier, passing reason and fix through", async () => {
     fetchMock.mockResolvedValue(
       reply(
         JSON.stringify({
           allowed: false,
-          category: "private_person",
-          reason: "The task asks whether a named person is at the cafe.",
-          fix: "Ask how busy the cafe is instead.",
+          category: "identifiable_people",
+          reason: "The task asks for a photo of a specific person.",
+          fix: "Ask for a photo of the counter or line instead.",
         }),
       ),
     );
-    expect(await assess()(benign)).toEqual({
+    expect(await assess()(facePhoto)).toEqual({
       allowed: false,
-      category: "private_person",
-      reason: "The task asks whether a named person is at the cafe.",
-      fix: "Ask how busy the cafe is instead.",
+      category: "identifiable_people",
+      reason: "The task asks for a photo of a specific person.",
+      fix: "Ask for a photo of the counter or line instead.",
       layer: "classifier",
     });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("fills a missing category, reason and fix on a block", async () => {
@@ -170,6 +173,17 @@ describe("createAssessTask without ANTHROPIC_API_KEY", () => {
     });
     await assess(benign);
     expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("allows a face/person photo request, which only the classifier judges", async () => {
+    expect(await createAssessTask({})(facePhoto)).toEqual({
+      allowed: true,
+      category: null,
+      reason: null,
+      fix: null,
+      layer: "rules",
+    });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
