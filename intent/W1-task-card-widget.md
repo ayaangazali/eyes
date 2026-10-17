@@ -2,7 +2,7 @@
 task: W1
 title: Eyes task card widget, placeholder phase (fixtures, mock bridge, not registered)
 agent: builder
-pr: TBD
+pr: https://github.com/ayaangazali/eyes/pull/87
 spec_refs: [§6, §7, §10, §12]
 vendor_refs: [docs/vendor/mcp-apps.md]
 status: in_review
