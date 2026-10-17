@@ -14,6 +14,7 @@ import {
   EyesError,
   type EyesService,
   fakeProviders,
+  type OfferView,
   type PhotoUpload,
   signToken,
 } from "@eyes/core";
@@ -40,16 +41,23 @@ afterEach(async () => {
   http = undefined;
 });
 
-async function start(service: Partial<EyesService>) {
+async function listenOn(fetch: (request: Request) => Promise<Response>) {
+  http = createHttpServer(toNodeListener(fetch));
+  await new Promise<void>((resolve) => http?.listen(0, "127.0.0.1", resolve));
+  return `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
+}
+
+function start(service: Partial<EyesService>, seen: Request[] = []) {
   const server = createServer({
     service: service as EyesService,
     providers: fakeProviders(),
     config,
     env: {},
   });
-  http = createHttpServer(toNodeListener(server.fetch));
-  await new Promise<void>((resolve) => http?.listen(0, "127.0.0.1", resolve));
-  return `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
+  return listenOn((request) => {
+    seen.push(request);
+    return server.fetch(request);
+  });
 }
 
 function raw(url: string, options: RequestOptions, write: (req: ClientRequest) => void) {
@@ -90,6 +98,7 @@ describe("node adapter on a real socket", () => {
   it("delivers a binary photo over 1 MB byte for byte and keeps the link token out of the logs", async () => {
     const received: { fields: CaptureFields; photo: PhotoUpload | null }[] = [];
     const base = await start({
+      getOffer: async () => ({ status: "claimed", claimed_by_you: true }) as OfferView,
       submitCapture: async (_token, fields, photo) => {
         received.push({ fields, photo });
         return {
@@ -220,6 +229,118 @@ describe("node adapter on a real socket", () => {
     const lines = log.mock.calls.map((call) => String(call[0])).join("\n");
     expect(lines).toMatch(/^GET \/w\/offers\/<token> 404 \d+ms$/);
     expect(lines).not.toContain(token);
+  });
+
+  it("ignores a malformed Host header and answers an unparsable target with 400", async () => {
+    const base = await start({});
+    quiet();
+
+    const health = await raw(base, { method: "GET", path: "/healthz", headers: { host: "[bad" } }, (req) =>
+      req.end(),
+    );
+    const target = await raw(base, { method: "GET", path: "http://[bad/healthz" }, (req) => req.end());
+
+    expect(health.status).toBe(200);
+    expect(target.status).toBe(400);
+    expect(target.body).toMatchObject({ error: "invalid_input", fix: expect.any(String) });
+  });
+
+  it("redacts token-shaped path segments anywhere but keeps file names", async () => {
+    const base = await start({});
+    const log = quiet();
+    const token = signToken(config.link_secret, "anything");
+
+    await fetch(`${base}/some/${token}/deeper`);
+    await fetch(`${base}/llms.txt`);
+
+    const lines = log.mock.calls.map((call) => String(call[0]));
+    expect(lines[0]).toMatch(/^GET \/some\/<token>\/deeper 404 \d+ms$/);
+    expect(lines[1]).toMatch(/^GET \/llms\.txt \d{3} \d+ms$/);
+    expect(lines.join("\n")).not.toContain(token);
+  });
+
+  const secret = signToken(config.link_secret, "offer-secret");
+  const [tokenBody = "", tokenMac = ""] = secret.split(".");
+  const encodeAll = (text: string) =>
+    [...text].map((ch) => `%${ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`).join("");
+  const logged = () =>
+    [...vi.mocked(console.log).mock.calls, ...vi.mocked(console.error).mock.calls]
+      .map((call) => call.map(String).join(" "))
+      .join("\n");
+  const silence = () => {
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  };
+  const offerInvalid = async (): Promise<OfferView> => {
+    throw new EyesError("offer_invalid");
+  };
+
+  it.each([
+    ["backslash", `/\\u:p@h/w/offers/${secret}`],
+    ["scheme-relative", `//u:p@h/w/offers/${secret}`],
+    ["absolute", `http://u:p@h/w/offers/${secret}`],
+  ])("answers a %s target with userinfo with 400 and logs no token", async (_, path) => {
+    const base = await start({ getOffer: offerInvalid });
+    silence();
+
+    const res = await raw(base, { method: "GET", path }, (req) => req.end());
+
+    expect(res.status).toBe(400);
+    expect(res.body).toMatchObject({ error: "invalid_input" });
+    expect(logged()).not.toContain(tokenMac);
+  });
+
+  it.each([
+    ["an encoded slash before it", `/w/offers%2F${secret}`],
+    ["an encoded dot", `/w/offers/${tokenBody}%2E${tokenMac}`],
+    ["full percent-encoding", `/w/offers/${encodeAll(secret)}`],
+    ["a ;x suffix", `/w/offers/${secret};x`],
+    ["a .json suffix", `/w/offers/${secret}.json`],
+    ["an encoded slash after it", `/w/offers/${secret}%2Fcapture`],
+    ["an encoded dot and a bare trailing %", `/w/offers/${tokenBody}%2E${tokenMac}.%`],
+  ])("redacts a token with %s", async (_, path) => {
+    const base = await start({ getOffer: offerInvalid });
+    silence();
+
+    await raw(base, { method: "GET", path }, (req) => req.end());
+
+    expect(logged()).toContain("<token>");
+    expect(logged()).not.toContain(tokenMac);
+    expect(logged()).not.toContain(tokenBody);
+  });
+
+  it.each([
+    ["a dot segment", `/.//u:p@h/w/offers/${secret}`],
+    ["a scheme-relative authority", `//h//u:p@evil.test/w/offers/${secret}`],
+    ["an encoded dot segment", `/%2E//u:p@evil.test/w/offers/${secret}`],
+    ["a parent segment", `/a/..//u:p@evil.test/w/offers/${secret}`],
+    ["a bare host", "/.//evil.test/healthz"],
+  ])("keeps a // path behind %s on localhost without a 500 or a leak", async (_, path) => {
+    const seen: Request[] = [];
+    const base = await start({ getOffer: offerInvalid }, seen);
+    silence();
+
+    const res = await raw(base, { method: "GET", path }, (req) => req.end());
+
+    expect(res.status).not.toBe(500);
+    expect(seen.map((request) => new URL(request.url).host)).toEqual(["localhost"]);
+    expect(logged()).not.toContain("u:p@");
+    expect(logged()).not.toContain(tokenMac);
+    expect(logged()).not.toContain(tokenBody);
+  });
+
+  it("logs only the error name when the app throws with the URL in its message", async () => {
+    const base = await listenOn(async (request) => {
+      throw new Error(`exploded on ${request.url}`);
+    });
+    silence();
+
+    const res = await raw(base, { method: "GET", path: `/w/offers/${secret}` }, (req) => req.end());
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual(new EyesError("internal_error").toBody());
+    expect(logged()).toContain("request failed: Error");
+    expect(logged()).not.toContain(tokenMac);
   });
 
   it("streams MCP responses and progress over SSE", async () => {

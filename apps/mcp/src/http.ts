@@ -8,7 +8,7 @@ const MB = 1024 * 1024;
 const CAPTURE_LIMIT = 21 * MB;
 const DEFAULT_LIMIT = MB;
 const CAPTURE_PATH = /^\/w\/offers\/[^/]+\/capture$/;
-const TOKEN_PATH = /^(\/w\/offers|\/w\/connect|\/topup)\/[^/]+/;
+const TOKEN = /[\w-]{16,}\.[\w-]{16,}/g;
 
 type Fetch = (request: Request) => Promise<Response>;
 
@@ -26,6 +26,28 @@ function tooLarge(req: IncomingMessage, limit: number): Response {
     },
   );
   return Response.json(err.toBody(), { status: 413 });
+}
+
+function decodeRun(run: string): string {
+  try {
+    return decodeURIComponent(run);
+  } catch {
+    return run;
+  }
+}
+
+function redact(pathname: string): string {
+  return pathname
+    .replace(/(?:%[0-9A-Fa-f]{2})+/g, decodeRun)
+    .replace(TOKEN, "<token>")
+    .replace(/[^/]*@/g, "<redacted>@");
+}
+
+function badTarget(req: IncomingMessage): Response {
+  req.resume();
+  const issues = [{ path: "", message: "The request target is not a valid URL path." }];
+  const err = new EyesError("invalid_input", { issues }, { fix: "Send a plain path such as /v1/balance." });
+  return Response.json(err.toBody(), { status: 400 });
 }
 
 async function* limited(req: IncomingMessage, limit: number, state: { overflow: boolean }) {
@@ -107,9 +129,12 @@ export function toNodeListener(fetch: Fetch) {
     res.on("close", () => abort.abort());
     res.on("finish", () => console.log(`${req.method} ${path} ${res.statusCode} ${Date.now() - started}ms`));
     try {
-      const url = new URL(req.url ?? "/", `http://${req.headers.host || "localhost"}`);
-      path = url.pathname.replace(TOKEN_PATH, "$1/<token>");
-      const response = await respond(req, url, fetch, abort.signal);
+      const parsed = URL.parse(req.url ?? "/", "http://localhost");
+      const url = parsed && !parsed.username && !parsed.password ? parsed : null;
+      if (url) path = redact(url.pathname);
+      const response = url
+        ? await respond(req, new URL(`http://localhost${url.pathname}${url.search}`), fetch, abort.signal)
+        : badTarget(req);
       res.statusCode = response.status;
       for (const [name, value] of response.headers) if (name !== "set-cookie") res.setHeader(name, value);
       const cookies = response.headers.getSetCookie();
@@ -117,7 +142,7 @@ export function toNodeListener(fetch: Fetch) {
       if (!response.body) return void res.end();
       await pipeline(Readable.fromWeb(response.body as ReadableStream), res).catch(() => undefined);
     } catch (err) {
-      console.error(err);
+      console.error(`request failed: ${err instanceof Error ? err.name : "unknown error"}`);
       if (res.headersSent) return void res.destroy();
       res.statusCode = 500;
       res.setHeader("content-type", "application/json");
