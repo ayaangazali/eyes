@@ -1,6 +1,8 @@
 import { createServer as createHttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { createInkboxMessaging, createPrimitiveEmail } from "@eyes/comms";
 import { AppConfig, type DbConfig, fakeProviders, type Providers } from "@eyes/core";
+import { createInsforgeStorage } from "@eyes/db";
 import { createEyesService } from "@eyes/engine";
 import { createStripePayments } from "@eyes/payments";
 import { createAssessTask } from "@eyes/safety";
@@ -29,6 +31,21 @@ const parsed = AppConfig.safeParse({
 if (!parsed.success) exit(`Invalid EYES_* environment (see .env.example):\n${z.prettifyError(parsed.error)}`);
 const config = parsed.data;
 
+if (env.EYES_PROVIDERS === "live" && !env.ANTHROPIC_API_KEY) {
+  exit(
+    "EYES_PROVIDERS=live needs ANTHROPIC_API_KEY: without it the safety classifier and photo verification are off. Set ANTHROPIC_API_KEY, or run with EYES_PROVIDERS=fake.",
+  );
+}
+if (env.EYES_PROVIDERS === "live" && Boolean(env.INSFORGE_BASE_URL) !== Boolean(env.INSFORGE_API_KEY)) {
+  exit(
+    "Live photo storage needs both INSFORGE_BASE_URL and INSFORGE_API_KEY. Set both, or unset both to keep fake storage.",
+  );
+}
+const port = env.PORT ? Number(env.PORT) : 3000;
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  exit(`PORT must be an integer from 0 to 65535, got "${env.PORT}".`);
+}
+
 const db: DbConfig = env.DATABASE_URL
   ? { kind: "postgres", url: env.DATABASE_URL }
   : env.INSFORGE_BASE_URL && env.INSFORGE_API_KEY
@@ -41,13 +58,13 @@ const providers: Providers = {
   messaging: live.messaging ? createInkboxMessaging(env) : fakes.messaging,
   email: live.email ? createPrimitiveEmail(env) : fakes.email,
   payments: live.payments ? createStripePayments(env) : fakes.payments,
-  storage: fakes.storage,
+  storage: live.storage ? createInsforgeStorage(env) : fakes.storage,
   vision: live.vision ? createClaudeVision(env) : fakes.vision,
   geo: live.geo ? createNominatimGeo() : fakes.geo,
   clock: { now: () => new Date() },
 };
-for (const [name, isLive] of Object.entries(live))
-  console.log(`provider ${name}: ${isLive ? "live" : "FAKE"}`);
+for (const name of Object.keys(live) as (keyof typeof live)[])
+  console.log(`provider ${name}: ${providers[name] === fakes[name] ? "FAKE" : "live"}`);
 console.log(`db: ${db.kind}`);
 
 const service = createEyesService({
@@ -63,8 +80,9 @@ setInterval(() => {
 }, EXPIRE_EVERY_MS);
 
 const server = createServer({ service, providers, config, env });
-const port = Number(env.PORT) || 3000;
 const host = env.HOST || "0.0.0.0";
-createHttpServer(toNodeListener(server.fetch)).listen(port, host, () => {
-  console.log(`Eyes MCP listening on http://${host}:${port}/mcp`);
+const http = createHttpServer(toNodeListener(server.fetch));
+http.listen(port, host, () => {
+  const bound = (http.address() as AddressInfo).port;
+  console.log(`Eyes MCP listening on http://${host}:${bound}/mcp`);
 });

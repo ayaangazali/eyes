@@ -12,7 +12,7 @@ Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisi
 | T0.4 agents, hooks, intent system | orchestrator | done | (initial commit) | n/a | none |
 | T1.1 MCP tools + REST + worker API | mcp-builder | **merged** #2 | [#2](https://github.com/ayaangazali/eyes/pull/2) | r3 security+ax PASS | live-verified: no |
 | T1.2 engine + db | engine-builder | **merged** #6, #12 | [#6](https://github.com/ayaangazali/eyes/pull/6) | r2 security PASS, test+spec PASS; follow-up PASS | InsForge grants unverified live |
-| T1.3 Inkbox comms | comms-builder | **merged** #1, #10 | [#1](https://github.com/ayaangazali/eyes/pull/1) | r2 all PASS; follow-up #10 PASS | live-verified: no |
+| T1.3 Inkbox comms | comms-builder | **merged** #1, #10; iMessage send #24 merging | [#1](https://github.com/ayaangazali/eyes/pull/1) | r2 all PASS; follow-up #10 PASS | live-verified: no |
 | T1.4 worker web | worker-web-builder | **merged** #3; follow-up #13 merging | [#3](https://github.com/ayaangazali/eyes/pull/3) | r2 PASS; #13 coverage major downgraded by ruling | live-verified: no |
 | T1.5 safety | safety-builder | round 4 (human decision A) | [#7](https://github.com/ayaangazali/eyes/pull/7) | escalated after r3 | blocks live ask_eyes |
 | G1 golden path e2e | integration builder | **merged** #16 | [#16](https://github.com/ayaangazali/eyes/pull/16) | integration PASS (3/3 fresh DBs, mutations killed) | unsafe_task test skipped until T1.5 |
@@ -25,6 +25,21 @@ Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisi
 | T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
 | T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
 
+## Sponsor coverage (update at every gate)
+
+Live verification order once keys land: Inkbox (G1; set up in person at the event) -> Manufact deploy -> InsForge -> Stripe -> Primitive -> Armature. Supabase: not used unless the humans confirm its track brief.
+
+| Sponsor | What we use | PR(s) | live-verified | What the demo shows |
+|---|---|---|---|---|
+| Manufact (mcp-use) | MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror, worker API, byte-safe Node adapter; deployed on Manufact Cloud via the repo Dockerfile | #2, #14, T2.3 | no | Claude calls quote_task -> ask_eyes -> await_answer against the Manufact URL; Manufact dashboard shows sessions and gateway requests |
+| InsForge | Postgres (escrow ledger, race-safe claim, expiry as plpgsql over RPC; RLS on every table), photo storage (`photos` bucket), Sites hosting for the worker capture page | #6, #12, #14, #15, T2.3 | no | capture page served from *.insforge.site; photo URL from InsForge storage; dashboard reads `eyes_dashboard_feed` |
+| Stripe | Checkout top-ups (card only), per-key spend policy, Connect Express onboarding minted on click, $3 transfer on a verified answer, signed webhooks, refund on expiry/cancel | #5, #6 | no | top-up in Checkout, the worker's connected account, the transfer in the Stripe dashboard; get_spend_policy limits; refund path |
+| Inkbox | iMessage line (chosen for cost): offer, capture link and paid texts; signed `imessage.received` webhook for START/YES | #1, #10, #24 | no | worker iPhone gets the offer, replies YES, gets the capture link and the paid text |
+| Primitive | Capability email address per agent (ADR-007); inbound email -> ask_eyes; threaded answer with the photo attached; DMARC-verified senders only | #11 | no | an agent emails its Eyes address and gets a threaded reply with the photo |
+| Armature | Agent experience: llms.txt, llms-full.txt, openapi.json, agent card, robots.txt, agents.md, `eyes` CLI, every error with a fix; analytics/evals in T3.4 (their SDK does not list mcp-use; sponsor answer needed) | #9 (in review), #14 | no | an agent onboards from llms.txt alone; Armature analytics/eval once wired |
+| Blaxel | T3.5 (low priority, after G2): eval agents in Blaxel sandboxes; "swarm" demo mode with ~50 simulated agents via batch jobs; never on the golden path | none yet | no | dashboard map lights up with simulated agents |
+| Anthropic (models, not a track) | Claude vision verification, Haiku safety classifier | #4, #8, #7 | no | verification checks on the answer; polite refusal |
+
 ## Deferred (ADR-010; triage at feature freeze, 6:00 AM Sun)
 
 | Item | From | Tracking |
@@ -36,6 +51,7 @@ Updated: 2026-10-17 01:05 PT by orchestrator. G1 fakes half PASSED. Human decisi
 | Request log decodes paths (log-line forging); switch to allowlist logging | PR #14 r3 | [#21](https://github.com/ayaangazali/eyes/issues/21) |
 | Mangled token halves can appear in logs | PR #14 r3 | [#22](https://github.com/ayaangazali/eyes/issues/22) |
 | Strict PORT parsing | PR #14 r3 | [#23](https://github.com/ayaangazali/eyes/issues/23) |
+| iMessage from an Apple ID email is ignored (workers must send from the phone number) | PR #24 | [#25](https://github.com/ayaangazali/eyes/issues/25) |
 
 Earlier verifier minors (non-blocking by severity) are in each task's intent Known gaps.
 
