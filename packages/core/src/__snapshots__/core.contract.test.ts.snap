@@ -8,17 +8,20 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "properties": {
         "bounty_usd": {
           "default": 3,
+          "description": "Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.",
           "maximum": 50,
           "minimum": 1,
           "type": "number",
         },
         "deadline_minutes": {
           "default": 30,
+          "description": "Minutes until the task expires and the escrow is refunded.",
           "maximum": 240,
           "minimum": 5,
           "type": "integer",
         },
         "idempotency_key": {
+          "description": "Any unique string per question. Retrying with the same key never double-charges. Always set it.",
           "maxLength": 128,
           "minLength": 1,
           "type": "string",
@@ -56,15 +59,18 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           "description": "Where to look. Either {lat, lng} or a string address / "place name, city".",
         },
         "question": {
+          "description": "What the human should check, in plain words, e.g. "How many people are in line right now?"",
           "maxLength": 500,
           "minLength": 5,
           "type": "string",
         },
         "require_photo": {
           "default": true,
+          "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
           "type": "boolean",
         },
         "task_type": {
+          "description": "is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place.",
           "enum": [
             "is_open",
             "line_length",
@@ -137,6 +143,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
         },
         "timeout_seconds": {
           "default": 50,
+          "description": "How long this call waits for an answer, at most 55 seconds. Call again if answered is false.",
           "maximum": 55,
           "minimum": 1,
           "type": "integer",
@@ -321,6 +328,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "reason": {
+          "description": "What is wrong with the answer, e.g. "photo shows a different store".",
           "maxLength": 1000,
           "minLength": 5,
           "type": "string",

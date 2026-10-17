@@ -171,13 +171,43 @@ export const QuoteTaskOutput = z.object({
 });
 
 export const AskEyesInput = z.object({
-  question: z.string().min(5).max(500),
+  question: z
+    .string()
+    .min(5)
+    .max(500)
+    .describe('What the human should check, in plain words, e.g. "How many people are in line right now?"'),
   location: LocationInput,
-  task_type: TaskType,
-  bounty_usd: z.number().min(1).max(50).default(3),
-  deadline_minutes: z.int().min(5).max(240).default(30),
-  require_photo: z.boolean().default(true),
-  idempotency_key: z.string().min(1).max(128).optional(),
+  task_type: TaskType.describe(
+    "is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place.",
+  ),
+  bounty_usd: z
+    .number()
+    .min(1)
+    .max(50)
+    .default(3)
+    .describe(
+      "Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.",
+    ),
+  deadline_minutes: z
+    .int()
+    .min(5)
+    .max(240)
+    .default(30)
+    .describe("Minutes until the task expires and the escrow is refunded."),
+  require_photo: z
+    .boolean()
+    .default(true)
+    .describe(
+      "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+    ),
+  idempotency_key: z
+    .string()
+    .min(1)
+    .max(128)
+    .optional()
+    .describe(
+      "Any unique string per question. Retrying with the same key never double-charges. Always set it.",
+    ),
 });
 export const AskEyesOutput = z.object({
   task_id: Id,
@@ -190,7 +220,12 @@ export const AskEyesOutput = z.object({
 
 export const AwaitAnswerInput = z.object({
   task_id: TaskId,
-  timeout_seconds: z.int().min(1).max(55).default(50),
+  timeout_seconds: z
+    .int()
+    .min(1)
+    .max(55)
+    .default(50)
+    .describe("How long this call waits for an answer, at most 55 seconds. Call again if answered is false."),
 });
 export const AwaitAnswerOutput = z.object({
   task_id: Id,
@@ -222,7 +257,14 @@ export const CancelTaskOutput = z.object({
   refunded_usd: Usd,
 });
 
-export const DisputeAnswerInput = z.object({ task_id: TaskId, reason: z.string().min(5).max(1000) });
+export const DisputeAnswerInput = z.object({
+  task_id: TaskId,
+  reason: z
+    .string()
+    .min(5)
+    .max(1000)
+    .describe('What is wrong with the answer, e.g. "photo shows a different store".'),
+});
 export const DisputeAnswerOutput = z.object({
   task_id: Id,
   status: z.literal("disputed"),
