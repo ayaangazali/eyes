@@ -469,6 +469,15 @@ describe("outbound Stripe requests", () => {
       ["500", [refusal(500, "api_error")], true],
       ["timeout, then 429", [{ network_error: true }, rateLimited], true],
       ["503, then 429", [refusal(503, "api_error", true), rateLimited], true],
+      [
+        "timeout, then 400 marked retryable twice",
+        [
+          { network_error: true },
+          refusal(400, "invalid_request_error", true),
+          refusal(400, "invalid_request_error", true),
+        ],
+        true,
+      ],
     ];
     for (const [label, responses, unknown] of rows) {
       http.queue.push(ACTIVE, transferList([]), ...responses);

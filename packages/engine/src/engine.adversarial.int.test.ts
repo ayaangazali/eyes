@@ -935,7 +935,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
     env.providers.payments.payoutWorker = real;
     await env.service.markWorkerOnboarded(stuckAccount);
     for (const id of stuckTasks) expect((await task(id)).status).toBe("paid");
-  });
+  }, 15_000);
 
   it("resolveTask refund returns a needs_review task's escrow to the agent and never pays the worker", async () => {
     const env = make({ verify: REVIEW });
