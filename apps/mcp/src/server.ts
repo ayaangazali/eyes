@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { isIPv6 } from "node:net";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inkboxRoutes, primitiveRoutes } from "@eyes/comms";
@@ -21,6 +22,8 @@ import {
 import { stripeRoutes } from "@eyes/payments";
 import type { Context, MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
+import { html, raw } from "hono/html";
+import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { MCPServer } from "mcp-use";
 import type { z } from "zod";
@@ -44,22 +47,90 @@ const DOCS = {
   "/robots.txt": "text/plain; charset=utf-8",
 };
 const LINK = '</llms.txt>; rel="describedby", </openapi.json>; rel="service-desc"';
-const HOME = `<!doctype html>
+const CLIENT_KEY_CHARS = 64;
+const STYLE = `*{box-sizing:border-box}
+body{margin:0;font:17px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#121820;background:#fafafa}
+header{background:#121820;padding:.75rem max(1rem,calc(50% - 17rem))}
+header a{display:inline-flex;align-items:center;gap:.6rem;color:#eef3f8;font-size:1.25rem;font-weight:750;letter-spacing:-.02em;text-decoration:none}
+.mark{width:1.6rem;height:1rem;border-radius:50%;background:radial-gradient(circle,#121820 0 28%,#ffc24b 30%);box-shadow:0 0 .8rem rgba(255,194,75,.45)}
+main{max-width:36rem;margin:0 auto;padding:1.25rem 1rem 3rem}
+h1{font-size:1.75rem;line-height:1.2;letter-spacing:-.01em;margin:.5rem 0 .75rem}
+h2{font-size:1.1rem;margin:2rem 0 .5rem}
+a{color:inherit;text-decoration-color:#e0a020;text-decoration-thickness:2px;text-underline-offset:.15em}
+.button{display:block;padding:.9rem 1rem;border-radius:.6rem;background:#ffc24b;color:#121820;font-weight:700;text-align:center;text-decoration:none}
+.box{margin-top:1.5rem;padding:.25rem 1rem;border:1px solid #e3e6ea;border-radius:.6rem;background:#fff}
+.box h2{margin-top:.75rem}
+.muted{color:#5b6672}
+code{font:.9em ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef0f3;padding:.1em .3em;border-radius:.25em}
+.links a{margin-right:1rem;line-height:2.5}
+.rows{list-style:none;padding:0}.rows li{padding:.75rem 0;border-bottom:1px solid #e3e6ea}
+.state::before{content:"";display:inline-block;width:.6rem;height:.6rem;margin-right:.5rem;border-radius:50%;background:#7d8a9b}
+.state.live::before{background:#1f9d63}`;
+const PROVIDER_LINES = {
+  messaging: ["Texting", "Task texts to workers' phones and their YES replies (Inkbox)."],
+  email: ["Agent email", "Questions agents email in and the threaded answers (Primitive)."],
+  payments: ["Payments", "Agent top-ups and payouts to workers (Stripe)."],
+  storage: ["Photo storage", "Where answer photos are kept (InsForge)."],
+  vision: ["Photo checks", "The AI check that a photo answers the question (Claude)."],
+  geo: ["Place lookup", "Turning place names into map points (OpenStreetMap)."],
+} as const;
+
+const layout = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) => html`<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Eyes</title></head>
-<body>
-<h1>Eyes</h1>
-<p>Pay a nearby human a few dollars to check something in the physical world right now.</p>
-<p>Agents: <code>POST /mcp</code> with <code>Authorization: Bearer &lt;api_key&gt;</code>. No key yet? <code>POST /v1/signup</code>.</p>
-<ul>
-<li><a href="/llms.txt">llms.txt</a></li>
-<li><a href="/openapi.json">openapi.json</a></li>
-<li><a href="${AGENT_CARD}">agent-card.json</a></li>
-<li><a href="/agents.md">agents.md</a></li>
-</ul>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>${raw(STYLE)}</style></head>
+<body><header><a href="/"><span class="mark"></span>Eyes</a></header>
+<main>${body}</main>
 </body>
 </html>
 `;
+
+const homePage = (joinUrl: string) =>
+  layout(
+    "Eyes",
+    html`<h1>AI agents pay people nearby about $3 to check public places.</h1>
+<p>Is the cafe open? How long is the line? An AI agent asks, Eyes texts people close by, and the first to reply YES walks over, takes a photo and gets paid.</p>
+<a class="button" href="${joinUrl}">Join to get paid tasks</a>
+<section class="box">
+<h2>Got a text from Eyes?</h2>
+<p>Reply <b>YES</b> to claim the task, or ignore it. Reply <b>STOP</b> to stop all texts from Eyes, and START to get them again.</p>
+</section>
+<p class="muted">Only public places: stores, cafes, parks, transit stops. Never people, homes or cars.</p>
+<h2>For AI agents</h2>
+<p>Connect over MCP: <code>POST /mcp</code> with <code>Authorization: Bearer &lt;api_key&gt;</code>. No key yet? <code>POST /v1/signup</code>.</p>
+<p class="links"><a href="/llms.txt">llms.txt</a> <a href="/openapi.json">openapi.json</a> <a href="${AGENT_CARD}">agent-card.json</a> <a href="/agents.md">agents.md</a></p>
+<p class="muted"><a href="/status">Service status</a></p>`,
+  );
+
+const statusPage = (live: ReturnType<typeof liveProviders>, db: string, commit: string | undefined) =>
+  layout(
+    "Eyes status",
+    html`<h1>Service status</h1>
+<p>Eyes is up. A live part uses the real service. A simulated part is a test stand-in: nothing real is sent, charged or stored through it.</p>
+<ul class="rows">
+${Object.entries(PROVIDER_LINES).map(([name, [label, meaning]]) => {
+  const on = live[name as keyof typeof live];
+  return html`<li><b class="state${on ? " live" : ""}">${label}: ${on ? "live" : "simulated"}</b><br><span class="muted">${meaning}</span></li>`;
+})}
+<li><b>Database: ${db === "postgres" ? "Postgres" : "InsForge"}</b><br><span class="muted">Tasks, balances and the money ledger.</span></li>
+<li><b>Deployed commit: ${commit ? html`<code>${commit.slice(0, 12)}</code>` : "not recorded"}</b></li>
+</ul>
+<p class="muted">For machines: <a href="/healthz">/healthz</a></p>`,
+  );
+
+function clientKey(forwardedFor: string | undefined) {
+  const address = forwardedFor?.split(",").at(-1)?.trim() ?? "";
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address)?.[1];
+  if (mapped) return mapped;
+  if (!isIPv6(address)) return address.slice(0, CLIENT_KEY_CHARS);
+  const [head, tail] = address.replace(/\d+\.\d+\.\d+\.\d+$/, "0:0").split("::");
+  const left = head ? head.split(":") : [];
+  const right = tail ? tail.split(":") : [];
+  const groups = [...left, ...Array.from({ length: 8 - left.length - right.length }, () => "0"), ...right];
+  return `${groups
+    .slice(0, 4)
+    .map((group) => Number.parseInt(group, 16).toString(16))
+    .join(":")}::/64`;
+}
 
 const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo.
 Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. 3) Call await_answer immediately with the task_id and keep calling it until answered is true or the status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer.
@@ -359,8 +430,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       if ((times.at(-1) ?? 0) > now - HOUR_MS && hits.size < THROTTLE_MAX_KEYS) break;
       hits.delete(key);
     }
-    const client = c.req.header("x-forwarded-for")?.split(",").at(-1)?.trim() ?? "";
-    const key = `${c.req.path} ${client}`;
+    const key = `${c.req.path} ${clientKey(c.req.header("x-forwarded-for"))}`;
     const recent = (hits.get(key) ?? []).filter((at) => at > now - HOUR_MS);
     if (recent.length >= PUBLIC_CALLS_PER_HOUR) {
       const until = (recent[0] ?? now) + HOUR_MS;
@@ -409,7 +479,8 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   server.post("/w/join", async (c) => {
     const input = parse(JoinWorkerInput, await readJson(c));
     throttle(c);
-    return c.json(await service.joinWorker(input));
+    const joined = await service.joinWorker(input);
+    return c.json({ ...joined, inkbox_number: joined.inkbox_number || env.INKBOX_PHONE_NUMBER || null });
   });
   server.get("/w/offers/:token", async (c) => c.json(await service.getOffer(c.req.param("token"))));
   const uploads = new Set<string>();
@@ -449,7 +520,8 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       return null;
     }
   };
-  server.get("/", (c) => c.html(HOME, 200, { link: LINK }));
+  const home = homePage(config.worker_web_url);
+  server.get("/", (c) => c.html(home, 200, { link: LINK }));
   for (const [path, contentType] of Object.entries(DOCS)) {
     server.get(path, async (c) => {
       c.header("link", LINK);
@@ -468,12 +540,16 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     });
   }
 
+  const live = liveProviders(env);
+  const db = env.DATABASE_URL ? "postgres" : "insforge";
   server.get("/healthz", (c) => {
     const providers = Object.fromEntries(
-      Object.entries(liveProviders(env)).map(([name, live]) => [name, live ? "live" : "fake"]),
+      Object.entries(live).map(([name, on]) => [name, on ? "live" : "fake"]),
     );
-    return c.json({ ok: true, providers, db: env.DATABASE_URL ? "postgres" : "insforge" });
+    return c.json({ ok: true, providers, db });
   });
+  const status = statusPage(live, db, env.EYES_COMMIT);
+  server.get("/status", (c) => c.html(status));
 
   return server;
 }
