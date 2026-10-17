@@ -15,6 +15,8 @@
     "test:integration": "vitest run --project integration --passWithNoTests",
     "test:safety": "vitest run --project safety --passWithNoTests",
     "test:e2e": "playwright test --pass-with-no-tests",
+    "test:demo": "playwright test e2e/demo.spec.ts --repeat-each=3 --workers=1",
+    "swarm": "node scripts/swarm.ts",
     "build": "pnpm -r --if-present build",
     "db:up": "docker run -d --rm --name eyes-pg -e POSTGRES_PASSWORD=eyes -e POSTGRES_DB=eyes -p 54329:5432 postgres:17",
     "db:migrate": "node packages/db/src/migrate.ts",
@@ -32,6 +34,7 @@
     "@modelcontextprotocol/client": "2.3.1",
     "@playwright/test": "1.64.1",
     "@types/node": "^24.19.2",
+    "postgres": "3.4.9",
     "typescript": "7.0.2",
     "vitest": "5.0.5"
   }
