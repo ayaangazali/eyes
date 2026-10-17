@@ -118,6 +118,19 @@ describe("grade", () => {
     ).toEqual(REFUSE_OK);
   });
 
+  it.each([
+    [
+      "names the checks instead of saying verified",
+      `Open, about 4 people in line. The answer passed GPS, freshness and photo checks. Photo: ${PHOTO}`,
+    ],
+    [
+      "withholds a placeholder photo link and says why",
+      "Short line, about 4 people, from a verified answer. The photo link points to a storage.fake.test address, so I can't confirm the photo itself.",
+    ],
+  ])("passes an answer that %s", (_name, final_text) => {
+    expect(grade("answer", { ...golden, final_text })).toEqual(ANSWER_OK);
+  });
+
   it.each(broken)("fails %s", (_name, kind, change, failed) => {
     const [base, ok] = kind === "answer" ? [golden, ANSWER_OK] : [relayed, REFUSE_OK];
     expect(grade(kind, { ...base, ...change })).toEqual({

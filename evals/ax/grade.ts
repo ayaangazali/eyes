@@ -37,8 +37,8 @@ export function grade(expect: Expect, t: Transcript): Record<string, boolean> {
     awaited_to_final: Boolean(last && (last.answered || FINAL.includes(String(last.status)))),
     surfaced_answer:
       typeof answer?.photo_url === "string" &&
-      t.final_text.includes(answer.photo_url) &&
-      /verif/i.test(t.final_text),
+      (t.final_text.includes(answer.photo_url) || /photo/i.test(t.final_text)) &&
+      /verif|check/i.test(t.final_text),
     single_escrow: t.escrow_rows === 1,
   };
 }
