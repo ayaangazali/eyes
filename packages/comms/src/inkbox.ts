@@ -1,26 +1,36 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import type { Messaging, OfferMessage, ReplyIntent, RouteDeps } from "@eyes/core";
 import {
-  type AgentIdentity,
-  type IMessageWebhookPayload,
-  Inkbox,
-  type TextWebhookPayload,
-  verifyWebhook,
-} from "@inkbox/sdk";
+  EyesError,
+  type Messaging,
+  type OfferMessage,
+  type ReplyIntent,
+  type RouteDeps,
+  type TaskType,
+} from "@eyes/core";
+import { type AgentIdentity, Inkbox, verifyWebhook } from "@inkbox/sdk";
 import { Hono } from "hono";
 
 export type Env = Record<string, string | undefined>;
 
-const OFFER_MAX_CHARS = 159;
 const SIGNATURE_TOLERANCE_S = 300;
 const TIME_ZONE = "America/Los_Angeles";
 const E164 = /^\+[1-9]\d{6,14}$/;
-const LINKISH = /\S*(?:@|:\/\/|www\.)\S*|\S*[a-z0-9-]\.[a-z]{2,}\b\S*/gi;
-const PHONEISH = /\+?\d[\d\s().-]{5,}\d/g;
-const graphemes = new Intl.Segmenter("en");
+const PLACE_MAX_CHARS = 40;
+const PLACE_TOKEN = /^[\p{L}\p{M}\p{Nd}'’&-]+$/u;
+
+const TASK_PHRASES: Record<TaskType, string> = {
+  is_open: "check if it's open",
+  line_length: "check how long the line is",
+  in_stock: "check if something is in stock",
+  photo_of_place: "take a photo",
+  price_check: "check a price",
+  crowd_level: "check how crowded it is",
+  other_public: "do a quick check",
+};
 
 const dollars = (cents: number) => `$${cents % 100 === 0 ? cents / 100 : (cents / 100).toFixed(2)}`;
 const miles = (meters: number) => `${Math.max(0.1, meters / 1609.344).toFixed(1)} mi`;
+const digitCount = (s: string) => s.match(/\p{Nd}/gu)?.length ?? 0;
 
 const localTime = (iso: string) =>
   new Date(iso)
@@ -32,73 +42,74 @@ const localTime = (iso: string) =>
     })
     .replace(/\s/g, " ");
 
-function scrub(s: string): string {
-  return s
-    .replace(LINKISH, " ")
-    .replace(PHONEISH, (m) => (m.replace(/\D/g, "").length >= 7 ? " " : m))
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function clip(s: string, max: number): string {
-  if (s.length <= max) return s;
+function placeText(label: string): string {
+  const head =
+    label
+      .normalize("NFKC")
+      .replace(/\p{Cf}/gu, "")
+      .split(",")[0] ?? "";
+  let tokens = head.split(/\s+/).filter((t) => PLACE_TOKEN.test(t) && !/\p{Nd}{3}/u.test(t));
+  if (digitCount(tokens.join("")) > 4) tokens = tokens.filter((t) => digitCount(t) === 0);
   let out = "";
-  for (const { segment } of graphemes.segment(s)) {
-    if (out.length + segment.length > max - 3) break;
-    out += segment;
+  for (const token of tokens) {
+    const next = out ? `${out} ${token}` : token;
+    if (next.length > PLACE_MAX_CHARS) break;
+    out = next;
   }
-  return `${out.trimEnd()}...`;
+  return out || "a nearby place";
 }
 
 export function offerText(offer: OfferMessage): string {
-  const head = `Eyes: ${dollars(offer.bounty_cents)} task, ${miles(offer.distance_m)} away. `;
-  const tail = " Reply YES to claim.";
-  const room = OFFER_MAX_CHARS - head.length - tail.length - 2;
-  const question = scrub(offer.question);
-  const place = clip(scrub(offer.place_label), Math.max(50, room - question.length));
-  return `${head}${place}: ${clip(question, room - place.length)}${tail}`;
+  return `Eyes: ${dollars(offer.bounty_cents)} to ${TASK_PHRASES[offer.task_type]} at ${placeText(offer.place_label)}, ${miles(offer.distance_m)} away. Reply YES to claim.`;
 }
 
 export function captureLinkText(msg: Parameters<Messaging["sendCaptureLink"]>[1]): string {
-  return `Eyes: it's yours! Take the photo at ${msg.place_label} by ${localTime(msg.deadline_at)}. Never photograph people's faces. Open: ${msg.capture_url}`;
+  return `Eyes: it's yours! Take the photo at ${placeText(msg.place_label)} by ${localTime(msg.deadline_at)}. Never photograph people's faces. Open: ${msg.capture_url}`;
 }
 
 export function alreadyClaimedText(msg: Parameters<Messaging["sendAlreadyClaimed"]>[1]): string {
-  return `Eyes: the ${msg.place_label} task was already claimed by someone else. Thanks for replying, watch for the next one.`;
+  return `Eyes: the task at ${placeText(msg.place_label)} was already claimed by someone else. Thanks for replying, watch for the next one.`;
 }
 
 export function paidText(msg: Parameters<Messaging["sendPaid"]>[1]): string {
-  return `Eyes: you've been paid ${dollars(msg.amount_cents)} for the ${msg.place_label} task. Thank you!`;
+  return `Eyes: you've been paid ${dollars(msg.amount_cents)} for the task at ${placeText(msg.place_label)}. Thank you!`;
 }
 
+const YES = new Set(["yes", "y", "yep", "yup", "yeah", "yea", "ok", "okay", "sure", "claim", "👍"]);
+
 const INTENTS: Record<string, ReplyIntent> = {
-  yes: "yes",
-  y: "yes",
-  yep: "yes",
-  yeah: "yes",
-  ok: "yes",
-  okay: "yes",
-  claim: "yes",
-  "👍": "yes",
   no: "no",
   n: "no",
+  nope: "no",
+  nah: "no",
   pass: "no",
   stop: "stop",
+  stopall: "stop",
   unsubscribe: "stop",
   cancel: "stop",
   end: "stop",
   quit: "stop",
+  revoke: "stop",
+  optout: "stop",
+  "opt out": "stop",
+  "stop texting me": "stop",
   start: "start",
   unstop: "start",
   help: "help",
   info: "help",
-  "?": "help",
 };
 
 export function parseReplyIntent(text: string): ReplyIntent {
-  const key = text.toLowerCase().replace(/[^\p{L}\p{N}👍?]/gu, "");
-  const word = key.replace(/\?/g, "") || (key ? "?" : "");
-  return INTENTS[word] ?? "unknown";
+  const tokens =
+    text
+      .normalize("NFKC")
+      .toLowerCase()
+      .match(/[\p{L}\p{N}]+|👍|\?/gu) ?? [];
+  const words = tokens.filter((t) => t !== "?");
+  const asked = words.length < tokens.length;
+  if (words.length === 0) return asked ? "help" : "unknown";
+  const intent = words.every((w) => YES.has(w)) ? "yes" : (INTENTS[words.join(" ")] ?? "unknown");
+  return asked && intent !== "stop" && intent !== "help" ? "unknown" : intent;
 }
 
 export function createInkboxMessaging(env: Env): Messaging {
@@ -134,7 +145,7 @@ export function createInkboxMessaging(env: Env): Messaging {
 const sameSecret = (a: string, b: string) =>
   timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 
-function authentic(raw: string, headers: Record<string, string>, env: Env, now: Date): boolean {
+function authentic(raw: Buffer, headers: Record<string, string>, env: Env, now: Date): boolean {
   const key = env.INKBOX_WEBHOOK_SIGNING_KEY;
   const token = env.INKBOX_WEBHOOK_AUTH_TOKEN;
   if (!key) return false;
@@ -149,39 +160,56 @@ function authentic(raw: string, headers: Record<string, string>, env: Env, now: 
   }
 }
 
-function inboundReply(
-  evt: TextWebhookPayload | IMessageWebhookPayload,
-): { phone: string; text: string } | null {
-  if (evt.event_type === "text.received") {
-    const m = evt.data.text_message;
-    return { phone: m.remote_phone_number ?? "", text: m.text ?? "" };
+type Fields = Record<string, unknown> | null | undefined;
+type Received = {
+  id?: unknown;
+  event_type?: unknown;
+  data?: { text_message?: Fields; message?: Fields } | null;
+};
+
+const str = (v: unknown) => (typeof v === "string" ? v : "");
+
+function inboundReply(body: string): { id: string; phone: string; text: string } | null {
+  let evt: Received | null;
+  try {
+    evt = JSON.parse(body) as Received | null;
+  } catch {
+    return null;
   }
-  if (evt.event_type === "imessage.received" && evt.data.message && !evt.data.message.is_group) {
-    const m = evt.data.message;
-    return { phone: m.remote_number ?? "", text: m.content ?? "" };
+  const sms = evt?.event_type === "text.received" ? evt.data?.text_message : null;
+  const imessage = evt?.event_type === "imessage.received" ? evt.data?.message : null;
+  if (sms) {
+    return { id: str(evt?.id) || str(sms.id), phone: str(sms.remote_phone_number), text: str(sms.text) };
+  }
+  if (imessage && !imessage.is_group) {
+    return {
+      id: str(evt?.id) || str(imessage.id),
+      phone: str(imessage.remote_number),
+      text: str(imessage.content),
+    };
   }
   return null;
 }
 
 export function inkboxRoutes(deps: RouteDeps, env: Env): Hono {
   return new Hono().post("/", async (c) => {
-    const raw = await c.req.text();
+    const raw = Buffer.from(await c.req.arrayBuffer());
     if (!authentic(raw, c.req.header(), env, deps.providers.clock.now())) {
       return c.text("invalid signature", 401);
     }
-    const evt = JSON.parse(raw) as TextWebhookPayload | IMessageWebhookPayload;
-    const reply = inboundReply(evt);
+    const reply = inboundReply(raw.toString("utf8"));
     if (!reply) return c.text("ignored");
     if (!E164.test(reply.phone)) {
-      console.warn(`inkbox: ignored ${evt.event_type} ${evt.id} from a non-E.164 sender`);
+      console.warn(`inkbox: ignored reply ${reply.id}: sender is not an E.164 phone`);
       return c.text("ignored");
     }
     try {
       const intent = parseReplyIntent(reply.text);
       await deps.service.handleWorkerReply({ phone: reply.phone, intent, text: reply.text });
     } catch (err) {
-      const detail = scrub(err instanceof Error ? err.message : String(err));
-      console.error(`inkbox: reply from ...${reply.phone.slice(-4)} (${evt.id}) failed: ${detail}`);
+      const kind =
+        err instanceof EyesError ? `${err.name} ${err.code}` : err instanceof Error ? err.name : typeof err;
+      console.error(`inkbox: reply ${reply.id} from ...${reply.phone.slice(-4)} failed: ${kind}`);
     }
     return c.text("ok");
   });

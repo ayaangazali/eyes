@@ -1,19 +1,38 @@
 import { createHmac } from "node:crypto";
-import { AppConfig, type EyesService, fakeProviders, type OfferMessage } from "@eyes/core";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  AppConfig,
+  EyesError,
+  type EyesService,
+  fakeProviders,
+  type OfferMessage,
+  TASK_TYPES,
+} from "@eyes/core";
+import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import {
   alreadyClaimedText,
   captureLinkText,
+  createInkboxMessaging,
   inkboxRoutes,
   offerText,
   paidText,
   parseReplyIntent,
 } from "./index.ts";
 
+const sdk = vi.hoisted(() => ({ created: vi.fn(), getIdentity: vi.fn(), sendText: vi.fn() }));
+
+vi.mock("@inkbox/sdk", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@inkbox/sdk")>()),
+  Inkbox: class {
+    constructor(options: unknown) {
+      sdk.created(options);
+    }
+    getIdentity = sdk.getIdentity;
+  },
+}));
+
 const KEY = "test-signing-key";
 const NOW = new Date("2026-10-17T19:00:00.000Z");
-const URLISH = /https?:|www\.|[a-z0-9-]\.[a-z]{2,}|@/i;
-const PHONEISH = /\d[\d\s().-]{5,}\d/;
+const TO = "+14155550123";
 
 const textReceived = (text: string) => ({
   event_type: "text.received",
@@ -47,7 +66,7 @@ const textReceived = (text: string) => ({
   },
 });
 
-const imessageReceived = (content: string, is_group = false) => ({
+const imessageReceived = (content: string, from = "+15555550123", is_group = false) => ({
   id: "evt_1a90e8b0-0e1e-485f-b316-28f7dfa96afd",
   event_type: "imessage.received",
   timestamp: "2026-06-09T14:30:00Z",
@@ -56,8 +75,8 @@ const imessageReceived = (content: string, is_group = false) => ({
       id: "1a90e8b0-0e1e-485f-b316-28f7dfa96afd",
       conversation_id: "82cf24f6-78fe-48da-a673-6a75b4f4a819",
       direction: "inbound",
-      remote_number: "+15555550123",
-      sender_number: is_group ? "+15555550123" : null,
+      remote_number: from,
+      sender_number: is_group ? from : null,
       is_group,
       content,
       message_type: "message",
@@ -72,11 +91,11 @@ const imessageReceived = (content: string, is_group = false) => ({
   },
 });
 
-function signedHeaders(body: string, opts: { key?: string; at?: Date; id?: string } = {}) {
-  const id = opts.id ?? "req_123";
+function signedHeaders(body: string | Buffer, opts: { key?: string; at?: Date } = {}) {
+  const id = "req_123";
   const ts = String(Math.floor((opts.at ?? NOW).getTime() / 1000));
   const hex = createHmac("sha256", opts.key ?? KEY)
-    .update(`${id}.${ts}.${body}`)
+    .update(Buffer.concat([Buffer.from(`${id}.${ts}.`), Buffer.from(body)]))
     .digest("hex");
   return {
     "content-type": "application/json",
@@ -87,7 +106,7 @@ function signedHeaders(body: string, opts: { key?: string; at?: Date; id?: strin
 }
 
 function setup(env: Record<string, string> = {}) {
-  const handleWorkerReply = vi.fn(async () => {});
+  const handleWorkerReply = vi.fn(async (_: unknown) => {});
   const providers = fakeProviders();
   providers.clock.set(NOW);
   const config = AppConfig.parse({
@@ -97,14 +116,31 @@ function setup(env: Record<string, string> = {}) {
   });
   const service = { handleWorkerReply } as unknown as EyesService;
   const app = inkboxRoutes({ service, providers, config }, { INKBOX_WEBHOOK_SIGNING_KEY: KEY, ...env });
-  const post = (body: string, headers: Record<string, string>) =>
-    app.request("/", { method: "POST", body, headers });
-  return { app, post, handleWorkerReply };
+  const post = (body: string | Buffer, headers: Record<string, string>) =>
+    app.request("/", { method: "POST", body: new Uint8Array(Buffer.from(body)), headers });
+  return { post, handleWorkerReply };
 }
 
-afterEach(() => vi.restoreAllMocks());
+const offer = (o: Partial<OfferMessage> = {}): OfferMessage => ({
+  task_id: "00000000-0000-4000-8000-000000000001",
+  task_type: "line_length",
+  question: "Is the line under 10 people?",
+  place_label: "Blue Bottle Coffee, Mint Plaza, San Francisco",
+  bounty_cents: 300,
+  distance_m: 640,
+  deadline_at: "2026-10-17T19:30:00.000Z",
+  ...o,
+});
 
 describe("inkbox webhook", () => {
+  let warn: MockInstance<typeof console.warn>;
+  let error: MockInstance<typeof console.error>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    error = vi.spyOn(console, "error").mockImplementation(() => {});
+    return () => vi.restoreAllMocks();
+  });
+
   it("passes a signed text.received reply to the service with the parsed intent", async () => {
     const { post, handleWorkerReply } = setup();
     const body = JSON.stringify(textReceived("Yes!"));
@@ -121,31 +157,39 @@ describe("inkbox webhook", () => {
     expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+15555550123", intent: "stop", text: "STOP" });
   });
 
+  it("verifies the signature over the exact raw bytes, not re-encoded text", async () => {
+    const { post, handleWorkerReply } = setup();
+    const [before, after] = JSON.stringify(textReceived("XX")).split("XX");
+    const body = Buffer.concat([Buffer.from(`${before}caf`), Buffer.from([0xe9]), Buffer.from(`${after}`)]);
+    const res = await post(body, signedHeaders(body));
+    expect(res.status).toBe(200);
+    expect(handleWorkerReply).toHaveBeenCalledOnce();
+  });
+
   const rejects: [string, (b: string) => { body: string; headers: Record<string, string> }][] = [
-    ["wrong key", (b: string) => ({ body: b, headers: signedHeaders(b, { key: "other-key" }) })],
-    ["tampered body", (b: string) => ({ body: b.replace("YES", "NO"), headers: signedHeaders(b) })],
+    ["wrong key", (b) => ({ body: b, headers: signedHeaders(b, { key: "other-key" }) })],
+    ["tampered body", (b) => ({ body: b.replace("YES", "NO"), headers: signedHeaders(b) })],
     [
       "stale timestamp",
-      (b: string) => ({ body: b, headers: signedHeaders(b, { at: new Date(NOW.getTime() - 301_000) }) }),
+      (b) => ({ body: b, headers: signedHeaders(b, { at: new Date(NOW.getTime() - 301_000) }) }),
     ],
     [
       "future timestamp",
-      (b: string) => ({ body: b, headers: signedHeaders(b, { at: new Date(NOW.getTime() + 301_000) }) }),
+      (b) => ({ body: b, headers: signedHeaders(b, { at: new Date(NOW.getTime() + 301_000) }) }),
     ],
     [
       "truncated signature",
-      (b: string) => ({ body: b, headers: { ...signedHeaders(b), "x-inkbox-signature": "sha256=ab" } }),
+      (b) => ({ body: b, headers: { ...signedHeaders(b), "x-inkbox-signature": "sha256=ab" } }),
     ],
     ...["x-inkbox-signature", "x-inkbox-timestamp", "x-inkbox-request-id"].map(
-      (h) =>
-        [
-          `missing ${h}`,
-          (b: string) => {
-            const headers = signedHeaders(b);
-            delete headers[h];
-            return { body: b, headers };
-          },
-        ] as [string, (b: string) => { body: string; headers: Record<string, string> }],
+      (h): [string, (b: string) => { body: string; headers: Record<string, string> }] => [
+        `missing ${h}`,
+        (b) => {
+          const headers = signedHeaders(b);
+          delete headers[h];
+          return { body: b, headers };
+        },
+      ],
     ),
   ];
   it.each(rejects)("rejects %s with 401 and never calls the service", async (_, make) => {
@@ -156,10 +200,10 @@ describe("inkbox webhook", () => {
     expect(handleWorkerReply).not.toHaveBeenCalled();
   });
 
-  it("rejects everything when no signing key is configured", async () => {
+  it("rejects everything when no signing key is configured, even a request signed with an empty key", async () => {
     const { post, handleWorkerReply } = setup({ INKBOX_WEBHOOK_SIGNING_KEY: "" });
     const body = JSON.stringify(textReceived("YES"));
-    expect((await post(body, signedHeaders(body))).status).toBe(401);
+    expect((await post(body, signedHeaders(body, { key: "" }))).status).toBe(401);
     expect(handleWorkerReply).not.toHaveBeenCalled();
   });
 
@@ -174,73 +218,173 @@ describe("inkbox webhook", () => {
   });
 
   it.each([
-    ["text.delivered", { ...textReceived("YES"), event_type: "text.delivered" }],
-    ["imessage.reaction_received", { ...imessageReceived("YES"), event_type: "imessage.reaction_received" }],
-    ["group imessage", imessageReceived("YES", true)],
+    ["text.delivered", JSON.stringify({ ...textReceived("YES"), event_type: "text.delivered" })],
     [
-      "call.ended",
-      { id: "evt_1", event_type: "call.ended", timestamp: "2026-07-06T18:32:11.402Z", data: {} },
+      "imessage.reaction_received",
+      JSON.stringify({ ...imessageReceived("YES"), event_type: "imessage.reaction_received" }),
     ],
-  ])("ignores %s with 200", async (_, payload) => {
+    ["group imessage", JSON.stringify(imessageReceived("YES", "+15555550123", true))],
+    ["call.ended", JSON.stringify({ id: "evt_1", event_type: "call.ended", data: {} })],
+    ["non-E.164 sender", JSON.stringify(imessageReceived("YES secret", "sender@example.com"))],
+    ["non-JSON body", '{"event_type":"text.received", YES secret'],
+    ["empty body", ""],
+    ["null body", "null"],
+    ["text.received without data", JSON.stringify({ event_type: "text.received" })],
+    ["text_message null", JSON.stringify({ event_type: "text.received", data: { text_message: null } })],
+    ["imessage.received without data", JSON.stringify({ event_type: "imessage.received" })],
+  ])("ignores %s with 200 and logs no body", async (_, body) => {
     const { post, handleWorkerReply } = setup();
-    const body = JSON.stringify(payload);
     const res = await post(body, signedHeaders(body));
     expect(res.status).toBe(200);
+    expect(await res.text()).toBe("ignored");
     expect(handleWorkerReply).not.toHaveBeenCalled();
+    const logged = [...warn.mock.calls, ...error.mock.calls].join(" ");
+    expect(logged).not.toMatch(/secret|sender@/);
   });
 
-  it("answers 200 when the service fails and logs neither the full phone nor the body", async () => {
+  it("answers 200 when the service fails and logs only the error kind, event id and last 4 digits", async () => {
     const { post, handleWorkerReply } = setup();
-    handleWorkerReply.mockRejectedValueOnce(new Error("claim failed for +14155550999"));
-    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    handleWorkerReply.mockRejectedValueOnce(new Error("claim failed for +14155550999: yes secret body"));
+    handleWorkerReply.mockRejectedValueOnce(new EyesError("internal_error"));
     const body = JSON.stringify(textReceived("yes secret body"));
-    const res = await post(body, signedHeaders(body));
-    expect(res.status).toBe(200);
-    expect(log).toHaveBeenCalledOnce();
-    const line = String(log.mock.calls[0]?.[0]);
-    expect(line).not.toContain("4155550999");
-    expect(line).not.toContain("secret body");
+    expect((await post(body, signedHeaders(body))).status).toBe(200);
+    expect((await post(body, signedHeaders(body))).status).toBe(200);
+    const [first, second] = error.mock.calls.map((call) => String(call[0]));
+    expect(first).toContain("7b3c6e3d-5c20-41ee-8cde-9b1ad1d4e9c0");
+    expect(first).toContain("0999");
+    expect(first).not.toMatch(/4155550999|secret|claim failed/);
+    expect(second).toContain("internal_error");
   });
 });
 
-const offer = (o: Partial<OfferMessage> = {}): OfferMessage => ({
-  task_id: "00000000-0000-4000-8000-000000000001",
-  question: "Is the line under 10 people?",
-  place_label: "Blue Bottle Coffee, Mint Plaza, San Francisco",
-  bounty_cents: 300,
-  distance_m: 640,
-  deadline_at: "2026-10-17T19:30:00.000Z",
-  ...o,
+describe("createInkboxMessaging", () => {
+  const env = { INKBOX_API_KEY: "key_test", INKBOX_AGENT_HANDLE: "eyes-dispatch" };
+  beforeEach(() => {
+    sdk.created.mockReset();
+    sdk.sendText.mockReset().mockResolvedValue({ id: "txt_1", deliveryStatus: "queued" });
+    sdk.getIdentity.mockReset().mockResolvedValue({ sendText: sdk.sendText });
+  });
+
+  it("refuses to start without an API key or an agent handle", () => {
+    expect(() => createInkboxMessaging({ INKBOX_AGENT_HANDLE: "eyes-dispatch" })).toThrow(/INKBOX_API_KEY/);
+    expect(() => createInkboxMessaging({ INKBOX_API_KEY: "key_test" })).toThrow(/INKBOX_AGENT_HANDLE/);
+    expect(sdk.created).not.toHaveBeenCalled();
+  });
+
+  it("sends each template through the agent identity with its idempotency key", async () => {
+    const m = createInkboxMessaging(env);
+    const capture = {
+      task_id: "t1",
+      place_label: "Ferry Building",
+      capture_url: "https://w.eyes.test/c/x",
+      deadline_at: "2026-10-17T19:30:00.000Z",
+    };
+    const paid = { task_id: "t1", place_label: "Ferry Building", amount_cents: 300 };
+    expect(await m.sendOffer(TO, offer())).toEqual({ id: "txt_1" });
+    expect(await m.sendCaptureLink(TO, capture)).toEqual({ id: "txt_1" });
+    expect(await m.sendAlreadyClaimed(TO, { place_label: "Ferry Building" })).toEqual({ id: "txt_1" });
+    expect(await m.sendPaid(TO, paid)).toEqual({ id: "txt_1" });
+    expect(await m.sendText(TO, "raw body")).toEqual({ id: "txt_1" });
+    expect(sdk.created).toHaveBeenCalledWith({ apiKey: "key_test" });
+    expect(sdk.getIdentity).toHaveBeenCalledWith("eyes-dispatch");
+    expect(sdk.sendText.mock.calls.map(([options]) => options)).toEqual([
+      { to: TO, text: offerText(offer()), idempotencyKey: `offer:${offer().task_id}:${TO}` },
+      { to: TO, text: captureLinkText(capture), idempotencyKey: `capture:t1:${TO}` },
+      { to: TO, text: alreadyClaimedText({ place_label: "Ferry Building" }), idempotencyKey: undefined },
+      { to: TO, text: paidText(paid), idempotencyKey: `paid:t1:${TO}` },
+      { to: TO, text: "raw body", idempotencyKey: undefined },
+    ]);
+  });
+
+  it("fetches the identity once for concurrent sends", async () => {
+    const m = createInkboxMessaging(env);
+    await Promise.all([m.sendText(TO, "a"), m.sendText(TO, "b"), m.sendText(TO, "c")]);
+    expect(sdk.getIdentity).toHaveBeenCalledOnce();
+    expect(sdk.sendText).toHaveBeenCalledTimes(3);
+  });
+
+  it("refetches the identity after a failed fetch", async () => {
+    const m = createInkboxMessaging(env);
+    sdk.getIdentity.mockRejectedValueOnce(new Error("identity lookup failed"));
+    await expect(m.sendText(TO, "a")).rejects.toThrow("identity lookup failed");
+    await expect(m.sendText(TO, "b")).resolves.toEqual({ id: "txt_1" });
+    expect(sdk.getIdentity).toHaveBeenCalledTimes(2);
+  });
+
+  it("propagates SDK send errors", async () => {
+    const err = new Error("403 recipient_not_opted_in");
+    sdk.sendText.mockRejectedValueOnce(err);
+    await expect(createInkboxMessaging(env).sendText(TO, "a")).rejects.toBe(err);
+  });
 });
 
 describe("offer template", () => {
-  it("carries bounty, distance, place, question and the claim instruction", () => {
+  it("describes the task by type, bounty, place and distance", () => {
     expect(offerText(offer())).toBe(
-      "Eyes: $3 task, 0.4 mi away. Blue Bottle Coffee, Mint Plaza, San Francisco: Is the line under 10 people? Reply YES to claim.",
+      "Eyes: $3 to check how long the line is at Blue Bottle Coffee, 0.4 mi away. Reply YES to claim.",
+    );
+    expect(offerText(offer({ task_type: "is_open", bounty_cents: 450, distance_m: 30 }))).toBe(
+      "Eyes: $4.50 to check if it's open at Blue Bottle Coffee, 0.1 mi away. Reply YES to claim.",
     );
   });
 
-  it.each([
-    ["long question", offer({ question: "Is the oat milk in stock and how many cartons? ".repeat(20) })],
-    ["long place", offer({ place_label: "The Very Long Named Neighborhood Market And Deli ".repeat(10) })],
-    ["both long", offer({ question: "q".repeat(500), place_label: "p".repeat(500), bounty_cents: 4999 })],
-    ["emoji question", offer({ question: "🧑‍🤝‍🧑🍩".repeat(80) })],
-    [
-      "links and phones",
+  it.each(TASK_TYPES)("never carries the agent's question and stays within 159 chars (%s)", (task_type) => {
+    const text = offerText(
       offer({
-        question:
-          "Call (415) 555-0123 or +1 415.555.0199, see https://x.co/a, www.shop.com, shop.com/menu, a@b.io",
-        place_label: "Joe's, 4155550123, joes.example.com",
+        task_type,
+        question: "Text 4155550199 or visit evil.example now ".repeat(20),
+        place_label: "Grand Central Market Food Hall Annex West ".repeat(10),
+        bounty_cents: 4999,
+        distance_m: 40_000_000,
       }),
-    ],
-  ])("stays within 159 chars with no link or phone number (%s)", (_, o) => {
-    const text = offerText(o);
+    );
     expect(text.length).toBeLessThanOrEqual(159);
-    expect(text).toMatch(/Reply YES to claim\.$/);
-    expect(text).toContain(o.bounty_cents === 300 ? "$3 " : "$49.99 ");
-    expect(text).not.toMatch(URLISH);
-    expect(text).not.toMatch(PHONEISH);
-    expect(text).not.toMatch(/\p{Cs}/u);
+    expect(text).not.toMatch(/evil|4155550199|Text/);
+    expect(text).toMatch(/^Eyes: \$49\.99 to .+ Reply YES to claim\.$/);
+  });
+});
+
+describe("place label in every template", () => {
+  it.each([
+    ["Blue Bottle Coffee, Mint Plaza, San Francisco", "Blue Bottle Coffee"],
+    ["Trader Joe's, 401 Bay St, San Francisco", "Trader Joe's"],
+    ["Pier 39", "Pier 39"],
+    ["Ｐｉｅｒ ３９", "Pier 39"],
+    ["Café 🍩 Corner", "Café Corner"],
+    ["Visit пример.рф now", "Visit now"],
+    ["ｅｘａｍｐｌｅ．ｃｏｍ Deli", "Deli"],
+    ["exam\u200Bple.com Deli", "Deli"],
+    ["Blue\u200B Bottle\u2060 Coffee", "Blue Bottle Coffee"],
+    ["exa\u200Bmple。com", "a nearby place"],
+    ["\u202Emoc.elgoog", "a nearby place"],
+    ["Call 415/555/0199", "Call"],
+    ["Call 415 555 0199", "Call"],
+    ["1-800-FLOWERS", "a nearby place"],
+    ["Joe 41 55 55 01 99", "Joe"],
+    ["Joe 41-55-55-01-99", "Joe"],
+    ["Store ٤١٥٥٥٥٠١٩٩", "Store"],
+    ["Cafe 10.0.0.1", "Cafe"],
+    ["Shop http://evil", "Shop"],
+    ["Mail a@b.io", "Mail"],
+    ["Back\\slash Bar", "Bar"],
+    ["", "a nearby place"],
+    ["Grand ".repeat(30), "Grand Grand Grand Grand Grand Grand"],
+  ])("%j -> %j", (place_label, expected) => {
+    const texts = [
+      offerText(offer({ place_label })),
+      captureLinkText({
+        task_id: "t",
+        place_label,
+        capture_url: "https://w.eyes.test/c/x",
+        deadline_at: NOW.toISOString(),
+      }),
+      alreadyClaimedText({ place_label }),
+      paidText({ task_id: "t", place_label, amount_cents: 300 }),
+    ];
+    for (const text of texts) expect(text).toContain(` at ${expected}`);
+    expect(offerText(offer({ place_label }))).toBe(
+      `Eyes: $3 to check how long the line is at ${expected}, 0.4 mi away. Reply YES to claim.`,
+    );
   });
 });
 
@@ -252,16 +396,14 @@ describe("post-reply templates", () => {
       capture_url: "https://w.eyes.test/c/abc",
       deadline_at: "2026-10-17T19:30:00.000Z",
     });
-    expect(text).toContain("https://w.eyes.test/c/abc");
-    expect(text).toContain("Ferry Building, San Francisco");
-    expect(text).toContain("12:30 PM PDT");
-    expect(text).toMatch(/faces/);
+    expect(text).toBe(
+      "Eyes: it's yours! Take the photo at Ferry Building by 12:30 PM PDT. Never photograph people's faces. Open: https://w.eyes.test/c/abc",
+    );
   });
 
-  it("paid and already-claimed texts name the place and the dollar amount", () => {
-    expect(paidText({ task_id: "t", place_label: "Ferry Building", amount_cents: 350 })).toContain("$3.50");
+  it("paid text shows whole and fractional dollars", () => {
+    expect(paidText({ task_id: "t", place_label: "Ferry Building", amount_cents: 350 })).toContain("$3.50 ");
     expect(paidText({ task_id: "t", place_label: "Ferry Building", amount_cents: 300 })).toContain("$3 ");
-    expect(alreadyClaimedText({ place_label: "Ferry Building" })).toContain("Ferry Building");
   });
 });
 
@@ -269,32 +411,51 @@ describe("parseReplyIntent", () => {
   it.each([
     ["YES", "yes"],
     [" yes! ", "yes"],
+    ["ＹＥＳ", "yes"],
     ["Y", "yes"],
     ["yep.", "yes"],
+    ["yup", "yes"],
     ["Yeah", "yes"],
+    ["yea", "yes"],
+    ["sure", "yes"],
     ["ok", "yes"],
+    ["Okay", "yes"],
     ["Claim", "yes"],
     ["👍", "yes"],
     ["👍🏽", "yes"],
-    ["yes?", "yes"],
+    ["👍👍👍", "yes"],
+    ["yes 👍", "yes"],
     ["no", "no"],
     ["N", "no"],
+    ["nope", "no"],
+    ["nah", "no"],
     ["pass.", "no"],
     ["STOP", "stop"],
+    ["stop?", "stop"],
+    ["STOPALL", "stop"],
     ["Unsubscribe", "stop"],
     ["cancel", "stop"],
     ["END", "stop"],
     ["quit!", "stop"],
+    ["revoke", "stop"],
+    ["opt out", "stop"],
+    ["OPT-OUT", "stop"],
+    ["optout", "stop"],
+    ["Stop texting me!", "stop"],
     ["START", "start"],
     ["unstop", "start"],
     ["HELP", "help"],
+    ["help?", "help"],
     ["info", "help"],
     ["?", "help"],
     ["??", "help"],
     ["", "unknown"],
+    ["y?", "unknown"],
+    ["yes?", "unknown"],
     ["no way, yes", "unknown"],
     ["maybe later", "unknown"],
     ["yes please", "unknown"],
+    ["stop by later", "unknown"],
   ])("%j -> %s", (text, intent) => {
     expect(parseReplyIntent(text)).toBe(intent);
   });
