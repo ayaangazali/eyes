@@ -79,8 +79,8 @@ async function emit(page: Page, lat: number, lng: number, accuracy: number) {
   );
 }
 
-const takePhoto = async (page: Page, name = "Take photo") => {
-  await page.getByRole("button", { name }).click();
+const takePhoto = async (page: Page) => {
+  await page.getByRole("button", { name: "Take photo" }).click();
   await expect(page.getByAltText("What you captured")).toBeVisible();
 };
 
@@ -112,9 +112,11 @@ test("capture sends a live photo with GPS and shows the verification", async ({ 
   await page.getByLabel("Anything to add?").fill("Two cartons left");
   await page.getByRole("button", { name: "Send to Eyes" }).click();
 
+  await expect(page.getByRole("heading", { name: "Verified, payout pending" })).toBeVisible();
   await expect(page.getByText(okResult.message)).toBeVisible();
   await expect(page.getByText("Photo answers the question: passed")).toBeVisible();
   await expect(page.getByText(okResult.verification.vision_reason)).toBeVisible();
+  await expect(page.getByText(/\d+:\d\d left/)).toBeHidden();
 
   expect(captureUrl).toBe("http://127.0.0.1:4173/api/w/offers/tok_capture/capture");
   const photo = form?.get("photo");
@@ -153,6 +155,11 @@ for (const [why, view, reason] of [
   [
     "claimed by someone else",
     { ...offer, claimed_by_you: false },
+    "Another worker already claimed this task.",
+  ],
+  [
+    "answered by someone else",
+    { ...offer, status: "paid", claimed_by_you: false },
     "Another worker already claimed this task.",
   ],
   [
@@ -197,41 +204,49 @@ test("after the shutter, a search that finds nothing better keeps the earlier fi
   expect([form?.get("lat"), form?.get("accuracy_m")]).toEqual(["37.78246", "10"]);
 });
 
-test("denied location explains how to allow it and keeps Send disabled", async ({ page }) => {
+test("denied location gives the iPhone steps and Try location again asks again", async ({ page }) => {
   await fakeGps(page);
   await mockOffer(page, offer);
   await page.goto("/capture.html?t=tok");
-  await expect(page.getByRole("button", { name: "Take photo" })).toBeEnabled();
+  await takePhoto(page);
   await page.evaluate(() => (window as unknown as { __deny: () => void }).__deny());
 
   const alert = page.getByRole("alert");
+  const send = page.getByRole("button", { name: "Send to Eyes" });
   await expect(alert).toContainText("We could not get your location.");
-  await expect(alert).toContainText("Allow location for this page");
-  await takePhoto(page);
+  await expect(alert).toContainText("Website Settings > Location > Allow");
+  await expect(send).toBeDisabled();
+  await page.getByRole("button", { name: "Try location again" }).click();
   await expect(alert).toBeHidden();
-  await expect(page.getByRole("button", { name: "Send to Eyes" })).toBeDisabled();
+  await emit(page, offer.lat, offer.lng, 10);
+  await expect(send).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Try location again" })).toBeHidden();
 });
 
-for (const [name, fallback] of [
-  ["NotAllowedError", false],
-  ["NotFoundError", true],
+const PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+  "base64",
+);
+for (const [name, note] of [
+  ["NotAllowedError", "Camera access is blocked for this page"],
+  ["NotFoundError", "Your browser cannot show a live camera."],
 ] as const) {
-  test(`camera ${name} ${fallback ? "offers the capture fallback" : "says the camera is blocked"}`, async ({
-    page,
-  }) => {
+  test(`camera ${name} opens the phone camera through the file input instead`, async ({ page }) => {
     await page.addInitScript((errorName) => {
       navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException("no camera", errorName));
     }, name);
     await mockOffer(page, offer);
     await page.goto("/capture.html?t=tok");
     await expect(page.getByRole("button", { name: "Take photo" })).toBeHidden();
-    if (fallback) {
-      await expect(page.getByLabel("Take the photo")).toHaveAttribute("capture", "environment");
-      await expect(page.getByRole("alert")).toBeHidden();
-    } else {
-      await expect(page.getByRole("alert")).toContainText("Your camera is blocked.");
-      await expect(page.getByLabel("Take the photo")).toBeHidden();
-    }
+    await expect(page.getByText(note)).toBeVisible();
+    await expect(page.getByRole("alert")).toBeHidden();
+    const file = page.getByLabel("Take the photo");
+    await expect(file).toBeVisible();
+    await expect(file).toHaveAttribute("capture", "environment");
+    await expect(page.getByText("Take the photo first.")).toBeVisible();
+    await file.setInputFiles({ name: "photo.png", mimeType: "image/png", buffer: PNG });
+    await expect(page.getByAltText("What you captured")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send to Eyes" })).toBeEnabled();
   });
 }
 
@@ -271,7 +286,8 @@ test("Send stays disabled during an upload despite a double tap, a retake and a 
   const send = page.getByRole("button", { name: "Send to Eyes" });
   await send.dblclick();
   await expect.poll(() => posts).toBe(1);
-  await takePhoto(page, "Retake photo");
+  await page.getByRole("button", { name: "Retake photo" }).click();
+  await takePhoto(page);
   await emit(page, offer.lat, offer.lng, 5);
   await expect(page.getByText("GPS within 5 m")).toBeVisible();
   await expect(send).toBeDisabled();
@@ -352,7 +368,6 @@ test("the deadline passing mid-capture shows the expired state and blocks captur
   await takePhoto(page);
   await page.clock.runFor(31_000);
 
-  await expect(page.getByText("Deadline passed")).toBeVisible();
   await expect(page.getByText("This task expired.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Send to Eyes", includeHidden: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Retake photo", includeHidden: true })).toBeDisabled();

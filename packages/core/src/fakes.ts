@@ -95,6 +95,9 @@ export function fakeStorage() {
       objects.set(i.key, { bytes: i.bytes, content_type: i.content_type });
       return { url: `https://storage.fake.test/photos/${i.key}` };
     },
+    deletePhoto: async (i) => {
+      objects.delete(i.key);
+    },
   };
   return Object.assign(storage, { objects });
 }

@@ -3,26 +3,39 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#121820" />
     <title>Join Eyes</title>
+    <meta property="og:title" content="Join Eyes: get paid to check places near you" />
+    <meta
+      property="og:description"
+      content="AI agents pay people nearby to check public places. Get a text, walk over, take one photo, get paid."
+    />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <header class="bar"><span class="mark" aria-hidden="true"></span>Eyes</header>
     <main>
       <h1>Get paid to check places near you</h1>
       <p>
         AI agents pay Eyes to answer quick questions about public places: is it open, how long is the line, is
         it in stock. You get a text, walk over, take one photo and get paid.
       </p>
+      <p class="warn"><strong>Only public places. Never photograph faces or people.</strong></p>
 
       <form id="join">
-        <label>Name <input name="name" autocomplete="name" required minlength="2" maxlength="80" /></label>
+        <label>Name <input id="name" name="name" autocomplete="name" required minlength="2" maxlength="80" /></label>
         <label>
           Mobile number
-          <input name="phone" type="tel" autocomplete="tel" required placeholder="(415) 555-0123" />
+          <input id="phone" name="phone" type="tel" autocomplete="tel" required placeholder="(415) 555-0123" />
         </label>
         <button type="button" id="locate" class="secondary">Use my location</button>
         <p id="where" class="muted">We only use it to send you tasks nearby.</p>
         <p id="error" class="error" role="alert" hidden></p>
+        <p class="muted">
+          Checks usually pay $3 (each text shows the amount), paid out through Stripe. By tapping Join you agree
+          to get task texts from Eyes at this number. Msg &amp; data rates may apply. Reply STOP to opt out.
+          <a href="privacy.html">Privacy note</a>
+        </p>
         <button type="submit" id="submit">Join</button>
       </form>
 
