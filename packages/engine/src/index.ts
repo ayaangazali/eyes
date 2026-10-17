@@ -340,7 +340,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
               "Your AI agent's Eyes spending controls",
               `Your AI agent ${JSON.stringify(agent.name)} signed up for Eyes and listed this address as its owner.`,
             ))
-          ? ` We emailed your user at ${owner_email} a private control link to set your spend limits and add funds; only they can change your limits.`
+          ? config.email_delivery
+            ? ` We emailed your user at ${owner_email} a private control link to set your spend limits and add funds; only they can change your limits.`
+            : ` Owner email delivery is not set up on this server, so nothing was sent to ${owner_email}. Your user can get their private control link from the Eyes operator, who creates it with pnpm owner-link ${agent.id}; only they can change your limits.`
           : ` We could not email your user at ${owner_email}; they can ask the Eyes operator for their control link.`;
       return {
         agent_id: agent.id,
