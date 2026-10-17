@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isIPv6 } from "node:net";
 import { join } from "node:path";
@@ -31,7 +32,7 @@ import { cors } from "hono/cors";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { MCPServer } from "mcp-use";
+import { MCPServer, registerViews, type ViewsManifest } from "mcp-use";
 import type { z } from "zod";
 
 type Env = Record<string, string | undefined>;
@@ -42,6 +43,8 @@ const HOUR_MS = 60 * 60 * 1000;
 const PUBLIC_CALLS_PER_HOUR = 5;
 const THROTTLE_MAX_KEYS = 10_000;
 const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
+const VIEWS_MANIFEST = fileURLToPath(new URL("../.mcp-use/build/manifest.json", import.meta.url));
+const TASK_CARD = "task-card";
 const AGENT_CARD = "/.well-known/agent-card.json";
 const DOCS = {
   "/llms.txt": "text/plain; charset=utf-8",
@@ -399,6 +402,34 @@ Next: to wait for an answer call await_answer instead of polling get_task.`,
       inputSchema: TOOLS.get_task.input,
       outputSchema: TOOLS.get_task.output,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    },
+    (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
+  );
+
+  const viewsFile = env.EYES_VIEWS_MANIFEST || VIEWS_MANIFEST;
+  const card = existsSync(viewsFile)
+    ? (JSON.parse(readFileSync(viewsFile, "utf8")) as { views: ViewsManifest }).views[TASK_CARD]
+    : undefined;
+  if (card) server[registerViews]({ [TASK_CARD]: card });
+  server.tool(
+    {
+      name: "show_task",
+      title: "Show a task card",
+      description: `Show your user a task as a card: status, place, question, the answer with its photo, the verification checks and what it cost. Read-only and instant; the JSON result is the same as get_task's. Chat apps that render MCP Apps, such as ChatGPT and Claude, draw the card; other clients get only the JSON.
+Example: show_task({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
+Next: call it once await_answer returns answered true, so your user sees the answer and the photo. To wait for an answer call await_answer instead.`,
+      inputSchema: TOOLS.get_task.input,
+      outputSchema: TOOLS.get_task.output,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      ...(card && {
+        view: {
+          name: TASK_CARD,
+          description: "An Eyes task: status, answer, photo, verification checks and cost.",
+          ...(env.INSFORGE_BASE_URL && {
+            csp: { resourceDomains: [new URL(env.INSFORGE_BASE_URL).origin] },
+          }),
+        },
+      }),
     },
     (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
   );

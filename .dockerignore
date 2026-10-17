@@ -2,6 +2,7 @@
 .git
 .claude
 **/dist
+**/.mcp-use
 test-results
 playwright-report
 coverage
