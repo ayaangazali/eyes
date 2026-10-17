@@ -124,7 +124,7 @@ What you can text back:
 
 - **YES** claims the open offer and gets you the capture link. The first YES wins.
 - **NO** after a YES gives the task back, as long as you have not sent a photo and the deadline has not passed. The task reopens, and each other worker who got the offer, is still opted in and is not busy with another task gets it again, once per task ([#61](https://github.com/ayaangazali/eyes/pull/61), [#66](https://github.com/ayaangazali/eyes/pull/66)). Before #61, a worker who changed their mind held the claim until the deadline and the agent waited for nobody.
-- **STOP** opts you out, with one confirming text; after that Eyes sends you nothing until you text **START**, which opts you back in and sends a fresh payout setup link.
+- **STOP** opts you out, with one confirming text; after that Eyes sends you nothing until you text **START**, which opts you back in (and, once Stripe is live, sends a fresh payout setup link).
 - **HELP** says what Eyes is, links the worker page and links your earnings.
 
 Every paid text and every HELP reply ends with a private earnings link ([ADR-020](intent/decisions/ADR-020-worker-earnings-link.md)): what you were paid, what is still owed, and why a payout is stuck (most often, payout setup is not finished). It expires after 7 days because it lists where you went and when, and texts get forwarded; a fresh one is one HELP text away. It never shows the payout setup link, because whoever opens that link attaches the account the money goes to.
