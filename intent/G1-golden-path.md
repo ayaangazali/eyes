@@ -6,7 +6,7 @@ pr: https://github.com/ayaangazali/eyes/pull/16
 files: [e2e/**, playwright.config.ts, package.json, pnpm-lock.yaml]
 spec_refs: [§1 Flow, §5 Gate G1, §6, §13 steps 2-4]
 vendor_refs: [docs/vendor/inkbox.md]
-status: needs-follow-up
+status: verified
 ---
 ## Why
 Gate G1 needs proof that the merged pieces work together, not just alone: an MCP agent asks, Inkbox-texted workers race to claim, the capture page takes a live photo, verification passes, the agent gets the answer and the worker is paid. `e2e/golden-path.spec.ts` runs that whole §1 flow against the real MCP server, Node adapter, engine, Postgres, Inkbox webhook route, verification and worker web build, with only providers faked.
@@ -35,6 +35,8 @@ Gate G1 needs proof that the merged pieces work together, not just alone: an MCP
 - Mutation: GPS check in `packages/verify` made to fail: the spec fails at "Verified and paid"; the next run on the same database passes again.
 - `pnpm verify:fast`: pass.
 - Verifier verdicts: pending.
+
+- Verifier verdict: integration PASS (intent/verdicts/G1-PR16.md). CI run https://github.com/ayaangazali/eyes/actions/runs/39013105651. live-verified: no.
 
 ## Known gaps
 - The unsafe-task test is skipped until T1.5 merges.
