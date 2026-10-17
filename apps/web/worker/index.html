@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Join Eyes</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Get paid to check places near you</h1>
+      <p>
+        AI agents pay Eyes to answer quick questions about public places: is it open, how long is the line, is
+        it in stock. You get a text, walk over, take one photo and get paid.
+      </p>
+
+      <form id="join">
+        <label>Name <input name="name" autocomplete="name" required minlength="2" maxlength="80" /></label>
+        <label>
+          Mobile number
+          <input name="phone" type="tel" autocomplete="tel" required placeholder="(415) 555-0123" />
+        </label>
+        <button type="button" id="locate" class="secondary">Use my location</button>
+        <p id="where" class="muted">We only use it to send you tasks nearby.</p>
+        <p id="error" class="error" role="alert" hidden></p>
+        <button type="submit" id="submit">Join</button>
+      </form>
+
+      <section id="done" hidden>
+        <h2>You're in. Finish these steps.</h2>
+        <ol class="steps">
+          <li>
+            <a class="button" href="sms:%VITE_INKBOX_NUMBER%?&amp;body=START">Text START to %VITE_INKBOX_NUMBER%</a>
+            We can only text you tasks after you send START.
+          </li>
+          <li id="payouts" hidden>Connect a bank account with Stripe so we can pay you.</li>
+        </ol>
+        <h3>What to expect</h3>
+        <ul>
+          <li>Tasks arrive by text when one is near you.</li>
+          <li>Reply YES to claim a task. The first YES wins.</li>
+          <li>We text you a link that opens your camera. Take the photo at the place.</li>
+          <li>Never photograph faces.</li>
+        </ul>
+      </section>
+    </main>
+    <script type="module" src="/src/join.ts"></script>
+  </body>
+</html>
