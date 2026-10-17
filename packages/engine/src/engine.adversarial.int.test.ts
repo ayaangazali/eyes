@@ -643,6 +643,31 @@ describe.skipIf(!url)("engine under races and guards", () => {
     expect((await task(task_id)).status).toBe("expired");
   });
 
+  it("a capture that loses to a NO during verification deletes its uploaded photo and is refused as before", async () => {
+    const hook: { during?: () => Promise<unknown> } = {};
+    const svc = make({
+      verify: async () => {
+        await hook.during?.();
+        return PASS;
+      },
+    });
+    const remove = vi.spyOn(svc.providers.storage, "deletePhoto");
+    for (const sent of [photo, null]) {
+      const at = somewhere();
+      const w = await worker(north(at, 100), svc);
+      const a = await agent(svc);
+      const { task_id } = await ask(a, at, { require_photo: sent !== null }, svc);
+      await yes(w.phone, svc);
+      hook.during = () => svc.service.handleWorkerReply({ phone: w.phone, intent: "no", text: "NO" });
+      await expect(
+        svc.service.submitCapture(tokenOf(svc.outbox, w.phone), capture(at, svc.providers.clock.now()), sent),
+      ).rejects.toMatchObject({ code: "task_already_claimed" });
+      expect((await task(task_id)).status).toBe("dispatched");
+    }
+    expect(remove).toHaveBeenCalledOnce();
+    expect(svc.providers.storage.objects.size).toBe(0);
+  });
+
   it("a capture that fails verification goes to needs_review with escrow held", async () => {
     const svc = make({
       verify: async () => ({ ...PASS, vision_ok: false, auto_approve: false, vision_reason: "blurry" }),
