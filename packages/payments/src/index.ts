@@ -137,7 +137,13 @@ export function createStripePayments(env: Env): Payments {
         const agent_id = session.metadata?.agent_id;
         if (event.account || session.currency !== "usd" || session.payment_status !== "paid") return null;
         if (!agent_id || session.amount_total === null) return null;
-        return { type: "topup.completed", agent_id, amount_cents: session.amount_total, ref: session.id };
+        return {
+          type: "topup.completed",
+          agent_id,
+          amount_cents: session.amount_total,
+          ref: session.id,
+          payer_email: session.customer_details?.email ?? null,
+        };
       }
       if (event.type === "account.updated" && event.account) {
         const account = event.data.object;
@@ -235,7 +241,7 @@ function ownerPage(view: OwnerConsole, token: string, note: Note | null, feeUsd:
   return shell(
     "Eyes owner controls",
     html`<h1>${view.agent_name}</h1>
-<p>Owner controls for your AI agent on Eyes, which pays nearby people a few dollars to check public places. Keep this link private: anyone who has it can change these limits.</p>
+<p>Owner controls for your AI agent on Eyes, which pays nearby people a few dollars to check public places. Keep this link private: anyone who has it can change these limits. Whoever pays for this agent also gets this link.</p>
 ${note ? html`<p class="note${note.error ? " error" : ""}" role="status">${note.text}</p>` : ""}
 <dl>
 <dt>Balance</dt><dd>${usd(view.balance_usd)}</dd>
@@ -291,6 +297,7 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
         agent_id: event.agent_id,
         amount_cents: event.amount_cents,
         stripe_ref: event.ref,
+        payer_email: event.payer_email,
       });
     }
     if (event?.type === "worker.onboarded") await deps.service.markWorkerOnboarded(event.account_id);
