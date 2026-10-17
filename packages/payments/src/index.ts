@@ -29,9 +29,10 @@ export function createStripePayments(env: Env): Payments {
             quantity: 1,
           },
         ],
+        allowed_payment_method_types: ["card"],
         client_reference_id: agent_id,
-        metadata: { agent_id },
-        payment_intent_data: { metadata: { agent_id } },
+        metadata: { agent_id, topup_cents: String(amount_cents) },
+        payment_intent_data: { metadata: { agent_id }, transfer_group: `topup_${agent_id}` },
         success_url,
         cancel_url,
       });
@@ -78,7 +79,7 @@ export function createStripePayments(env: Env): Payments {
           amount: amount_cents,
           currency: "usd",
           destination: account_id,
-          transfer_group: task_id,
+          transfer_group: `task_${task_id}`,
           metadata: { task_id },
         },
         { idempotencyKey: idempotency_key },
@@ -91,7 +92,11 @@ export function createStripePayments(env: Env): Payments {
         (s): s is string => !!s,
       );
       if (secrets.length === 0) {
-        throw new Error("STRIPE_WEBHOOK_SECRET is not set, so Stripe webhooks cannot be verified.");
+        throw new EyesError(
+          "internal_error",
+          {},
+          { message: "STRIPE_WEBHOOK_SECRET is not set, so Stripe webhooks cannot be verified." },
+        );
       }
       const event = await Promise.any(
         secrets.map((secret) => stripe.webhooks.constructEventAsync(rawBody, signature ?? "", secret)),
@@ -101,14 +106,14 @@ export function createStripePayments(env: Env): Payments {
       if (event.type === "checkout.session.completed") {
         const session = event.data.object;
         const agent_id = session.metadata?.agent_id;
-        if (session.payment_status !== "paid" || !agent_id || session.amount_total === null) return null;
+        if (event.account || session.currency !== "usd" || session.payment_status !== "paid") return null;
+        if (!agent_id || session.amount_total === null) return null;
         return { type: "topup.completed", agent_id, amount_cents: session.amount_total, ref: session.id };
       }
-      if (event.type === "account.updated") {
+      if (event.type === "account.updated" && event.account) {
         const account = event.data.object;
-        if (account.capabilities?.transfers === "active" || account.payouts_enabled) {
+        if (account.capabilities?.transfers === "active")
           return { type: "worker.onboarded", account_id: account.id };
-        }
       }
       return null;
     },
@@ -140,6 +145,10 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
     try {
       event = await deps.providers.payments.parseWebhook(rawBody, c.req.header("stripe-signature") ?? null);
     } catch (err) {
+      if (err instanceof EyesError) {
+        console.error(`stripe webhook: ${err.message}`);
+        return c.text("Internal Server Error", 500);
+      }
       return c.text(`Webhook Error: ${(err as Error).message}`, 400);
     }
     if (event?.type === "topup.completed") {

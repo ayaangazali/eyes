@@ -1,9 +1,51 @@
-import { AppConfig, EyesError, type EyesService, FAKE_STRIPE_SIGNATURE, fakeProviders } from "@eyes/core";
+import {
+  AppConfig,
+  EyesError,
+  type EyesService,
+  FAKE_STRIPE_SIGNATURE,
+  fakeProviders,
+  type Payments,
+} from "@eyes/core";
 import Stripe from "stripe";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createStripePayments, stripeRoutes } from "./index.ts";
 
-function setup() {
+type Captured = {
+  method: string;
+  url: string;
+  headers: Record<string, string>;
+  body: Record<string, string>;
+};
+
+const http = vi.hoisted(() => ({ captured: [] as Captured[], response: {} as Record<string, unknown> }));
+
+vi.mock("stripe", async (importOriginal) => {
+  const mod = await importOriginal<{ default: typeof Stripe }>();
+  const stubFetch = async (url: string | URL | Request, init?: RequestInit) => {
+    http.captured.push({
+      method: String(init?.method),
+      url: String(url),
+      headers: Object.fromEntries(new Headers(init?.headers).entries()),
+      body: Object.fromEntries(new URLSearchParams(String(init?.body ?? "")).entries()),
+    });
+    return new Response(JSON.stringify(http.response), {
+      status: 200,
+      headers: { "content-type": "application/json", "request-id": "req_1" },
+    });
+  };
+  class StubbedStripe extends mod.default {
+    constructor(key: string) {
+      super(key, { httpClient: mod.default.createFetchHttpClient(stubFetch) });
+    }
+  }
+  return { ...mod, default: StubbedStripe };
+});
+
+beforeEach(() => {
+  http.captured.length = 0;
+});
+
+function setup(payments: Payments = fakeProviders().payments) {
   const service = {
     creditTopup: vi.fn(async () => {}),
     markWorkerOnboarded: vi.fn(async () => {}),
@@ -21,7 +63,7 @@ function setup() {
     link_secret: "0123456789abcdef",
   });
   const app = stripeRoutes(
-    { service: service as unknown as EyesService, providers: fakeProviders(), config },
+    { service: service as unknown as EyesService, providers: { ...fakeProviders(), payments }, config },
     {},
   );
   const webhook = (body: unknown, signature = FAKE_STRIPE_SIGNATURE) =>
@@ -80,6 +122,17 @@ describe("stripeRoutes", () => {
     expect(res.status).toBe(500);
   });
 
+  it("answers a generic 500 without naming the missing webhook secret", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { service, webhook } = setup(createStripePayments({ STRIPE_SECRET_KEY: "sk_test_unit" }));
+    const res = await webhook({}, "t=1,v1=x");
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toMatch(/STRIPE|secret/i);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining("STRIPE_WEBHOOK_SECRET"));
+    expect(service.creditTopup).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("redirects a top-up link to Checkout with the amount clamped to 5..100 USD", async () => {
     const { app, service } = setup();
     const res = await app.request("/topup/tok?amount_usd=20");
@@ -117,6 +170,104 @@ describe("stripeRoutes", () => {
   });
 });
 
+describe("outbound Stripe requests", () => {
+  const payments = createStripePayments({ STRIPE_SECRET_KEY: "sk_test_unit" });
+
+  it("creates a card-only USD Checkout Session labelled with the agent", async () => {
+    http.response = { id: "cs_1", object: "checkout.session", url: "https://checkout.stripe.com/c/cs_1" };
+    const out = await payments.createTopupCheckout({
+      agent_id: "agt_9",
+      amount_cents: 2050,
+      success_url: "https://api.eyes.test/topup/done",
+      cancel_url: "https://api.eyes.test/topup/cancel",
+    });
+    expect(out).toEqual({ url: "https://checkout.stripe.com/c/cs_1", session_id: "cs_1" });
+    expect(http.captured).toHaveLength(1);
+    const [req] = http.captured;
+    expect(req?.method).toBe("POST");
+    expect(req?.url).toBe("https://api.stripe.com/v1/checkout/sessions");
+    expect(req?.body).toEqual({
+      mode: "payment",
+      "line_items[0][price_data][currency]": "usd",
+      "line_items[0][price_data][product_data][name]": "Eyes balance top-up",
+      "line_items[0][price_data][unit_amount]": "2050",
+      "line_items[0][quantity]": "1",
+      "allowed_payment_method_types[0]": "card",
+      client_reference_id: "agt_9",
+      "metadata[agent_id]": "agt_9",
+      "metadata[topup_cents]": "2050",
+      "payment_intent_data[metadata][agent_id]": "agt_9",
+      "payment_intent_data[transfer_group]": "topup_agt_9",
+      success_url: "https://api.eyes.test/topup/done",
+      cancel_url: "https://api.eyes.test/topup/cancel",
+    });
+  });
+
+  it("creates an Express-dashboard US individual account that can receive transfers, once per worker", async () => {
+    http.response = { id: "acct_1", object: "account" };
+    const out = await payments.createWorkerAccount({
+      worker_id: "wkr_7",
+      phone: "+14155550123",
+      name: "Sam",
+    });
+    expect(out).toEqual({ account_id: "acct_1" });
+    const [req] = http.captured;
+    expect(req?.url).toBe("https://api.stripe.com/v1/accounts");
+    expect(req?.headers["idempotency-key"]).toBe("eyes-worker-account-wkr_7");
+    expect(req?.body).toEqual({
+      "controller[fees][payer]": "application",
+      "controller[losses][payments]": "application",
+      "controller[stripe_dashboard][type]": "express",
+      country: "US",
+      business_type: "individual",
+      "capabilities[transfers][requested]": "true",
+      "individual[phone]": "+14155550123",
+      "business_profile[product_description]": "Paid by Eyes for on-the-spot photo checks of public places.",
+      "metadata[worker_id]": "wkr_7",
+    });
+  });
+
+  it("creates an onboarding Account Link for currently due fields", async () => {
+    http.response = { object: "account_link", url: "https://connect.stripe.com/setup/e/x" };
+    const out = await payments.createOnboardingLink({
+      account_id: "acct_1",
+      refresh_url: "https://api.eyes.test/w/connect/tok",
+      return_url: "https://api.eyes.test/w/connect/done",
+    });
+    expect(out).toEqual({ url: "https://connect.stripe.com/setup/e/x" });
+    const [req] = http.captured;
+    expect(req?.url).toBe("https://api.stripe.com/v1/account_links");
+    expect(req?.body).toEqual({
+      account: "acct_1",
+      refresh_url: "https://api.eyes.test/w/connect/tok",
+      return_url: "https://api.eyes.test/w/connect/done",
+      type: "account_onboarding",
+      "collection_options[fields]": "currently_due",
+    });
+  });
+
+  it("pays a worker with a Transfer carrying the caller's idempotency key", async () => {
+    http.response = { id: "tr_1", object: "transfer" };
+    const out = await payments.payoutWorker({
+      account_id: "acct_1",
+      amount_cents: 300,
+      task_id: "tsk_5",
+      idempotency_key: "payout:tsk_5",
+    });
+    expect(out).toEqual({ transfer_id: "tr_1" });
+    const [req] = http.captured;
+    expect(req?.url).toBe("https://api.stripe.com/v1/transfers");
+    expect(req?.headers["idempotency-key"]).toBe("payout:tsk_5");
+    expect(req?.body).toEqual({
+      amount: "300",
+      currency: "usd",
+      destination: "acct_1",
+      transfer_group: "task_tsk_5",
+      "metadata[task_id]": "tsk_5",
+    });
+  });
+});
+
 describe("createStripePayments().parseWebhook", () => {
   const secret = "whsec_unit_test_secret";
   const connectSecret = "whsec_unit_test_connect_secret";
@@ -125,10 +276,11 @@ describe("createStripePayments().parseWebhook", () => {
     STRIPE_WEBHOOK_SECRET: secret,
     STRIPE_CONNECT_WEBHOOK_SECRET: connectSecret,
   });
-  const event = (type: string, object: Record<string, unknown>) =>
+  const event = (type: string, object: Record<string, unknown>, account?: string) =>
     JSON.stringify({
       id: "evt_1",
       object: "event",
+      ...(account && { account }),
       api_version: Stripe.API_VERSION,
       created: 1_792_000_000,
       livemode: false,
@@ -137,22 +289,28 @@ describe("createStripePayments().parseWebhook", () => {
       type,
       data: { object },
     });
-  const session = (payment_status: string) =>
-    event("checkout.session.completed", {
-      id: "cs_test_a1",
-      object: "checkout.session",
-      mode: "payment",
-      status: "complete",
-      payment_status,
-      currency: "usd",
-      amount_total: 2000,
-      client_reference_id: "agt_1",
-      metadata: { agent_id: "agt_1" },
-    });
-  const sign = (payload: string) => Stripe.webhooks.generateTestHeaderString({ payload, secret });
+  const session = (fields: Record<string, unknown> = {}, account?: string) =>
+    event(
+      "checkout.session.completed",
+      {
+        id: "cs_test_a1",
+        object: "checkout.session",
+        mode: "payment",
+        status: "complete",
+        payment_status: "paid",
+        currency: "usd",
+        amount_total: 2000,
+        client_reference_id: "agt_1",
+        metadata: { agent_id: "agt_1" },
+        ...fields,
+      },
+      account,
+    );
+  const sign = (payload: string, key = secret) =>
+    Stripe.webhooks.generateTestHeaderString({ payload, secret: key });
 
   it("maps a signed, paid checkout.session.completed to topup.completed", async () => {
-    const body = session("paid");
+    const body = session();
     expect(await payments.parseWebhook(body, sign(body))).toEqual({
       type: "topup.completed",
       agent_id: "agt_1",
@@ -162,39 +320,37 @@ describe("createStripePayments().parseWebhook", () => {
   });
 
   it("rejects a tampered body and a missing signature", async () => {
-    const body = session("paid");
+    const body = session();
     const tampered = body.replace('"amount_total":2000', '"amount_total":999999');
     await expect(payments.parseWebhook(tampered, sign(body))).rejects.toThrow();
     await expect(payments.parseWebhook(body, null)).rejects.toThrow();
   });
 
-  it("ignores an unpaid session", async () => {
-    const body = session("unpaid");
-    expect(await payments.parseWebhook(body, sign(body))).toBeNull();
+  it("ignores sessions that are not paid USD top-ups on the platform account", async () => {
+    for (const body of [
+      session({ payment_status: "unpaid" }),
+      session({ currency: "eur" }),
+      session({}, "acct_connected"),
+    ]) {
+      expect(await payments.parseWebhook(body, sign(body))).toBeNull();
+    }
   });
 
-  it("maps a Connect-destination account.updated to worker.onboarded once the account can receive transfers", async () => {
-    const signConnect = (payload: string) =>
-      Stripe.webhooks.generateTestHeaderString({ payload, secret: connectSecret });
-    const account = (transfers: string, payouts_enabled: boolean) =>
-      event("account.updated", {
-        id: "acct_1",
-        object: "account",
-        capabilities: { transfers },
-        payouts_enabled,
-      });
-    const active = account("active", false);
-    const pending = account("pending", false);
-    const payouts = account("pending", true);
-    expect(await payments.parseWebhook(active, signConnect(active))).toEqual({
+  it("maps a connected account's account.updated to worker.onboarded only once transfers are active", async () => {
+    const account = (transfers: string, payouts_enabled: boolean, origin?: string) =>
+      event(
+        "account.updated",
+        { id: "acct_1", object: "account", capabilities: { transfers }, payouts_enabled },
+        origin,
+      );
+    const active = account("active", false, "acct_1");
+    expect(await payments.parseWebhook(active, sign(active, connectSecret))).toEqual({
       type: "worker.onboarded",
       account_id: "acct_1",
     });
-    expect(await payments.parseWebhook(payouts, signConnect(payouts))).toEqual({
-      type: "worker.onboarded",
-      account_id: "acct_1",
-    });
-    expect(await payments.parseWebhook(pending, signConnect(pending))).toBeNull();
+    for (const body of [account("pending", true, "acct_1"), account("active", true)]) {
+      expect(await payments.parseWebhook(body, sign(body, connectSecret))).toBeNull();
+    }
   });
 
   it("returns null for other event types", async () => {
