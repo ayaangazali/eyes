@@ -388,16 +388,23 @@ describe("outbound Stripe requests", () => {
     idempotency_key: "payout:tsk_5",
   };
 
+  const ACTIVE = { id: "acct_1", object: "account", capabilities: { transfers: "active" } };
+  const transferList = (data: Record<string, unknown>[]) => ({
+    object: "list",
+    url: "/v1/transfers",
+    has_more: false,
+    data,
+  });
+  const LOOKUP = "https://api.stripe.com/v1/transfers?transfer_group=task_tsk_5&limit=1";
+
   it("pays a worker with a Transfer carrying the caller's idempotency key once transfers are active", async () => {
-    http.queue.push(
-      { id: "acct_1", object: "account", capabilities: { transfers: "active" } },
-      { id: "tr_1", object: "transfer" },
-    );
+    http.queue.push(ACTIVE, transferList([]), { id: "tr_1", object: "transfer" });
     const out = await payments.payoutWorker(payout);
     expect(out).toEqual({ transfer_id: "tr_1" });
-    const [check, req] = http.captured;
+    const [check, lookup, req] = http.captured;
     expect(check).toMatchObject({ method: "GET", url: "https://api.stripe.com/v1/accounts/acct_1" });
     expect(check?.headers["idempotency-key"]).toBeUndefined();
+    expect(lookup).toMatchObject({ method: "GET", url: LOOKUP });
     expect(req?.url).toBe("https://api.stripe.com/v1/transfers");
     expect(req?.headers["idempotency-key"]).toBe("payout:tsk_5");
     expect(req?.body).toEqual({
@@ -407,6 +414,17 @@ describe("outbound Stripe requests", () => {
       transfer_group: "task_tsk_5",
       "metadata[task_id]": "tsk_5",
     });
+  });
+
+  it("returns the Transfer an earlier attempt made for the task instead of sending another", async () => {
+    http.queue.push(ACTIVE, transferList([{ id: "tr_earlier", object: "transfer" }]));
+    expect(await payments.payoutWorker({ ...payout, idempotency_key: "payout:tsk_5:2" })).toEqual({
+      transfer_id: "tr_earlier",
+    });
+    expect(http.captured.map((r) => `${r.method} ${r.url}`)).toEqual([
+      "GET https://api.stripe.com/v1/accounts/acct_1",
+      `GET ${LOOKUP}`,
+    ]);
   });
 
   it("refuses an account whose transfers capability is not active without sending the idempotent Transfer", async () => {

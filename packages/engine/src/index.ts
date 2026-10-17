@@ -273,17 +273,23 @@ export function createEyesService(deps: EngineDeps): EyesService {
   async function payOut(task: Task, worker: Payee): Promise<Task> {
     let paid: Task | undefined;
     try {
-      const { transfer_id } = await payments.payoutWorker({
-        account_id: worker.stripe_account_id,
-        amount_cents: task.bounty_cents,
-        task_id: task.id,
-        idempotency_key: `payout:${task.id}`,
-      });
-      paid = await maybe<Task>("eyes_record_payout", {
-        p_task_id: task.id,
-        p_transfer_id: transfer_id,
-        p_now: nowIso(),
-      });
+      const lease = await maybe<{ stripe_ref: string }>("eyes_payout_begin", { p_task_id: task.id });
+      if (!lease) return task;
+      try {
+        const { transfer_id } = await payments.payoutWorker({
+          account_id: worker.stripe_account_id,
+          amount_cents: task.bounty_cents,
+          task_id: task.id,
+          idempotency_key: lease.stripe_ref,
+        });
+        paid = await maybe<Task>("eyes_record_payout", {
+          p_task_id: task.id,
+          p_transfer_id: transfer_id,
+          p_now: nowIso(),
+        });
+      } finally {
+        await rpc("eyes_payout_end", { p_task_id: task.id, p_key: lease.stripe_ref });
+      }
     } catch (err) {
       console.error(`payout for task ${task.id} failed`, err);
     }
@@ -308,8 +314,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
     return task;
   }
 
-  const payoutsDue = (accountId: string | null, limit: number | null) =>
-    rpc<{ task: Task; worker: Payee }>("eyes_payouts_due", { p_account_id: accountId, p_limit: limit });
+  const payoutsDue = (accountId: string | null, limit: number | null, after: string | null = null) =>
+    rpc<{ task: Task; worker: Payee }>("eyes_payouts_due", {
+      p_account_id: accountId,
+      p_limit: limit,
+      p_after: after,
+    });
+  let retryAfter: string | null = null;
 
   return {
     async authenticate(apiKey) {
@@ -813,7 +824,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
             ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). You will be paid once it is approved.`
             : worker.stripe_account_id
               ? `Verified. Your ${amount} payout did not go through yet; it will be retried.`
-              : `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`;
+              : worker.opted_in
+                ? `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`
+                : `Verified. To get your ${amount}, set up payouts here: ${connectUrl(worker.id)}`;
       return {
         task_id: settled.id,
         status: settled.status,
@@ -832,8 +845,10 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async retryPayouts() {
+      const due = await payoutsDue(null, PAYOUT_BATCH, retryAfter);
+      retryAfter = due.length === PAYOUT_BATCH ? (due.at(-1)?.task.id ?? null) : null;
       let paid = 0;
-      for (const { task, worker } of await payoutsDue(null, PAYOUT_BATCH)) {
+      for (const { task, worker } of due) {
         if ((await payOut(task, worker)).status === "paid") paid += 1;
       }
       return { paid };

@@ -30,3 +30,45 @@ Status: accepted (2026-10-17, orchestrator). Adds to the frozen contract: `EyesS
 - Oldest first with a batch of 25: if 25 or more tasks are stuck on accounts that never finish onboarding, newer payouts wait behind them. Each costs one account GET per run.
 - A dispute filed after automatic verification can only end in release; reversing an automatic approval needs a reversal ledger type.
 - Every payout costs one extra Stripe GET.
+
+## Addendum: fresh key per attempt, payout lease, rotating batch (T4.9, 2026-10-17)
+
+Status: proposed by T4.9 (#46, #52). Supersedes "the Stripe idempotency key stays `payout:<task_id>`", "it holds no lock across the Stripe call", "oldest first" and the first rejected alternative above. No change to `packages/core` signatures.
+
+### Context
+- #46: Stripe saves the result of a POST once the endpoint starts executing, errors included, and replays it for the same key for at least 24 hours (https://docs.stripe.com/api/idempotent_requests, https://docs.stripe.com/error-low-level.md). A transfer refused for low platform balance under `payout:<task_id>` therefore keeps failing for a day after the balance is topped up.
+- A new key per attempt is only safe if no two attempts on one task overlap. Otherwise two attempts can both find no transfer and both create one under different keys.
+- The engine talks to Postgres one RPC at a time, and on InsForge each RPC is one HTTP request and one transaction. A row lock cannot be held across the Stripe calls, so the lock has to be a lease stored in a row.
+- #52: `eyes_payouts_due` returned the oldest 25 tasks every run. 25 tasks on accounts that never finish onboarding blocked every newer payout.
+
+### Decision
+- Per-task payout lease, `009_payout_retry.sql`:
+  - `eyes_payout_begin(task_id)` locks the task row (`for update`), requires `verified`, and writes a fresh key `payout:<task_id>:<database clock in microseconds>` into the stripe_ref of the task's `release` ledger row. It returns that row only if no other attempt holds the lease. A lease counts as held while it is younger than 15 minutes. Otherwise it returns nothing and the caller skips the task.
+  - `payOut` passes that key to `payoutWorker`, records the payout, and always calls `eyes_payout_end(task_id, key)`, which clears stripe_ref only if it still holds that key.
+  - Attempts on one task therefore run one after another, whether they come from the retry tick, the onboarding webhook, a capture or an operator release, and on any number of server instances.
+  - The lease uses the database clock, not the caller's `p_now`. A caller with a clock 15 minutes ahead would otherwise treat a live lease as expired. The verifier race file's late-clock instance caught exactly this.
+- Lookup before create: `payoutWorker` lists transfers with `transfer_group=task_<id>`, `limit=1`, after the capability check. If one exists it returns that transfer id and sends no POST. Because attempts never overlap, an attempt that created a transfer but died before recording it has finished by the time the next attempt looks.
+- Key scheme:
+  - A retry after a refusal is a new attempt with a new key, so Stripe runs it fresh.
+  - A network retry inside one attempt reuses the key. stripe-node resends the same `Idempotency-Key` header on its automatic retries (2 by default in Node, `RequestSender` keeps the headers).
+  - Two attempts can only get the same key if they start in the same microsecond. Then Stripe replays the earlier result for the same task and amount, which can waste an attempt but cannot pay twice.
+- Rotating batch: `eyes_payouts_due(account, limit, after)` orders by `(created_at, id)` and starts after the task id `after`. `retryPayouts` keeps that cursor in memory: it moves to the last task of a full batch and goes back to the start after a short one. With N due tasks, every due task is tried at least once every ceil(N / 25) runs. `markWorkerOnboarded` passes no cursor and no limit.
+- Capture page: a worker who texted STOP and has no payout account is not texted the setup link, so the page shows `connectUrl(worker.id)` itself.
+- 009 adds and replaces functions only (no tables, columns or constraints). The 2-argument `eyes_payouts_due` is dropped. EXECUTE on all three functions is revoked from public, anon and authenticated.
+
+### Alternatives rejected
+- Holding a row lock or advisory lock across the Stripe calls: on InsForge every RPC is its own transaction.
+- Minting a new key only after Stripe replays a saved error (`Idempotent-Replayed: true`): this needs no lease, but the payments adapter would have to report that header to the engine (a `Payments` contract change), and every refusal would cost an extra POST.
+- Skipping accounts known to be inactive for a backoff window: there is no column that records an inactive account or the last failed attempt. A per-instance skip list still starves once more tasks are stuck than fit in the window.
+- Ordering the rotation by task id alone: it works, but it drops the oldest-first order, so the first batch after a restart would be arbitrary instead of the longest-waiting tasks.
+- A new `payout_attempts` table or `last_attempt_at` column: no schema changes in this task.
+
+### Consequences
+- The lease assumes one attempt finishes within 15 minutes: one account GET, one transfer list and one transfer POST, each up to 3 tries × 80 s with stripe-node defaults, about 12.2 minutes at worst. A process that dies holding the lease delays that task's payout by up to 15 minutes.
+- Remaining double-pay windows:
+  - Stripe executes a POST after stripe-node gave up on it (3 × 80 s) and before the next attempt's list.
+  - Stripe incident recovery creates a transfer after a 500.
+  - In both cases `ledger_once_per_task` still allows one payout row, so the extra transfer shows in the Stripe dashboard to reconcile. The Stripe docs say list endpoints are read-after-write consistent (search is not), which the lookup relies on.
+- A successful lookup can return a transfer an operator has since reversed in Stripe. The task is then recorded as paid.
+- `release.stripe_ref` is non-null only while an attempt runs. Nothing else reads it.
+- Every payout attempt costs one more Stripe GET (the list).

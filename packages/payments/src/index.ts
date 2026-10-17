@@ -100,12 +100,15 @@ export function createStripePayments(env: Env): Payments {
           `Stripe account ${account_id} cannot receive transfers yet (transfers capability: ${transfers}); the worker has not finished payout setup.`,
         );
       }
+      const transfer_group = `task_${task_id}`;
+      const [earlier] = (await stripe.transfers.list({ transfer_group, limit: 1 })).data;
+      if (earlier) return { transfer_id: earlier.id };
       const transfer = await stripe.transfers.create(
         {
           amount: amount_cents,
           currency: "usd",
           destination: account_id,
-          transfer_group: `task_${task_id}`,
+          transfer_group,
           metadata: { task_id },
         },
         { idempotencyKey: idempotency_key },
