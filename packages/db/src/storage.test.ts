@@ -27,7 +27,7 @@ describe("createInsforgeStorage().deletePhoto", () => {
   });
 
   it("rejects when InsForge refuses the delete", async () => {
-    stubFetch(404, { error: "OBJECT_NOT_FOUND", message: "Object not found", statusCode: 404 });
+    stubFetch(404, { error: "STORAGE_NOT_FOUND", message: "Object not found", statusCode: 404 });
     await expect(createInsforgeStorage(env).deletePhoto({ key: "task-1/gone.jpg" })).rejects.toThrow(
       "Object not found",
     );
