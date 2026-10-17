@@ -18,4 +18,4 @@ Second security sweep of main at c333235, minor #2: `POST /w/join` is unauthenti
 - Keeping the id behind a token: nothing at join time could carry one; the worker has not texted START yet.
 
 ## Consequences
-Tests that need a worker id read it from `workers` by phone, and the golden path takes the payee's account from the payout setup redirect. The connect, earnings and capture links still carry the id inside HMAC tokens. A join for an existing phone still answers 200 and does not tell the real worker anyone tried. The conflict path runs one more indexed select than an insert, so the response time differs by well under a millisecond; this ADR does not address that, and the first sweep's throttle finding (#2) still stands.
+- Timing (measured by the PR #70 verifier): a phone that already joined answers about 1.5 ms FASTER than a fresh one (p50 0.89 ms vs 2.36 ms on loopback), because a fresh join commits an INSERT and flushes WAL. The body oracle is closed; this timing side channel remains and is tracked in https://github.com/ayaangazali/eyes/issues/71.
