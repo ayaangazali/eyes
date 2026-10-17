@@ -31,7 +31,7 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 
 | Sponsor | What we use | PR(s) | live-verified | What the demo shows |
 |---|---|---|---|---|
-| Manufact (mcp-use) | MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror, worker API, byte-safe Node adapter; deployed on Manufact Cloud via the repo Dockerfile | #2, #14, T2.3 | no | Claude calls quote_task -> ask_eyes -> await_answer against the Manufact URL; Manufact dashboard shows sessions and gateway requests |
+| Manufact (mcp-use) | **Deployed** (https://dark-wave-wfmpm.run.mcp-use.com/mcp). MCP server on mcp-use 2.10: 8 tools with LLM-first descriptions, bearer auth, REST mirror, worker API, byte-safe Node adapter; deployed on Manufact Cloud via the repo Dockerfile | #2, #14, T2.3 | partial (routing yes, providers fake) | Claude calls quote_task -> ask_eyes -> await_answer against the Manufact URL; Manufact dashboard shows sessions and gateway requests |
 | InsForge | Postgres (escrow ledger, race-safe claim, expiry as plpgsql over RPC; RLS on every table), photo storage (`photos` bucket), Sites hosting for the worker capture page | #6, #12, #14, #15, T2.3 | no | capture page served from *.insforge.site; photo URL from InsForge storage; dashboard reads `eyes_dashboard_feed` |
 | Stripe | Checkout top-ups (card only), per-key spend policy, Connect Express onboarding minted on click, $3 transfer on a verified answer, signed webhooks, refund on expiry/cancel | #5, #6 | no | top-up in Checkout, the worker's connected account, the transfer in the Stripe dashboard; get_spend_policy limits; refund path |
 | Inkbox | iMessage line (chosen for cost): offer, capture link and paid texts; signed `imessage.received` webhook for START/YES | #1, #10, #24 | no | worker iPhone gets the offer, replies YES, gets the capture link and the paid text |
@@ -59,7 +59,7 @@ Earlier verifier minors (non-blocking by severity) are in each task's intent Kno
 
 | Integration | live-verified | Evidence |
 |---|---|---|
-| Manufact deploy (mcp-use) | no | |
+| Manufact deploy (mcp-use) | **partial yes** (2026-10-17 01:52 PT) | Deployed with `mcp-use deploy --no-github` + repo Dockerfile; server `dark-wave-wfmpm`, MCP URL https://dark-wave-wfmpm.run.mcp-use.com/mcp. Gateway forwards ALL paths (ADR-004 risk resolved): /healthz 200, / HTML, /v1/balance 401, /w/offers/x 404 offer_invalid, /topup/done 200, POST /webhooks/inkbox unsigned 401, /mcp without key 401. Running on fake providers with no database yet (InsForge next). |
 | InsForge DB + storage + Sites | no | |
 | Inkbox outbound + inbound | no | |
 | Stripe Checkout + Connect + transfer | no | |
