@@ -20,7 +20,8 @@ declare
   v_task tasks;
   v_won tasks;
 begin
-  if not exists (select 1 from workers where id = p_worker_id and opted_in and available) then
+  perform 1 from workers where id = p_worker_id and opted_in and available for update;
+  if not found then
     return;
   end if;
 

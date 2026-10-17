@@ -1,5 +1,7 @@
 import { randomInt, randomUUID } from "node:crypto";
-import { beforeAll, describe, expect, it } from "vitest";
+import { setTimeout as sleep } from "node:timers/promises";
+import postgres from "postgres";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { migrate } from "./migrate.ts";
 import { createRpc } from "./rpc.ts";
 
@@ -9,10 +11,12 @@ type Task = { id: string; status: string; claimed_by: string | null };
 
 describe.skipIf(!url)("dispatch and YES claims for workers who already hold a task", () => {
   const rpc = createRpc({ kind: "postgres", url: url ?? "" });
+  const sql = postgres(url ?? "", { onnotice: () => {} });
   const t0 = Date.now();
   const at = (seconds: number) => new Date(t0 + seconds * 1000).toISOString();
 
   beforeAll(() => migrate(url ?? ""));
+  afterAll(() => sql.end());
 
   const somewhere = () => ({ lat: 10 + Math.random() * 40, lng: -120 + Math.random() * 60 });
   type Place = ReturnType<typeof somewhere>;
@@ -139,5 +143,51 @@ describe.skipIf(!url)("dispatch and YES claims for workers who already hold a ta
 
     expect(await yes(busy, 3)).toEqual([{ outcome: "already_yours", task_id: first }]);
     expect(await task(second)).toEqual({ status: "dispatched", claimed_by: null });
+  });
+
+  it("two YES from one worker with two open offers claim one task even when the first commits mid-claim", async () => {
+    const place = somewhere();
+    const w = await worker(place, 50);
+    const a = await agent();
+    const older = await post(a, place, await nearby(place), 0);
+    const newer = await post(a, place, await nearby(place), 1);
+    const key = randomInt(1_000_000_000);
+    const [fn] = await sql<{ def: string }[]>`
+      select pg_get_functiondef('eyes_claim(uuid, timestamptz)'::regprocedure) as def`;
+    const paused = String(fn?.def)
+      .replace("eyes_claim(", "eyes_claim_paused(")
+      .replace("select t.* into v_task", `perform pg_advisory_xact_lock(${key});\n  select t.* into v_task`);
+    expect(paused).toContain("pg_advisory_xact_lock");
+    await sql.unsafe(paused);
+    const gate = await sql.reserve();
+    const other = await sql.reserve();
+    const claims = (rows: postgres.RowList<postgres.Row[]>) =>
+      Array.from(rows, (r) => ({ outcome: r.outcome, task_id: r.task_id }));
+    try {
+      await gate`select pg_advisory_lock(${key}::bigint)`;
+      let second: Promise<postgres.RowList<postgres.Row[]>> = Promise.resolve([] as never);
+      const first = await sql.begin(async (tx) => {
+        const won = await tx`select outcome, (task).id as task_id from eyes_claim(${w}, ${at(2)})`;
+        second = other`select outcome, (task).id as task_id from eyes_claim_paused(${w}, ${at(2)})`.execute();
+        let blocked = 0;
+        for (let i = 0; i < 500 && !blocked; i++) {
+          await sleep(10);
+          const [row] = await sql<{ n: number }[]>`select count(*)::int as n from pg_stat_activity
+            where datname = current_database() and wait_event_type = 'Lock' and query like '%eyes_claim_paused(%'`;
+          blocked = row?.n ?? 0;
+        }
+        expect(blocked).toBe(1);
+        return won;
+      });
+      await gate`select pg_advisory_unlock(${key}::bigint)`;
+
+      expect(claims(first)).toEqual([{ outcome: "won", task_id: newer }]);
+      expect(claims(await second)).toEqual([{ outcome: "already_yours", task_id: newer }]);
+      expect(await task(older)).toEqual({ status: "dispatched", claimed_by: null });
+    } finally {
+      gate.release();
+      other.release();
+      await sql`drop function eyes_claim_paused(uuid, timestamptz)`;
+    }
   });
 });
