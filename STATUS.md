@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 01:35 PT by orchestrator. **G1 fakes half PASSED** (golden path e2e green in CI: MCP -> engine -> signed Inkbox webhook -> capture page -> verification -> fake payout -> answer). G1 live half needs keys (docs/DEPLOY.md). **ESCALATED: T1.5 safety (#7) needs a human A/B decision**; until it merges, quote_task and ask_eyes return not_implemented on a live server.
+Updated: 2026-10-17 00:30 PT by orchestrator. **G1 fakes half PASSED** (golden path e2e green in CI: MCP -> engine -> signed Inkbox webhook -> capture page -> verification -> fake payout -> answer). G1 live half needs keys (docs/DEPLOY.md). **ESCALATED: T1.5 safety (#7) needs a human A/B decision**; until it merges, quote_task and ask_eyes return not_implemented on a live server.
 
 ## Task board
 
