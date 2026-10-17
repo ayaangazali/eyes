@@ -61,6 +61,22 @@ importers:
         specifier: 2.3.1
         version: 2.3.1
 
+  apps/web/dashboard:
+    dependencies:
+      '@eyes/core':
+        specifier: workspace:*
+        version: link:../../../packages/core
+      '@eyes/db':
+        specifier: workspace:*
+        version: link:../../../packages/db
+    devDependencies:
+      '@eyes/engine':
+        specifier: workspace:*
+        version: link:../../../packages/engine
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
+
   apps/web/worker:
     devDependencies:
       '@eyes/core':
