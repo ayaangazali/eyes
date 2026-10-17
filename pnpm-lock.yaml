@@ -89,6 +89,28 @@ importers:
         specifier: 8.3.4
         version: 8.3.4(@types/node@24.19.2)(jiti@2.7.0)
 
+  cli:
+    dependencies:
+      '@eyes/core':
+        specifier: workspace:*
+        version: link:../packages/core
+      zod:
+        specifier: 4.6.7
+        version: 4.6.7
+    devDependencies:
+      '@eyes/db':
+        specifier: workspace:*
+        version: link:../packages/db
+      '@eyes/engine':
+        specifier: workspace:*
+        version: link:../packages/engine
+      '@eyes/mcp':
+        specifier: workspace:*
+        version: link:../apps/mcp
+      postgres:
+        specifier: 3.4.9
+        version: 3.4.9
+
   packages/comms:
     dependencies:
       '@eyes/core':

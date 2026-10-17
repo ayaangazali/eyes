@@ -291,6 +291,35 @@ export const GetSpendPolicyOutput = z.object({
   allowed_task_types: z.array(TaskType),
 });
 
+export const OwnerPolicyInput = z.object({
+  max_bounty_usd: z.number().min(0).max(100),
+  daily_cap_usd: z.number().min(0).max(1000),
+  allowed_task_types: z.array(TaskType),
+});
+export const OwnerConsole = z.object({
+  agent_id: Id,
+  agent_name: z.string(),
+  balance_usd: Usd,
+  escrowed_usd: Usd,
+  policy: GetSpendPolicyOutput,
+  tasks: z
+    .array(
+      z.object({
+        task_id: Id,
+        question: z.string(),
+        place_label: z.string(),
+        status: TaskStatus,
+        bounty_usd: Usd,
+        created_at: Timestamp,
+      }),
+    )
+    .max(20),
+  ledger: z
+    .array(z.object({ type: LedgerType, amount_usd: Usd, task_id: Id.nullable(), created_at: Timestamp }))
+    .max(50),
+  top_up_url: z.string().nullable(),
+});
+
 export const SignupInput = z.object({
   name: z.string().min(2).max(80),
   owner_email: z.email().optional(),
@@ -376,6 +405,8 @@ export type OfferView = z.output<typeof OfferView>;
 export type CaptureFields = z.output<typeof CaptureFields>;
 export type CaptureResult = z.output<typeof CaptureResult>;
 export type ResolvedLocation = z.output<typeof ResolvedLocation>;
+export type OwnerPolicyInput = z.output<typeof OwnerPolicyInput>;
+export type OwnerConsole = z.output<typeof OwnerConsole>;
 
 export const HTTP_ROUTES = {
   health: "GET /healthz",
@@ -390,6 +421,8 @@ export const HTTP_ROUTES = {
   get_balance: "GET /v1/balance",
   get_spend_policy: "GET /v1/spend-policy",
   topup_redirect: "GET /topup/:token",
+  owner_console: "GET /owner/:token",
+  owner_policy: "POST /owner/:token/policy",
   worker_join: "POST /w/join",
   worker_connect_redirect: "GET /w/connect/:token",
   offer_view: "GET /w/offers/:token",

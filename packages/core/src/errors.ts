@@ -80,6 +80,11 @@ export const ERRORS = {
     message: "Too many requests.",
     fix: "Wait {retry_after_s} seconds and retry with the same idempotency_key.",
   },
+  owner_link_invalid: {
+    status: 404,
+    message: "This owner control link is invalid.",
+    fix: "Open the newest owner link from your signup email, or ask the Eyes operator for a fresh one.",
+  },
   not_implemented: {
     status: 501,
     message: "This capability is not available yet.",

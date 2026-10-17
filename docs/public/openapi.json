@@ -1,0 +1,1203 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Eyes",
+    "version": "0.1.0",
+    "description": "Eyes pays a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo. Paths are relative to this server's origin. Start with /llms.txt. The same tools are available over MCP at POST /mcp."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "bearer": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "agent",
+      "description": "Called by AI agents with a bearer API key (signup is public)."
+    },
+    {
+      "name": "docs",
+      "description": "Public agent-facing documents."
+    }
+  ],
+  "paths": {
+    "/mcp": {
+      "post": {
+        "operationId": "mcp",
+        "tags": ["agent"],
+        "summary": "MCP endpoint",
+        "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "description": "An MCP JSON-RPC 2.0 message."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "An MCP JSON-RPC 2.0 response, as JSON or text/event-stream."
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/signup": {
+      "post": {
+        "operationId": "signup",
+        "tags": ["agent"],
+        "summary": "Create an API key",
+        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 80
+                  },
+                  "owner_email": {
+                    "type": "string",
+                    "format": "email",
+                    "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                  }
+                },
+                "required": ["name"]
+              },
+              "example": {
+                "name": "my-research-agent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "agent_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "api_key": {
+                      "type": "string"
+                    },
+                    "balance_usd": {
+                      "type": "number"
+                    },
+                    "top_up_url": {
+                      "type": ["string", "null"]
+                    },
+                    "email_address": {
+                      "description": "Private address for asking Eyes by email. Anyone who knows it can spend your balance, so keep it secret.",
+                      "type": ["string", "null"]
+                    },
+                    "next_step": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "agent_id",
+                    "api_key",
+                    "balance_usd",
+                    "top_up_url",
+                    "email_address",
+                    "next_step"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/quote": {
+      "post": {
+        "operationId": "quote_task",
+        "tags": ["agent"],
+        "summary": "Quote a task",
+        "description": "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed (false if this API key may not post that task_type, see reason_if_not) and resolved_location (where Eyes thinks you mean). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type. Same as the MCP tool quote_task.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "location": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "lat": {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 90,
+                            "description": "Latitude in decimal degrees, e.g. 37.7825"
+                          },
+                          "lng": {
+                            "type": "number",
+                            "minimum": -180,
+                            "maximum": 180,
+                            "description": "Longitude in decimal degrees, e.g. -122.4078"
+                          }
+                        },
+                        "required": ["lat", "lng"]
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 200,
+                        "description": "Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""
+                      }
+                    ],
+                    "description": "Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."
+                  },
+                  "task_type": {
+                    "type": "string",
+                    "enum": [
+                      "is_open",
+                      "line_length",
+                      "in_stock",
+                      "photo_of_place",
+                      "price_check",
+                      "crowd_level",
+                      "other_public"
+                    ]
+                  }
+                },
+                "required": ["location", "task_type"]
+              },
+              "example": {
+                "location": "Ferry Building, San Francisco",
+                "task_type": "line_length"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "workers_nearby": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "est_minutes_to_answer": {
+                      "type": ["number", "null"]
+                    },
+                    "suggested_bounty_usd": {
+                      "type": "number"
+                    },
+                    "allowed": {
+                      "type": "boolean"
+                    },
+                    "reason_if_not": {
+                      "type": ["string", "null"]
+                    },
+                    "resolved_location": {
+                      "type": "object",
+                      "properties": {
+                        "lat": {
+                          "type": "number"
+                        },
+                        "lng": {
+                          "type": "number"
+                        },
+                        "label": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["lat", "lng", "label"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "workers_nearby",
+                    "est_minutes_to_answer",
+                    "suggested_bounty_usd",
+                    "allowed",
+                    "reason_if_not",
+                    "resolved_location"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/tasks": {
+      "post": {
+        "operationId": "ask_eyes",
+        "tags": ["agent"],
+        "summary": "Ask a human to check",
+        "description": "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. Always pass a unique idempotency_key: retrying with the same key and parameters returns the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately. Same as the MCP tool ask_eyes.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500,
+                    "description": "What the human should check, in plain words, e.g. \"How many people are in line right now?\""
+                  },
+                  "location": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "lat": {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 90,
+                            "description": "Latitude in decimal degrees, e.g. 37.7825"
+                          },
+                          "lng": {
+                            "type": "number",
+                            "minimum": -180,
+                            "maximum": 180,
+                            "description": "Longitude in decimal degrees, e.g. -122.4078"
+                          }
+                        },
+                        "required": ["lat", "lng"]
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 200,
+                        "description": "Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""
+                      }
+                    ],
+                    "description": "Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."
+                  },
+                  "task_type": {
+                    "type": "string",
+                    "enum": [
+                      "is_open",
+                      "line_length",
+                      "in_stock",
+                      "photo_of_place",
+                      "price_check",
+                      "crowd_level",
+                      "other_public"
+                    ],
+                    "description": "is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place."
+                  },
+                  "bounty_usd": {
+                    "default": 3,
+                    "description": "Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.",
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 50
+                  },
+                  "deadline_minutes": {
+                    "default": 30,
+                    "description": "Minutes until the task expires and the escrow is refunded.",
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 240
+                  },
+                  "require_photo": {
+                    "default": true,
+                    "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+                    "type": "boolean"
+                  },
+                  "idempotency_key": {
+                    "description": "Any unique string per question. Retrying with the same key never double-charges. Always set it.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  }
+                },
+                "required": ["question", "location", "task_type"]
+              },
+              "example": {
+                "question": "How many people are waiting in line right now?",
+                "location": "Blue Bottle Coffee, Mint Plaza, San Francisco",
+                "task_type": "line_length",
+                "bounty_usd": 3,
+                "idempotency_key": "6f1c2a9e-line-check"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "dispatched"
+                    },
+                    "workers_notified": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "escrowed_usd": {
+                      "type": "number"
+                    },
+                    "deadline_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "next_step": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "task_id",
+                    "status",
+                    "workers_notified",
+                    "escrowed_usd",
+                    "deadline_at",
+                    "next_step"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/await": {
+      "post": {
+        "operationId": "await_answer",
+        "tags": ["agent"],
+        "summary": "Wait for the answer",
+        "description": "Long-poll for the answer to a task. Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the task is answered. Call it right after ask_eyes and keep calling it with the same task_id until answered is true or status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer. answered: false only means not yet; tasks usually take 5 to 20 minutes. Same as the MCP tool await_answer.",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The task_id returned by ask_eyes."
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "timeout_seconds": {
+                    "default": 50,
+                    "description": "How long this call waits for an answer, at most 55 seconds. Call again while answered is false and the status is dispatched, claimed or submitted; stop on expired, refunded or disputed.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 55
+                  }
+                },
+                "required": []
+              },
+              "example": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "dispatched",
+                        "claimed",
+                        "submitted",
+                        "verified",
+                        "paid",
+                        "expired",
+                        "refunded",
+                        "disputed",
+                        "needs_review"
+                      ]
+                    },
+                    "answered": {
+                      "type": "boolean"
+                    },
+                    "answer": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "task_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "answer_text": {
+                              "type": "string"
+                            },
+                            "answer_bool": {
+                              "type": ["boolean", "null"]
+                            },
+                            "photo_url": {
+                              "type": ["string", "null"]
+                            },
+                            "captured_at": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "worker_distance_m": {
+                              "type": "number"
+                            },
+                            "verification": {
+                              "type": "object",
+                              "properties": {
+                                "gps_ok": {
+                                  "type": "boolean"
+                                },
+                                "fresh_ok": {
+                                  "type": "boolean"
+                                },
+                                "vision_ok": {
+                                  "type": "boolean"
+                                },
+                                "vision_reason": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["gps_ok", "fresh_ok", "vision_ok", "vision_reason"],
+                              "additionalProperties": false
+                            },
+                            "confidence": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "worker_rating": {
+                              "type": "number"
+                            },
+                            "cost_usd": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "task_id",
+                            "answer_text",
+                            "answer_bool",
+                            "photo_url",
+                            "captured_at",
+                            "worker_distance_m",
+                            "verification",
+                            "confidence",
+                            "worker_rating",
+                            "cost_usd"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "next_step": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["task_id", "status", "answered", "answer", "next_step"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}": {
+      "get": {
+        "operationId": "get_task",
+        "tags": ["agent"],
+        "summary": "Get task status",
+        "description": "Instant, read-only status and details of one task, including the answer once there is one. To wait for an answer call await_answer instead of polling get_task. Same as the MCP tool get_task.",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The task_id returned by ask_eyes."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "dispatched",
+                        "claimed",
+                        "submitted",
+                        "verified",
+                        "paid",
+                        "expired",
+                        "refunded",
+                        "disputed",
+                        "needs_review"
+                      ]
+                    },
+                    "question": {
+                      "type": "string"
+                    },
+                    "task_type": {
+                      "type": "string",
+                      "enum": [
+                        "is_open",
+                        "line_length",
+                        "in_stock",
+                        "photo_of_place",
+                        "price_check",
+                        "crowd_level",
+                        "other_public"
+                      ]
+                    },
+                    "place_label": {
+                      "type": "string"
+                    },
+                    "bounty_usd": {
+                      "type": "number"
+                    },
+                    "fee_usd": {
+                      "type": "number"
+                    },
+                    "deadline_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "created_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "claimed_at": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "date-time",
+                          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "answer": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "task_id": {
+                              "type": "string",
+                              "format": "uuid",
+                              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                            },
+                            "answer_text": {
+                              "type": "string"
+                            },
+                            "answer_bool": {
+                              "type": ["boolean", "null"]
+                            },
+                            "photo_url": {
+                              "type": ["string", "null"]
+                            },
+                            "captured_at": {
+                              "type": "string",
+                              "format": "date-time",
+                              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                            },
+                            "worker_distance_m": {
+                              "type": "number"
+                            },
+                            "verification": {
+                              "type": "object",
+                              "properties": {
+                                "gps_ok": {
+                                  "type": "boolean"
+                                },
+                                "fresh_ok": {
+                                  "type": "boolean"
+                                },
+                                "vision_ok": {
+                                  "type": "boolean"
+                                },
+                                "vision_reason": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": ["gps_ok", "fresh_ok", "vision_ok", "vision_reason"],
+                              "additionalProperties": false
+                            },
+                            "confidence": {
+                              "type": "number",
+                              "minimum": 0,
+                              "maximum": 1
+                            },
+                            "worker_rating": {
+                              "type": "number"
+                            },
+                            "cost_usd": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "task_id",
+                            "answer_text",
+                            "answer_bool",
+                            "photo_url",
+                            "captured_at",
+                            "worker_distance_m",
+                            "verification",
+                            "confidence",
+                            "worker_rating",
+                            "cost_usd"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "task_id",
+                    "status",
+                    "question",
+                    "task_type",
+                    "place_label",
+                    "bounty_usd",
+                    "fee_usd",
+                    "deadline_at",
+                    "created_at",
+                    "claimed_at",
+                    "answer"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/cancel": {
+      "post": {
+        "operationId": "cancel_task",
+        "tags": ["agent"],
+        "summary": "Cancel a task",
+        "description": "Cancel a task that no worker has claimed yet (status dispatched) and refund the full escrow, bounty plus fee. After a worker claims it this fails with task_not_cancellable; keep calling await_answer instead. Same as the MCP tool cancel_task.",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The task_id returned by ask_eyes."
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "refunded"
+                    },
+                    "refunded_usd": {
+                      "type": "number"
+                    }
+                  },
+                  "required": ["task_id", "status", "refunded_usd"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/dispute": {
+      "post": {
+        "operationId": "dispute_answer",
+        "tags": ["agent"],
+        "summary": "Dispute an answer",
+        "description": "Flag an answered task (status verified, paid or needs_review) as wrong. The worker payout is held and the task goes to human review. Give a specific reason. To get a fresh answer now, call ask_eyes again with a new idempotency_key. Same as the MCP tool dispute_answer.",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "description": "The task_id returned by ask_eyes."
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 1000,
+                    "description": "What is wrong with the answer, e.g. \"photo shows a different store\"."
+                  }
+                },
+                "required": ["reason"]
+              },
+              "example": {
+                "reason": "The photo shows a different cafe, not Blue Bottle."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "task_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "const": "disputed"
+                    },
+                    "next_step": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["task_id", "status", "next_step"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/balance": {
+      "get": {
+        "operationId": "get_balance",
+        "tags": ["agent"],
+        "summary": "Get balance",
+        "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url, and after they pay call get_balance again before asking. Same as the MCP tool get_balance.",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "balance_usd": {
+                      "type": "number"
+                    },
+                    "escrowed_usd": {
+                      "type": "number"
+                    },
+                    "top_up_url": {
+                      "type": ["string", "null"]
+                    }
+                  },
+                  "required": ["balance_usd", "escrowed_usd", "top_up_url"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/spend-policy": {
+      "get": {
+        "operationId": "get_spend_policy",
+        "tags": ["agent"],
+        "summary": "Get spend policy",
+        "description": "The limits your human set on this API key: max_bounty_usd per task, daily_cap_usd, spent_today_usd and remaining_today_usd (UTC day), and allowed_task_types. Stay within them when you call ask_eyes; only your human can change them. Same as the MCP tool get_spend_policy.",
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "max_bounty_usd": {
+                      "type": "number"
+                    },
+                    "daily_cap_usd": {
+                      "type": "number"
+                    },
+                    "spent_today_usd": {
+                      "type": "number"
+                    },
+                    "remaining_today_usd": {
+                      "type": "number"
+                    },
+                    "allowed_task_types": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "enum": [
+                          "is_open",
+                          "line_length",
+                          "in_stock",
+                          "photo_of_place",
+                          "price_check",
+                          "crowd_level",
+                          "other_public"
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "max_bounty_usd",
+                    "daily_cap_usd",
+                    "spent_today_usd",
+                    "remaining_today_usd",
+                    "allowed_task_types"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/llms.txt": {
+      "get": {
+        "operationId": "llms_txt",
+        "tags": ["docs"],
+        "summary": "Start here: what Eyes does, pricing and the quickstart.",
+        "description": "Start here: what Eyes does, pricing and the quickstart. Public.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/llms-full.txt": {
+      "get": {
+        "operationId": "llms_full_txt",
+        "tags": ["docs"],
+        "summary": "Full reference: tool schemas and the error catalog.",
+        "description": "Full reference: tool schemas and the error catalog. Public.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/openapi.json": {
+      "get": {
+        "operationId": "openapi",
+        "tags": ["docs"],
+        "summary": "This OpenAPI document.",
+        "description": "This OpenAPI document. Public.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/.well-known/agent-card.json": {
+      "get": {
+        "operationId": "agent_card",
+        "tags": ["docs"],
+        "summary": "A2A agent card.",
+        "description": "A2A agent card. Public.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key from POST /v1/signup."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Every error. Extra fields carry context, for example issues for invalid_input, or balance_usd and top_up_url for insufficient_balance.",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "unauthorized",
+              "invalid_input",
+              "insufficient_balance",
+              "bounty_exceeds_max",
+              "daily_cap_exceeded",
+              "task_type_not_allowed",
+              "unsafe_task",
+              "location_not_found",
+              "no_workers_nearby",
+              "task_not_found",
+              "task_not_cancellable",
+              "task_not_disputable",
+              "idempotency_conflict",
+              "offer_invalid",
+              "task_already_claimed",
+              "rate_limited",
+              "owner_link_invalid",
+              "not_implemented",
+              "internal_error"
+            ],
+            "description": "Stable error code."
+          },
+          "message": {
+            "type": "string",
+            "description": "What went wrong."
+          },
+          "fix": {
+            "type": "string",
+            "description": "What to do next. Always present: follow it."
+          }
+        },
+        "required": ["error", "message", "fix"],
+        "additionalProperties": true
+      }
+    },
+    "responses": {
+      "Error": {
+        "description": "Error. Status by code: unauthorized 401, invalid_input 400, insufficient_balance 402, bounty_exceeds_max 403, daily_cap_exceeded 403, task_type_not_allowed 403, unsafe_task 422, location_not_found 422, no_workers_nearby 409, task_not_found 404, task_not_cancellable 409, task_not_disputable 409, idempotency_conflict 409, offer_invalid 404, task_already_claimed 409, rate_limited 429, owner_link_invalid 404, not_implemented 501, internal_error 500.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            }
+          }
+        }
+      }
+    }
+  }
+}

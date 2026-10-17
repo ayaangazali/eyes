@@ -2,13 +2,24 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { ReadableStream } from "node:stream/web";
-import { EyesError } from "@eyes/core";
+import { EyesError, HTTP_ROUTES } from "@eyes/core";
 
 const MB = 1024 * 1024;
 const CAPTURE_LIMIT = 21 * MB;
 const DEFAULT_LIMIT = MB;
 const CAPTURE_PATH = /^\/w\/offers\/[^/]+\/capture$/;
-const TOKEN = /[\w-]{16,}\.[\w-]{16,}/g;
+const LOGGED_ROUTES = [
+  "/",
+  "/agents.md",
+  "/robots.txt",
+  "/topup/done",
+  "/topup/cancel",
+  "/w/connect/done",
+  ...Object.values(HTTP_ROUTES).map((route) => route.slice(route.indexOf("/"))),
+].map((path) => ({
+  pattern: new RegExp(`^${path.replaceAll(".", "\\.").replace(/:\w+/g, "[^/]+")}$`),
+  logged: path.replace(/:(\w+)/g, "<$1>"),
+}));
 
 type Fetch = (request: Request) => Promise<Response>;
 
@@ -28,20 +39,8 @@ function tooLarge(req: IncomingMessage, limit: number): Response {
   return Response.json(err.toBody(), { status: 413 });
 }
 
-function decodeRun(run: string): string {
-  try {
-    return decodeURIComponent(run);
-  } catch {
-    return run;
-  }
-}
-
-function redact(pathname: string): string {
-  return pathname
-    .replace(/(?:%[0-9A-Fa-f]{2})+/g, decodeRun)
-    .replace(TOKEN, "<token>")
-    .replace(/[^/]*@/g, "<redacted>@");
-}
+const routeOf = (pathname: string) =>
+  LOGGED_ROUTES.find((route) => route.pattern.test(pathname))?.logged ?? "<other>";
 
 function badTarget(req: IncomingMessage): Response {
   req.resume();
@@ -92,6 +91,7 @@ async function respond(req: IncomingMessage, url: URL, fetch: Fetch, signal: Abo
   for (const [name, value] of Object.entries(req.headers)) {
     if (value !== undefined) headers.set(name, Array.isArray(value) ? value.join(", ") : value);
   }
+  if (!headers.has("x-forwarded-for")) headers.set("x-forwarded-for", req.socket.remoteAddress ?? "");
   const state = { overflow: false };
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const mcp = url.pathname === "/mcp" || url.pathname.startsWith("/mcp/");
@@ -131,7 +131,7 @@ export function toNodeListener(fetch: Fetch) {
     try {
       const parsed = URL.parse(req.url ?? "/", "http://localhost");
       const url = parsed && !parsed.username && !parsed.password ? parsed : null;
-      if (url) path = redact(url.pathname);
+      if (url) path = routeOf(url.pathname);
       const response = url
         ? await respond(req, new URL(`http://localhost${url.pathname}${url.search}`), fetch, abort.signal)
         : badTarget(req);

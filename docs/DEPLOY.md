@@ -31,3 +31,10 @@ Run from the repo root. Keys go in `.env` (never committed). Names are in `.env.
 4. Ask about the demo cafe; a nearby phone gets the offer text, replies YES, gets the capture link, takes the photo; Claude's `await_answer` returns the verified answer with `photo_url`.
 5. G2: the Stripe dashboard shows the top-up, then the transfer to the worker's connected account; `get_balance` drops by 3.50; "Photograph the house at 123 Oak St" is refused with `unsafe_task`.
 6. Record each result in STATUS.md "Live verification" with the time and what was seen.
+
+## Manufact redeploy notes (learned 2026-10-17)
+
+- Merges to GitHub main do not deploy. The server builds from a Manufact-managed mirror (`manufacts/eyes-*`) that `npx mcp-use deploy` uploads to. After a merge: `git pull` on main, then `npx -y mcp-use@2.10.0 deploy --yes --json --dockerfile Dockerfile`.
+- The id that `deploy` returns goes to `stopped` within seconds; the real build is the `webhook` deployment created right after it. Watch `npx mcp-use deployments list` for that one to reach `running`.
+- Env changes (`servers env set`) apply only on a new deployment: `npx mcp-use deployments restart <full deployment uuid>` (short ids give `deployment_not_found`; get the uuid from `deployments list --json`).
+- InsForge migrations must be applied in strictly increasing version order: the API rejects any version older than the latest applied one (`DATABASE_MIGRATION_ALREADY_EXISTS`, "Migration version must be newer than the latest applied migration"). If `007_*` merges before `006_*`, do not run `scripts/insforge-migrate.ts` until `006` is on main, or `006` can never be applied. Applied so far (2026-10-17): 001-006.

@@ -60,7 +60,7 @@ function placeText(label: string): string {
 }
 
 export function offerText(offer: OfferMessage): string {
-  return `Eyes: ${dollars(offer.bounty_cents)} to ${TASK_PHRASES[offer.task_type]} at ${placeText(offer.place_label)}, ${miles(offer.distance_m)} away. Reply YES to claim.`;
+  return `Eyes: ${dollars(offer.bounty_cents)} to ${TASK_PHRASES[offer.task_type]} at ${placeText(offer.place_label)} (${miles(offer.distance_m)}) by ${localTime(offer.deadline_at)}. Reply YES to claim, STOP to opt out.`;
 }
 
 export function captureLinkText(msg: Parameters<Messaging["sendCaptureLink"]>[1]): string {

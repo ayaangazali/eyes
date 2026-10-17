@@ -117,14 +117,15 @@ function setup(overrides: Partial<EyesService> = {}, env: Record<string, string>
     worker_web_url: "http://worker.eyes.test",
     link_secret: SECRET,
   });
+  const providers = fakeProviders();
   const server = createServer({
     service: service as EyesService,
-    providers: fakeProviders(),
+    providers,
     config,
     env,
   });
   const fetch = (url: string | URL, init?: RequestInit) => server.fetch(new Request(url, init));
-  return { server, fetch, captures, awaitSignals };
+  return { server, fetch, captures, awaitSignals, clock: providers.clock };
 }
 
 async function connect(fetch: ReturnType<typeof setup>["fetch"]) {
@@ -192,6 +193,54 @@ describe("auth", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ api_key: KEY });
   });
+});
+
+describe("signup and join throttle", () => {
+  it.each([
+    ["/v1/signup", { name: "my-agent" }],
+    ["/w/join", { name: "Ana Diaz", phone: "+14155550121", lat: 37.78246, lng: -122.40776 }],
+  ])("allows 5 valid %s calls per hour per right-most X-Forwarded-For entry", async (path, body) => {
+    const joined = {
+      worker_id: AGENT.id,
+      opt_in_instructions: "Text START.",
+      inkbox_number: null,
+      connect_url: null,
+    };
+    const { fetch, clock } = setup({ joinWorker: async () => joined });
+    const call = (forwardedFor: string, json: unknown = body) =>
+      fetch(`http://eyes.test${path}`, {
+        method: "POST",
+        headers: { "x-forwarded-for": forwardedFor },
+        body: JSON.stringify(json),
+      });
+
+    for (let i = 0; i < 5; i++) expect((await call("203.0.113.9", {})).status).toBe(400);
+    for (let i = 0; i < 5; i++) expect((await call(`198.51.100.${i}, 203.0.113.9`)).status).toBe(200);
+    const limited = await call("198.51.100.99, 203.0.113.9");
+    expect(limited.status).toBe(429);
+    const err = await limited.json();
+    expect(err).toMatchObject({ error: "rate_limited", retry_after_s: 3600 });
+    expect(err.fix).toContain("Wait 3600 seconds");
+    expect((await call("203.0.113.9, 203.0.113.10")).status).toBe(200);
+    clock.advance(3600 * 1000);
+    expect((await call("203.0.113.9")).status).toBe(200);
+  });
+
+  it("forgets the oldest address once 10,000 are held", async () => {
+    const { fetch } = setup();
+    const signup = (forwardedFor: string) =>
+      fetch("http://eyes.test/v1/signup", {
+        method: "POST",
+        headers: { "x-forwarded-for": forwardedFor },
+        body: JSON.stringify({ name: "my-agent" }),
+      });
+    for (let i = 0; i < 5; i++) await signup("203.0.113.9");
+    expect((await signup("203.0.113.9")).status).toBe(429);
+    for (let i = 0; i < 9_998; i++) await signup(`10.0.${i >> 8}.${i & 255}`);
+    expect((await signup("203.0.113.9")).status).toBe(429);
+    await signup("10.1.0.0");
+    expect((await signup("203.0.113.9")).status).toBe(200);
+  }, 30_000);
 });
 
 describe("MCP tools", () => {
