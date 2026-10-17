@@ -57,7 +57,8 @@ const PLATE = "(?:licen[cs]e plates?|number plates?|plate numbers?)";
 const ENDS =
   "(?=\\s*(?:$|[.,!?;:)]|(?:in|at|on|by|near|outside|inside|behind|who|that|is|was|are|working|standing|sitting|wearing|with|from|of|and|or|so|while|when|as|right|now|today|tonight|to|for)\\b))";
 
-const NOT_NEGATED = "(?<!(?:\\bnot|\\bnever|n't|\\bavoid\\w*|\\bwithout|\\bno)\\s+(?:[\\w']+\\s+){0,3})";
+const NOT_NEGATED =
+  "(?<!(?:\\bnot|\\bnever|n't|\\bavoid\\w*|\\bwithout|\\bno)\\s+(?:(?:take|get|snap|a|an|any|to|need)\\s+){0,3})";
 
 const re = (source: string) => new RegExp(source, "i");
 
@@ -66,7 +67,7 @@ const RULES: [SafetyCategory, RegExp[]][] = [
     "illegal_or_dangerous",
     [
       re(
-        "\\b(?:(?:plant|place|leave|hide|build|make|set off|detonate) (?:a |the )?(?:bomb|explosive)s?|pipe bombs?|molotov\\w*)\\b",
+        "\\b(?:(?:plant|place|leave|hide|build|make|set off|detonate) (?:a |the )?(?:bomb|explosive|grenade)s?|pipe bombs?|molotov\\w*)\\b",
       ),
       /\bIEDs?\b/,
       re("\\b(?:buy|score|sell|get me|cop)\\s+(?:some\\s+)?(?:drugs|cocaine|heroin|meth|fentanyl|crack)\\b"),
@@ -179,7 +180,10 @@ const RULES: [SafetyCategory, RegExp[]][] = [
     "identifiable_people",
     [
       re(
-        `\\b${NOT_NEGATED}(?:(?:photo|picture|pic|shot|snapshot|video|selfie|close-?up|image)s?\\s+(?:of|showing|capturing)|(?:photograph|film|record|snap|videotape|shoot)(?:s|ed|ing)?)\\s+(?:(?!no\\b|not\\b|without\\b|any\\b)[\\w']+\\s+){0,2}?(?:faces?|him|her|everyone|everybody|someone|somebody|(?:that|the|this) (?:${PERSON}|${STAFF})s?)\\b${ENDS}`,
+        `\\b${NOT_NEGATED}(?:(?:photo|picture|pic|shot|snapshot|video|selfie|close-?up|image)s?\\s+(?:of|showing|capturing)|(?:photograph|film|record|snap|videotape|shoot)(?:s|ed|ing)?|captur(?:e|es|ed|ing))\\s+(?:(?!no\\b|not\\b|without\\b|any\\b)[\\w']+\\s+){0,2}?(?:faces?|him|her|everyone|everybody|someone|somebody|the people|(?:that|the|this) (?:${PERSON}|${STAFF})s?)\\b${ENDS}`,
+      ),
+      re(
+        `\\b${NOT_NEGATED}(?:she|he|her|him|(?:the|that|this) (?:${PERSON}|${STAFF}))(?:'s|\\s+is)?\\s+in (?:the|your) (?:shot|photo|picture|pic|frame|video)\\b`,
       ),
       re(
         `\\b${NOT_NEGATED}(?:identify|recogni[sz]e)\\s+(?:the |that |this |a |any |every |each )?(?:${PERSON}|people|faces?|individuals?)\\b`,
