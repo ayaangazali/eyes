@@ -14,7 +14,9 @@ export function createNominatimGeo(): Geo {
       const known = FAKE_PLACES[key];
       if (known) return known;
       const coords = COORDS.exec(query);
-      if (coords) return { lat: Number(coords[1]), lng: Number(coords[2]), label: query.trim() };
+      const lat = Number(coords?.[1]);
+      const lng = Number(coords?.[2]);
+      if (coords && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng, label: query.trim() };
       const cached = cache.get(key);
       if (cached !== undefined) return cached;
       const res = await fetch(NOMINATIM + encodeURIComponent(query.trim()), {

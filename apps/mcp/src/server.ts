@@ -14,10 +14,10 @@ import {
   type RouteDeps,
   SignupInput,
   TOOLS,
+  verifyToken,
 } from "@eyes/core";
 import { stripeRoutes } from "@eyes/payments";
 import type { Context, MiddlewareHandler } from "hono";
-import { bodyLimit } from "hono/body-limit";
 import { cors } from "hono/cors";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { MCPServer } from "mcp-use";
@@ -27,7 +27,6 @@ type Env = Record<string, string | undefined>;
 type AppEnv = { Variables: { agent: Agent } };
 
 const PROGRESS_INTERVAL_MS = 5000;
-const MAX_PHOTO_BYTES = 20 * 1024 * 1024;
 const DOCS_DIR = new URL("../../../docs/public/", import.meta.url);
 const DOCS = {
   "/llms.txt": "text/plain; charset=utf-8",
@@ -40,7 +39,8 @@ const STRIPE_PATHS = ["/webhooks/stripe", "/topup/:token", "/w/connect/:token"];
 const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo.
 Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. 3) Call await_answer immediately with the task_id and keep calling it until answered is true or the status is expired or refunded; you cannot receive events in the background, so this loop is how you get the answer.
 Money: the bounty plus a 0.50 USD fee is escrowed from your balance when you ask, paid to the worker only after the answer is verified, and refunded in full if nobody answers before the deadline or you cancel before a worker claims it.
-Only public, commercial or civic places; never private people, homes or vehicles. Every error includes a fix field that says exactly what to do next.`;
+Only public, commercial or civic places; never private people, homes or vehicles.
+Errors: when Eyes refuses a call, the result is JSON with error, message and fix; do what fix says. When your arguments do not match a tool's schema, you get an "Input validation error" text naming each bad field: fix those fields and call again.`;
 
 export function liveProviders(env: Env) {
   const live = env.EYES_PROVIDERS === "live";
@@ -89,11 +89,25 @@ async function readJson(c: Context): Promise<Record<string, unknown>> {
   }
 }
 
+function imageType(bytes: Uint8Array): string | null {
+  const head = Buffer.from(bytes.subarray(0, 12)).toString("latin1");
+  if (head.startsWith("\xff\xd8\xff")) return "image/jpeg";
+  if (head.startsWith("\x89PNG\r\n\x1a\n")) return "image/png";
+  if (head.startsWith("RIFF") && head.slice(8) === "WEBP") return "image/webp";
+  return null;
+}
+
 async function readCapture(c: Context) {
-  const form = await c.req.parseBody();
+  const form = await c.req.parseBody().catch(() => {
+    throw new EyesError("invalid_input", {
+      issues: [
+        { path: "", message: "Send multipart/form-data with the capture fields and an optional photo." },
+      ],
+    });
+  });
   const field = (name: string) => {
     const value = form[name];
-    return typeof value === "string" && value !== "" ? value : undefined;
+    return typeof value === "string" && value.trim() !== "" ? value.trim() : undefined;
   };
   const bool = field("answer_bool");
   const fields = parse(CaptureFields, {
@@ -107,7 +121,15 @@ async function readCapture(c: Context) {
   const photo = form.photo;
   if (!(photo instanceof File) || photo.size === 0) return { fields, photo: null };
   const bytes = new Uint8Array(await photo.arrayBuffer());
-  return { fields, photo: { bytes, content_type: photo.type || "application/octet-stream" } };
+  const content_type = imageType(bytes);
+  if (!content_type) {
+    throw new EyesError(
+      "invalid_input",
+      { issues: [{ path: "photo", message: "The photo must be a JPEG, PNG or WebP image." }] },
+      { fix: "Take the photo with the capture page camera and submit again." },
+    );
+  }
+  return { fields, photo: { bytes, content_type } };
 }
 
 export function createServer(deps: RouteDeps & { env: Env }) {
@@ -118,6 +140,7 @@ export function createServer(deps: RouteDeps & { env: Env }) {
     version: "0.1.0",
     description: "Pay a nearby human a few dollars to check something in the physical world right now.",
     instructions: INSTRUCTIONS,
+    logging: { enabled: false },
   });
 
   server.app.onError((err, c) => {
@@ -173,11 +196,15 @@ Next: immediately call await_answer with the returned task_id and keep calling i
     {
       name: "await_answer",
       title: "Wait for the answer",
-      description: `Wait for the answer to a task you created with ask_eyes. Call it immediately after ask_eyes, then keep calling it with the same task_id until answered is true or the status is terminal (expired or refunded). You cannot watch for events in the background, so this loop is the only way to receive the answer.
-Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the answer arrives. answered: false only means "not yet"; a task usually takes 5 to 20 minutes, so expect many calls.
-When answered is true, answer holds answer_text, answer_bool, photo_url, captured_at, worker_distance_m, verification (gps_ok, fresh_ok, vision_ok, vision_reason), confidence and cost_usd. Show your user the answer and the photo_url.
+      description: `Wait for the answer to a task you created with ask_eyes. Call it immediately after ask_eyes, then keep calling it with the same task_id until answered is true or the status is terminal. You cannot watch for events in the background, so this loop is the only way to receive the answer.
+Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the answer arrives. A task usually takes 5 to 20 minutes. deadline_at (from ask_eyes) is the latest time anything can change.
+How to read the result:
+- answered true: stop calling. answer holds answer_text, answer_bool, photo_url, captured_at, worker_distance_m, verification, confidence and cost_usd. Show your user the answer and photo_url. Then check answer.verification: if gps_ok, fresh_ok and vision_ok are all true the answer is verified. If any is false, status is needs_review: a worker answered but a check failed (vision_reason says why), so tell your user and consider dispute_answer.
+- answered false with status dispatched, claimed or submitted: call await_answer again right away, and give your user a one-line progress update about every other call.
+- status expired or refunded: nobody answered in time and the escrow was refunded. Ask again later or at a busier place.
+- status disputed: you disputed this answer; stop calling.
 Example: await_answer({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
-Next: follow next_step in the response. If answered is false and status is dispatched, claimed, submitted or needs_review, call await_answer again right away. If status is expired or refunded, nobody answered and your money is back; ask again later or at a busier place. If the answer looks wrong, call dispute_answer.`,
+Next: follow next_step in the response.`,
       inputSchema: TOOLS.await_answer.input,
       outputSchema: TOOLS.await_answer.output,
       annotations: { readOnlyHint: true, openWorldHint: false },
@@ -314,25 +341,13 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     c.json(await service.joinWorker(parse(JoinWorkerInput, await readJson(c)))),
   );
   server.get("/w/offers/:token", async (c) => c.json(await service.getOffer(c.req.param("token"))));
-  server.post(
-    "/w/offers/:token/capture",
-    bodyLimit({
-      maxSize: MAX_PHOTO_BYTES,
-      onError: (c) =>
-        c.json(
-          new EyesError(
-            "invalid_input",
-            { max_bytes: MAX_PHOTO_BYTES },
-            { message: "The upload is larger than 20 MB.", fix: "Retake the photo and submit again." },
-          ).toBody(),
-          413,
-        ),
-    }),
-    async (c) => {
-      const { fields, photo } = await readCapture(c);
-      return c.json(await service.submitCapture(c.req.param("token"), fields, photo));
-    },
-  );
+  server.post("/w/offers/:token/capture", async (c) => {
+    const token = c.req.param("token");
+    if (!verifyToken(config.link_secret, token, deps.providers.clock.now()))
+      throw new EyesError("offer_invalid");
+    const { fields, photo } = await readCapture(c);
+    return c.json(await service.submitCapture(token, fields, photo));
+  });
 
   server.app.route("/webhooks/inkbox", inkboxRoutes(deps, env));
   server.app.route("/webhooks/primitive", primitiveRoutes(deps, env));

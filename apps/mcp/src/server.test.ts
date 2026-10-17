@@ -8,6 +8,7 @@ import {
   fakeProviders,
   type PhotoUpload,
   QuoteTaskOutput,
+  signToken,
   TOOLS,
 } from "@eyes/core";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
@@ -15,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import { createServer } from "./server.ts";
 
 const KEY = "eyes_test_key";
+const SECRET = "x".repeat(32);
 const AGENT: Agent = {
   id: "0b6c8f9e-1a2b-4c3d-8e4f-5a6b7c8d9e0f",
   name: "test-agent",
@@ -90,7 +92,7 @@ function setup() {
   const config = AppConfig.parse({
     public_api_url: "http://api.eyes.test",
     worker_web_url: "http://worker.eyes.test",
-    link_secret: "x".repeat(32),
+    link_secret: SECRET,
   });
   const server = createServer({
     service: service as EyesService,
@@ -142,6 +144,20 @@ describe("auth", () => {
     const rest = await fetch("http://eyes.test/v1/balance", { headers });
     expect(rest.status).toBe(401);
     expect(await rest.json()).toEqual(unauthorized);
+    const ask = await fetch("http://eyes.test/v1/tasks", { method: "POST", headers, body: "{}" });
+    expect(ask.status).toBe(401);
+    expect(await ask.json()).toEqual(unauthorized);
+  });
+
+  it("accepts a lowercase bearer scheme", async () => {
+    const { fetch } = setup();
+    const res = await fetch("http://eyes.test/v1/quote", {
+      method: "POST",
+      headers: { authorization: `bearer ${KEY}` },
+      body: JSON.stringify({ location: "Ferry Building, San Francisco", task_type: "line_length" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(QUOTE);
   });
 
   it("leaves POST /v1/signup public", async () => {
@@ -241,24 +257,49 @@ describe("REST mirror", () => {
     expect(body).toMatchObject({ error: "invalid_input", fix: ERRORS.invalid_input.fix });
     expect(body.issues).toEqual([expect.objectContaining({ path: "task_type" })]);
   });
+
+  it("does not leak the message of an unexpected error", async () => {
+    const { fetch } = setup();
+    const res = await fetch(`http://eyes.test/v1/tasks/${TASK_ID}`, {
+      headers: { authorization: `Bearer ${KEY}` },
+    });
+    expect(res.status).toBe(500);
+    const text = await res.text();
+    expect(JSON.parse(text)).toEqual(new EyesError("internal_error").toBody());
+    expect(text).not.toContain("hunter2");
+  });
 });
 
 describe("worker capture", () => {
-  it("parses the multipart form into CaptureFields and a photo", async () => {
-    const { fetch, captures } = setup();
+  const token = signToken(SECRET, "offer-1");
+  const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  const captureForm = (extra: Record<string, string | File> = {}) => {
     const form = new FormData();
-    form.set("lat", "37.78246");
-    form.set("lng", "-122.40776");
-    form.set("accuracy_m", "12");
-    form.set("captured_at", "2026-10-17T19:05:00.000Z");
-    form.set("answer_text", "About 4 people in line");
-    form.set("answer_bool", "true");
-    form.set("photo", new File([new Uint8Array([1, 2, 3])], "photo.jpg", { type: "image/jpeg" }));
-    const res = await fetch("http://eyes.test/w/offers/tok123/capture", { method: "POST", body: form });
+    const fields = {
+      lat: "37.78246",
+      lng: "-122.40776",
+      accuracy_m: "12",
+      captured_at: "2026-10-17T19:05:00.000Z",
+      ...extra,
+    };
+    for (const [name, value] of Object.entries(fields)) form.set(name, value);
+    return form;
+  };
+  const post = (fetch: ReturnType<typeof setup>["fetch"], t: string, init: RequestInit) =>
+    fetch(`http://eyes.test/w/offers/${t}/capture`, { method: "POST", ...init });
+
+  it("parses the multipart form into CaptureFields and a photo typed by its bytes", async () => {
+    const { fetch, captures } = setup();
+    const body = captureForm({
+      answer_text: " About 4 people in line ",
+      answer_bool: "true",
+      photo: new File([jpeg], "photo", { type: "application/octet-stream" }),
+    });
+    const res = await post(fetch, token, { body });
     expect(res.status).toBe(200);
     expect(captures).toEqual([
       {
-        token: "tok123",
+        token,
         fields: {
           lat: 37.78246,
           lng: -122.40776,
@@ -267,21 +308,48 @@ describe("worker capture", () => {
           answer_text: "About 4 people in line",
           answer_bool: true,
         },
-        photo: { bytes: new Uint8Array([1, 2, 3]), content_type: "image/jpeg" },
+        photo: { bytes: jpeg, content_type: "image/jpeg" },
       },
     ]);
   });
 
-  it("treats an empty answer_bool and missing photo as null", async () => {
+  it("treats blank answer fields and a missing photo as null", async () => {
     const { fetch, captures } = setup();
-    const form = new FormData();
-    form.set("lat", "37.78246");
-    form.set("lng", "-122.40776");
-    form.set("accuracy_m", "12");
-    form.set("captured_at", "2026-10-17T19:05:00.000Z");
-    form.set("answer_bool", "");
-    await fetch("http://eyes.test/w/offers/tok123/capture", { method: "POST", body: form });
+    await post(fetch, token, { body: captureForm({ answer_text: "   ", answer_bool: " " }) });
     expect(captures[0]?.fields).toMatchObject({ answer_text: null, answer_bool: null });
     expect(captures[0]?.photo).toBeNull();
+  });
+
+  it("rejects a file that is not a JPEG, PNG or WebP image even when labelled image/jpeg", async () => {
+    const { fetch, captures } = setup();
+    const html = new File(["<html><script>alert(1)</script></html>"], "photo.jpg", { type: "image/jpeg" });
+    const res = await post(fetch, token, { body: captureForm({ photo: html }) });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "invalid_input", issues: [{ path: "photo" }] });
+    expect(body.fix).toEqual(expect.any(String));
+    expect(captures).toEqual([]);
+  });
+
+  it.each([
+    ["unsigned", "tok123"],
+    ["expired", signToken(SECRET, "offer-1", new Date("2026-10-17T18:00:00.000Z"))],
+  ])("rejects an %s link token with offer_invalid before reading the body", async (_, t) => {
+    const { fetch, captures } = setup();
+    const res = await post(fetch, t, { body: captureForm() });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual(new EyesError("offer_invalid").toBody());
+    expect(captures).toEqual([]);
+  });
+
+  it("answers a malformed multipart body with invalid_input", async () => {
+    const { fetch, captures } = setup();
+    const res = await post(fetch, token, {
+      headers: { "content-type": "multipart/form-data; boundary=zzz" },
+      body: "not multipart at all",
+    });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_input" });
+    expect(captures).toEqual([]);
   });
 });

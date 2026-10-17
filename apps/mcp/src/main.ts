@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from "node:http";
 import { createInkboxMessaging, createPrimitiveEmail } from "@eyes/comms";
 import { AppConfig, type DbConfig, fakeProviders, type Providers } from "@eyes/core";
 import { createEyesService } from "@eyes/engine";
@@ -6,6 +7,7 @@ import { createAssessTask } from "@eyes/safety";
 import { createClaudeVision, verifySubmission } from "@eyes/verify";
 import { z } from "zod";
 import { createNominatimGeo } from "./geo.ts";
+import { toNodeListener } from "./http.ts";
 import { createServer, liveProviders } from "./server.ts";
 
 const EXPIRE_EVERY_MS = 30_000;
@@ -60,5 +62,8 @@ setInterval(() => {
 }, EXPIRE_EVERY_MS);
 
 const server = createServer({ service, providers, config, env });
-const { url } = await server.listen(Number(env.PORT) || 3000, { host: env.HOST || "0.0.0.0" });
-console.log(`Eyes MCP listening on ${url}`);
+const port = Number(env.PORT) || 3000;
+const host = env.HOST || "0.0.0.0";
+createHttpServer(toNodeListener(server.fetch)).listen(port, host, () => {
+  console.log(`Eyes MCP listening on http://${host}:${port}/mcp`);
+});

@@ -25,7 +25,7 @@ describe("createNominatimGeo", () => {
   it("maps the first Nominatim hit, caches it, and returns null when nothing matches", async () => {
     const fetch = vi.fn(async (url: string) =>
       Response.json(
-        url.includes("Nowhere")
+        url.includes("Nowhere") || url.includes("95.5")
           ? []
           : [{ lat: "40.7527", lon: "-73.9772", display_name: "Grand Central Terminal, New York" }],
       ),
@@ -36,7 +36,8 @@ describe("createNominatimGeo", () => {
     expect(await geo.geocode("Grand Central, New York")).toEqual(place);
     expect(await geo.geocode("grand central, new york")).toEqual(place);
     expect(await geo.geocode("Nowhere Land")).toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(await geo.geocode("95.5, 200.1")).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(3);
     expect(fetch.mock.calls[0]?.[0]).toBe(
       "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=Grand%20Central%2C%20New%20York",
     );
