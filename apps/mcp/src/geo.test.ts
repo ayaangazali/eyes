@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createNominatimGeo } from "./geo.ts";
 
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -43,34 +44,83 @@ describe("createNominatimGeo", () => {
     );
   });
 
-  it("only trusts a hit that has the house number, retrying once with the street address", async () => {
-    const hits: Record<string, string> = {
+  const nominatim = (hits: Record<string, string>) =>
+    vi.fn(async (url: string) => {
+      const label = hits[new URL(url).searchParams.get("q") ?? ""];
+      return Response.json(label ? [{ lat: "37.75", lon: "-122.41", display_name: label }] : []);
+    });
+  const queries = (fetch: ReturnType<typeof nominatim>) =>
+    fetch.mock.calls.map(([url]) => new URL(url).searchParams.get("q"));
+  const at = (label: string) => ({ lat: 37.75, lng: -122.41, label });
+
+  it("only trusts a hit that has the house number, retrying once 1.1 s later with the street address", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const fetch = nominatim({
       "Philz Coffee, 3101 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, Noe Valley, 94114",
       "3101 24th St, San Francisco": "La Rancho Market, 3101, 24th Street, Mission, 94110",
       "Philz Coffee, 4298 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, Noe Valley, 94114",
       "Philz Coffee, 9999 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, Noe Valley, 94114",
       "9999 24th St, San Francisco": "24th Street, Mission, 94110",
-    };
-    const fetch = vi.fn(async (url: string) => {
-      const label = hits[new URL(url).searchParams.get("q") ?? ""];
-      return Response.json(label ? [{ lat: "37.75", lon: "-122.41", display_name: label }] : []);
     });
     vi.stubGlobal("fetch", fetch);
     const geo = createNominatimGeo();
-    const at = (label: string) => ({ lat: 37.75, lng: -122.41, label });
-    expect(await geo.geocode("Philz Coffee, 3101 24th St, San Francisco")).toEqual(
-      at("La Rancho Market, 3101, 24th Street, Mission, 94110"),
-    );
+    const philz = geo.geocode("Philz Coffee, 3101 24th St, San Francisco");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await philz).toEqual(at("La Rancho Market, 3101, 24th Street, Mission, 94110"));
     expect(await geo.geocode("Philz Coffee, 4298 24th St, San Francisco")).toEqual(
       at("Philz Coffee, 4298, 24th Street, Noe Valley, 94114"),
     );
-    expect(await geo.geocode("Philz Coffee, 9999 24th St, San Francisco")).toBeNull();
-    expect(fetch.mock.calls.map(([url]) => new URL(url).searchParams.get("q"))).toEqual([
+    const missing = geo.geocode("Philz Coffee, 9999 24th St, San Francisco");
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(await missing).toBeNull();
+    expect(queries(fetch)).toEqual([
       "Philz Coffee, 3101 24th St, San Francisco",
       "3101 24th St, San Francisco",
       "Philz Coffee, 4298 24th St, San Francisco",
       "Philz Coffee, 9999 24th St, San Francisco",
       "9999 24th St, San Francisco",
     ]);
+  });
+
+  it("retries from the part with the house number, and not when the query starts with it", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const fetch = nominatim({
+      "Philz Coffee, Mission, 3101 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, 94114",
+      "3101 24th St, San Francisco": "La Rancho Market, 3101, 24th Street, Mission, 94110",
+      "548 Market St, Suite 200, San Francisco": "Market Street, Financial District, 94104",
+    });
+    vi.stubGlobal("fetch", fetch);
+    const geo = createNominatimGeo();
+    const philz = geo.geocode("Philz Coffee, Mission, 3101 24th St, San Francisco");
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(await philz).toEqual(at("La Rancho Market, 3101, 24th Street, Mission, 94110"));
+    expect(await geo.geocode("548 Market St, Suite 200, San Francisco")).toBeNull();
+    expect(queries(fetch)).toEqual([
+      "Philz Coffee, Mission, 3101 24th St, San Francisco",
+      "3101 24th St, San Francisco",
+      "548 Market St, Suite 200, San Francisco",
+    ]);
+  });
+
+  it("reads the house number only at the start of a part and finds it in multi-number labels", async () => {
+    const fetch = nominatim({
+      "135 Powell St, San Francisco": "Walgreens, 135;141;149, Powell Street, Union Square, 94102",
+      "Suite 200, 548 Market St, San Francisco": "548, Market Street, Financial District, 94104",
+      "Blue Bottle Coffee, San Francisco, CA 94103": "Blue Bottle Coffee, Mint Plaza, San Francisco",
+    });
+    vi.stubGlobal("fetch", fetch);
+    const geo = createNominatimGeo();
+    expect(await geo.geocode("135 Powell St, San Francisco")).toEqual(
+      at("Walgreens, 135;141;149, Powell Street, Union Square, 94102"),
+    );
+    expect(await geo.geocode("Suite 200, 548 Market St, San Francisco")).toEqual(
+      at("548, Market Street, Financial District, 94104"),
+    );
+    expect(await geo.geocode("Blue Bottle Coffee, San Francisco, CA 94103")).toEqual(
+      at("Blue Bottle Coffee, Mint Plaza, San Francisco"),
+    );
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 });

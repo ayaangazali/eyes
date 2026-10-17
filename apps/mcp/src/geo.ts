@@ -5,7 +5,7 @@ type Place = { lat: number; lng: number; label: string };
 const NOMINATIM = "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=";
 const USER_AGENT = "eyes-mcp/0.1 (+https://github.com/ayaangazali/eyes)";
 const COORDS = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/;
-const NUMBER = /(?<=^|[\s,])\d+(?=[\s,]|$)/g;
+const HOUSE = /^\s*(\d+)\s+\S/;
 
 async function search(query: string): Promise<Place | null> {
   const res = await fetch(NOMINATIM + encodeURIComponent(query.trim()), {
@@ -30,12 +30,16 @@ export function createNominatimGeo(): Geo {
       if (coords && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) return { lat, lng, label: query.trim() };
       const cached = cache.get(key);
       if (cached !== undefined) return cached;
-      const house = query.match(NUMBER)?.[0];
-      const trusted = (place: Place | null) =>
-        !house || place?.label.match(NUMBER)?.includes(house) ? place : null;
       const parts = query.split(",");
+      const at = parts.findIndex((part) => HOUSE.test(part));
+      const house = HOUSE.exec(parts[at] ?? "")?.[1];
+      const trusted = (place: Place | null) =>
+        !house || place?.label.split(/[\s,;-]+/).includes(house) ? place : null;
       let place = trusted(await search(query));
-      if (!place && house && parts.length > 2) place = trusted(await search(parts.slice(1).join(",")));
+      if (!place && at > 0 && at < parts.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1100));
+        place = trusted(await search(parts.slice(at).join(",")));
+      }
       cache.set(key, place);
       return place;
     },
