@@ -11,6 +11,7 @@ import {
   CancelTaskInput,
   DisputeAnswerInput,
   GetTaskInput,
+  ListTasksInput,
   QuoteTaskInput,
   SignupInput,
   type SignupOutput,
@@ -62,6 +63,11 @@ const COMMANDS = {
     usage: "eyes status <task_id>",
     about: "Show a task's status, and its answer once there is one.",
   },
+  tasks: {
+    args: 0,
+    usage: "eyes tasks [--status <status>] [--limit <1-50, default 20>]",
+    about: "List your tasks, newest first. Use it to find a task_id you lost before asking again.",
+  },
   cancel: {
     args: 1,
     usage: "eyes cancel <task_id>",
@@ -89,6 +95,8 @@ const FLAGS: Record<string, string> = {
   task_id: "<task_id>",
   timeout_seconds: "--timeout",
   reason: "--reason",
+  status: "--status",
+  limit: "--limit",
   name: "--name",
   owner_email: "--email",
 };
@@ -211,6 +219,8 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         deadline: { type: "string" },
         timeout: { type: "string" },
         reason: { type: "string" },
+        status: { type: "string" },
+        limit: { type: "string" },
         "idempotency-key": { type: "string" },
         "no-photo": { type: "boolean" },
         "no-wait": { type: "boolean" },
@@ -482,6 +492,14 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         check(GetTaskInput, { task_id: arg }, usage);
         print(await call(`GET /v1/tasks/${arg}`));
         return 0;
+      case "tasks": {
+        check(ListTasksInput, { status: o.status, limit: num(o.limit) }, usage);
+        const query = new URLSearchParams();
+        if (o.status) query.set("status", o.status);
+        if (o.limit) query.set("limit", o.limit);
+        print(await call(`GET /v1/tasks${query.size ? `?${query}` : ""}`));
+        return 0;
+      }
       case "cancel":
         check(CancelTaskInput, { task_id: arg }, usage);
         print(await call(`POST /v1/tasks/${arg}/cancel`));

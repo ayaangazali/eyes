@@ -640,6 +640,112 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "type": "object",
     },
   },
+  "list_tasks": {
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "limit": {
+          "default": 20,
+          "description": "How many tasks to return, newest first. 1 to 50.",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "integer",
+        },
+        "status": {
+          "description": "Only return tasks in this status, e.g. "dispatched" for tasks no worker has claimed yet. Omit for every status.",
+          "enum": [
+            "dispatched",
+            "claimed",
+            "submitted",
+            "verified",
+            "paid",
+            "expired",
+            "refunded",
+            "disputed",
+            "needs_review",
+          ],
+          "type": "string",
+        },
+      },
+      "type": "object",
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "next_step": {
+          "type": "string",
+        },
+        "tasks": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "answered": {
+                "description": "True when status is verified, paid or needs_review; get_task returns the answer.",
+                "type": "boolean",
+              },
+              "bounty_usd": {
+                "type": "number",
+              },
+              "created_at": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "type": "string",
+              },
+              "deadline_at": {
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                "type": "string",
+              },
+              "place_label": {
+                "type": "string",
+              },
+              "question": {
+                "type": "string",
+              },
+              "status": {
+                "enum": [
+                  "dispatched",
+                  "claimed",
+                  "submitted",
+                  "verified",
+                  "paid",
+                  "expired",
+                  "refunded",
+                  "disputed",
+                  "needs_review",
+                ],
+                "type": "string",
+              },
+              "task_id": {
+                "format": "uuid",
+                "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+                "type": "string",
+              },
+            },
+            "required": [
+              "task_id",
+              "status",
+              "question",
+              "place_label",
+              "bounty_usd",
+              "created_at",
+              "deadline_at",
+              "answered",
+            ],
+            "type": "object",
+          },
+          "maxItems": 50,
+          "type": "array",
+        },
+      },
+      "required": [
+        "tasks",
+        "next_step",
+      ],
+      "type": "object",
+    },
+  },
   "quote_task": {
     "input": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -700,6 +806,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "additionalProperties": false,
       "properties": {
         "allowed": {
+          "description": "False when this API key cannot post this task right now: Eyes' safety rules refuse this task_type at this place, the task_type is not in allowed_task_types, or even the 1 USD minimum bounty plus fee does not fit max_bounty_usd, the daily cap left or the balance. It does not check your question: ask_eyes checks the question itself and can still refuse it with unsafe_task.",
           "type": "boolean",
         },
         "est_minutes_to_answer": {
@@ -709,6 +816,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           ],
         },
         "reason_if_not": {
+          "description": "Why allowed is false and what to do: change the place or task_type, top up at top_up_url, wait for the daily cap to reset at midnight UTC, or ask your user to raise a limit. Null when allowed is true.",
           "type": [
             "string",
             "null",
@@ -735,6 +843,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           "type": "object",
         },
         "suggested_bounty_usd": {
+          "description": "A bounty ask_eyes accepts for this API key right now: the default, lowered to fit max_bounty_usd, the daily cap left after the fee, and your balance after the fee. Pass it as bounty_usd.",
           "type": "number",
         },
         "workers_nearby": {
