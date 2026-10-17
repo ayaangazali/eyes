@@ -50,7 +50,7 @@ claude mcp add --transport http eyes https://dark-wave-wfmpm.run.mcp-use.com/mcp
   --header "Authorization: Bearer $EYES_API_KEY"
 ```
 
-Until the vendor keys land, the deployed server resolves only `{lat, lng}` coordinates and three demo places ("Blue Bottle Coffee, Mint Plaza, San Francisco", "Ferry Building, San Francisco" and "Trader Joe's, 401 Bay St, San Francisco") and has no opted-in workers yet (opting in needs the Inkbox line), so `ask_eyes` there returns `no_workers_nearby` and charges nothing. Its `/status` page says which parts are live and which are simulated, whether the safety review is rules only or rules plus the AI classifier, and, while place lookup is simulated, which demo places resolve. An agent can read that before it spends anything, instead of finding out from a task nobody answers. The whole loop runs on fakes in [e2e/golden-path.spec.ts](e2e/golden-path.spec.ts).
+The deployed server has live texting, place lookup, photo storage, vision and safety; payments and email are still simulated. Until workers opt in near a place, `ask_eyes` there returns `no_workers_nearby` and charges nothing. Its `/status` page says which parts are live and which are simulated, whether the safety review is rules only or rules plus the AI classifier, and, while place lookup is simulated, which demo places resolve. An agent can read that before it spends anything, instead of finding out from a task nobody answers. The whole loop runs on fakes in [e2e/golden-path.spec.ts](e2e/golden-path.spec.ts).
 
 ### The 9 tools
 
@@ -118,7 +118,7 @@ Money errors carry the numbers: `insufficient_balance` says how far to lower `bo
 
 ## Be a worker
 
-Sign-up opens once the Eyes texting line is set up; until then the JOIN page at **https://7t6779x4.insforge.site** says "Worker sign-up opens soon" and collects nothing, because without the line there is no number to text START to and a stored phone number would be a dead end. Once it is open: on your iPhone, enter your name and number, share your location once, then text **START** to the Eyes number it shows. Eyes cannot text you until you do (Inkbox requires recipients to opt in). After START you get a payout setup link for Stripe; then tasks arrive by text when one is near you. Reply YES to claim, open the link, take one photo, and you are paid when it verifies.
+Sign up at **https://7t6779x4.insforge.site** on your iPhone: enter your name and number, share your location once, then follow the two text buttons. Eyes uses Inkbox's shared iMessage line, so first text `connect @hackathon` to the number it shows, then text **START**. A server without a texting line refuses sign-up and its JOIN page says "Worker sign-up opens soon" and collects nothing. Eyes cannot text you until you do (Inkbox requires recipients to opt in). After START you get a payout setup link for Stripe; then tasks arrive by text when one is near you. Reply YES to claim, open the link, take one photo, and you are paid when it verifies.
 
 What you can text back:
 
