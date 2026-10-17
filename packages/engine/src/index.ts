@@ -165,17 +165,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
     return agentId;
   }
 
-  async function emailOwner(to: string, agent: Agent): Promise<boolean> {
+  async function emailOwner(to: string, agent: Agent, subject: string, intro: string): Promise<boolean> {
     try {
       await providers.email.send({
         to,
-        subject: "Your AI agent's Eyes spending controls",
+        subject,
         text: [
-          `Your AI agent ${JSON.stringify(agent.name)} signed up for Eyes and listed this address as its owner.`,
+          intro,
           "Eyes lets AI agents pay a nearby person a few dollars to check something in the real world right now, such as whether a store is open or how long a line is. Each task is paid from the agent's prepaid balance.",
           `Your private control link:\n${ownerUrl(agent.id)}`,
           "There you can see the balance and every task, set the most the agent may pay per task, set a daily spending cap (a cap of 0 stops all spending), choose which kinds of tasks it may post, and add funds.",
-          "Keep this link secret, and do not give it to your agent: anyone who has it can change these limits.",
+          "Keep this link secret, and do not give it to your agent: anyone who has it can change these limits. Whoever pays for this agent also gets this link.",
         ].join("\n\n"),
       });
       return true;
@@ -332,7 +332,12 @@ export function createEyesService(deps: EngineDeps): EyesService {
         : "";
       const owner = !owner_email
         ? ""
-        : (await emailOwner(owner_email, agent))
+        : (await emailOwner(
+              owner_email,
+              agent,
+              "Your AI agent's Eyes spending controls",
+              `Your AI agent ${JSON.stringify(agent.name)} signed up for Eyes and listed this address as its owner.`,
+            ))
           ? ` We emailed your user at ${owner_email} a private control link to set your spend limits and add funds; only they can change your limits.`
           : ` We could not email your user at ${owner_email}; they can ask the Eyes operator for their control link.`;
       return {
@@ -534,13 +539,20 @@ export function createEyesService(deps: EngineDeps): EyesService {
       return url;
     },
 
-    async creditTopup({ agent_id, amount_cents, stripe_ref }) {
-      await rpc("eyes_credit_topup", {
+    async creditTopup({ agent_id, amount_cents, stripe_ref, payer_email }) {
+      const agent = await one<Agent>("eyes_credit_topup", {
         p_agent_id: agent_id,
         p_amount_cents: amount_cents,
         p_stripe_ref: stripe_ref,
         p_now: nowIso(),
       });
+      if (!payer_email) return;
+      await emailOwner(
+        payer_email,
+        agent,
+        `You added ${dollars(amount_cents)} to your AI agent's Eyes balance`,
+        `Thank you for adding ${dollars(amount_cents)} to the Eyes balance of your AI agent ${JSON.stringify(agent.name)}. Because you pay for it, you also get its owner controls.`,
+      );
     },
 
     async ownerConsole(token) {

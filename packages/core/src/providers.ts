@@ -46,7 +46,13 @@ export interface Email {
 }
 
 export type PaymentsEvent =
-  | { type: "topup.completed"; agent_id: string; amount_cents: number; ref: string }
+  | {
+      type: "topup.completed";
+      agent_id: string;
+      amount_cents: number;
+      ref: string;
+      payer_email: string | null;
+    }
   | { type: "worker.onboarded"; account_id: string };
 
 export interface Payments {

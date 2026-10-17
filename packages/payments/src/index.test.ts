@@ -126,19 +126,21 @@ describe("stripeRoutes", () => {
     expect(service.creditTopup).not.toHaveBeenCalled();
   });
 
-  it("credits a completed top-up with the exact cents and the session as stripe_ref", async () => {
+  it("credits a completed top-up with the exact cents, the session as stripe_ref and the payer's email", async () => {
     const { service, webhook } = setup();
     const res = await webhook({
       type: "topup.completed",
       agent_id: "agt_1",
       amount_cents: 2050,
       ref: "cs_1",
+      payer_email: "payer@example.com",
     });
     expect(res.status).toBe(200);
     expect(service.creditTopup).toHaveBeenCalledWith({
       agent_id: "agt_1",
       amount_cents: 2050,
       stripe_ref: "cs_1",
+      payer_email: "payer@example.com",
     });
   });
 
@@ -452,6 +454,27 @@ describe("createStripePayments().parseWebhook", () => {
         currency: "usd",
         amount_total: 2000,
         client_reference_id: "agt_1",
+        customer: null,
+        customer_creation: "if_required",
+        customer_email: null,
+        customer_details: {
+          address: {
+            city: null,
+            country: "US",
+            line1: null,
+            line2: null,
+            postal_code: "94103",
+            state: null,
+          },
+          business_name: null,
+          email: "payer@example.com",
+          individual_name: null,
+          name: "Pat Payer",
+          phone: null,
+          tax_exempt: "none",
+          tax_ids: [],
+        },
+        payment_intent: "pi_test_a1",
         metadata: { agent_id: "agt_1" },
         ...fields,
       },
@@ -460,13 +483,19 @@ describe("createStripePayments().parseWebhook", () => {
   const sign = (payload: string, key = secret) =>
     Stripe.webhooks.generateTestHeaderString({ payload, secret: key });
 
-  it("maps a signed, paid checkout.session.completed to topup.completed", async () => {
+  it("maps a signed, paid checkout.session.completed to topup.completed with the payer's email", async () => {
     const body = session();
     expect(await payments.parseWebhook(body, sign(body))).toEqual({
       type: "topup.completed",
       agent_id: "agt_1",
       amount_cents: 2000,
       ref: "cs_test_a1",
+      payer_email: "payer@example.com",
+    });
+    const anonymous = session({ customer_details: null });
+    expect(await payments.parseWebhook(anonymous, sign(anonymous))).toMatchObject({
+      type: "topup.completed",
+      payer_email: null,
     });
   });
 

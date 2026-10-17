@@ -497,6 +497,60 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
+  it("emails whoever pays a working owner link, credits a replayed top-up once, and never shows the link to the agent", async () => {
+    const a = await agent();
+    const payer = `payer-${randomUUID()}@example.com`;
+    const topup = {
+      agent_id: a.id,
+      amount_cents: 1500,
+      stripe_ref: `cs_${randomUUID()}`,
+      payer_email: payer,
+    };
+    const before = providers.email.outbox.length;
+    await service.creditTopup(topup);
+    const [mail, ...rest] = providers.email.outbox.slice(before);
+    expect(rest).toEqual([]);
+    expect(mail?.to).toBe(payer);
+    expect(mail?.subject).toBe("You added $15.00 to your AI agent's Eyes balance");
+    const ownerToken = mail?.text.match(/\/owner\/([\w.-]+)/)?.[1] ?? "";
+    expect(await service.ownerConsole(ownerToken)).toMatchObject({ agent_id: a.id, balance_usd: 35 });
+
+    await service.creditTopup(topup);
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 35 });
+    const replayed = providers.email.outbox.slice(before + 1);
+    expect(replayed.map((m) => m.to)).toEqual([payer]);
+    expect(replayed[0]?.text).toContain(`/owner/${ownerToken}`);
+
+    await service.creditTopup({ ...topup, stripe_ref: `cs_${randomUUID()}`, payer_email: null });
+    expect(providers.email.outbox).toHaveLength(before + 2);
+    for (const out of [await service.getBalance(a), await service.getSpendPolicy(a)]) {
+      expect(JSON.stringify(out)).not.toContain("/owner/");
+    }
+  });
+
+  it("still credits a top-up when the payer email fails, without logging the owner link", async () => {
+    const a = await agent();
+    const send = providers.email.send;
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    providers.email.send = async (msg) => {
+      throw new Error(`relay refused: ${msg.text}`);
+    };
+    try {
+      await service.creditTopup({
+        agent_id: a.id,
+        amount_cents: 500,
+        stripe_ref: `cs_${randomUUID()}`,
+        payer_email: "payer@example.com",
+      });
+      expect(await service.getBalance(a)).toMatchObject({ balance_usd: 25 });
+      expect(error).toHaveBeenCalled();
+      expect(JSON.stringify(error.mock.calls)).not.toContain("/owner/");
+    } finally {
+      providers.email.send = send;
+      error.mockRestore();
+    }
+  });
+
   it("accepts only p: owner tokens for the owner console and policy updates", async () => {
     const a = await agent();
     const secret = "test-link-secret-0123456789";
