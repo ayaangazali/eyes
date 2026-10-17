@@ -250,6 +250,7 @@ describe("task card", () => {
     `${PHOTOS}${OBJ}%2f..%2f..%2favatars%2fa.jpg`,
     `${PHOTOS}${OBJ}.png`,
     `${PHOTOS}${TASK_A}/${KEY.replace(".jpg", ".svg")}`,
+    `${PHOTOS}${KEY}`,
     `${PHOTOS}a.jpg`,
     "fixture:other",
     "",

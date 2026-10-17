@@ -119,7 +119,7 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
   - Two allowlisted photo URLs (`/` and `%2F`).
   - 27 rejected photo URLs. Each URL with a host, scheme, credential, prefix, anchor or extension defect carries a valid `<uuid>/<uuid>.jpg` key, so it breaks exactly one check.
   - Every rendered button clicked through `cardTree` into `MockBridge`, with the toast and console line checked.
-  - Theme and toast passed through `cardTree` and `TaskCard`.
+  - Theme passed through `cardTree` and `TaskCard`; the toast row is pinned through `cardTree` only (TaskCard's toast state needs a DOM).
   - A rejected bridge call toasting its error.
 - Mutation matrix at round 3, each mutant applied, run, then reverted (sources byte-identical after); all 21 caught, failures out of 44:
 
@@ -169,12 +169,16 @@ The `show_task` card from T4.30 shows one finished task. A chat user sees Eyes a
     - The grep wording says "no matches in code".
     - The reason for committing the PNGs is recorded.
     - The README shell notes moved out of the code block.
-  - Not done: the image `onError` fallback and one-key-per-mount tests. Both need a DOM, and a DOM dependency would change the root lockfile entry.
+  - Not done: the image `onError` fallback, one-key-per-mount, TaskCard's toast state hand-off and the toast timer tests. All need a DOM, and a DOM dependency would change the root lockfile entry. The screen-reader check text is also untested.
 - Round 2 (631c128): security PASS (80 named cases plus 500k fuzz; `%2F` reaches only the same object, per InsForge's Express decode), test+intent FAIL on coverage only.
 - Fixed in round 3:
   - Major: the strict key pattern masked the credential, prefix, `^` anchor and extension checks. Each rejected URL now carries a valid key and breaks one check; origin cases got valid keys too, plus username-only and password-only credential cases. All 21 mutants above fail the suite.
   - Minors:
-    - Theme and toast are pinned through `cardTree` and `TaskCard`.
+    - Theme is pinned through `cardTree` and `TaskCard`; the toast row through `cardTree` only.
     - The W2 handoff adds the `task_id` match on the photo key.
     - CSS, reduced-motion and theme are recorded as PNG-only coverage.
   - Not done: the `disputed`, `refunded` and `verified` statuses have no fixtures, so their mappings are untested (`disputed` to the "Disputed" review card without Dispute, `refunded` to "Cancelled. $3.50 refunded.", `verified` to the answered card). Adding fixtures would add preview cells and screenshots.
+
+### Round 3 (orchestrator)
+- spec PASS (round 1), security PASS (round 2: 80 named + 500,000 fuzzed URLs; `%2F` reaches only the same object through InsForge's single decode), test+intent PASS (round 3: 51 mutants, 39 caught; survivors listed under Not done).
+- Before merge: one more rejected URL, a single-UUID key `<photos>/<uuid>.jpg`, pins the two-part key shape the W2 `task_id` binding relies on; the toast coverage claim is narrowed to `cardTree`; untested toast timer, toast hand-off and screen-reader text are listed.
