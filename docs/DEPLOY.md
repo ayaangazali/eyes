@@ -26,7 +26,7 @@ Run from the repo root. Keys go in `.env` (never committed). Names are in `.env.
 
 ## 5. Live smoke checklist (G1, then G2)
 1. `GET <public>/healthz`: every provider `live`, db `insforge`.
-2. Each worker phone: JOIN at `<worker web>/`, text START, receive the payout setup link, finish Stripe test onboarding (SMS code 000-000, SSN 222222222, routing 110000000, account 000123456789).
+2. Each worker phone (iPhone, with Settings > Messages > Send & Receive > Start New Conversations From set to the phone number, not an Apple ID email): JOIN at `<worker web>/`, text START, receive the payout setup link, finish Stripe test onboarding (SMS code 000-000, SSN 222222222, routing 110000000, account 000123456789).
 3. Agent: `claude mcp add --transport http eyes <public>/mcp --header "Authorization: Bearer $EYES_API_KEY"` (key from `POST <public>/v1/signup`).
 4. Ask about the demo cafe; a nearby phone gets the offer text, replies YES, gets the capture link, takes the photo; Claude's `await_answer` returns the verified answer with `photo_url`.
 5. G2: the Stripe dashboard shows the top-up, then the transfer to the worker's connected account; `get_balance` drops by 3.50; "Photograph the house at 123 Oak St" is refused with `unsafe_task`.
