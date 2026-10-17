@@ -1,0 +1,16 @@
+{
+  "name": "@eyes/web-dashboard",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.ts"
+  },
+  "dependencies": {
+    "@eyes/core": "workspace:*",
+    "@eyes/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@eyes/engine": "workspace:*",
+    "postgres": "3.4.9"
+  }
+}
