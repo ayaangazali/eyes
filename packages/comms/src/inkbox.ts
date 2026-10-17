@@ -72,7 +72,7 @@ export function alreadyClaimedText(msg: Parameters<Messaging["sendAlreadyClaimed
 }
 
 export function paidText(msg: Parameters<Messaging["sendPaid"]>[1]): string {
-  return `Eyes: you've been paid ${dollars(msg.amount_cents)} for the task at ${placeText(msg.place_label)}. Thank you!`;
+  return `Eyes: you've been paid ${dollars(msg.amount_cents)} for the task at ${placeText(msg.place_label)}. Thank you! Your earnings: ${msg.earnings_url}`;
 }
 
 const INTENTS: Record<string, ReplyIntent> = {
