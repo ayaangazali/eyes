@@ -3,6 +3,7 @@ returns setof workers language sql as $$
   update offers o set sent_at = p_now
   from tasks t, workers w
   where o.task_id = p_task_id and t.id = o.task_id and w.id = o.worker_id
+    and o.sent_at = t.created_at
     and t.status = 'dispatched' and t.deadline_at > p_now
     and w.id <> p_released_by and w.available and w.opted_in
     and not exists (select 1 from tasks c where c.claimed_by = w.id and c.status in ('claimed', 'submitted'))

@@ -1020,4 +1020,23 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
     expect(await service.getTask(a, { task_id })).toMatchObject({ status: "claimed" });
   });
+
+  it("offers a released task again to each worker at most once, however often it is claimed and released", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const releaser = await worker(north(at, 50));
+    const other = await worker(north(at, 100));
+    const { task_id } = await ask(a, at);
+    const offersTo = (phone: string) =>
+      outbox.filter((m) => m.to === phone && m.kind === "offer" && m.payload.task_id === task_id);
+
+    for (let i = 0; i < 2; i++) {
+      providers.clock.advance(1000);
+      await reply(releaser.phone);
+      expect(await service.getTask(a, { task_id })).toMatchObject({ status: "claimed" });
+      await service.handleWorkerReply({ phone: releaser.phone, intent: "no", text: "NO" });
+    }
+    expect(offersTo(other.phone)).toHaveLength(2);
+    expect(offersTo(releaser.phone)).toHaveLength(1);
+  });
 });
