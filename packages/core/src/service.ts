@@ -96,6 +96,7 @@ export interface EyesService {
   }): Promise<void>;
   ownerConsole(token: string): Promise<OwnerConsole>;
   updateSpendPolicy(token: string, input: OwnerPolicyInput): Promise<ToolOutput<"get_spend_policy">>;
+  rotateApiKey(token: string): Promise<{ api_key: string }>;
 
   joinWorker(input: JoinWorkerInput): Promise<JoinWorkerOutput>;
   workerConnectUrl(token: string): Promise<string>;

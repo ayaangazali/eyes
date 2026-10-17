@@ -92,11 +92,21 @@ const OWNER_VIEW: OwnerConsole = {
   ledger: [{ type: "escrow", amount_usd: 3.5, task_id: TASK_ID, created_at: "2026-10-17T09:15:00.000Z" }],
   top_up_url: "https://api.eyes.test/topup/agent-tok",
 };
+const NEW_KEY = 'eyes_test_<b>"new"</b>&key';
 
 const EARNINGS_VIEW: WorkerEarnings = {
   paid_usd: 3,
-  pending_usd: 4.25,
+  pending_usd: 6.25,
   tasks: [
+    {
+      task_id: "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e",
+      place_label: "Dolores Park",
+      status: "verified",
+      bounty_usd: 2,
+      payout: "pending",
+      claimed_at: "2026-10-17T11:00:00.000Z",
+      paid_at: null,
+    },
     {
       task_id: "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d",
       place_label: "<img src=x onerror=alert(1)> Cafe & Co",
@@ -160,6 +170,10 @@ function setup(payments: Payments = fakeProviders().payments) {
         );
       }
       return EARNINGS_VIEW;
+    }),
+    rotateApiKey: vi.fn(async (token: string) => {
+      if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
+      return { api_key: NEW_KEY };
     }),
   };
   const config = AppConfig.parse({
@@ -357,6 +371,35 @@ describe("owner console routes", () => {
       expect(await res.text()).toContain("This owner control link is invalid.");
     }
   });
+
+  it("replaces the API key only on a POST with the owner link and shows the new key once, escaped and uncached", async () => {
+    const { app, service } = setup();
+    const escaped = "eyes_test_&lt;b&gt;&quot;new&quot;&lt;/b&gt;&amp;key";
+    const before = await (await app.request("/owner/owner-tok")).text();
+    expect(before).toContain('action="/owner/owner-tok/rotate-key"');
+    expect(before).toContain("The old key stops working immediately");
+
+    const res = await app.request("/owner/owner-tok/rotate-key", { method: "POST" });
+    expect(res.status).toBe(200);
+    expect(privateHeaders(res)).toEqual(PRIVATE);
+    expect(res.headers.get("location")).toBeNull();
+    const body = await res.text();
+    expect(body).toContain(escaped);
+    expect(body).not.toContain("<b>");
+    expect(body).toContain("The old key has stopped working.");
+
+    const elsewhere = [
+      await app.request("/owner/owner-tok/rotate-key"),
+      await app.request("/owner/owner-tok"),
+      await app.request("/owner/agent-tok/rotate-key", { method: "POST" }),
+    ];
+    expect(elsewhere.map((r) => r.status)).toEqual([404, 200, 404]);
+    for (const r of elsewhere) {
+      expect(privateHeaders(r)).toEqual(PRIVATE);
+      expect(await r.text()).not.toContain(escaped);
+    }
+    expect(service.rotateApiKey.mock.calls).toEqual([["owner-tok"], ["agent-tok"]]);
+  });
 });
 
 describe("worker earnings page", () => {
@@ -367,7 +410,10 @@ describe("worker earnings page", () => {
     expect(privateHeaders(res)).toEqual(PRIVATE);
     const body = await res.text();
     expect(body).toContain("<dt>Paid to you</dt><dd>$3.00</dd>");
-    expect(body).toContain("<dt>Earned, not sent yet</dt><dd>$4.25</dd>");
+    expect(body).toContain("<dt>Earned, not sent yet</dt><dd>$6.25</dd>");
+    expect(body).toContain(
+      "<td>Dolores Park</td><td>$2.00</td><td>verified</td><td>Not sent yet. If you have not finished payout setup, use the link we texted, or text START for a new one.</td>",
+    );
     expect(body).not.toContain("<img");
     expect(body).toContain(
       "<td>&lt;img src=x onerror=alert(1)&gt; Cafe &amp; Co</td><td>$4.25</td><td>verified</td><td>Waiting for your payout setup</td>",
