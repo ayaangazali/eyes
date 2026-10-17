@@ -515,7 +515,7 @@ Next: call get_task later to see the outcome. To get a fresh answer now, call as
       outputSchema: TOOLS.dispute_answer.output,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: false,
       },
