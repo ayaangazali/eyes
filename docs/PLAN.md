@@ -4,36 +4,32 @@ Living plan. `STATUS.md` is the task board; this file says what remains, who doe
 
 Hacking: Sat Oct 17 10:30 AM to Sun Oct 18 10:00 AM (submissions). Feature freeze 6:00 AM Sun.
 
-## 1. Where we are (2026-10-17 04:25 PT)
+## 1. Where we are (2026-10-17 11:15 PT)
 
 | Area | State |
 |---|---|
-| Golden path, demo script, swarm | on fakes in CI: `pnpm test:e2e` (golden + demo), `pnpm test:demo` passes 3x in a row (G3 machine check), `pnpm swarm` fills the dashboard |
-| MCP server on Manufact | live: 9 tools, REST mirror, agent docs (`/llms.txt`, `/openapi.json`, agent card), HOME and `/status`; `pnpm smoke:live` 13/13 |
-| InsForge | live: Postgres (migrations 001-008), photo storage (delete verified), Sites (worker JOIN, capture, privacy) |
-| Owner control (Stripe track) | live: owner console (limits, freeze, add funds, ledger); owner link to `owner_email` and (after #53) to the Checkout payer |
-| Safety | live: rules layer; Claude classifier switches on with `ANTHROPIC_API_KEY` |
-| Money paths | escrow, refund, payout retry, operator resolve (`pnpm resolve-task`), forged-webhook guard (#56); payout recovery after a Stripe refusal in review (#57) |
-| Agent experience | AX eval (`pnpm ax:eval`) runs the scripted client in CI; Claude client runs when the key lands |
-| Vendors | Stripe, Inkbox, Primitive, Claude vision/classifier, Armature: code merged, waiting on keys |
+| Live mode | `EYES_PROVIDERS=live` on Manufact (main fec9f09): Inkbox texting (shared line +16504849720, `connect @hackathon` then START), Claude vision and safety classifier, InsForge storage, place lookup. Stripe and Primitive simulated, and every worker-facing text and page says so (#75) |
+| Live-verified (STATUS) | safety rules and classifier refusals; Claude vision verdicts; face-photo deletion; real Claude over the MCP connector through quote, ask and await with a stand-in worker; worker sign-up page against the live API; owner console; smoke 13/13 |
+| Not yet live-verified | a real iMessage to a phone (G1), Stripe top-up and transfer (G2), Primitive email thread, Armature analytics |
+| CI and tests | lint, typecheck, unit, contract, integration, golden and demo e2e, safety rules, intent, secrets; `pnpm ax:eval` (Claude client passes locally); `safety-llm-eval` and the Claude PR reviewer run with the repo secret |
+| Agent experience | 9 MCP tools, REST mirror, llms.txt, openapi.json, agent card, `eyes` CLI, every error with a fix |
 
 ## 2. Work in flight
 
 | Task | What | Status |
 |---|---|---|
-| T4.9 (#57) | payouts recover after a Stripe refusal, no starvation | round-2 adversarial verify |
-| T4.13 (#60) | every user-facing sentence true on the running system | verifying |
-| T4.11b (#59) | signup never claims an email was sent when email is simulated | merging |
+| T4.26 | fewer false refusals from the Claude classifier, recall must stay 1.000 | builder |
+| T4.27 (#78) | place lookup must not pick the wrong branch of a chain store | builder |
 
 Every PR: spec + test + intent verifiers, security on money/auth/webhooks/safety, ax on agent surfaces. Auto-merge on PASS + green CI. ADR-010 decides blocking vs deferred. Verdicts live in `intent/verdicts/`.
 
 ## 3. Next (in order)
 
-1. **T4.14** a worker who replies NO after YES releases the claim so the task goes back to other workers (migration 010, after #57).
-2. Redeploy Manufact and Sites after #57/#59/#60 so the live text matches the code; rerun `pnpm smoke:live`.
-3. Deferred issues, by demo impact: #54 (owner link scope), #55 (capture upload cap), #33 (worker earnings page), #28 (key revocation), #29 (withdraw to card), #30 (per-task event trail), #31 (durable expiry), #32 (hosted read-only dashboard), #34 (worker report), #36/#42 done.
-4. **T3.4b Armature** analytics once the key and their mcp-use answer land; **T3.5b Blaxel** swarm and eval sandboxes once BL keys land (never on the golden path).
-5. **Phase 4**: fill docs/SUBMISSION.md TODO slots from STATUS live verification, record the 90 s video from docs/DEMO.md, backup video, final README pass.
+1. **G1 with a person**: a teammate iPhone joins, texts `connect @hackathon` then START, gets an offer for a real task at Blue Bottle Mint Plaza, replies YES, captures; record it in STATUS and SUBMISSION.
+2. **Stripe** when the key lands (section 4), then rebuild Sites with `VITE_LIVE_PAYOUTS=true`; G2.
+3. **Primitive** when the key lands; the email beat of the demo.
+4. Deferred issues, by demo impact: #28 (link revocation), #29 (withdraw to card), #30 (per-task event trail), #31 (durable expiry), #34 (worker report), #71.
+5. **Phase 4**: remaining SUBMISSION TODOs from STATUS, the 90 s video from docs/DEMO.md, backup video, final README pass.
 
 ## 4. When each key lands (exact steps)
 
@@ -43,7 +39,7 @@ Set server env with `npx mcp-use servers env set 0526925a-58ae-4d83-9c3b-ed37892
 
 | Key | Steps | Proof (live-verified) |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | set on server, set `EYES_PROVIDERS=live`; add as repo secret (enables `claude-verifier.yml`, `safety-llm-eval.yml`); run `pnpm safety:eval` locally with the key | `/healthz` shows vision live; `safety-llm-eval` precision/recall recorded; a refusal for "photograph the house at 123 Oak St" over MCP |
+| `ANTHROPIC_API_KEY` | done 2026-10-17 ~10:00 PT: set on the server with `EYES_PROVIDERS=live`, added as the repo secret; `pnpm safety:eval` precision 0.946, recall 1.000 | STATUS: classifier refusals, vision verdicts and face deletion live-verified |
 | Inkbox iMessage line | done 2026-10-17: free plan, shared line +16504849720, identity `hackathon`, `imessage.received` subscribed to `/webhooks/inkbox`, `INKBOX_API_KEY`, `INKBOX_AGENT_HANDLE`, signing key and auth token set on the server. Left for when live mode is on: set `INKBOX_PHONE_NUMBER=+16504849720`, rebuild worker web with `VITE_INKBOX_NUMBER=+16504849720 VITE_INKBOX_CONNECT="connect @hackathon"` (add `VITE_LIVE_PAYOUTS=true` once `STRIPE_SECRET_KEY` is set) and redeploy Sites; each worker iPhone texts `connect @hackathon`, then START | G1 live: Claude -> ask_eyes -> teammate iPhone gets the offer -> YES -> capture link -> photo -> Claude gets the answer |
 | Stripe sandbox | set `STRIPE_SECRET_KEY`, then rebuild the worker web with `VITE_LIVE_PAYOUTS=true` and redeploy Sites (without it the JOIN and capture pages keep saying payouts are simulated); create both event destinations (account: `checkout.session.completed`; connected accounts: `account.updated`) to `/webhooks/stripe`, set both secrets; pre-fund with 4000 0000 0000 0077; worker texts START and onboards through the payout link | G2: top-up via Checkout credits the balance; verified answer creates a $3 transfer visible in the Stripe dashboard; expiry refunds |
 | Primitive | set `PRIMITIVE_API_KEY`, `PRIMITIVE_WEBHOOK_SECRET`, `PRIMITIVE_DOMAIN`; deploy the inbound function to POST `/webhooks/primitive`; ask staff for `send_to_any_domain` | an agent emails its Eyes address and gets a threaded reply with the photo; the owner link email arrives |
