@@ -10,7 +10,7 @@ Hacking: Sat Oct 17 10:30 AM to Sun Oct 18 10:00 AM (submissions). Feature freez
 |---|---|
 | Contracts, CI, intent system (Phase 0) | done; G0 passed |
 | Golden path on fakes (G1 fakes half) | done; Playwright e2e green in CI |
-| MCP server on Manufact | live at https://dark-wave-wfmpm.run.mcp-use.com/mcp; auto-redeploys on merge to main |
+| MCP server on Manufact | live at https://dark-wave-wfmpm.run.mcp-use.com/mcp; redeploy by hand after each merge (`npx mcp-use deploy --yes --dockerfile Dockerfile`); env changes need `deployments restart` |
 | InsForge Postgres + Sites | live; signup/balance/policy served from InsForge; worker web at https://7t6779x4.insforge.site |
 | Stripe, Inkbox, Primitive, Claude vision/classifier, Armature | code merged on fakes; waiting on keys |
 | Safety gate (T1.5, PR #7) | round 6 in verification |
@@ -40,7 +40,7 @@ Every PR: spec + test + intent verifiers, plus security on money/auth/webhooks/s
 
 Order agreed with the humans: Inkbox (in person) -> Manufact -> InsForge -> Stripe -> Primitive -> Armature. Anthropic is a prerequisite for any live mode: without `ANTHROPIC_API_KEY` the server refuses `EYES_PROVIDERS=live` on purpose (the safety classifier and photo verification would be off).
 
-Set server env with `npx mcp-use servers env set 0526925a-58ae-4d83-9c3b-ed378926c260 KEY=VALUE` (secrets with `--secret` where supported); the next merge to main redeploys, or run `npx mcp-use deploy --yes`.
+Set server env with `npx mcp-use servers env set 0526925a-58ae-4d83-9c3b-ed378926c260 KEY=VALUE` (secrets with `--secret` where supported), then `npx mcp-use deployments restart <running id>` (env is read at start; merges do not auto-deploy). Code changes: `npx mcp-use deploy --yes --dockerfile Dockerfile` from an up-to-date main.
 
 | Key | Steps | Proof (live-verified) |
 |---|---|---|
