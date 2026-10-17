@@ -321,7 +321,7 @@ describe("signup and join throttle", () => {
 });
 
 describe("MCP tools", () => {
-  it("lists every tool with read-only and idempotent hints", async () => {
+  it("lists every tool with boolean behavior hints and the read-only and idempotent values", async () => {
     const client = await connect(setup().fetch);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(TOOLS).sort());
