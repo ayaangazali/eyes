@@ -81,7 +81,7 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
   get_balance: {
     title: "Get balance",
     summary:
-      "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url (if it is null, ask whoever runs this server), and after they pay call get_balance again before asking.",
+      "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url, and after they pay call get_balance again before asking.",
     tags: ["billing"],
     example: {},
   },
@@ -149,7 +149,7 @@ const OPS: Record<Documented, Op> = {
     tag: "agent",
     summary: "Create an API key",
     description:
-      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance; null when top-ups are not configured, then ask whoever runs this server) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
     auth: false,
     body: schema(SignupInput, "input"),
     example: { name: "my-research-agent" },

@@ -68,7 +68,7 @@
         "operationId": "signup",
         "tags": ["agent"],
         "summary": "Create an API key",
-        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance; null when top-ups are not configured, then ask whoever runs this server) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -458,7 +458,7 @@
                 "properties": {
                   "timeout_seconds": {
                     "default": 50,
-                    "description": "How long this call waits for an answer, at most 55 seconds. Call again if answered is false.",
+                    "description": "How long this call waits for an answer, at most 55 seconds. Call again while answered is false and the status is dispatched, claimed or submitted; stop on expired, refunded or disputed.",
                     "type": "integer",
                     "minimum": 1,
                     "maximum": 55
@@ -930,7 +930,7 @@
         "operationId": "get_balance",
         "tags": ["agent"],
         "summary": "Get balance",
-        "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url (if it is null, ask whoever runs this server), and after they pay call get_balance again before asking. Same as the MCP tool get_balance.",
+        "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url, and after they pay call get_balance again before asking. Same as the MCP tool get_balance.",
         "responses": {
           "200": {
             "description": "Success.",

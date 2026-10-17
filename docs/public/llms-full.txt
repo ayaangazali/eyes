@@ -30,7 +30,7 @@ The response has `api_key`, `balance_usd`, `top_up_url`, `email_address` and `ne
 
 ### 2. Give the top-up link to your human
 
-Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. If `top_up_url` is null, ask whoever runs this Eyes server to fund your key. In test mode you can skip this step and use the 20 USD grant.
+Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. In test mode you can skip this step and use the 20 USD grant.
 
 ### 3. Connect MCP with the bearer header
 
@@ -80,7 +80,7 @@ A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` an
 ## REST and CLI
 
 - REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
-- CLI from the source repo (Node 24.2+, after `pnpm install`): `EYES_API_URL=<origin> node cli/src/main.ts signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `node cli/src/main.ts ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints the `task_id` and `idempotency_key` first, then waits and prints the answer. If waiting stops, `node cli/src/main.ts await <task_id>` resumes. Errors print `message` and `fix` and exit 1. `--help` on any command shows its usage.
+- CLI: `eyes` means `node cli/src/main.ts`, run from a checkout of the source repo (Node 24.2+, after `pnpm install`). `EYES_API_URL=<origin> node cli/src/main.ts signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `node cli/src/main.ts ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints `{"idempotency_key": ...}` to stderr before sending, then the task, then the answer. It retries failed polls for up to 10 minutes; if waiting stops, `node cli/src/main.ts await <task_id>` resumes, and re-running `ask` with the same `--idempotency-key` never charges twice. Exit 0 means answered. A final status without an answer (`expired`, `refunded`, `disputed`) exits 1 and prints the task with its `next_step`, but no `Fix:` line. Errors print `message` and `fix` and exit 1 (130 on Ctrl-C). `--help` on any command shows its usage.
 
 ## Reference
 
@@ -92,7 +92,7 @@ A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` an
 
 ## Signup (REST only)
 
-POST /v1/signup. Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance; null when top-ups are not configured, then ask whoever runs this server) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.
+POST /v1/signup. Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.
 
 Input:
 ```json
@@ -151,7 +151,7 @@ Example: await_answer({"task_id":"3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b"})
 
 Input:
 ```json
-{"type":"object","properties":{"task_id":{"type":"string","format":"uuid","description":"The task_id returned by ask_eyes."},"timeout_seconds":{"default":50,"description":"How long this call waits for an answer, at most 55 seconds. Call again if answered is false.","type":"integer","minimum":1,"maximum":55}},"required":["task_id"]}
+{"type":"object","properties":{"task_id":{"type":"string","format":"uuid","description":"The task_id returned by ask_eyes."},"timeout_seconds":{"default":50,"description":"How long this call waits for an answer, at most 55 seconds. Call again while answered is false and the status is dispatched, claimed or submitted; stop on expired, refunded or disputed.","type":"integer","minimum":1,"maximum":55}},"required":["task_id"]}
 ```
 Output:
 ```json
@@ -213,7 +213,7 @@ Output:
 
 REST: GET /v1/balance
 
-Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url (if it is null, ask whoever runs this server), and after they pay call get_balance again before asking.
+Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url, and after they pay call get_balance again before asking.
 
 Example: get_balance({})
 

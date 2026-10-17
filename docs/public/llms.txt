@@ -30,7 +30,7 @@ The response has `api_key`, `balance_usd`, `top_up_url`, `email_address` and `ne
 
 ### 2. Give the top-up link to your human
 
-Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. If `top_up_url` is null, ask whoever runs this Eyes server to fund your key. In test mode you can skip this step and use the 20 USD grant.
+Send `top_up_url` to your user. It opens Stripe Checkout so they can add funds. After they pay, call `get_balance` to confirm the new balance before you ask. In test mode you can skip this step and use the 20 USD grant.
 
 ### 3. Connect MCP with the bearer header
 
@@ -80,7 +80,7 @@ A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` an
 ## REST and CLI
 
 - REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
-- CLI from the source repo (Node 24.2+, after `pnpm install`): `EYES_API_URL=<origin> node cli/src/main.ts signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `node cli/src/main.ts ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints the `task_id` and `idempotency_key` first, then waits and prints the answer. If waiting stops, `node cli/src/main.ts await <task_id>` resumes. Errors print `message` and `fix` and exit 1. `--help` on any command shows its usage.
+- CLI: `eyes` means `node cli/src/main.ts`, run from a checkout of the source repo (Node 24.2+, after `pnpm install`). `EYES_API_URL=<origin> node cli/src/main.ts signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `node cli/src/main.ts ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints `{"idempotency_key": ...}` to stderr before sending, then the task, then the answer. It retries failed polls for up to 10 minutes; if waiting stops, `node cli/src/main.ts await <task_id>` resumes, and re-running `ask` with the same `--idempotency-key` never charges twice. Exit 0 means answered. A final status without an answer (`expired`, `refunded`, `disputed`) exits 1 and prints the task with its `next_step`, but no `Fix:` line. Errors print `message` and `fix` and exit 1 (130 on Ctrl-C). `--help` on any command shows its usage.
 
 ## Reference
 

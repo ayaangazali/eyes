@@ -5,6 +5,7 @@ import { expect, it } from "vitest";
 import { type Deps, run } from "./main.ts";
 
 const TASK_ID = "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b";
+const SELF = "node cli/src/main.ts";
 const ASK = [
   "ask",
   "How long is the line?",
@@ -52,10 +53,12 @@ function setup(replies: Reply[], env: Record<string, string> = KEYS) {
     auth?: string;
     body?: Record<string, unknown>;
     outSoFar: string;
+    errSoFar: string;
   }[] = [];
   const out: string[] = [];
   const err: string[] = [];
   const sleeps: number[] = [];
+  let clock = 0;
   const deps: Deps = {
     fetch: async (url, init) => {
       const headers = (init?.headers ?? {}) as Record<string, string>;
@@ -65,8 +68,9 @@ function setup(replies: Reply[], env: Record<string, string> = KEYS) {
         auth: headers.authorization,
         body: init?.body ? JSON.parse(String(init.body)) : undefined,
         outSoFar: out.join("\n"),
+        errSoFar: err.join("\n"),
       });
-      const reply = replies.shift() ?? [500, { unexpected: "call" }];
+      const reply = replies.shift() ?? [400, { unexpected: "call" }];
       if (reply instanceof Error) throw reply;
       const [status, body] = reply;
       return new Response(typeof body === "string" ? body : JSON.stringify(body), { status });
@@ -75,7 +79,12 @@ function setup(replies: Reply[], env: Record<string, string> = KEYS) {
     configPath: join(mkdtempSync(join(tmpdir(), "eyes-cli-")), "eyes", "config.json"),
     out: (line) => out.push(line),
     err: (line) => err.push(line),
-    sleep: async (ms) => sleeps.push(ms),
+    self: SELF,
+    sleep: async (ms) => {
+      sleeps.push(ms);
+      clock += ms;
+    },
+    now: () => clock,
   };
   return { deps, calls, out, err, sleeps };
 }
@@ -154,6 +163,7 @@ it("ask prints task_id and idempotency_key before waiting, loops await until ans
       idempotency_key: "line-check-1",
     },
   });
+  expect(calls[0]?.errSoFar).toBe('{"idempotency_key":"line-check-1"}');
   expect(calls[1]?.outSoFar).toContain(`task_id: ${TASK_ID}`);
   expect(calls[1]?.outSoFar).toContain("idempotency_key: line-check-1");
   for (const call of calls.slice(1)) {
@@ -204,8 +214,8 @@ it("treats an await reply without a string status as an unexpected response inst
 
   expect(await run(ASK, deps)).toBe(1);
   expect(calls).toHaveLength(2);
-  expect(err[0]).toMatch(/^Error \(unexpected_response\)/);
-  expect(err[1]).toContain(`eyes await ${TASK_ID}`);
+  expect(err[1]).toMatch(/^Error \(unexpected_response\)/);
+  expect(err[2]).toContain(`resume with: ${SELF} await ${TASK_ID}`);
 });
 
 it("await retries in place on rate_limited, internal_error and network errors, and stops on other errors", async () => {
@@ -228,6 +238,32 @@ it("await retries in place on rate_limited, internal_error and network errors, a
   expect(stopped.sleeps).toEqual([]);
 });
 
+it("a gateway 504 with an HTML body while waiting is retried, so the task is asked once and answered", async () => {
+  const { deps, calls, sleeps } = setup([
+    [200, ASKED],
+    [504, "<html>Gateway Timeout</html>"],
+    [200, ANSWERED],
+  ]);
+
+  expect(await run(ASK, deps)).toBe(0);
+  expect(calls.filter((call) => call.url.endsWith("/v1/tasks"))).toHaveLength(1);
+  expect(calls).toHaveLength(3);
+  expect(sleeps).toEqual([1000]);
+});
+
+it("gives up after 10 minutes of failed polls with the resume command, task_id and idempotency_key", async () => {
+  const failures = Array.from({ length: 40 }, () => new TypeError("fetch failed"));
+  const { deps, out, sleeps } = setup([[200, ASKED], ...failures]);
+
+  expect(await run([...ASK, "--idempotency-key", "k-2", "--json"], deps)).toBe(1);
+  const total = sleeps.reduce((a, b) => a + b, 0);
+  expect(total).toBeGreaterThanOrEqual(600_000);
+  expect(total).toBeLessThan(640_000);
+  const error = JSON.parse(out.at(-1) ?? "");
+  expect(error).toMatchObject({ error: "network_error", task_id: TASK_ID, idempotency_key: "k-2" });
+  expect(error.fix).toContain(`resume with: ${SELF} await ${TASK_ID}`);
+});
+
 it("Ctrl-C while waiting prints how to resume and exits 130", async () => {
   const { deps, err } = setup([]);
   const stop = new AbortController();
@@ -237,7 +273,28 @@ it("Ctrl-C while waiting prints how to resume and exits 130", async () => {
   };
 
   expect(await run(["await", TASK_ID], { ...deps, fetch, signal: stop.signal })).toBe(130);
-  expect(err[1]).toBe(`Fix: Resume with: eyes await ${TASK_ID}`);
+  expect(err[0]).toBe("Error (interrupted): Stopped by Ctrl-C.");
+  expect(err[1]).toContain(`resume with: ${SELF} await ${TASK_ID}`);
+});
+
+it("Ctrl-C during the ask request exits 130 with the idempotency key to retry with", async () => {
+  const { deps, out } = setup([]);
+  const stop = new AbortController();
+  const fetch = async () => {
+    stop.abort();
+    throw new DOMException("This operation was aborted", "AbortError");
+  };
+
+  const code = await run([...ASK, "--idempotency-key", "k-3", "--json"], {
+    ...deps,
+    fetch,
+    signal: stop.signal,
+  });
+
+  expect(code).toBe(130);
+  const error = JSON.parse(out[0] ?? "");
+  expect(error).toMatchObject({ error: "interrupted", idempotency_key: "k-3" });
+  expect(error.fix).toContain("--idempotency-key k-3");
 });
 
 it("prints the error message and fix from an error body, keeps the idempotency key, and exits 1", async () => {
@@ -258,6 +315,7 @@ it("prints the error message and fix from an error body, keeps the idempotency k
   expect(calls).toHaveLength(1);
   expect(calls[0]?.body?.location).toBe("Ferry Building, San Francisco");
   expect(err).toEqual([
+    '{"idempotency_key":"k-1"}',
     "Error (insufficient_balance): Your balance is too low to escrow this task.",
     "Fix: Ask your user to top up at https://eyes.test/topup/abc, or lower bounty_usd to 0.7 or less. When you retry, pass --idempotency-key k-1 so the task is never created twice.",
     "balance_usd: 1.2",
@@ -293,6 +351,8 @@ it.each([
   ],
   [[...ASK, "--bounty", "abc"], "--bounty is invalid"],
   [[...ASK, "--bounty", "99"], "--bounty is invalid"],
+  [[...ASK, "--bounty", "0x10"], "--bounty is invalid"],
+  [[...ASK, "--bounty", "1e1"], "--bounty is invalid"],
   [[...ASK, "--deadline", "2.5"], "--deadline is invalid"],
   [["quote", "--type", "is_open"], "--at is required"],
   [["status", "not-a-task-id"], "<task_id> is invalid"],
@@ -313,9 +373,11 @@ it("help works without config, per command and as JSON", async () => {
   writeFileSync(deps.configPath, "{not json");
 
   expect(await run(["ask", "--help"], deps)).toBe(0);
-  expect(out[0]).toMatch(/^Usage: eyes ask "<question>"/);
+  expect(out[0]).toMatch(/^Usage: node cli\/src\/main\.ts ask "<question>"/);
   expect(await run(["help", "--json"], deps)).toBe(0);
-  expect(JSON.parse(out[1] ?? "").commands.await.usage).toBe("eyes await <task_id> [--timeout 50]");
+  expect(JSON.parse(out[1] ?? "").commands.await.usage).toBe(
+    `${SELF} await <task_id> [--timeout <seconds per poll, max 55>]`,
+  );
 });
 
 it("--json prints the raw response body for success and for errors", async () => {

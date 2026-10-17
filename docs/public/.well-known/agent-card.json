@@ -90,7 +90,7 @@
     {
       "id": "get_balance",
       "name": "Get balance",
-      "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url (if it is null, ask whoever runs this server), and after they pay call get_balance again before asking.",
+      "description": "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url, and after they pay call get_balance again before asking.",
       "tags": ["billing"],
       "examples": ["get_balance({})"]
     },

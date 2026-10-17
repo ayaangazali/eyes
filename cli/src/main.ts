@@ -24,53 +24,55 @@ export type Deps = {
   fetch: typeof fetch;
   env: Record<string, string | undefined>;
   configPath: string;
+  self: string;
   out: (line: string) => void;
   err: (line: string) => void;
   sleep: (ms: number, signal?: AbortSignal) => Promise<unknown>;
+  now: () => number;
   signal?: AbortSignal;
 };
 
 const COMMANDS = {
   signup: {
     args: 0,
-    usage: "eyes signup --name <name> [--email <owner email>]",
+    usage: "signup --name <name> [--email <owner email>]",
     about:
       "Create an API key. Prints it once, then saves api_url and api_key to ~/.config/eyes/config.json (0600).",
   },
   ask: {
     args: 1,
     usage:
-      'eyes ask "<question>" --at "<place or lat,lng>" --type <task_type> [--bounty 3] [--deadline 30] [--no-photo] [--idempotency-key <key>] [--no-wait]',
+      'ask "<question>" --at "<place or lat,lng>" --type <task_type> [--bounty 3] [--deadline 30] [--no-photo] [--idempotency-key <key>] [--no-wait]',
     about:
-      "Pay a nearby human to check a public place. Prints task_id and idempotency_key first, then waits for the answer. Re-running with the same --idempotency-key never charges twice.",
+      "Pay a nearby human to check a public place. Prints the idempotency_key before sending and the task_id once created, then waits for the answer. Re-running with the same --idempotency-key never charges twice.",
   },
   await: {
     args: 1,
-    usage: "eyes await <task_id> [--timeout 50]",
+    usage: "await <task_id> [--timeout <seconds per poll, max 55>]",
     about: "Wait until the task is answered, expired, refunded or disputed, then print the answer.",
   },
   quote: {
     args: 0,
-    usage: 'eyes quote --at "<place or lat,lng>" --type <task_type>',
+    usage: 'quote --at "<place or lat,lng>" --type <task_type>',
     about: "Free check of coverage, time to answer and suggested bounty.",
   },
   status: {
     args: 1,
-    usage: "eyes status <task_id>",
+    usage: "status <task_id>",
     about: "Show a task's status, and its answer once there is one.",
   },
   cancel: {
     args: 1,
-    usage: "eyes cancel <task_id>",
+    usage: "cancel <task_id>",
     about: "Cancel a task no worker has claimed yet; full refund.",
   },
   dispute: {
     args: 1,
-    usage: 'eyes dispute <task_id> --reason "<what is wrong>"',
+    usage: 'dispute <task_id> --reason "<what is wrong>"',
     about: "Hold the worker payout and flag the answer for human review.",
   },
-  balance: { args: 0, usage: "eyes balance", about: "Show your balance, escrow and top_up_url." },
-  policy: { args: 0, usage: "eyes policy", about: "Show this API key's spend limits." },
+  balance: { args: 0, usage: "balance", about: "Show your balance, escrow and top_up_url." },
+  policy: { args: 0, usage: "policy", about: "Show this API key's spend limits." },
 } as const;
 type Command = keyof typeof COMMANDS;
 
@@ -90,7 +92,7 @@ const FLAGS: Record<string, string> = {
   owner_email: "--email",
 };
 const FINAL = ["expired", "refunded", "disputed"];
-const RETRYABLE = ["rate_limited", "internal_error", "network_error"];
+const GIVE_UP_MS = 10 * 60_000;
 
 const fail = (message: string, fix: string, error = "invalid_input", context: Json = {}): never => {
   throw Object.assign(new Error(message), { body: { error, message, fix, ...context } });
@@ -108,7 +110,8 @@ function check(schema: z.ZodType, value: Json, usage: string) {
   fail(`Invalid arguments: ${[...problems].join("; ")}.`, `Correct them and retry. Usage: ${usage}`);
 }
 
-const num = (value: string | undefined) => (value === undefined ? undefined : Number(value));
+const num = (value: string | undefined) =>
+  value === undefined ? undefined : /^\d+(\.\d+)?$/.test(value) ? Number(value) : Number.NaN;
 
 const location = (at: string | undefined) => {
   const m = at?.match(/^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/);
@@ -148,6 +151,7 @@ async function saveConfig(path: string, config: Config) {
 }
 
 export async function run(argv: string[], deps: Deps): Promise<number> {
+  const { self } = deps;
   const json = argv.includes("--json");
   const print = (value: Json) => deps.out(json ? JSON.stringify(value) : lines(value).join("\n"));
   try {
@@ -174,18 +178,22 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
     const topic = first === "help" ? args[0] : first;
     if (!first || first === "help" || o.help) {
       if (topic && topic in COMMANDS) {
-        const { usage, about } = COMMANDS[topic as Command];
+        const usage = `${self} ${COMMANDS[topic as Command].usage}`;
+        const { about } = COMMANDS[topic as Command];
         deps.out(
           json ? JSON.stringify({ command: topic, usage, about }) : `Usage: ${usage}\n\n${about}\n\n${NOTES}`,
         );
       } else {
         const commands = Object.fromEntries(
-          Object.entries(COMMANDS).map(([name, c]) => [name, { usage: c.usage, about: c.about }]),
+          Object.entries(COMMANDS).map(([name, c]) => [
+            name,
+            { usage: `${self} ${c.usage}`, about: c.about },
+          ]),
         );
         deps.out(
           json
             ? JSON.stringify({ commands, notes: NOTES })
-            : `Usage:\n${Object.values(COMMANDS)
+            : `Usage:\n${Object.values(commands)
                 .map((c) => `  ${c.usage}`)
                 .join("\n")}\n\n${NOTES}`,
         );
@@ -193,10 +201,10 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
       return 0;
     }
     if (!(first in COMMANDS)) {
-      return fail(`Unknown command "${first}".`, "Run `eyes help` for the list of commands.");
+      return fail(`Unknown command "${first}".`, `Run \`${self} help\` for the list of commands.`);
     }
     const cmd = first as Command;
-    const { usage } = COMMANDS[cmd];
+    const usage = `${self} ${COMMANDS[cmd].usage}`;
     if (args.length > COMMANDS[cmd].args) {
       fail(
         `Unexpected extra arguments: ${args.slice(COMMANDS[cmd].args).join(" ")}.`,
@@ -212,7 +220,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         ? config.api_url.replace(/\/+$/, "")
         : fail(
             "No Eyes server configured.",
-            "Set EYES_API_URL to the Eyes server's origin (where /llms.txt is served), then run `eyes signup --name <name>`.",
+            `Set EYES_API_URL to the Eyes server's origin (where /llms.txt is served), then run \`${self} signup --name <name>\`.`,
             "config_error",
           );
       const url = `${base}${path}`;
@@ -227,6 +235,9 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           signal: deps.signal,
         });
       } catch (e) {
+        if (deps.signal?.aborted) {
+          return fail("Stopped by Ctrl-C.", "Run the command again if you still need it.", "interrupted");
+        }
         return fail(
           `Could not reach ${url}: ${(e as Error).message}`,
           "Check EYES_API_URL and your network, then retry.",
@@ -235,61 +246,73 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
       }
       const data = (await res.json().catch(() => null)) as Json | null;
       if (res.ok && data && typeof data === "object") return data as T;
-      if (!res.ok && typeof data?.error === "string" && typeof data.fix === "string") {
-        throw Object.assign(new Error(String(data.message)), { body: data });
-      }
-      return fail(
-        `Unexpected HTTP ${res.status} reply from ${url}.`,
-        "Check that EYES_API_URL is the Eyes server's origin, then retry.",
-        "unexpected_response",
-      );
+      const error =
+        !res.ok && typeof data?.error === "string" && typeof data.fix === "string"
+          ? data
+          : {
+              error: "unexpected_response",
+              message: `Unexpected HTTP ${res.status} reply from ${url}.`,
+              fix: "Check that EYES_API_URL is the Eyes server's origin, then retry.",
+            };
+      throw Object.assign(new Error(String(error.message)), { body: error, status: res.status });
     };
 
-    const waitFor = async (taskId: string, timeout: number | undefined, last: string): Promise<number> => {
-      const stopped = () =>
-        fail("Stopped waiting. The task keeps running.", `Resume with: eyes await ${taskId}`, "interrupted", {
-          task_id: taskId,
-        });
-      let attempt = 0;
-      for (;;) {
-        let reply: Json;
-        try {
-          reply = await call(
-            `POST /v1/tasks/${taskId}/await`,
-            timeout === undefined ? {} : { timeout_seconds: timeout },
-          );
-        } catch (e) {
-          if (deps.signal?.aborted) return stopped();
-          const body = (e as { body?: Json }).body;
-          if (!body || !RETRYABLE.includes(String(body.error))) throw e;
-          const seconds =
-            typeof body.retry_after_s === "number" ? body.retry_after_s : Math.min(2 ** attempt++, 30);
-          deps.err(
-            json
-              ? JSON.stringify({ retrying_in_s: seconds, error: body.error, message: body.message })
-              : `${body.message} Retrying in ${seconds}s.`,
-          );
-          await deps.sleep(seconds * 1000, deps.signal).catch(() => undefined);
-          if (deps.signal?.aborted) return stopped();
-          continue;
+    const waitFor = async (taskId: string, timeout: number | undefined, last: string, key?: string) => {
+      try {
+        let failingSince: number | null = null;
+        let attempt = 0;
+        for (;;) {
+          let reply: Json;
+          try {
+            reply = await call(
+              `POST /v1/tasks/${taskId}/await`,
+              timeout === undefined ? {} : { timeout_seconds: timeout },
+            );
+          } catch (e) {
+            const { body, status = 0 } = e as { body?: Json; status?: number };
+            const retry = body?.error === "rate_limited" || body?.error === "network_error" || status >= 500;
+            failingSince ??= deps.now();
+            if (!retry || deps.now() - failingSince >= GIVE_UP_MS) throw e;
+            const seconds =
+              typeof body?.retry_after_s === "number" ? body.retry_after_s : Math.min(2 ** attempt++, 30);
+            deps.err(
+              json
+                ? JSON.stringify({ retrying_in_s: seconds, error: body?.error, message: body?.message })
+                : `${body?.message} Retrying in ${seconds}s.`,
+            );
+            await deps.sleep(seconds * 1000, deps.signal).catch(() => undefined);
+            if (deps.signal?.aborted) fail("Stopped by Ctrl-C.", "The task keeps running.", "interrupted");
+            continue;
+          }
+          failingSince = null;
+          attempt = 0;
+          const status = reply.status;
+          if (typeof status !== "string") {
+            return fail(
+              "Unexpected reply from the await endpoint: it has no status.",
+              "Check that EYES_API_URL is the Eyes server's origin.",
+              "unexpected_response",
+            );
+          }
+          const done = reply.answered === true || FINAL.includes(status);
+          if (json && (status !== last || done)) deps.out(JSON.stringify(reply));
+          if (!json && status !== last) deps.out(`status: ${status}`);
+          if (done) {
+            if (!json) deps.out(lines(reply).join("\n"));
+            return reply.answered === true ? 0 : 1;
+          }
+          last = status;
         }
-        attempt = 0;
-        const status = reply.status;
-        if (typeof status !== "string") {
-          return fail(
-            "Unexpected reply from the await endpoint: it has no status.",
-            `Check that EYES_API_URL is the Eyes server's origin, then resume with: eyes await ${taskId}`,
-            "unexpected_response",
-          );
+      } catch (e) {
+        const body = (e as { body?: Json }).body;
+        if (body) {
+          Object.assign(body, {
+            task_id: taskId,
+            ...(key ? { idempotency_key: key } : {}),
+            fix: `${body.fix} The task is not lost; resume with: ${self} await ${taskId}`,
+          });
         }
-        const done = reply.answered === true || FINAL.includes(status);
-        if (json && (status !== last || done)) deps.out(JSON.stringify(reply));
-        if (!json && status !== last) deps.out(`status: ${status}`);
-        if (done) {
-          if (!json) deps.out(lines(reply).join("\n"));
-          return reply.answered === true ? 0 : 1;
-        }
-        last = status;
+        throw e;
       }
     };
 
@@ -323,23 +346,27 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           idempotency_key: key,
         };
         check(AskEyesInput, input, usage);
+        deps.err(JSON.stringify({ idempotency_key: key }));
         let task: ToolOutput<"ask_eyes">;
         try {
           task = await call<ToolOutput<"ask_eyes">>("POST /v1/tasks", input);
         } catch (e) {
           const body = (e as { body?: Json }).body;
           if (body) {
-            body.idempotency_key = key;
-            body.fix = `${body.fix} When you retry, pass --idempotency-key ${key} so the task is never created twice.`;
+            Object.assign(body, {
+              idempotency_key: key,
+              fix: `${body.fix} When you retry, pass --idempotency-key ${key} so the task is never created twice.`,
+            });
           }
           throw e;
         }
         print({ ...task, idempotency_key: key });
         if (o["no-wait"]) return 0;
-        if (!json) {
-          deps.out(`Waiting for the answer. Ctrl-C stops waiting; resume with: eyes await ${task.task_id}`);
-        }
-        return await waitFor(task.task_id, undefined, task.status);
+        if (!json)
+          deps.out(
+            `Waiting for the answer. Ctrl-C stops waiting; resume with: ${self} await ${task.task_id}`,
+          );
+        return await waitFor(task.task_id, undefined, task.status, key);
       }
       case "await": {
         const input = { task_id: arg, timeout_seconds: num(o.timeout) };
@@ -377,7 +404,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
     const shown = body ?? {
       error: "invalid_input",
       message: (e as Error).message,
-      fix: "Run `eyes help` for usage.",
+      fix: `Run \`${self} help\` for usage.`,
     };
     if (json) {
       deps.out(JSON.stringify(shown));
@@ -394,13 +421,16 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
 if (import.meta.main) {
   const stop = new AbortController();
   process.once("SIGINT", () => stop.abort());
+  const script = process.argv[1] ?? "cli/src/main.ts";
   process.exitCode = await run(process.argv.slice(2), {
     fetch,
     env: process.env,
     configPath: join(homedir(), ".config", "eyes", "config.json"),
+    self: `node ${/\s/.test(script) ? JSON.stringify(script) : script}`,
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     sleep: (ms, signal) => delay(ms, undefined, { signal }),
+    now: Date.now,
     signal: stop.signal,
   });
 }
