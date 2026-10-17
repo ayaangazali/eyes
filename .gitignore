@@ -6,6 +6,7 @@ dist
 test-results
 playwright-report
 coverage
+evals/ax/out/
 .mcp-use
 .DS_Store
 .claude/worktrees
