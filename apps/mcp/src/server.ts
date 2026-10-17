@@ -10,6 +10,7 @@ import {
   CancelTaskInput,
   CaptureFields,
   DisputeAnswerInput,
+  ERRORS,
   EyesError,
   GetTaskInput,
   JoinWorkerInput,
@@ -66,7 +67,8 @@ code{font:.9em ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef0f3;pa
 .links a{margin-right:1rem;line-height:2.5}
 .rows{list-style:none;padding:0}.rows li{padding:.75rem 0;border-bottom:1px solid #e3e6ea}
 .state::before{content:"";display:inline-block;width:.6rem;height:.6rem;margin-right:.5rem;border-radius:50%;background:#7d8a9b}
-.state.live::before{background:#1f9d63}`;
+.state.live::before{background:#1f9d63}
+.box+.button{margin-top:1.5rem}`;
 const PROVIDER_LINES = {
   messaging: ["Texting", "Task texts to workers' phones and their YES replies (Inkbox)."],
   email: ["Agent email", "Questions agents email in and the threaded answers (Primitive)."],
@@ -74,6 +76,11 @@ const PROVIDER_LINES = {
   storage: ["Photo storage", "Where answer photos are kept (InsForge)."],
   vision: ["Photo checks", "The AI check that a photo answers the question (Claude)."],
   geo: ["Place lookup", "Turning place names into map points (OpenStreetMap)."],
+} as const;
+const SIMULATED = {
+  messaging: "Texting is simulated: no worker gets a text, so no task gets answered.",
+  payments: "Payments are simulated: no real money moves.",
+  email: "Email is simulated: no email is sent, including the owner's control link.",
 } as const;
 
 const layout = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) => html`<!doctype html>
@@ -85,33 +92,45 @@ const layout = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedStri
 </html>
 `;
 
-const homePage = (joinUrl: string) =>
+type Live = ReturnType<typeof liveProviders>;
+
+const simulatedNotice = (live: Live) => {
+  const fake = (Object.keys(SIMULATED) as (keyof typeof SIMULATED)[]).filter((name) => !live[name]);
+  return fake.length
+    ? html`<section class="box"><h2>This is a simulated deploy</h2><ul>${fake.map((name) => html`<li>${SIMULATED[name]}</li>`)}</ul></section>`
+    : "";
+};
+
+const homePage = (joinUrl: string, live: Live, classifier: boolean) =>
   layout(
     "Eyes",
     html`<h1>AI agents pay people nearby about $3 to check public places.</h1>
 <p>Is the cafe open? How long is the line? An AI agent asks, Eyes texts people close by, and the first to reply YES walks over, takes a photo and gets paid.</p>
+${simulatedNotice(live)}
 <a class="button" href="${joinUrl}">Join to get paid tasks</a>
 <section class="box">
 <h2>Got a text from Eyes?</h2>
 <p>Reply <b>YES</b> to claim the task, or ignore it. Reply <b>STOP</b> to stop all texts from Eyes, and START to get them again.</p>
 </section>
-<p class="muted">Only public places: stores, cafes, parks, transit stops. Never people, homes or cars.</p>
+<p class="muted">Only public places: stores, cafes, parks, transit stops. Never people, homes or cars. ${classifier ? "Every task passes the safety rules and an AI safety classifier before any money moves." : "Safety review is rules only here: the AI safety classifier is off, so only the safety rules check each task."}</p>
 <h2>For AI agents</h2>
 <p>Connect over MCP: <code>POST /mcp</code> with <code>Authorization: Bearer &lt;api_key&gt;</code>. No key yet? <code>POST /v1/signup</code>.</p>
 <p class="links"><a href="/llms.txt">llms.txt</a> <a href="/openapi.json">openapi.json</a> <a href="${AGENT_CARD}">agent-card.json</a> <a href="/agents.md">agents.md</a></p>
 <p class="muted"><a href="/status">Service status</a></p>`,
   );
 
-const statusPage = (live: ReturnType<typeof liveProviders>, db: string, commit: string | undefined) =>
+const statusPage = (live: Live, classifier: boolean, db: string, commit: string | undefined) =>
   layout(
     "Eyes status",
     html`<h1>Service status</h1>
 <p>Eyes is up. A live part uses the real service. A simulated part is a test stand-in: nothing real is sent, charged or stored through it.</p>
+${simulatedNotice(live)}
 <ul class="rows">
 ${Object.entries(PROVIDER_LINES).map(([name, [label, meaning]]) => {
   const on = live[name as keyof typeof live];
   return html`<li><b class="state${on ? " live" : ""}">${label}: ${on ? "live" : "simulated"}</b><br><span class="muted">${meaning}</span></li>`;
 })}
+<li><b class="state${classifier ? " live" : ""}">Safety review: ${classifier ? "rules and AI classifier" : "rules only"}</b><br><span class="muted">Checks every task before any money moves: the safety rules, then the AI classifier (Claude) when it is on.</span></li>
 <li><b>Database: ${db === "postgres" ? "Postgres" : "InsForge"}</b><br><span class="muted">Tasks, balances and the money ledger.</span></li>
 <li><b>Deployed commit: ${commit ? html`<code>${commit.slice(0, 12)}</code>` : "not recorded"}</b></li>
 </ul>
@@ -172,7 +191,16 @@ function parse<S extends z.ZodType>(schema: S, value: unknown): z.output<S> {
   const result = schema.safeParse(value);
   if (result.success) return result.data;
   const issues = result.error.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
-  throw new EyesError("invalid_input", { issues });
+  throw new EyesError(
+    "invalid_input",
+    { issues },
+    {
+      fix: [
+        ERRORS.invalid_input.fix,
+        ...issues.map((i) => (i.path ? `${i.path}: ${i.message}` : i.message)),
+      ].join(" "),
+    },
+  );
 }
 
 async function readJson(c: Context): Promise<Record<string, unknown>> {
@@ -295,7 +323,7 @@ Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same loc
       description: `Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site, and Eyes verifies it (GPS within about 150 m, photo taken live before the deadline, vision check) before you receive it.
 Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now. The worker is paid only after a verified answer. If nobody answers before deadline_minutes (default 30), or you cancel_task before a worker claims it, everything is refunded.
 Only public, commercial or civic places: stores, cafes, parks, transit stops, venues. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
-Always pass an idempotency_key (a unique string per question, for example a UUID). Retrying with the same idempotency_key and the same parameters returns the original task instead of charging again, so retries after a timeout or network error are safe.
+idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
 Next: immediately call await_answer with the returned task_id and keep calling it until answered is true.`,
       inputSchema: TOOLS.ask_eyes.input,
@@ -531,6 +559,9 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
 
   server.app.route("/webhooks/inkbox", inkboxRoutes(deps, env));
   server.app.route("/webhooks/primitive", primitiveRoutes(deps, env));
+  if (!liveProviders(env).payments && env.EYES_FAKE_WEBHOOKS !== "1") {
+    server.app.post("/webhooks/stripe", (c) => c.notFound());
+  }
   server.app.route("/", stripeRoutes(deps, env));
 
   const docsDir = env.EYES_DOCS_DIR || DOCS_DIR;
@@ -546,7 +577,9 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       return null;
     }
   };
-  const home = homePage(config.worker_web_url);
+  const live = liveProviders(env);
+  const classifier = Boolean(env.ANTHROPIC_API_KEY);
+  const home = homePage(config.worker_web_url, live, classifier);
   server.get("/", (c) => c.html(home, 200, { link: LINK }));
   for (const [path, contentType] of Object.entries(DOCS)) {
     server.get(path, async (c) => {
@@ -566,7 +599,6 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     });
   }
 
-  const live = liveProviders(env);
   const db = env.DATABASE_URL ? "postgres" : "insforge";
   server.get("/healthz", (c) => {
     const providers = Object.fromEntries(
@@ -574,7 +606,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     );
     return c.json({ ok: true, providers, db });
   });
-  const status = statusPage(live, db, env.EYES_COMMIT);
+  const status = statusPage(live, classifier, db, env.EYES_COMMIT);
   server.get("/status", (c) => c.html(status));
 
   return server;

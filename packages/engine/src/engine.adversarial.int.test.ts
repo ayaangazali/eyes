@@ -88,6 +88,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
       bounty_usd: 3,
       deadline_minutes: 30,
       require_photo: true,
+      idempotency_key: randomUUID(),
       ...extra,
     });
   const yes = (phone: string, env: Env = main) =>

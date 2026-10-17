@@ -1,4 +1,4 @@
-import { randomInt } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import {
   type Agent,
   AppConfig,
@@ -103,6 +103,7 @@ describe.skipIf(!url)("eyes_dashboard_feed on Postgres", () => {
       bounty_usd: 3,
       deadline_minutes: 30,
       require_photo: true,
+      idempotency_key: randomUUID(),
     });
     const dispatched = await feed();
     expect(dispatched.tasks.find((t) => t.id === asked.task_id)).toMatchObject({

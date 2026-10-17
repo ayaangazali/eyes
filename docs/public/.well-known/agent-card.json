@@ -51,7 +51,7 @@
     {
       "id": "ask_eyes",
       "name": "Ask a human to check",
-      "description": "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. Always pass a unique idempotency_key: retrying with the same key and parameters returns the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.",
+      "description": "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. idempotency_key is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.",
       "tags": ["physical-world", "human-verification", "real-time"],
       "examples": [
         "ask_eyes({\"question\":\"How many people are waiting in line right now?\",\"location\":\"Blue Bottle Coffee, Mint Plaza, San Francisco\",\"task_type\":\"line_length\",\"bounty_usd\":3,\"idempotency_key\":\"6f1c2a9e-line-check\"})"
