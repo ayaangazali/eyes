@@ -19,7 +19,11 @@ type Captured = {
   body: Record<string, string>;
 };
 
-const http = vi.hoisted(() => ({ captured: [] as Captured[], response: {} as Record<string, unknown> }));
+const http = vi.hoisted(() => ({
+  captured: [] as Captured[],
+  response: {} as Record<string, unknown>,
+  queue: [] as Record<string, unknown>[],
+}));
 
 vi.mock("stripe", async (importOriginal) => {
   const mod = await importOriginal<{ default: typeof Stripe }>();
@@ -30,7 +34,7 @@ vi.mock("stripe", async (importOriginal) => {
       headers: Object.fromEntries(new Headers(init?.headers).entries()),
       body: Object.fromEntries(new URLSearchParams(String(init?.body ?? "")).entries()),
     });
-    return new Response(JSON.stringify(http.response), {
+    return new Response(JSON.stringify(http.queue.shift() ?? http.response), {
       status: 200,
       headers: { "content-type": "application/json", "request-id": "req_1" },
     });
@@ -45,6 +49,7 @@ vi.mock("stripe", async (importOriginal) => {
 
 beforeEach(() => {
   http.captured.length = 0;
+  http.queue.length = 0;
 });
 
 const TASK_ID = "6f1c2b0e-8a4d-4c1e-9b7a-2d3e4f5a6b7c";
@@ -367,16 +372,23 @@ describe("outbound Stripe requests", () => {
     });
   });
 
-  it("pays a worker with a Transfer carrying the caller's idempotency key", async () => {
-    http.response = { id: "tr_1", object: "transfer" };
-    const out = await payments.payoutWorker({
-      account_id: "acct_1",
-      amount_cents: 300,
-      task_id: "tsk_5",
-      idempotency_key: "payout:tsk_5",
-    });
+  const payout = {
+    account_id: "acct_1",
+    amount_cents: 300,
+    task_id: "tsk_5",
+    idempotency_key: "payout:tsk_5",
+  };
+
+  it("pays a worker with a Transfer carrying the caller's idempotency key once transfers are active", async () => {
+    http.queue.push(
+      { id: "acct_1", object: "account", capabilities: { transfers: "active" } },
+      { id: "tr_1", object: "transfer" },
+    );
+    const out = await payments.payoutWorker(payout);
     expect(out).toEqual({ transfer_id: "tr_1" });
-    const [req] = http.captured;
+    const [check, req] = http.captured;
+    expect(check).toMatchObject({ method: "GET", url: "https://api.stripe.com/v1/accounts/acct_1" });
+    expect(check?.headers["idempotency-key"]).toBeUndefined();
     expect(req?.url).toBe("https://api.stripe.com/v1/transfers");
     expect(req?.headers["idempotency-key"]).toBe("payout:tsk_5");
     expect(req?.body).toEqual({
@@ -386,6 +398,15 @@ describe("outbound Stripe requests", () => {
       transfer_group: "task_tsk_5",
       "metadata[task_id]": "tsk_5",
     });
+  });
+
+  it("refuses an account whose transfers capability is not active without sending the idempotent Transfer", async () => {
+    for (const capabilities of [{ transfers: "inactive" }, { transfers: "pending" }, {}, undefined]) {
+      http.captured.length = 0;
+      http.queue.push({ id: "acct_1", object: "account", capabilities });
+      await expect(payments.payoutWorker(payout)).rejects.toThrow(/acct_1 cannot receive transfers yet/);
+      expect(http.captured.map((r) => r.url)).toEqual(["https://api.stripe.com/v1/accounts/acct_1"]);
+    }
   });
 });
 

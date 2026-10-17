@@ -11,7 +11,7 @@ import {
 } from "@eyes/core";
 import { migrate } from "@eyes/db";
 import postgres from "postgres";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createEyesService } from "./index.ts";
 
 const url = process.env.DATABASE_URL ?? "";
@@ -756,13 +756,14 @@ describe.skipIf(!url)("engine under races and guards", () => {
     throw new Error("balance_insufficient");
   };
 
-  async function captured(env: Env) {
+  async function captured(env: Env, connect = true, beforeCapture = async (_phone: string) => {}) {
     const at = somewhere();
     const w = await worker(north(at, 100), env);
-    await env.service.workerConnectUrl(w.connectToken);
+    if (connect) await env.service.workerConnectUrl(w.connectToken);
     const a = await agent(env);
     const { task_id } = await ask(a, at, {}, env);
     await yes(w.phone, env);
+    await beforeCapture(w.phone);
     const res = await env.service.submitCapture(
       tokenOf(env.outbox, w.phone),
       capture(at, env.providers.clock.now()),
@@ -910,6 +911,76 @@ describe.skipIf(!url)("engine under races and guards", () => {
     for (const { w, task_id } of [unpaid, paid]) {
       expect(transfersFor(env, task_id)).toHaveLength(1);
       expect(paidTexts(env, w.phone)).toHaveLength(1);
+    }
+  });
+
+  it("one failed paid text does not stop the rest of a retryPayouts batch", async () => {
+    const env = make();
+    const real = env.providers.payments.payoutWorker;
+    env.providers.payments.payoutWorker = STRIPE_DOWN;
+    const first = await captured(env);
+    const second = await captured(env);
+    env.providers.payments.payoutWorker = real;
+    const sendPaid = env.providers.messaging.sendPaid;
+    let failed = false;
+    env.providers.messaging.sendPaid = async (to, msg) => {
+      if (failed) return sendPaid(to, msg);
+      failed = true;
+      throw new Error("inkbox down");
+    };
+
+    await env.service.retryPayouts();
+    for (const { task_id } of [first, second]) {
+      expect((await task(task_id)).status).toBe("paid");
+      expect(transfersFor(env, task_id)).toHaveLength(1);
+    }
+  });
+
+  it("a worker who texted STOP is still paid but gets no paid text and no payout setup text", async () => {
+    const env = make();
+    const stop = (phone: string) => env.service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
+    const onboarded = await captured(env, true, stop);
+    const unconnected = await captured(env, false, stop);
+    expect([onboarded.res.status, unconnected.res.status]).toEqual(["paid", "verified"]);
+    expect((await rows(onboarded.task_id)).map((r) => r.type)).toEqual([
+      "escrow",
+      "fee",
+      "payout",
+      "release",
+    ]);
+    for (const { w } of [onboarded, unconnected]) {
+      expect(
+        env.outbox.filter(
+          (m) => m.to === w.phone && (m.kind === "paid" || String(m.payload).includes("is waiting")),
+        ),
+      ).toEqual([]);
+    }
+  });
+
+  it("a paid or payout setup text that fails after verification never fails the capture or the payout", async () => {
+    const env = make();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const refuse = async (to: string): Promise<never> => {
+      throw new Error(`403 recipient_opted_out ${to}`);
+    };
+    const inkboxDown = async () => {
+      env.providers.messaging.sendPaid = refuse;
+      env.providers.messaging.sendText = refuse;
+    };
+    const { sendPaid, sendText } = env.providers.messaging;
+    try {
+      const onboarded = await captured(env, true, inkboxDown);
+      Object.assign(env.providers.messaging, { sendPaid, sendText });
+      const unconnected = await captured(env, false, inkboxDown);
+      expect([onboarded.res.status, unconnected.res.status]).toEqual(["paid", "verified"]);
+      expect(transfersFor(env, onboarded.task_id)).toHaveLength(1);
+      const logged = error.mock.calls.flat().map(String).join("\n");
+      expect(logged).toContain(onboarded.task_id);
+      expect(logged).toContain(unconnected.task_id);
+      for (const { w } of [onboarded, unconnected]) expect(logged).not.toContain(w.phone);
+    } finally {
+      Object.assign(env.providers.messaging, { sendPaid, sendText });
+      error.mockRestore();
     }
   });
 });

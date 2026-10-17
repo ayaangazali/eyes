@@ -33,6 +33,7 @@ import { z } from "zod";
 type Detail = { task: Task; submission: Submission | null; worker_rating: number | null };
 type Nearby = { worker_id: string; phone: string; distance_m: number };
 type Posted = { task: Task; created: boolean; workers_notified: number };
+type Payee = Worker & { stripe_account_id: string };
 type Summary = {
   balance_cents: number;
   escrowed_cents: number;
@@ -262,11 +263,16 @@ export function createEyesService(deps: EngineDeps): EyesService {
     });
   }
 
-  async function payOut(task: Task, accountId: string, phone: string): Promise<Task> {
+  async function textWorker(worker: Worker, taskId: string, send: () => Promise<unknown>) {
+    if (!worker.opted_in) return;
+    await send().catch(() => console.error(`text to the worker for task ${taskId} failed`));
+  }
+
+  async function payOut(task: Task, worker: Payee): Promise<Task> {
     let paid: Task | undefined;
     try {
       const { transfer_id } = await payments.payoutWorker({
-        account_id: accountId,
+        account_id: worker.stripe_account_id,
         amount_cents: task.bounty_cents,
         task_id: task.id,
         idempotency_key: `payout:${task.id}`,
@@ -280,23 +286,28 @@ export function createEyesService(deps: EngineDeps): EyesService {
       console.error(`payout for task ${task.id} failed`, err);
     }
     if (!paid) return task;
-    await messaging.sendPaid(phone, {
-      task_id: paid.id,
-      place_label: paid.place_label,
-      amount_cents: paid.bounty_cents,
-    });
+    const { id, place_label, bounty_cents } = paid;
+    await textWorker(worker, id, () =>
+      messaging.sendPaid(worker.phone, { task_id: id, place_label, amount_cents: bounty_cents }),
+    );
     return paid;
   }
 
   async function settle(task: Task, worker: Worker): Promise<Task> {
     if (task.status !== "verified") return task;
-    if (worker.stripe_account_id) return payOut(task, worker.stripe_account_id, worker.phone);
-    await messaging.sendText(
-      worker.phone,
-      `Your ${dollars(task.bounty_cents)} for this task is waiting. Set up payouts here: ${connectUrl(worker.id)}`,
+    const { stripe_account_id } = worker;
+    if (stripe_account_id) return payOut(task, { ...worker, stripe_account_id });
+    await textWorker(worker, task.id, () =>
+      messaging.sendText(
+        worker.phone,
+        `Your ${dollars(task.bounty_cents)} for this task is waiting. Set up payouts here: ${connectUrl(worker.id)}`,
+      ),
     );
     return task;
   }
+
+  const payoutsDue = (accountId: string | null, limit: number | null) =>
+    rpc<{ task: Task; worker: Payee }>("eyes_payouts_due", { p_account_id: accountId, p_limit: limit });
 
   return {
     async authenticate(apiKey) {
@@ -619,10 +630,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async markWorkerOnboarded(account_id) {
-      const pending = await rpc<{ task: Task; phone: string }>("eyes_pending_payouts", {
-        p_account_id: account_id,
-      });
-      for (const { task, phone } of pending) await payOut(task, account_id, phone);
+      for (const { task, worker } of await payoutsDue(account_id, null)) await payOut(task, worker);
     },
 
     async handleWorkerReply({ phone, intent }) {
@@ -758,12 +766,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async retryPayouts() {
-      const due = await rpc<{ task: Task; account_id: string; phone: string }>("eyes_payouts_due", {
-        p_limit: PAYOUT_BATCH,
-      });
       let paid = 0;
-      for (const { task, account_id, phone } of due) {
-        if ((await payOut(task, account_id, phone)).status === "paid") paid += 1;
+      for (const { task, worker } of await payoutsDue(null, PAYOUT_BATCH)) {
+        if ((await payOut(task, worker)).status === "paid") paid += 1;
       }
       return { paid };
     },

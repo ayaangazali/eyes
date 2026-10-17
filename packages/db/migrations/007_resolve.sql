@@ -1,8 +1,9 @@
-create or replace function eyes_payouts_due(p_limit integer)
-returns table (task tasks, account_id text, phone text) language sql stable as $$
-  select t, w.stripe_account_id, w.phone
+create or replace function eyes_payouts_due(p_account_id text, p_limit integer)
+returns table (task tasks, worker workers) language sql stable as $$
+  select t, w
   from tasks t join workers w on w.id = t.claimed_by
   where t.status = 'verified' and w.stripe_account_id is not null
+    and (p_account_id is null or w.stripe_account_id = p_account_id)
   order by t.created_at
   limit p_limit
 $$;
@@ -58,7 +59,7 @@ begin
   return next v_task;
 end $$;
 
-revoke execute on function eyes_payouts_due(integer) from public;
+revoke execute on function eyes_payouts_due(text, integer) from public;
 revoke execute on function eyes_resolve_task(uuid, text, text, timestamptz) from public;
 
 do $$
@@ -66,7 +67,7 @@ declare
   v_role text;
 begin
   for v_role in select rolname from pg_roles where rolname in ('anon', 'authenticated') loop
-    execute format('revoke execute on function eyes_payouts_due(integer) from %I', v_role);
+    execute format('revoke execute on function eyes_payouts_due(text, integer) from %I', v_role);
     execute format('revoke execute on function eyes_resolve_task(uuid, text, text, timestamptz) from %I', v_role);
   end loop;
 end $$;

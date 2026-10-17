@@ -86,6 +86,12 @@ export function createStripePayments(env: Env): Payments {
     },
 
     async payoutWorker({ account_id, amount_cents, task_id, idempotency_key }) {
+      const transfers = (await stripe.accounts.retrieve(account_id)).capabilities?.transfers ?? "none";
+      if (transfers !== "active") {
+        throw new Error(
+          `Stripe account ${account_id} cannot receive transfers yet (transfers capability: ${transfers}); the worker has not finished payout setup.`,
+        );
+      }
       const transfer = await stripe.transfers.create(
         {
           amount: amount_cents,

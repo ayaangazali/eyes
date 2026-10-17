@@ -20,13 +20,19 @@ if (!taskId || (decision !== "refund" && decision !== "release") || !note.trim()
   );
 }
 
+const live = liveProviders(env);
+if (!(live.payments && live.messaging) && env.EYES_PROVIDERS !== "fake") {
+  exit(
+    "Refusing to resolve with fake payments or messaging: a release would record a fake payout. Set EYES_PROVIDERS=live with STRIPE_SECRET_KEY and INKBOX_API_KEY as on the server, or EYES_PROVIDERS=fake for a local test database.",
+  );
+}
+
 const db: DbConfig = env.DATABASE_URL
   ? { kind: "postgres", url: env.DATABASE_URL }
   : env.INSFORGE_BASE_URL && env.INSFORGE_API_KEY
     ? { kind: "insforge", base_url: env.INSFORGE_BASE_URL, api_key: env.INSFORGE_API_KEY }
     : exit("Set DATABASE_URL, or INSFORGE_BASE_URL and INSFORGE_API_KEY.");
 
-const live = liveProviders(env);
 const fakes = fakeProviders();
 console.log(`payments: ${live.payments ? "live" : "FAKE"}, messaging: ${live.messaging ? "live" : "FAKE"}`);
 
