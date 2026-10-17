@@ -471,10 +471,15 @@ describe("worker capture", () => {
 
     const stream = neverEnding();
     const second = await postStream(fetch, token, stream.body);
+    const variant = neverEnding();
+    const suffixed = await postStream(fetch, `${token}.a`, variant.body);
     held.release();
 
     expect(second.status).toBe(429);
     expect(stream.pulls()).toBe(0);
+    expect(suffixed.status).toBe(404);
+    expect(await suffixed.json()).toMatchObject({ error: "offer_invalid" });
+    expect(variant.pulls()).toBe(0);
     expect((await first).status).toBe(200);
     expect((await post(fetch, token, { body: captureForm() })).status).toBe(200);
   });

@@ -41,6 +41,10 @@ if (env.EYES_PROVIDERS === "live" && Boolean(env.INSFORGE_BASE_URL) !== Boolean(
     "Live photo storage needs both INSFORGE_BASE_URL and INSFORGE_API_KEY. Set both, or unset both to keep fake storage.",
   );
 }
+const port = env.PORT ? Number(env.PORT) : 3000;
+if (!Number.isInteger(port) || port < 0 || port > 65535) {
+  exit(`PORT must be an integer from 0 to 65535, got "${env.PORT}".`);
+}
 
 const db: DbConfig = env.DATABASE_URL
   ? { kind: "postgres", url: env.DATABASE_URL }
@@ -59,8 +63,8 @@ const providers: Providers = {
   geo: live.geo ? createNominatimGeo() : fakes.geo,
   clock: { now: () => new Date() },
 };
-for (const [name, isLive] of Object.entries(live))
-  console.log(`provider ${name}: ${isLive ? "live" : "FAKE"}`);
+for (const name of Object.keys(live) as (keyof typeof live)[])
+  console.log(`provider ${name}: ${providers[name] === fakes[name] ? "FAKE" : "live"}`);
 console.log(`db: ${db.kind}`);
 
 const service = createEyesService({
@@ -78,7 +82,7 @@ setInterval(() => {
 const server = createServer({ service, providers, config, env });
 const host = env.HOST || "0.0.0.0";
 const http = createHttpServer(toNodeListener(server.fetch));
-http.listen(env.PORT ? Number(env.PORT) : 3000, host, () => {
-  const { port } = http.address() as AddressInfo;
-  console.log(`Eyes MCP listening on http://${host}:${port}/mcp`);
+http.listen(port, host, () => {
+  const bound = (http.address() as AddressInfo).port;
+  console.log(`Eyes MCP listening on http://${host}:${bound}/mcp`);
 });

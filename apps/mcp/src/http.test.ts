@@ -41,16 +41,23 @@ afterEach(async () => {
   http = undefined;
 });
 
-async function start(service: Partial<EyesService>) {
+async function listenOn(fetch: (request: Request) => Promise<Response>) {
+  http = createHttpServer(toNodeListener(fetch));
+  await new Promise<void>((resolve) => http?.listen(0, "127.0.0.1", resolve));
+  return `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
+}
+
+function start(service: Partial<EyesService>, seen: Request[] = []) {
   const server = createServer({
     service: service as EyesService,
     providers: fakeProviders(),
     config,
     env: {},
   });
-  http = createHttpServer(toNodeListener(server.fetch));
-  await new Promise<void>((resolve) => http?.listen(0, "127.0.0.1", resolve));
-  return `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
+  return listenOn((request) => {
+    seen.push(request);
+    return server.fetch(request);
+  });
 }
 
 function raw(url: string, options: RequestOptions, write: (req: ClientRequest) => void) {
@@ -290,6 +297,7 @@ describe("node adapter on a real socket", () => {
     ["a ;x suffix", `/w/offers/${secret};x`],
     ["a .json suffix", `/w/offers/${secret}.json`],
     ["an encoded slash after it", `/w/offers/${secret}%2Fcapture`],
+    ["an encoded dot and a bare trailing %", `/w/offers/${tokenBody}%2E${tokenMac}.%`],
   ])("redacts a token with %s", async (_, path) => {
     const base = await start({ getOffer: offerInvalid });
     silence();
@@ -299,6 +307,40 @@ describe("node adapter on a real socket", () => {
     expect(logged()).toContain("<token>");
     expect(logged()).not.toContain(tokenMac);
     expect(logged()).not.toContain(tokenBody);
+  });
+
+  it.each([
+    ["a dot segment", `/.//u:p@h/w/offers/${secret}`],
+    ["a scheme-relative authority", `//h//u:p@evil.test/w/offers/${secret}`],
+    ["an encoded dot segment", `/%2E//u:p@evil.test/w/offers/${secret}`],
+    ["a parent segment", `/a/..//u:p@evil.test/w/offers/${secret}`],
+    ["a bare host", "/.//evil.test/healthz"],
+  ])("keeps a // path behind %s on localhost without a 500 or a leak", async (_, path) => {
+    const seen: Request[] = [];
+    const base = await start({ getOffer: offerInvalid }, seen);
+    silence();
+
+    const res = await raw(base, { method: "GET", path }, (req) => req.end());
+
+    expect(res.status).not.toBe(500);
+    expect(seen.map((request) => new URL(request.url).host)).toEqual(["localhost"]);
+    expect(logged()).not.toContain("u:p@");
+    expect(logged()).not.toContain(tokenMac);
+    expect(logged()).not.toContain(tokenBody);
+  });
+
+  it("logs only the error name when the app throws with the URL in its message", async () => {
+    const base = await listenOn(async (request) => {
+      throw new Error(`exploded on ${request.url}`);
+    });
+    silence();
+
+    const res = await raw(base, { method: "GET", path: `/w/offers/${secret}` }, (req) => req.end());
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual(new EyesError("internal_error").toBody());
+    expect(logged()).toContain("request failed: Error");
+    expect(logged()).not.toContain(tokenMac);
   });
 
   it("streams MCP responses and progress over SSE", async () => {

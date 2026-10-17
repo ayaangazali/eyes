@@ -28,12 +28,19 @@ function tooLarge(req: IncomingMessage, limit: number): Response {
   return Response.json(err.toBody(), { status: 413 });
 }
 
-function redact(pathname: string): string {
-  let decoded = pathname;
+function decodeRun(run: string): string {
   try {
-    decoded = decodeURIComponent(pathname);
-  } catch {}
-  return decoded.replace(TOKEN, "<token>");
+    return decodeURIComponent(run);
+  } catch {
+    return run;
+  }
+}
+
+function redact(pathname: string): string {
+  return pathname
+    .replace(/(?:%[0-9A-Fa-f]{2})+/g, decodeRun)
+    .replace(TOKEN, "<token>")
+    .replace(/[^/]*@/g, "<redacted>@");
 }
 
 function badTarget(req: IncomingMessage): Response {
@@ -126,7 +133,7 @@ export function toNodeListener(fetch: Fetch) {
       const url = parsed && !parsed.username && !parsed.password ? parsed : null;
       if (url) path = redact(url.pathname);
       const response = url
-        ? await respond(req, new URL(url.pathname + url.search, "http://localhost"), fetch, abort.signal)
+        ? await respond(req, new URL(`http://localhost${url.pathname}${url.search}`), fetch, abort.signal)
         : badTarget(req);
       res.statusCode = response.status;
       for (const [name, value] of response.headers) if (name !== "set-cookie") res.setHeader(name, value);
