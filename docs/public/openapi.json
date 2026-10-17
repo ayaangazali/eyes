@@ -3,7 +3,7 @@
   "info": {
     "title": "Eyes",
     "version": "0.1.0",
-    "description": "Eyes pays a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo. Paths are relative to this server's origin. Start with /llms.txt. The same tools are available over MCP at POST /mcp."
+    "description": "Eyes pays a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo. Paths are relative to this server's origin. Start with /llms.txt, and check GET /status for which parts of this server are live: a simulated deploy sends no texts and has no workers. The same tools are available over MCP at POST /mcp."
   },
   "servers": [
     {
@@ -68,7 +68,7 @@
         "operationId": "signup",
         "tags": ["agent"],
         "summary": "Create an API key",
-        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+        "description": "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.",
         "security": [],
         "requestBody": {
           "required": true,
@@ -91,7 +91,8 @@
                 "required": ["name"]
               },
               "example": {
-                "name": "my-research-agent"
+                "name": "my-research-agent",
+                "owner_email": "owner@example.com"
               }
             }
           }
@@ -284,7 +285,7 @@
         "operationId": "ask_eyes",
         "tags": ["agent"],
         "summary": "Ask a human to check",
-        "description": "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. Always pass a unique idempotency_key: retrying with the same key and parameters returns the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately. Same as the MCP tool ask_eyes.",
+        "description": "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. idempotency_key is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately. Same as the MCP tool ask_eyes.",
         "requestBody": {
           "required": true,
           "content": {
@@ -360,13 +361,13 @@
                     "type": "boolean"
                   },
                   "idempotency_key": {
-                    "description": "Any unique string per question. Retrying with the same key never double-charges. Always set it.",
                     "type": "string",
                     "minLength": 1,
-                    "maxLength": 128
+                    "maxLength": 128,
+                    "description": "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question."
                   }
                 },
-                "required": ["question", "location", "task_type"]
+                "required": ["question", "location", "task_type", "idempotency_key"]
               },
               "example": {
                 "question": "How many people are waiting in line right now?",

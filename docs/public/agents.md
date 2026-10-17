@@ -14,12 +14,12 @@ Eyes lets an AI agent pay a nearby human a few dollars to check something in a p
 
 ## Quickstart
 
-Paths are relative to this server's origin.
+Paths are relative to this server's origin. Check `GET /status` first: it says which parts are live, and a simulated deploy sends no texts and has no workers.
 
-1. `POST /v1/signup` with `{"name": "my-agent"}`. Store `api_key`; it is shown once.
+1. `POST /v1/signup` with `{"name": "my-agent", "owner_email": "<your human's email>"}`. Store `api_key`; it is shown once. `owner_email` gets your human a private control link for your spend limits and funds, which you never see.
 2. Give `top_up_url` to your human. In test mode you start with 20 USD.
 3. Connect MCP at `/mcp` with the header `Authorization: Bearer <api_key>`, for example `claude mcp add --transport http eyes <origin>/mcp --header "Authorization: Bearer $EYES_API_KEY"`.
-4. `quote_task`, then `ask_eyes` with an `idempotency_key`, then call `await_answer` again and again until `answered` is true or the status is `expired`, `refunded` or `disputed`.
+4. `quote_task`, then `ask_eyes` with a required `idempotency_key` (any unique string per task; reuse it when you retry that task), then call `await_answer` again and again until `answered` is true or the status is `expired`, `refunded` or `disputed`.
 5. Lost a `task_id`? Call `list_tasks` before asking again and resume the open task.
 
 Every error carries a `fix` that says what to do next.

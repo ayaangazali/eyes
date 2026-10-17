@@ -31,6 +31,7 @@ test("join posts a normalized phone and location, then shows the START and payou
 }) => {
   const posts = await mockJoin(page, { json: joined });
   await page.goto("/");
+  await expect(page.getByRole("heading", { name: "Worker sign-up opens soon" })).toBeHidden();
   await fill(page, "Ada Lovelace", "(415) 555-0123");
 
   await expect(page.getByRole("link", { name: "Text START to +14155550199" })).toHaveAttribute(
@@ -41,6 +42,19 @@ test("join posts a normalized phone and location, then shows the START and payou
   await expect(page.getByRole("link", { name: /payouts/i })).toHaveCount(0);
   await expect(page.getByText("Reply YES to claim a task")).toBeVisible();
   expect(posts).toEqual([{ name: "Ada Lovelace", phone: "+14155550123", lat: 37.78246, lng: -122.40776 }]);
+});
+
+test("a build without an Inkbox number says sign-up opens soon and asks for nothing", async ({ page }) => {
+  const offsite: string[] = [];
+  page.on("request", (request) => {
+    if (!request.url().startsWith("http://127.0.0.1:4174/")) offsite.push(request.url());
+  });
+  await page.goto("http://127.0.0.1:4174/");
+  await expect(page.getByRole("heading", { name: "Worker sign-up opens soon" })).toBeVisible();
+  await expect(page.getByText("You need an iPhone.")).toBeVisible();
+  await expect(page.getByLabel("Mobile number")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Join" })).toBeHidden();
+  expect(offsite).toEqual([]);
 });
 
 test("phone formats normalize to E.164 and the build-time number is the START fallback", async ({ page }) => {

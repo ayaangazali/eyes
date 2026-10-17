@@ -57,9 +57,7 @@ InsForge is the backend for everything stateful. Postgres holds the escrow ledge
 
 ### Armature: Best Agent Experience (AX)
 
-An agent can go from nothing to a verified answer without a human dashboard: `POST /v1/signup` returns an API key, a test balance and a funding link for its human. Every error is `{error, message, fix}` with the numbers the agent needs (how far to lower the bounty, how much cap is left today), tool descriptions tell the agent what to call next, and `idempotency_key` makes every retry safe. `llms.txt`, `llms-full.txt`, `openapi.json`, an agent card and an `eyes` CLI generated from the same frozen schemas are in review in PR #9.
-
-- **TODO** once PR #9 merges: say these are served from the deployed server and drop "in review".
+An agent can go from nothing to a verified answer without a human dashboard: `POST /v1/signup` returns an API key, a test balance and a funding link for its human. Every error is `{error, message, fix}` with the numbers the agent needs (how far to lower the bounty, how much cap is left today), tool descriptions tell the agent what to call next, and `ask_eyes` requires an `idempotency_key`, so every retry is safe. `llms.txt`, `llms-full.txt`, `openapi.json`, an agent card and an `eyes` CLI are generated from the same frozen schemas, and the docs are served live from the deployed server at https://dark-wave-wfmpm.run.mcp-use.com/llms.txt.
 
 - **TODO** live fact: AX verifier agent completed signup, ask and answer from public docs only on `<date/time>`; Armature analytics or eval run `<link>` (wiring waits on Armature's answer about mcp-use support).
 
