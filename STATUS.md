@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 03:10 PT by orchestrator. Merged: #7, #9 (agent docs + CLI), #26, #35, #37, #39, #41. Live: `pnpm smoke:live` 13 PASS / 0 FAIL on deploy b2df1ae5. InsForge migrations 001-006 applied. Verifying #40; fixing #43. Building: T4.5 UI, T4.4 pages, T4.2 money.
+Updated: 2026-10-17 03:35 PT by orchestrator. 21 PRs merged this session (#7, #9, #26, #35, #37, #39-#41, #43-#45, #47-#49 and earlier). Live: Manufact + InsForge (DB 001-007, Sites with UX fixes). Open: #50 (list_tasks), #51 (deferred cleanup). Everything else waits on vendor keys (docs/PLAN.md §4).
 
 ## Task board
 
@@ -13,25 +13,33 @@ Updated: 2026-10-17 03:10 PT by orchestrator. Merged: #7, #9 (agent docs + CLI),
 | T1.1 MCP tools + REST + worker API | mcp-builder | **merged** #2 | [#2](https://github.com/ayaangazali/eyes/pull/2) | r3 security+ax PASS | live-verified: no |
 | T1.2 engine + db | engine-builder | **merged** #6, #12 | [#6](https://github.com/ayaangazali/eyes/pull/6) | r2 security PASS, test+spec PASS; follow-up PASS | InsForge grants unverified live |
 | T1.3 Inkbox comms | comms-builder | **merged** #1, #10; iMessage send #24 merging | [#1](https://github.com/ayaangazali/eyes/pull/1) | r2 all PASS; follow-up #10 PASS | live-verified: no |
-| T1.4 worker web | worker-web-builder | **merged** #3; follow-up #13 merging | [#3](https://github.com/ayaangazali/eyes/pull/3) | r2 PASS; #13 coverage major downgraded by ruling | live-verified: no |
+| T1.4 worker web | worker-web-builder | **merged** #3, #13; live on InsForge Sites | [#3](https://github.com/ayaangazali/eyes/pull/3) | r2 PASS; #13 coverage major downgraded by ruling | live-verified: no |
 | T1.5 safety | safety-builder | **merged** #7 (round 7 PASS) | [#7](https://github.com/ayaangazali/eyes/pull/7) | r6 FAIL (3 majors, false positives), r7 PASS; deferred #36 | live: rules refusal yes; classifier needs ANTHROPIC_API_KEY |
 | G1 golden path e2e | integration builder | **merged** #16 | [#16](https://github.com/ayaangazali/eyes/pull/16) | integration PASS (3/3 fresh DBs, mutations killed) | unsafe_task test skipped until T1.5 |
 | T2.1 Stripe | payments-builder | **merged** | [#5](https://github.com/ayaangazali/eyes/pull/5) | r1 security PASS, spec+intent PASS, test FAIL; r2 PASS | live-verified: no |
 | T2.2 verification | verification-builder | **merged** #4, #8 | [#4](https://github.com/ayaangazali/eyes/pull/4) | all PASS | live-verified: no |
-| T2.3 deploy | orchestrator | artifacts on main (Dockerfile proven locally, InsForge migrate script, docs/DEPLOY.md) | | | keys and logins |
-| T2.4 MCP wiring + hardening | mcp-builder | **merging** #14 (human decision B) | [#14](https://github.com/ayaangazali/eyes/pull/14) | escalated after r3; deferred #21-#23 | live-verified: no |
-| T3.1 Primitive | comms-builder | **merging** #11 (human decision B) | [#11](https://github.com/ayaangazali/eyes/pull/11) | escalated after r3; deferred #17-#20 | live-verified: no |
+| T2.3 deploy | orchestrator | **live**: Manufact (MCP/REST/docs), InsForge (DB 001-007, storage, Sites) | | smoke:live 13/13 | vendor keys |
+| T2.4 MCP wiring + hardening | mcp-builder | **merged** #14 (human decision B) | [#14](https://github.com/ayaangazali/eyes/pull/14) | escalated after r3; deferred #21-#23 | live-verified: no |
+| T3.1 Primitive | comms-builder | **merged** #11 (human decision B) | [#11](https://github.com/ayaangazali/eyes/pull/11) | escalated after r3; deferred #17-#20 | live-verified: no |
 | T3.2 AX docs + CLI | ax-builder | **merged** #9, docs served live | [#9](https://github.com/ayaangazali/eyes/pull/9) | r5 FAIL, r6 PASS; deferred #42 | none |
 | T3.3 dashboard | dashboard-builder | **merged** #15 | [#15](https://github.com/ayaangazali/eyes/pull/15) | combined PASS (no PII leak, XSS-safe, loopback only) | live-verified: no |
-| T3.4 Armature + evals | orchestrator/ax-builder | blocked | | | G2, sponsor answer |
+| T3.4a AX eval harness | ax-builder | **merged** #43; client B runs in CI | [#43](https://github.com/ayaangazali/eyes/pull/43) | PASS; polish reviewed | client A needs ANTHROPIC_API_KEY |
+| T3.4b Armature analytics | | blocked | | | key + sponsor answer on mcp-use |
 | T2.5 owner console (ADR-011) | payments-builder | **merged** #35, live-verified | [#35](https://github.com/ayaangazali/eyes/pull/35) | security PASS, spec+test PASS, polish reviewed; #38 filed | none |
 | T4.1 hardening (#17-#23, throttles) | mcp/comms builder | **merged** #37 | [#37](https://github.com/ayaangazali/eyes/pull/37) | PASS; XFF key cap queued in T4.4 | none |
 | T2.3b smoke:live | ops builder | **merged** #26 | [#26](https://github.com/ayaangazali/eyes/pull/26) | PASS (2 minors in Known gaps) | none |
-| T4.5 UI fixes (UX audit 0-6, 8, 11, 12, 15-23) | ui builder | building | | | none |
+| T4.5 UI fixes (UX audit 0-6, 8, 11, 12, 15-23) | ui builder | **merged** #47; Sites redeployed | [#47](https://github.com/ayaangazali/eyes/pull/47) | UX re-audit PASS (18/19 fixed, 1 partial by design) | real-iPhone check pending |
 | T4.6 dispatch skips busy workers; YES claims open offer | engine/comms builder | **merged** #39; 006 applied to InsForge | [#39](https://github.com/ayaangazali/eyes/pull/39) | PASS; race minor fixed with a worker row lock | none |
-| T3.5a demo e2e + swarm | integration builder | building | | | refusal step waits on #7 |
+| T3.5a demo e2e + swarm | integration builder | **merged** #40 | [#40](https://github.com/ayaangazali/eyes/pull/40) | PASS: 45/45 demo runs; G3 machine check `pnpm test:demo` | none |
 | T3.5b Blaxel batch/sandboxes | | queued | | | BL keys, after G2 |
 | UX/UI audit | ux auditor | **done**: 1 blocker, 12 major, 12 minor; 46 screenshots | | | fixes in T4.5/T4.6; 9, 10, 13, 24 queued after T2.5/T4.1 |
+| T4.4 HOME/status pages, guards | mcp/payments builder | **merged** #44 | [#44](https://github.com/ayaangazali/eyes/pull/44) | PASS | none |
+| T4.2 payout retry + operator resolve (ADR-012) | engine builder | **merged** #45; 007 applied to InsForge | [#45](https://github.com/ayaangazali/eyes/pull/45) | r1 FAIL (fake-provider resolve, inactive-account transfers), r2 PASS | #46, #52 follow-ups |
+| T4.3 worker STOP/START/HELP replies | engine builder | **merged** #48 | [#48](https://github.com/ayaangazali/eyes/pull/48) | PASS; Inkbox cap does not apply (vendor quote) | none |
+| T4.8 delete face-rejected photos (ADR-014) | engine/db builder | **merged** #49 | [#49](https://github.com/ayaangazali/eyes/pull/49) | PASS; live InsForge delete verified | none |
+| T5.1 README, submission, demo runbook | docs builder | **merged** #41 | [#41](https://github.com/ayaangazali/eyes/pull/41) | r1 FAIL (2 majors), fixed | TODO slots after keys |
+| T3.6 list_tasks + honest quote (ADR-013) | ax builder | quote change in progress | [#50](https://github.com/ayaangazali/eyes/pull/50) | | none |
+| T4.7 CLI write-back guard + safety precision (#42, #36) | builder | verifying | [#51](https://github.com/ayaangazali/eyes/pull/51) | | none |
 | SPEC coverage ledger | auditor | **done**: 140 rows (62 met, 29 partial, 4 unmet, 33 key, 6 human, 6 in flight); 15 gaps | | | gaps queued in PLAN §3 or filed #27-#34 |
 
 ## Sponsor coverage (update at every gate)
@@ -61,6 +69,8 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 | No per-agent key / link revocation | coverage ledger | [#28](https://github.com/ayaangazali/eyes/issues/28) |
 | No withdrawal of unused balance to card | coverage ledger | [#29](https://github.com/ayaangazali/eyes/issues/29) |
 | Owner link goes to an address the agent chooses | PR #35 security | [#38](https://github.com/ayaangazali/eyes/issues/38) |
+| Stripe-refused transfer blocked ~24 h under reused key | PR #45 | [#46](https://github.com/ayaangazali/eyes/issues/46) |
+| Payout batch starvation; opted-out capture-page line | PR #45 r2 | [#52](https://github.com/ayaangazali/eyes/issues/52) |
 | Money/dispatch failures only in console logs | coverage ledger | [#30](https://github.com/ayaangazali/eyes/issues/30) |
 | Expiry runs in-process only | coverage ledger | [#31](https://github.com/ayaangazali/eyes/issues/31) |
 | Dashboard loopback-only | coverage ledger | [#32](https://github.com/ayaangazali/eyes/issues/32) |
