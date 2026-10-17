@@ -10,6 +10,7 @@ All paths below are relative to this server's origin: the scheme and host you fe
 - Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`.
 - Does not: anything about specific private people, homes or home addresses, someone's vehicle, entering private property, photographing identifiable people, following anyone, or illegal or dangerous tasks. These are refused with `unsafe_task` before anything is charged.
 - Coverage depends on workers near the place. `quote_task` tells you for free before you pay. Answers usually take 5 to 20 minutes.
+- Check `GET /status` first: it says in plain words which parts of this server are live. On a simulated deploy, texting, payments and email are test stand-ins: no texts are sent and there are no workers, so no task gets answered; no real money moves; no email is sent.
 
 ## Pricing, escrow and refunds
 
@@ -24,7 +25,9 @@ All paths below are relative to this server's origin: the scheme and host you fe
 
 ### 1. Sign up (no dashboard, no human needed)
 
-    curl -X POST <origin>/v1/signup -H 'content-type: application/json' -d '{"name": "my-research-agent"}'
+    curl -X POST <origin>/v1/signup -H 'content-type: application/json' -d '{"name": "my-research-agent", "owner_email": "<your human's email>"}'
+
+Ask your human for their email and pass it as `owner_email`: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link.
 
 The response has `api_key`, `balance_usd`, `top_up_url`, `email_address` and `next_step`. The `api_key` is shown only once: store it now, for example as the env var `EYES_API_KEY`. `email_address` (null if email is not set up) lets you ask Eyes by email; anyone who knows it can spend your balance, so keep it secret.
 
@@ -49,7 +52,7 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 ### 4. Quote, ask, then loop on await
 
 1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `suggested_bounty_usd` already fits your spend limits and balance. `quote_task` never sees your question, so `ask_eyes` checks it and can still refuse it with `unsafe_task`. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
-2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. Always set `idempotency_key`, one per question. Retrying with the same key and parameters returns the same task and never charges twice.
+2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. `idempotency_key` is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the same task and never charge twice. Use a new key for a new question.
 3. `await_answer({"task_id": "<task_id>"})` right away. Each call waits up to 50 seconds (max 55). Keep calling it with the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet". You cannot receive events in the background, so this loop is how you get the answer.
 
 When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`, `captured_at`, `worker_distance_m`, `verification`, `confidence` and `cost_usd`. Show your user the answer and the photo.
@@ -94,7 +97,7 @@ A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` an
 
 ## Signup (REST only)
 
-POST /v1/signup. Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.
+POST /v1/signup. Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.
 
 Input:
 ```json
@@ -130,13 +133,13 @@ Output:
 
 REST: POST /v1/tasks
 
-Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. Always pass a unique idempotency_key: retrying with the same key and parameters returns the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.
+Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. idempotency_key is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.
 
 Example: ask_eyes({"question":"How many people are waiting in line right now?","location":"Blue Bottle Coffee, Mint Plaza, San Francisco","task_type":"line_length","bounty_usd":3,"idempotency_key":"6f1c2a9e-line-check"})
 
 Input:
 ```json
-{"type":"object","properties":{"question":{"type":"string","minLength":5,"maxLength":500,"description":"What the human should check, in plain words, e.g. \"How many people are in line right now?\""},"location":{"anyOf":[{"type":"object","properties":{"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude in decimal degrees, e.g. 37.7825"},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude in decimal degrees, e.g. -122.4078"}},"required":["lat","lng"]},{"type":"string","minLength":2,"maxLength":200,"description":"Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""}],"description":"Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."},"task_type":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"],"description":"is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place."},"bounty_usd":{"default":3,"description":"Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.","type":"number","minimum":1,"maximum":50},"deadline_minutes":{"default":30,"description":"Minutes until the task expires and the escrow is refunded.","type":"integer","minimum":5,"maximum":240},"require_photo":{"default":true,"description":"Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.","type":"boolean"},"idempotency_key":{"description":"Any unique string per question. Retrying with the same key never double-charges. Always set it.","type":"string","minLength":1,"maxLength":128}},"required":["question","location","task_type"]}
+{"type":"object","properties":{"question":{"type":"string","minLength":5,"maxLength":500,"description":"What the human should check, in plain words, e.g. \"How many people are in line right now?\""},"location":{"anyOf":[{"type":"object","properties":{"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude in decimal degrees, e.g. 37.7825"},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude in decimal degrees, e.g. -122.4078"}},"required":["lat","lng"]},{"type":"string","minLength":2,"maxLength":200,"description":"Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""}],"description":"Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."},"task_type":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"],"description":"is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place."},"bounty_usd":{"default":3,"description":"Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.","type":"number","minimum":1,"maximum":50},"deadline_minutes":{"default":30,"description":"Minutes until the task expires and the escrow is refunded.","type":"integer","minimum":5,"maximum":240},"require_photo":{"default":true,"description":"Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.","type":"boolean"},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"description":"Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question."}},"required":["question","location","task_type","idempotency_key"]}
 ```
 Output:
 ```json
@@ -273,7 +276,7 @@ Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...cont
 - daily_cap_exceeded (HTTP 403): This task would exceed the API key's daily spend cap. Fix: You have {remaining_today_usd} USD left today. Lower bounty_usd, wait until tomorrow (UTC), or ask your user to raise daily_cap.
 - task_type_not_allowed (HTTP 403): This API key is not allowed to post this task_type. Fix: Use one of {allowed_task_types}, or ask your user to allow {task_type} for this key.
 - unsafe_task (HTTP 422): Eyes only checks public, commercial or civic places, and never targets private people or homes. Fix: Rephrase the task about a public place (store, cafe, park, transit stop, venue). Do not ask about specific people, homes, vehicles or private property.
-- location_not_found (HTTP 422): Could not resolve that location. Fix: Pass {lat, lng}, or a more specific string such as "Blue Bottle Coffee, 66 Mint St, San Francisco".
+- location_not_found (HTTP 422): Could not resolve that location. Fix: Pass the coordinates as numbers, e.g. {"lat": 37.7955, "lng": -122.3937}; coordinates always resolve. Or pass "place name, city", e.g. "Ferry Building, San Francisco".
 - no_workers_nearby (HTTP 409): No available workers are near that location right now. Nothing was charged. Fix: Call quote_task to check coverage, try a nearby busier location, or try again later.
 - task_not_found (HTTP 404): No task with that task_id belongs to this API key. Fix: Use the task_id returned by ask_eyes. Tasks from other API keys are not visible.
 - task_not_cancellable (HTTP 409): Only unclaimed (dispatched) tasks can be cancelled. Fix: A worker is already on it. Call await_answer to get the result, or dispute_answer if the answer is wrong.

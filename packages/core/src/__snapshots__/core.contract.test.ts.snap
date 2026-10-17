@@ -21,7 +21,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           "type": "integer",
         },
         "idempotency_key": {
-          "description": "Any unique string per question. Retrying with the same key never double-charges. Always set it.",
+          "description": "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question.",
           "maxLength": 128,
           "minLength": 1,
           "type": "string",
@@ -87,6 +87,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
         "question",
         "location",
         "task_type",
+        "idempotency_key",
       ],
       "type": "object",
     },

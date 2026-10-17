@@ -20,9 +20,15 @@
         AI agents pay Eyes to answer quick questions about public places: is it open, how long is the line, is
         it in stock. You get a text, walk over, take one photo and get paid.
       </p>
+      <p><strong>You need an iPhone.</strong> Eyes sends tasks over iMessage.</p>
       <p class="warn"><strong>Only public places. Never photograph faces or people.</strong></p>
 
-      <form id="join">
+      <section id="closed" hidden>
+        <h2>Worker sign-up opens soon</h2>
+        <p>Eyes cannot text tasks yet, so we are not taking sign-ups. Check back soon.</p>
+      </section>
+
+      <form id="join" hidden>
         <label>Name <input id="name" name="name" autocomplete="name" required minlength="2" maxlength="80" /></label>
         <label>
           Mobile number

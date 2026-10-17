@@ -409,8 +409,42 @@ describe("REST mirror", () => {
     });
     expect(res.status).toBe(400);
     const body = await res.json();
-    expect(body).toMatchObject({ error: "invalid_input", fix: ERRORS.invalid_input.fix });
+    expect(body).toMatchObject({ error: "invalid_input" });
     expect(body.issues).toEqual([expect.objectContaining({ path: "task_type" })]);
+    expect(body.fix).toBe(`${ERRORS.invalid_input.fix} task_type: ${body.issues[0].message}`);
+  });
+
+  it("refuses ask_eyes without an idempotency_key over REST and MCP, saying what to pass, before anything runs", async () => {
+    let asked = 0;
+    const { fetch } = setup({
+      askEyes: async () => {
+        asked++;
+        throw new EyesError("no_workers_nearby");
+      },
+    });
+    const args = {
+      question: "How long is the line?",
+      location: "Ferry Building, San Francisco",
+      task_type: "line_length",
+    };
+    const explains =
+      /idempotency_key: Required\. Pass any unique string for each task you intend to create.*send the same key again when you retry that task/;
+    const res = await fetch("http://eyes.test/v1/tasks", {
+      method: "POST",
+      headers: { authorization: `Bearer ${KEY}` },
+      body: JSON.stringify(args),
+    });
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      error: "invalid_input",
+      issues: [expect.objectContaining({ path: "idempotency_key" })],
+    });
+    expect(body.fix).toMatch(explains);
+    const result = await (await connect(fetch)).callTool({ name: "ask_eyes", arguments: args });
+    expect(result.isError).toBe(true);
+    expect(JSON.stringify(result.content)).toMatch(explains);
+    expect(asked).toBe(0);
   });
 
   it("does not leak the message of an unexpected error", async () => {
@@ -664,6 +698,40 @@ describe("routes", () => {
     expect(bare).toContain("Texting: simulated");
     expect(bare).toContain("Database: Postgres");
     expect(bare).toContain("Deployed commit: not recorded");
+  });
+
+  it("says on /status and the home page what is simulated and whether the safety classifier is on", async () => {
+    const page = async (env: Record<string, string>, path: string) =>
+      (await setup({}, env).fetch(`http://eyes.test${path}`)).text();
+    const secret = "sk-ant-never-shown";
+    const live = {
+      EYES_PROVIDERS: "live",
+      INKBOX_API_KEY: "ik_test",
+      STRIPE_SECRET_KEY: "sk_test",
+      PRIMITIVE_API_KEY: "pk_test",
+      ANTHROPIC_API_KEY: secret,
+    };
+    for (const path of ["/status", "/"]) {
+      const fake = await page({}, path);
+      expect(fake, path).toContain("This is a simulated deploy");
+      expect(fake, path).toContain("Texting is simulated: no worker gets a text, so no task gets answered.");
+      expect(fake, path).toContain("Payments are simulated: no real money moves.");
+      expect(fake, path).toContain("Email is simulated");
+      const real = await page(live, path);
+      expect(real, path).not.toContain("simulated deploy");
+      expect(real, path).not.toContain(secret);
+      const texting = await page({ EYES_PROVIDERS: "live", INKBOX_API_KEY: "ik_test" }, path);
+      expect(texting, path).not.toContain("Texting is simulated");
+      expect(texting, path).toContain("Payments are simulated");
+    }
+    expect(await page({}, "/status")).toContain("Safety review: rules only");
+    expect(await page({ ANTHROPIC_API_KEY: secret }, "/status")).toContain(
+      "Safety review: rules and AI classifier",
+    );
+    expect(await page({}, "/")).toContain("Safety review is rules only here");
+    expect(await page({ ANTHROPIC_API_KEY: secret }, "/")).toContain(
+      "Every task passes the safety rules and an AI safety classifier",
+    );
   });
 
   it("fills the Inkbox number on /w/join from INKBOX_PHONE_NUMBER when the engine has none", async () => {

@@ -23,7 +23,7 @@ const WORDS: Partial<Record<ErrorCode, [string, string]>> = {
 };
 
 export const LOCATION_HELP =
-  "On iPhone, tap aA in the address bar > Website Settings > Location > Allow, or turn on Settings > Privacy & Security > Location Services > Safari Websites. On Android, tap the icon left of the address > Permissions > Location. Then tap Try location again.";
+  "On iPhone, tap aA in the address bar > Website Settings > Location > Allow, or turn on Settings > Privacy & Security > Location Services > Safari Websites. Then tap Try location again.";
 
 export class Problem extends Error {
   fix: string;

@@ -57,7 +57,7 @@ Until the vendor keys land, the deployed server resolves only a few demo places 
 | Tool | What it does |
 |---|---|
 | `quote_task` | Free check before spending: workers nearby, estimated minutes, a suggested bounty that already fits this key's limits and balance, whether this key may post that task type here, and where Eyes thinks the place is. It never sees the question; `ask_eyes` checks that. |
-| `ask_eyes` | Escrows bounty plus fee and texts nearby workers. Always pass an `idempotency_key`; a retry with the same key returns the same task instead of charging twice. |
+| `ask_eyes` | Escrows bounty plus fee and texts nearby workers. `idempotency_key` is required; a retry with the same key returns the same task instead of charging twice. |
 | `await_answer` | Long-polls up to 55 s per call ([ADR-002](intent/decisions/ADR-002-await-answer-cap.md)). Call it right after `ask_eyes` and keep calling: agents cannot listen for events in the background, so this loop is how the answer arrives. |
 | `get_task` | Instant status and answer lookup. |
 | `cancel_task` | Refunds the full escrow while no worker has claimed the task. |
@@ -66,7 +66,7 @@ Until the vendor keys land, the deployed server resolves only a few demo places 
 | `get_spend_policy` | The limits your human set on this key: max bounty, daily cap, remaining today, allowed task types. |
 | `list_tasks` | Your own tasks, newest first, optionally filtered by status. Use it to find a task_id you lost before asking again ([ADR-013](intent/decisions/ADR-013-list-tasks.md)). |
 
-Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`. Every tool description is written for an LLM reader with an example and a "Next:" line ([apps/mcp/src/server.ts](apps/mcp/src/server.ts)). The same capabilities are on REST under `/v1/*` (`HTTP_ROUTES` in [packages/core/src/schemas.ts](packages/core/src/schemas.ts)). `llms.txt`, `openapi.json`, the agent card and the `eyes` CLI are generated from the same schemas ([PR #9](https://github.com/ayaangazali/eyes/pull/9)) and served live at https://dark-wave-wfmpm.run.mcp-use.com/llms.txt.
+Task types: `is_open`, `line_length`, `in_stock`, `photo_of_place`, `price_check`, `crowd_level`, `other_public`. Every tool description is written for an LLM reader with an example and a "Next:" line ([apps/mcp/src/server.ts](apps/mcp/src/server.ts)). The same capabilities are on REST under `/v1/*` (`HTTP_ROUTES` in [packages/core/src/schemas.ts](packages/core/src/schemas.ts)). `llms.txt`, `openapi.json`, the agent card and the `eyes` CLI are generated from the same schemas ([cli/src/docs.ts](cli/src/docs.ts)) and served live at https://dark-wave-wfmpm.run.mcp-use.com/llms.txt.
 
 ### Example exchange
 
@@ -156,7 +156,7 @@ From the coverage table in [STATUS.md](STATUS.md), with the live-verified column
 | Stripe | Checkout top-ups, per-key spend policy, Connect Express onboarding minted on click, $3 transfer on a verified answer, signed webhooks, refund on expiry or cancel | [packages/payments](packages/payments) | no |
 | Inkbox | iMessage line: offer, capture link and paid texts; signed `imessage.received` webhook for START and YES | [packages/comms/src/inkbox.ts](packages/comms/src/inkbox.ts) | no |
 | Primitive | A private email address per agent ([ADR-007](intent/decisions/ADR-007-agent-email-identity.md)); inbound email becomes `ask_eyes`; the answer comes back in the same thread with the photo attached; DMARC-verified senders only | [packages/comms/src/primitive.ts](packages/comms/src/primitive.ts) | no |
-| Armature | Agent experience: errors with a fix, LLM-first tool docs; `llms.txt`, `openapi.json`, agent card and `eyes` CLI in [PR #9](https://github.com/ayaangazali/eyes/pull/9); analytics and evals not wired yet | [packages/core/src/errors.ts](packages/core/src/errors.ts), [apps/mcp/src/server.ts](apps/mcp/src/server.ts) | no |
+| Armature | Agent experience: errors with a fix, LLM-first tool docs; `llms.txt`, `openapi.json` and agent card served live at https://dark-wave-wfmpm.run.mcp-use.com/llms.txt, `eyes` CLI in [cli](cli); analytics and evals not wired yet | [packages/core/src/errors.ts](packages/core/src/errors.ts), [apps/mcp/src/server.ts](apps/mcp/src/server.ts) | no |
 | Blaxel | Planned: eval agents in sandboxes and a simulated agent swarm for the dashboard; never on the golden path | not built | no |
 | Anthropic (models, not a track) | Claude Sonnet vision for photo verification, Claude Haiku safety classifier | [packages/verify](packages/verify), [packages/safety](packages/safety) | no |
 
