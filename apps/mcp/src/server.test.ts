@@ -17,7 +17,7 @@ import {
   TOOLS,
 } from "@eyes/core";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "./server.ts";
 
 const KEY = "eyes_test_key";
@@ -577,10 +577,12 @@ describe("worker capture", () => {
     } as RequestInit);
   const holdSubmits = () => {
     let release = () => {};
+    let entered = 0;
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     const submitCapture: EyesService["submitCapture"] = async () => {
+      entered += 1;
       await gate;
       return {
         task_id: TASK_ID,
@@ -589,7 +591,7 @@ describe("worker capture", () => {
         message: "Thanks!",
       };
     };
-    return { release, submitCapture };
+    return { release, submitCapture, entered: () => entered };
   };
   const unknownOffer = async (): Promise<OfferView> => {
     throw new EyesError("offer_invalid");
@@ -623,23 +625,20 @@ describe("worker capture", () => {
     expect(captures).toEqual([]);
   });
 
-  it("answers rate_limited without pulling the body while four uploads are in flight", async () => {
+  it("lets a fifth worker upload while four other workers' uploads are in flight", async () => {
     const held = holdSubmits();
     const { fetch } = setup({ submitCapture: held.submitCapture });
     const inFlight = [1, 2, 3, 4].map((n) =>
       post(fetch, signToken(SECRET, `offer-${n}`), { body: captureForm() }),
     );
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await vi.waitFor(() => expect(held.entered()).toBe(4));
 
-    const stream = neverEnding();
-    const fifth = await postStream(fetch, signToken(SECRET, "offer-5"), stream.body);
+    const fifth = post(fetch, signToken(SECRET, "offer-5"), { body: captureForm() });
+    await vi.waitFor(() => expect(held.entered()).toBe(5));
     held.release();
-    const done = await Promise.all(inFlight);
 
-    expect(fifth.status).toBe(429);
-    expect(await fifth.json()).toMatchObject({ error: "rate_limited", retry_after_s: 5 });
-    expect(stream.pulls()).toBe(0);
-    expect(done.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    const done = await Promise.all([...inFlight, fifth]);
+    expect(done.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
   });
 
   it("allows one upload per token at a time", async () => {

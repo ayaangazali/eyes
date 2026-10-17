@@ -35,7 +35,6 @@ type Env = Record<string, string | undefined>;
 type AppEnv = { Variables: { agent: Agent } };
 
 const PROGRESS_INTERVAL_MS = 5000;
-const MAX_CAPTURE_UPLOADS = 4;
 const HOUR_MS = 60 * 60 * 1000;
 const PUBLIC_CALLS_PER_HOUR = 5;
 const THROTTLE_MAX_KEYS = 10_000;
@@ -551,7 +550,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     const offer = await service.getOffer(token);
     if (!offer.claimed_by_you) throw new EyesError("task_already_claimed");
     if (offer.status !== "claimed") throw new EyesError("offer_invalid", { status: offer.status });
-    if (uploads.size >= MAX_CAPTURE_UPLOADS || uploads.has(token)) {
+    if (uploads.has(token)) {
       throw new EyesError("rate_limited", { retry_after_s: 5 }, { fix: "Wait 5 seconds and submit again." });
     }
     uploads.add(token);
