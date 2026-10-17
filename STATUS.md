@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 04:55 PT by orchestrator. 32 PRs merged. Live: Manufact 63bba472 (main 40ecee4) + InsForge (DB 001-009, Sites). Open: #61 (release claim on NO). Waits on vendor keys: docs/PLAN.md §4.
+Updated: 2026-10-17 05:00 PT by orchestrator. 33 PRs merged. Live: Manufact 8a0ab65c (main 8f6e5c6) + InsForge (DB 001-010, Sites 7f450f07). Building: T4.15 (#55), T4.16 (#28), T4.17 (#33). Waits on vendor keys: docs/PLAN.md §4.
 
 ## Task board
 
@@ -41,7 +41,10 @@ Updated: 2026-10-17 04:55 PT by orchestrator. 32 PRs merged. Live: Manufact 63bb
 | T3.6 list_tasks + honest quote (ADR-013) | ax builder | **merged** #50; 008 applied; live (9 tools) | [#50](https://github.com/ayaangazali/eyes/pull/50) | PASS (160-policy quote-honesty probe, 0 failures) | none |
 | T4.7 CLI write-back guard + safety precision (#42, #36) | builder | **merged** #51 | [#51](https://github.com/ayaangazali/eyes/pull/51) | PASS; 3 guard fixtures added | none |
 | T4.9 payout recovery + no starvation (#46, #52) | engine builder | **merged** #57; 009 applied; live | [#57](https://github.com/ayaangazali/eyes/pull/57) | r1 FAIL, r2 FAIL, r3 PASS (1315 retry sequences, 0 double pays except accepted S6 class) | none |
-| T4.14 NO after YES releases the claim | engine builder | verifying | [#61](https://github.com/ayaangazali/eyes/pull/61) | | 010 after 009 |
+| T4.14 NO after YES releases the claim | engine builder | **merged** #61; 010 applied; live | [#61](https://github.com/ayaangazali/eyes/pull/61) | PASS (200 race reps); follow-up #62 | none |
+| T4.15 capture upload cap (#55) | builder | building | | | none |
+| T4.16 owner key rotation (#28, ADR-019) | builder | building | | | migration 011 |
+| T4.17 worker earnings page (#33, ADR-020) | builder | building | | | migration 012 after 011 |
 | T4.11b honest owner-email claim (ADR-018) | builder | **merged** #59 | [#59](https://github.com/ayaangazali/eyes/pull/59) | PASS | none |
 | T4.13 user-facing text matches the running system | builder | **merged** #60 | [#60](https://github.com/ayaangazali/eyes/pull/60) | PASS | none |
 | T4.10 owner link to the Checkout payer (#38, ADR-015) | payments builder | **merged** #53 | [#53](https://github.com/ayaangazali/eyes/pull/53) | security PASS; follow-ups #54 | none |
@@ -81,7 +84,8 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 | Stripe-refused transfer blocked ~24 h under reused key | PR #45 | [#46](https://github.com/ayaangazali/eyes/issues/46) |
 | Payout batch starvation; opted-out capture-page line | PR #45 r2 | [#52](https://github.com/ayaangazali/eyes/issues/52) |
 | Owner link payer scope, masked owner email, agent name in signup email | PR #53 | [#54](https://github.com/ayaangazali/eyes/issues/54) |
-| Global capture upload cap stalls all workers | security sweep | [#55](https://github.com/ayaangazali/eyes/issues/55) |
+| Global capture upload cap stalls all workers | security sweep | [#55](https://github.com/ayaangazali/eyes/issues/55) (T4.15 building) |
+| Released claims: re-offer; orphaned photo on NO-vs-capture race | PR #61 | [#62](https://github.com/ayaangazali/eyes/issues/62) |
 | Money/dispatch failures only in console logs | coverage ledger | [#30](https://github.com/ayaangazali/eyes/issues/30) |
 | Expiry runs in-process only | coverage ledger | [#31](https://github.com/ayaangazali/eyes/issues/31) |
 | Dashboard loopback-only | coverage ledger | [#32](https://github.com/ayaangazali/eyes/issues/32) |
@@ -94,7 +98,7 @@ Earlier verifier minors (non-blocking by severity) are in each task's intent Kno
 
 | Integration | live-verified | Evidence |
 |---|---|---|
-| Manufact deploy (mcp-use) | **yes** for routing, MCP and agent docs (2026-10-17 04:55 PT: deploy 63bba472 at main 40ecee4 with payout recovery; 009 applied; smoke 13 PASS; no payout-loop errors in logs. 04:35 PT: deploy c7116a68 at main 9112dbc; `/status` shows "simulated deploy" and "Safety review: rules only"; smoke 13 PASS. Sites deployment 13c4ca58: JOIN shows "Worker sign-up opens soon" and the iPhone note until the Inkbox line exists. 03:55 PT: deploy c7e4c396 at main aa894e4, 9 MCP tools incl. list_tasks, smoke 13 PASS. 03:40 PT: deploy ec837deb at main 2ebc6da (#43-#49), `/status` shows the commit, HOME 200, smoke:live 13 PASS / 0 FAIL. Earlier, 03:10 PT: `EYES_PUBLIC_API_URL=https://dark-wave-wfmpm.run.mcp-use.com pnpm smoke:live` on deploy b2df1ae5 (main after #9): 13 PASS, 0 FAIL: healthz, /llms.txt, /openapi.json, agent card, signup, balance, spend-policy, MCP tools/list (8), MCP get_balance, MCP quote_task, three unsigned webhooks rejected). First deploy 2026-10-17 01:52 PT: | Deployed with `mcp-use deploy --no-github` + repo Dockerfile; server `dark-wave-wfmpm`, MCP URL https://dark-wave-wfmpm.run.mcp-use.com/mcp. Gateway forwards ALL paths (ADR-004 risk resolved): /healthz 200, / HTML, /v1/balance 401, /w/offers/x 404 offer_invalid, /topup/done 200, POST /webhooks/inkbox unsigned 401, /mcp without key 401. Now backed by InsForge Postgres (see below); vendors still fake until keys land. |
+| Manufact deploy (mcp-use) | **yes** for routing, MCP and agent docs (2026-10-17 05:00 PT: deploy 8a0ab65c at main 8f6e5c6 with release-on-NO; 010 applied; smoke 13 PASS; Sites 7f450f07. 04:55 PT: deploy 63bba472 at main 40ecee4 with payout recovery; 009 applied; smoke 13 PASS; no payout-loop errors in logs. 04:35 PT: deploy c7116a68 at main 9112dbc; `/status` shows "simulated deploy" and "Safety review: rules only"; smoke 13 PASS. Sites deployment 13c4ca58: JOIN shows "Worker sign-up opens soon" and the iPhone note until the Inkbox line exists. 03:55 PT: deploy c7e4c396 at main aa894e4, 9 MCP tools incl. list_tasks, smoke 13 PASS. 03:40 PT: deploy ec837deb at main 2ebc6da (#43-#49), `/status` shows the commit, HOME 200, smoke:live 13 PASS / 0 FAIL. Earlier, 03:10 PT: `EYES_PUBLIC_API_URL=https://dark-wave-wfmpm.run.mcp-use.com pnpm smoke:live` on deploy b2df1ae5 (main after #9): 13 PASS, 0 FAIL: healthz, /llms.txt, /openapi.json, agent card, signup, balance, spend-policy, MCP tools/list (8), MCP get_balance, MCP quote_task, three unsigned webhooks rejected). First deploy 2026-10-17 01:52 PT: | Deployed with `mcp-use deploy --no-github` + repo Dockerfile; server `dark-wave-wfmpm`, MCP URL https://dark-wave-wfmpm.run.mcp-use.com/mcp. Gateway forwards ALL paths (ADR-004 risk resolved): /healthz 200, / HTML, /v1/balance 401, /w/offers/x 404 offer_invalid, /topup/done 200, POST /webhooks/inkbox unsigned 401, /mcp without key 401. Now backed by InsForge Postgres (see below); vendors still fake until keys land. |
 | InsForge DB + storage + Sites | **yes** (2026-10-17 02:10 PT) | Migrations 001-004 applied to project `hackathon`; anon denied on functions and tables; `photos` bucket. Manufact deploy 35d2cc74 `/healthz` -> `"db":"insforge"`; live signup -> balance -> spend-policy served from InsForge Postgres. Worker web live at https://7t6779x4.insforge.site (Sites deployment 5f2bbf5a). Photo upload to storage not yet exercised live (needs a capture). |
 | Inkbox outbound + inbound | no | |
 | Stripe Checkout + Connect + transfer | no | |
