@@ -507,6 +507,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const mail = providers.email.outbox.find((m) => m.to === ownerEmail);
     const ownerToken = mail?.text.match(/\/owner\/([\w.-]+)/)?.[1] ?? "";
     expect(ownerToken).not.toBe("");
+    expect(mail?.text).toContain(`An AI agent (Eyes agent id ${signup.agent_id})`);
+    expect(mail?.text).not.toContain("owned-agent");
     expect(signup.next_step).toContain(ownerEmail);
     const fresh = async () => (await service.authenticate(signup.api_key)) as Agent;
     const a = await fresh();
@@ -605,7 +607,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
-  it("emails whoever pays a working owner link, credits a replayed top-up once, and never shows the link to the agent", async () => {
+  it("emails only the first payer a working owner link, once, and never shows the link to the agent", async () => {
     const a = await agent();
     const payer = `payer-${randomUUID()}@example.com`;
     const topup = {
@@ -625,15 +627,47 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
     await service.creditTopup(topup);
     expect(await service.getBalance(a)).toMatchObject({ balance_usd: 35 });
-    const replayed = providers.email.outbox.slice(before + 1);
-    expect(replayed.map((m) => m.to)).toEqual([payer]);
-    expect(replayed[0]?.text).toContain(`/owner/${ownerToken}`);
+    expect(providers.email.outbox).toHaveLength(before + 1);
 
-    await service.creditTopup({ ...topup, stripe_ref: `cs_${randomUUID()}`, payer_email: null });
-    expect(providers.email.outbox).toHaveLength(before + 2);
+    const later = `later-${randomUUID()}@example.com`;
+    await service.creditTopup({ ...topup, stripe_ref: `cs_${randomUUID()}`, payer_email: later });
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 50 });
+    expect(providers.email.outbox).toHaveLength(before + 1);
     for (const out of [await service.getBalance(a), await service.getSpendPolicy(a)]) {
       expect(JSON.stringify(out)).not.toContain("/owner/");
     }
+  });
+
+  it("emails one owner link when first payments for an agent arrive at the same time", async () => {
+    const overlapping = async (agentId: string, calls: () => Promise<unknown>[]) => {
+      const lock = await sql.reserve();
+      await lock`begin`;
+      await lock`select 1 from agents where id = ${agentId} for update`;
+      const running = Promise.all(calls());
+      await sleep(500);
+      await lock`commit`;
+      lock.release();
+      await running;
+    };
+    const topup = (agentId: string, stripe_ref: string, payer_email: string) =>
+      service.creditTopup({ agent_id: agentId, amount_cents: 1500, stripe_ref, payer_email });
+
+    const a = await agent();
+    const payer = `payer-${randomUUID()}@example.com`;
+    const ref = `cs_${randomUUID()}`;
+    const before = providers.email.outbox.length;
+    await overlapping(a.id, () => Array.from({ length: 5 }, () => topup(a.id, ref, payer)));
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 35 });
+    expect(providers.email.outbox.slice(before).map((m) => m.to)).toEqual([payer]);
+
+    const b = await agent();
+    const payers = [`first-${randomUUID()}@example.com`, `second-${randomUUID()}@example.com`];
+    const start = providers.email.outbox.length;
+    await overlapping(b.id, () => payers.map((p) => topup(b.id, `cs_${randomUUID()}`, p)));
+    expect(await service.getBalance(b)).toMatchObject({ balance_usd: 50 });
+    const sent = providers.email.outbox.slice(start);
+    expect(sent).toHaveLength(1);
+    expect(payers).toContain(sent[0]?.to);
   });
 
   it("still credits a top-up when the payer email fails, without logging the owner link", async () => {

@@ -22,3 +22,19 @@ ADR-011 promises the agent never sees the `p:` owner link, but the link goes to 
 An agent that pays with its own card becomes its own owner; that is its own money, which is the premise of this ADR. The signup link is still valid after a top-up, so an agent that named its own inbox keeps control until the link secret rotates; the payer can see the limits change on the console but cannot lock the agent out.
 
 Addendum (orchestrator, after the PR #53 security review): every Checkout payer receives the owner link, and the `t:` top-up link is agent-visible, so a third party who obtains it and pays the minimum gains owner control of that agent. Accepted for the event; tracked in #54 (first-top-up-only delivery is the proposed limit). With fake payments the Stripe webhook must not be reachable on a public deploy (fixed separately by T4.12), or a forged event could trigger this email.
+
+## Addendum: only the first payer gets the owner link (T4.20, 2026-10-17, #54)
+
+This replaces "Sent on every completed top-up", the replay bullet and the rejected "Only the first top-up" alternative above.
+
+- The payer email goes out only for the agent's first paid top-up: the first `topup` ledger row other than the test-mode signup grant. `eyes_signup` (002) records that grant through `eyes_credit_topup` with `stripe_ref = 'signup:<agent id>'`, so "has a Stripe ref" alone would never find a first payment on a test-mode agent; that one ref is excluded by value.
+- `014_first_paid_topup.sql` adds `eyes_credit_paid_topup`, which locks the agent row, checks for an earlier paid top-up, credits through the unchanged `eyes_credit_topup`, and returns `first_paid` only when no paid top-up existed before and this call wrote the row. It is one function, not a read RPC before the credit: two RPCs are two transactions, so two first payments arriving together could both read "none yet" and both email. The row lock serializes them. No new tables or columns, no contract change: `creditTopup` keeps its input and still returns nothing.
+- A replayed or concurrently redelivered webhook finds its own row already there, so it is credited once and sends no second email.
+- If the first paid top-up carries no payer email, nobody gets the link through Checkout; the operator can still print it with `pnpm owner-link`.
+- A failed first-payer send is not retried: the credit stands, and every later payment or replay is no longer first. Recovery is `pnpm owner-link <agent_id>`, and the trigger is the `owner email for agent <id> failed` log line.
+- Owner emails carry no agent-chosen text. The public signup could relay one email with an 80-character agent name to any address (throttled 5/hour/IP), so the signup email now says "An AI agent (Eyes agent id <id>)". The payer receipt uses the id too; the engine no longer loads the agent row to send it.
+- The signup email, the payer receipt and the owner console now say "The first person who pays for this agent also gets this link."
+
+Consequences: someone who obtains the agent-visible `t:` link after the first payment only adds funds. Before the first payment, whoever pays first still becomes an owner, so a leaked `t:` link is a race only until the human pays. The signup link stays valid (ADR-011 has no per-link revocation).
+
+Not done: showing a masked owner email on the top-up page (#54 item 2). The signup `owner_email` is not stored: 001 has no column for it, and `agents.email_identity` is unused but `unique`, so one person owning two agents would collide. Showing it needs a new column, which this task excludes; left open on #54.
