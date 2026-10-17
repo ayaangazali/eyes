@@ -33,3 +33,22 @@ export function verifyToken(secret: string, token: string, now = new Date()): st
   if (e !== null && now.getTime() > e) return null;
   return p;
 }
+
+const emailMac = (secret: string, agentId: string) => sign(secret, `e:${agentId}`).slice(0, 16);
+
+export function agentEmailAddress(secret: string, agentId: string, domain: string): string {
+  return `ask+${agentId.replaceAll("-", "")}-${emailMac(secret, agentId)}@${domain}`;
+}
+
+export function agentIdFromEmailAddress(secret: string, address: string): string | null {
+  const m = address
+    .trim()
+    .toLowerCase()
+    .match(/^ask\+([0-9a-f]{32})-([a-z0-9_-]{16})@/);
+  if (!m?.[1] || !m[2]) return null;
+  const h = m[1];
+  const agentId = `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+  const expected = Buffer.from(emailMac(secret, agentId).toLowerCase());
+  const given = Buffer.from(m[2]);
+  return expected.length === given.length && timingSafeEqual(expected, given) ? agentId : null;
+}

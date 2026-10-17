@@ -56,7 +56,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "string",
             },
           ],
-          "description": "Where to look. Either {lat, lng} or a string address / "place name, city".",
+          "description": "Where to look. Either numbers {"lat": 37.7825, "lng": -122.4078} or a string address / "place name, city".",
         },
         "question": {
           "description": "What the human should check, in plain words, e.g. "How many people are in line right now?"",
@@ -674,7 +674,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "string",
             },
           ],
-          "description": "Where to look. Either {lat, lng} or a string address / "place name, city".",
+          "description": "Where to look. Either numbers {"lat": 37.7825, "lng": -122.4078} or a string address / "place name, city".",
         },
         "task_type": {
           "enum": [
