@@ -1,6 +1,7 @@
 import { createServer as createHttpServer } from "node:http";
 import { createInkboxMessaging, createPrimitiveEmail } from "@eyes/comms";
 import { AppConfig, type DbConfig, fakeProviders, type Providers } from "@eyes/core";
+import { createInsforgeStorage } from "@eyes/db";
 import { createEyesService } from "@eyes/engine";
 import { createStripePayments } from "@eyes/payments";
 import { createAssessTask } from "@eyes/safety";
@@ -29,6 +30,12 @@ const parsed = AppConfig.safeParse({
 if (!parsed.success) exit(`Invalid EYES_* environment (see .env.example):\n${z.prettifyError(parsed.error)}`);
 const config = parsed.data;
 
+if (env.EYES_PROVIDERS === "live" && !env.ANTHROPIC_API_KEY) {
+  exit(
+    "EYES_PROVIDERS=live needs ANTHROPIC_API_KEY: without it the safety classifier and photo verification are off. Set ANTHROPIC_API_KEY, or run with EYES_PROVIDERS=fake.",
+  );
+}
+
 const db: DbConfig = env.DATABASE_URL
   ? { kind: "postgres", url: env.DATABASE_URL }
   : env.INSFORGE_BASE_URL && env.INSFORGE_API_KEY
@@ -41,7 +48,7 @@ const providers: Providers = {
   messaging: live.messaging ? createInkboxMessaging(env) : fakes.messaging,
   email: live.email ? createPrimitiveEmail(env) : fakes.email,
   payments: live.payments ? createStripePayments(env) : fakes.payments,
-  storage: fakes.storage,
+  storage: live.storage ? createInsforgeStorage(env) : fakes.storage,
   vision: live.vision ? createClaudeVision(env) : fakes.vision,
   geo: live.geo ? createNominatimGeo() : fakes.geo,
   clock: { now: () => new Date() },

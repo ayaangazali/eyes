@@ -1,4 +1,6 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { inkboxRoutes, primitiveRoutes } from "@eyes/comms";
 import {
   type Agent,
@@ -27,14 +29,33 @@ type Env = Record<string, string | undefined>;
 type AppEnv = { Variables: { agent: Agent } };
 
 const PROGRESS_INTERVAL_MS = 5000;
-const DOCS_DIR = new URL("../../../docs/public/", import.meta.url);
+const MAX_CAPTURE_UPLOADS = 4;
+const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
+const AGENT_CARD = "/.well-known/agent-card.json";
 const DOCS = {
   "/llms.txt": "text/plain; charset=utf-8",
   "/llms-full.txt": "text/plain; charset=utf-8",
   "/openapi.json": "application/json",
-  "/.well-known/agent-card.json": "application/json",
+  [AGENT_CARD]: "application/json",
+  "/agents.md": "text/markdown; charset=utf-8",
+  "/robots.txt": "text/plain; charset=utf-8",
 };
-const STRIPE_PATHS = ["/webhooks/stripe", "/topup/:token", "/w/connect/:token"];
+const LINK = '</llms.txt>; rel="describedby", </openapi.json>; rel="service-desc"';
+const HOME = `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Eyes</title></head>
+<body>
+<h1>Eyes</h1>
+<p>Pay a nearby human a few dollars to check something in the physical world right now.</p>
+<ul>
+<li><a href="/llms.txt">llms.txt</a></li>
+<li><a href="/openapi.json">openapi.json</a></li>
+<li><a href="${AGENT_CARD}">agent-card.json</a></li>
+<li><a href="/agents.md">agents.md</a></li>
+</ul>
+</body>
+</html>
+`;
 
 const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo.
 Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. 3) Call await_answer immediately with the task_id and keep calling it until answered is true or the status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer.
@@ -49,7 +70,7 @@ export function liveProviders(env: Env) {
     messaging: live && Boolean(env.INKBOX_API_KEY),
     email: live && Boolean(env.PRIMITIVE_API_KEY),
     payments: live && Boolean(env.STRIPE_SECRET_KEY),
-    storage: false,
+    storage: live && Boolean(env.INSFORGE_API_KEY),
     vision: live && Boolean(env.ANTHROPIC_API_KEY),
     geo: live,
   };
@@ -147,6 +168,20 @@ export function createServer(deps: RouteDeps & { env: Env }) {
   server.app.onError((err, c) => {
     const e = toEyesError(err);
     return c.json(e.toBody(), e.status as ContentfulStatusCode);
+  });
+
+  server.use("*", async (c, next) => {
+    await next();
+    if (c.res.status !== 404 || !c.res.headers.get("content-type")?.startsWith("text/plain")) return;
+    const unknown = new EyesError(
+      "invalid_input",
+      { path: c.req.path },
+      {
+        message: "Unknown route.",
+        fix: "See /openapi.json for the REST routes, or call tools/list on /mcp for the MCP tools.",
+      },
+    );
+    c.res = c.json(unknown.toBody(), 404);
   });
 
   const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
@@ -270,7 +305,7 @@ Next: call get_balance to see the refund, or keep calling await_answer if the ta
     {
       name: "dispute_answer",
       title: "Dispute an answer",
-      description: `Flag a delivered answer as wrong or unhelpful. The worker payout is held and the task is flagged for human review. Works on tasks whose status is verified, paid or needs_review. Give a specific reason of at least 5 characters.
+      description: `Flag a delivered answer as wrong or unhelpful. If the worker has not been paid yet, the payout is held; either way the task goes to human review. Works on tasks whose status is verified, paid or needs_review. Give a specific reason of at least 5 characters.
 Example: dispute_answer({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b", "reason": "The photo shows a different cafe, not Blue Bottle." })
 Next: call get_task later to see the outcome. To get a fresh answer now, call ask_eyes again with a new idempotency_key.`,
       inputSchema: TOOLS.dispute_answer.input,
@@ -344,23 +379,44 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     c.json(await service.joinWorker(parse(JoinWorkerInput, await readJson(c)))),
   );
   server.get("/w/offers/:token", async (c) => c.json(await service.getOffer(c.req.param("token"))));
+  let uploads = 0;
   server.post("/w/offers/:token/capture", async (c) => {
     const token = c.req.param("token");
     if (!verifyToken(config.link_secret, token, deps.providers.clock.now()))
       throw new EyesError("offer_invalid");
-    const { fields, photo } = await readCapture(c);
-    return c.json(await service.submitCapture(token, fields, photo));
+    const offer = await service.getOffer(token);
+    if (!offer.claimed_by_you) throw new EyesError("task_already_claimed");
+    if (offer.status !== "claimed") throw new EyesError("offer_invalid", { status: offer.status });
+    if (uploads >= MAX_CAPTURE_UPLOADS) {
+      throw new EyesError("rate_limited", { retry_after_s: 5 }, { fix: "Wait 5 seconds and submit again." });
+    }
+    uploads += 1;
+    try {
+      const { fields, photo } = await readCapture(c);
+      return c.json(await service.submitCapture(token, fields, photo));
+    } finally {
+      uploads -= 1;
+    }
   });
 
   server.app.route("/webhooks/inkbox", inkboxRoutes(deps, env));
   server.app.route("/webhooks/primitive", primitiveRoutes(deps, env));
-  const stripe = stripeRoutes(deps, env);
-  for (const path of STRIPE_PATHS) server.app.all(path, (c) => stripe.fetch(c.req.raw));
+  server.app.route("/", stripeRoutes(deps, env));
 
+  const docsDir = env.EYES_DOCS_DIR || DOCS_DIR;
+  const absolute = (key: string, value: unknown) =>
+    typeof value === "string" && value.startsWith("/") && (key === "url" || key.endsWith("Url"))
+      ? new URL(value, config.public_api_url).href
+      : value;
+  server.get("/", (c) => c.html(HOME, 200, { link: LINK }));
   for (const [path, contentType] of Object.entries(DOCS)) {
     server.get(path, async (c) => {
-      const text = await readFile(new URL(`.${path}`, DOCS_DIR), "utf8").catch(() => null);
-      if (text !== null) return c.body(text, 200, { "content-type": contentType });
+      c.header("link", LINK);
+      const text = await readFile(join(docsDir, path), "utf8").catch(() => null);
+      if (text !== null) {
+        const body = path === AGENT_CARD ? JSON.stringify(JSON.parse(text, absolute), null, 2) : text;
+        return c.body(body, 200, { "content-type": contentType });
+      }
       const missing = new EyesError(
         "not_implemented",
         { path },

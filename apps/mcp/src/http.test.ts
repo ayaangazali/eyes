@@ -14,6 +14,7 @@ import {
   EyesError,
   type EyesService,
   fakeProviders,
+  type OfferView,
   type PhotoUpload,
   signToken,
 } from "@eyes/core";
@@ -90,6 +91,7 @@ describe("node adapter on a real socket", () => {
   it("delivers a binary photo over 1 MB byte for byte and keeps the link token out of the logs", async () => {
     const received: { fields: CaptureFields; photo: PhotoUpload | null }[] = [];
     const base = await start({
+      getOffer: async () => ({ status: "claimed", claimed_by_you: true }) as OfferView,
       submitCapture: async (_token, fields, photo) => {
         received.push({ fields, photo });
         return {
@@ -220,6 +222,34 @@ describe("node adapter on a real socket", () => {
     const lines = log.mock.calls.map((call) => String(call[0])).join("\n");
     expect(lines).toMatch(/^GET \/w\/offers\/<token> 404 \d+ms$/);
     expect(lines).not.toContain(token);
+  });
+
+  it("ignores a malformed Host header and answers an unparsable target with 400", async () => {
+    const base = await start({});
+    quiet();
+
+    const health = await raw(base, { method: "GET", path: "/healthz", headers: { host: "[bad" } }, (req) =>
+      req.end(),
+    );
+    const target = await raw(base, { method: "GET", path: "http://[bad/healthz" }, (req) => req.end());
+
+    expect(health.status).toBe(200);
+    expect(target.status).toBe(400);
+    expect(target.body).toMatchObject({ error: "invalid_input", fix: expect.any(String) });
+  });
+
+  it("redacts token-shaped path segments anywhere but keeps file names", async () => {
+    const base = await start({});
+    const log = quiet();
+    const token = signToken(config.link_secret, "anything");
+
+    await fetch(`${base}/some/${token}/deeper`);
+    await fetch(`${base}/llms.txt`);
+
+    const lines = log.mock.calls.map((call) => String(call[0]));
+    expect(lines[0]).toMatch(/^GET \/some\/<token>\/deeper 404 \d+ms$/);
+    expect(lines[1]).toMatch(/^GET \/llms\.txt \d{3} \d+ms$/);
+    expect(lines.join("\n")).not.toContain(token);
   });
 
   it("streams MCP responses and progress over SSE", async () => {

@@ -1,3 +1,6 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   type Agent,
   AppConfig,
@@ -5,14 +8,16 @@ import {
   ERRORS,
   EyesError,
   type EyesService,
+  FAKE_STRIPE_SIGNATURE,
   fakeProviders,
+  type OfferView,
   type PhotoUpload,
   QuoteTaskOutput,
   signToken,
   TOOLS,
 } from "@eyes/core";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createServer } from "./server.ts";
 
 const KEY = "eyes_test_key";
@@ -42,7 +47,22 @@ const QUOTE = {
   },
 };
 
-function setup() {
+const OFFER: OfferView = {
+  task_id: TASK_ID,
+  question: "How long is the line?",
+  task_type: "line_length",
+  place_label: "Blue Bottle Coffee, Mint Plaza, San Francisco",
+  lat: 37.78246,
+  lng: -122.40776,
+  radius_m: 150,
+  bounty_usd: 3,
+  deadline_at: "2026-10-17T19:30:00.000Z",
+  require_photo: true,
+  status: "claimed",
+  claimed_by_you: true,
+};
+
+function setup(overrides: Partial<EyesService> = {}, env: Record<string, string> = {}) {
   const captures: { token: string; fields: CaptureFields; photo: PhotoUpload | null }[] = [];
   const awaitSignals: (AbortSignal | undefined)[] = [];
   const service: Partial<EyesService> = {
@@ -80,6 +100,7 @@ function setup() {
     cancelTask: async () => {
       throw new EyesError("task_not_cancellable");
     },
+    getOffer: async () => OFFER,
     submitCapture: async (token, fields, photo) => {
       captures.push({ token, fields, photo });
       return {
@@ -89,6 +110,7 @@ function setup() {
         message: "Thanks!",
       };
     },
+    ...overrides,
   };
   const config = AppConfig.parse({
     public_api_url: "http://api.eyes.test",
@@ -99,7 +121,7 @@ function setup() {
     service: service as EyesService,
     providers: fakeProviders(),
     config,
-    env: {},
+    env,
   });
   const fetch = (url: string | URL, init?: RequestInit) => server.fetch(new Request(url, init));
   return { server, fetch, captures, awaitSignals };
@@ -352,5 +374,144 @@ describe("worker capture", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ error: "invalid_input" });
     expect(captures).toEqual([]);
+  });
+
+  it.each([
+    ["already submitted", { ...OFFER, status: "submitted" as const }, 404, "offer_invalid"],
+    ["claimed by another worker", { ...OFFER, claimed_by_you: false }, 409, "task_already_claimed"],
+  ])("rejects an offer that is %s before reading the body", async (_, offer, status, error) => {
+    const { fetch, captures } = setup({ getOffer: async () => offer });
+    const res = await post(fetch, token, { body: captureForm({ photo: new File([jpeg], "photo.jpg") }) });
+    expect(res.status).toBe(status);
+    expect(await res.json()).toMatchObject({ error });
+    expect(captures).toEqual([]);
+  });
+
+  it("answers rate_limited while four uploads are already in flight", async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { fetch } = setup({
+      submitCapture: async () => {
+        await gate;
+        return {
+          task_id: TASK_ID,
+          status: "submitted",
+          verification: { gps_ok: true, fresh_ok: true, vision_ok: true, vision_reason: "ok" },
+          message: "Thanks!",
+        };
+      },
+    });
+    const inFlight = [1, 2, 3, 4].map(() => post(fetch, token, { body: captureForm() }));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const fifth = await post(fetch, token, { body: captureForm() });
+    release();
+    const done = await Promise.all(inFlight);
+
+    expect(fifth.status).toBe(429);
+    expect(await fifth.json()).toMatchObject({ error: "rate_limited", retry_after_s: 5 });
+    expect(done.map((r) => r.status)).toEqual([200, 200, 200, 200]);
+    expect((await post(fetch, token, { body: captureForm() })).status).toBe(200);
+  });
+});
+
+describe("routes", () => {
+  it("mounts the Stripe routes at the root", async () => {
+    const onboarded: string[] = [];
+    const { fetch } = setup({ markWorkerOnboarded: async (id) => void onboarded.push(id) });
+    const webhook = await fetch("http://eyes.test/webhooks/stripe", {
+      method: "POST",
+      headers: { "content-type": "application/json", "stripe-signature": FAKE_STRIPE_SIGNATURE },
+      body: JSON.stringify({ type: "worker.onboarded", account_id: "acct_123" }),
+    });
+    expect(webhook.status).toBe(200);
+    expect(await webhook.json()).toEqual({ received: true });
+    expect(onboarded).toEqual(["acct_123"]);
+    const done = await fetch("http://eyes.test/topup/done");
+    expect(done.status).toBe(200);
+    expect(done.headers.get("content-type")).toContain("text/html");
+  });
+
+  it("reports each provider as live only in live mode with its key", async () => {
+    const health = async (env: Record<string, string>) =>
+      (await (await setup({}, env).fetch("http://eyes.test/healthz")).json()).providers;
+    expect(await health({ EYES_PROVIDERS: "live", INSFORGE_API_KEY: "ik_test" })).toMatchObject({
+      storage: "live",
+      vision: "fake",
+      geo: "live",
+    });
+    expect(await health({ INSFORGE_API_KEY: "ik_test" })).toMatchObject({ storage: "fake", geo: "fake" });
+  });
+
+  it("answers an unknown route with a JSON error that points at the docs", async () => {
+    const res = await setup().fetch("http://eyes.test/nope");
+    expect(res.status).toBe(404);
+    const body = await res.json();
+    expect(body).toMatchObject({ error: "invalid_input", message: "Unknown route.", path: "/nope" });
+    expect(body.fix).toContain("/openapi.json");
+  });
+});
+
+describe("agent docs", () => {
+  const LINK = '</llms.txt>; rel="describedby", </openapi.json>; rel="service-desc"';
+  let docsDir = "";
+
+  beforeAll(async () => {
+    docsDir = await mkdtemp(join(tmpdir(), "eyes-docs-"));
+    await mkdir(join(docsDir, ".well-known"));
+    await writeFile(join(docsDir, "robots.txt"), "User-agent: *\nAllow: /\n");
+    await writeFile(
+      join(docsDir, ".well-known/agent-card.json"),
+      JSON.stringify({
+        name: "Eyes",
+        documentationUrl: "/llms.txt",
+        supportedInterfaces: [{ url: "/mcp", protocolBinding: "https://example.test/spec" }],
+        description: "/not-a-url-field",
+      }),
+    );
+  });
+
+  afterAll(async () => {
+    await rm(docsDir, { recursive: true, force: true });
+  });
+
+  it("serves the home page with links and a Link header", async () => {
+    const res = await setup({}, { EYES_DOCS_DIR: docsDir }).fetch("http://eyes.test/");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("link")).toBe(LINK);
+    const html = await res.text();
+    expect(html).toContain("<h1>Eyes</h1>");
+    for (const href of ["/llms.txt", "/openapi.json", "/.well-known/agent-card.json", "/agents.md"]) {
+      expect(html).toContain(`href="${href}"`);
+    }
+  });
+
+  it("serves docs files with a Link header and 404s missing ones cleanly", async () => {
+    const { fetch } = setup({}, { EYES_DOCS_DIR: docsDir });
+    const robots = await fetch("http://eyes.test/robots.txt");
+    expect(robots.status).toBe(200);
+    expect(robots.headers.get("content-type")).toContain("text/plain");
+    expect(robots.headers.get("link")).toBe(LINK);
+    expect(await robots.text()).toContain("User-agent: *");
+    const agents = await fetch("http://eyes.test/agents.md");
+    expect(agents.status).toBe(404);
+    expect(agents.headers.get("link")).toBe(LINK);
+    expect(await agents.json()).toMatchObject({ path: "/agents.md", fix: expect.any(String) });
+  });
+
+  it("rewrites relative URLs in the agent card to absolute ones", async () => {
+    const res = await setup({}, { EYES_DOCS_DIR: docsDir }).fetch(
+      "http://eyes.test/.well-known/agent-card.json",
+    );
+    expect(await res.json()).toEqual({
+      name: "Eyes",
+      documentationUrl: "http://api.eyes.test/llms.txt",
+      supportedInterfaces: [
+        { url: "http://api.eyes.test/mcp", protocolBinding: "https://example.test/spec" },
+      ],
+      description: "/not-a-url-field",
+    });
   });
 });
