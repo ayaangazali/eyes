@@ -20,7 +20,8 @@
     "db:migrate": "node packages/db/src/migrate.ts",
     "intent:check": "node scripts/check-intent.ts",
     "intent:index": "node scripts/check-intent.ts --write-index",
-    "verify:fast": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:contract && pnpm test:safety && pnpm intent:check"
+    "verify:fast": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:contract && pnpm test:safety && pnpm intent:check",
+    "safety:eval": "node evals/safety/run.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
