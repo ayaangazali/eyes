@@ -1,0 +1,410 @@
+import { readFileSync, writeFileSync } from "node:fs";
+import {
+  CaptureFields,
+  CaptureResult,
+  ERRORS,
+  HTTP_ROUTES,
+  JoinWorkerInput,
+  JoinWorkerOutput,
+  OfferView,
+  SignupInput,
+  SignupOutput,
+  TOOLS,
+  type ToolName,
+} from "@eyes/core";
+import { z } from "zod";
+
+type Json = Record<string, unknown>;
+type Documented = Exclude<
+  keyof typeof HTTP_ROUTES,
+  "health" | "topup_redirect" | "worker_connect_redirect" | `webhook_${string}`
+>;
+type Op = {
+  id: string;
+  tag: "agent" | "worker" | "docs";
+  summary: string;
+  description: string;
+  auth: boolean;
+  params?: Record<string, Json>;
+  body?: Json;
+  bodyType?: string;
+  example?: Json;
+  response: Json;
+  responseType?: string;
+};
+
+export const PUBLIC_DIR = new URL("../../docs/public/", import.meta.url);
+
+const VERSION = "0.1.0";
+const DESCRIPTION =
+  "Eyes pays a nearby human a few dollars to check something in a public place right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo.";
+const MCP_BINDING = "https://modelcontextprotocol.io/specification/latest/basic/transports#streamable-http";
+const OPENAPI_BINDING = "https://spec.openapis.org/oas/v3.1.0";
+const TASK_ID = { task_id: "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" };
+
+const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string[]; example: Json }> = {
+  quote_task: {
+    title: "Quote a task",
+    summary:
+      "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed (false if this API key may not post that task_type, see reason_if_not) and resolved_location (where Eyes thinks you mean). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type.",
+    tags: ["coverage", "pricing"],
+    example: { location: "Ferry Building, San Francisco", task_type: "line_length" },
+  },
+  ask_eyes: {
+    title: "Ask a human to check",
+    summary:
+      "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. Always pass a unique idempotency_key: retrying with the same key and parameters returns the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.",
+    tags: ["physical-world", "human-verification", "real-time"],
+    example: {
+      question: "How many people are waiting in line right now?",
+      location: "Blue Bottle Coffee, Mint Plaza, San Francisco",
+      task_type: "line_length",
+      bounty_usd: 3,
+      idempotency_key: "6f1c2a9e-line-check",
+    },
+  },
+  await_answer: {
+    title: "Wait for the answer",
+    summary:
+      "Long-poll for the answer to a task. Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the task is answered. Call it right after ask_eyes and keep calling it with the same task_id until answered is true or status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer. answered: false only means not yet; tasks usually take 5 to 20 minutes.",
+    tags: ["physical-world", "polling"],
+    example: TASK_ID,
+  },
+  get_task: {
+    title: "Get task status",
+    summary:
+      "Instant, read-only status and details of one task, including the answer once there is one. To wait for an answer call await_answer instead of polling get_task.",
+    tags: ["status"],
+    example: TASK_ID,
+  },
+  cancel_task: {
+    title: "Cancel a task",
+    summary:
+      "Cancel a task that no worker has claimed yet (status dispatched) and refund the full escrow, bounty plus fee. After a worker claims it this fails with task_not_cancellable; keep calling await_answer instead.",
+    tags: ["refund"],
+    example: TASK_ID,
+  },
+  dispute_answer: {
+    title: "Dispute an answer",
+    summary:
+      "Flag an answered task (status verified, paid or needs_review) as wrong. The worker payout is held and the task goes to human review. Give a specific reason. To get a fresh answer now, call ask_eyes again with a new idempotency_key.",
+    tags: ["refund", "review"],
+    example: { ...TASK_ID, reason: "The photo shows a different cafe, not Blue Bottle." },
+  },
+  get_balance: {
+    title: "Get balance",
+    summary:
+      "Your prepaid balance and the amount escrowed in open tasks, in USD, plus top_up_url: a link your human opens to add funds with Stripe Checkout. If balance_usd is below bounty_usd + 0.50, give your human top_up_url.",
+    tags: ["billing"],
+    example: {},
+  },
+  get_spend_policy: {
+    title: "Get spend policy",
+    summary:
+      "The limits your human set on this API key: max_bounty_usd per task, daily_cap_usd, spent_today_usd and remaining_today_usd (UTC day), and allowed_task_types. Stay within them when you call ask_eyes; only your human can change them.",
+    tags: ["billing", "limits"],
+    example: {},
+  },
+};
+
+const schema = (s: z.ZodType, io: "input" | "output" = "output"): Json => {
+  const { $schema, ...rest } = z.toJSONSchema(s, { io }) as Json;
+  return rest;
+};
+
+const pathParams = (route: string) => [...route.matchAll(/:(\w+)/g)].map((m) => m[1] as string);
+
+function toolOp(name: ToolName, route: Documented): Op {
+  const input = schema(TOOLS[name].input, "input");
+  const props = input.properties as Record<string, Json>;
+  const params = pathParams(HTTP_ROUTES[route]);
+  const drop = (o: Json) => Object.fromEntries(Object.entries(o).filter(([k]) => !params.includes(k)));
+  const bodyProps = drop(props);
+  const hasBody = HTTP_ROUTES[route].startsWith("POST") && Object.keys(bodyProps).length > 0;
+  const required = ((input.required as string[] | undefined) ?? []).filter((k) => !params.includes(k));
+  const { example, title, summary } = TOOL_DOCS[name];
+  return {
+    id: name,
+    tag: "agent",
+    summary: title,
+    description: `${summary} Same as the MCP tool ${name}.`,
+    auth: true,
+    params: Object.fromEntries(params.map((p) => [p, props[p] as Json])),
+    body: hasBody ? { ...input, properties: bodyProps, required } : undefined,
+    example: hasBody ? drop(example) : undefined,
+    response: schema(TOOLS[name].output),
+  };
+}
+
+const docOp = (id: string, summary: string, type: string): Op => ({
+  id,
+  tag: "docs",
+  summary,
+  description: `${summary} Public.`,
+  auth: false,
+  response: { type: type === "application/json" ? "object" : "string" },
+  responseType: type,
+});
+
+const TOKEN = {
+  token: { type: "string", description: "Signed token from the link Eyes texted the worker." },
+};
+const CAPTURE_FIELDS = schema(CaptureFields, "input");
+
+const OPS: Record<Documented, Op> = {
+  mcp: {
+    id: "mcp",
+    tag: "agent",
+    summary: "MCP endpoint",
+    description:
+      "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
+    auth: true,
+    body: { type: "object", description: "An MCP JSON-RPC 2.0 message." },
+    response: { type: "object", description: "An MCP JSON-RPC 2.0 response, as JSON or text/event-stream." },
+  },
+  signup: {
+    id: "signup",
+    tag: "agent",
+    summary: "Create an API key",
+    description:
+      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it) plus top_up_url, a Stripe Checkout link for your human to fund the balance. Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+    auth: false,
+    body: schema(SignupInput, "input"),
+    example: { name: "my-research-agent" },
+    response: schema(SignupOutput),
+  },
+  quote: toolOp("quote_task", "quote"),
+  ask: toolOp("ask_eyes", "ask"),
+  await_answer: toolOp("await_answer", "await_answer"),
+  get_task: toolOp("get_task", "get_task"),
+  cancel_task: toolOp("cancel_task", "cancel_task"),
+  dispute_answer: toolOp("dispute_answer", "dispute_answer"),
+  get_balance: toolOp("get_balance", "get_balance"),
+  get_spend_policy: toolOp("get_spend_policy", "get_spend_policy"),
+  worker_join: {
+    id: "worker_join",
+    tag: "worker",
+    summary: "Register a worker",
+    description:
+      "Called by the worker JOIN page when a human signs up to answer tasks. Agents never call this.",
+    auth: false,
+    body: schema(JoinWorkerInput, "input"),
+    response: schema(JoinWorkerOutput),
+  },
+  offer_view: {
+    id: "offer_view",
+    tag: "worker",
+    summary: "View a task offer",
+    description: "Called by the worker capture page to show a claimed task. Agents never call this.",
+    auth: false,
+    params: TOKEN,
+    response: schema(OfferView),
+  },
+  offer_capture: {
+    id: "offer_capture",
+    tag: "worker",
+    summary: "Submit a capture",
+    description:
+      "Called by the worker capture page with the live photo and GPS fix. Agents never call this. Max upload 20 MB.",
+    auth: false,
+    params: TOKEN,
+    body: {
+      ...CAPTURE_FIELDS,
+      properties: {
+        ...(CAPTURE_FIELDS.properties as Json),
+        photo: { type: "string", contentMediaType: "image/*", description: "Live camera photo." },
+      },
+    },
+    bodyType: "multipart/form-data",
+    response: schema(CaptureResult),
+  },
+  llms_txt: docOp("llms_txt", "Start here: what Eyes does, pricing and the quickstart.", "text/plain"),
+  llms_full_txt: docOp("llms_full_txt", "Full reference: tool schemas and the error catalog.", "text/plain"),
+  openapi: docOp("openapi", "This OpenAPI document.", "application/json"),
+  agent_card: docOp("agent_card", "A2A agent card.", "application/json"),
+};
+
+const ERROR_SCHEMA = {
+  type: "object",
+  description:
+    "Every error. Extra fields carry context, for example issues for invalid_input, or balance_usd and top_up_url for insufficient_balance.",
+  properties: {
+    error: { type: "string", enum: Object.keys(ERRORS), description: "Stable error code." },
+    message: { type: "string", description: "What went wrong." },
+    fix: { type: "string", description: "What to do next. Always present: follow it." },
+  },
+  required: ["error", "message", "fix"],
+  additionalProperties: true,
+};
+
+function openapi(): Json {
+  const paths: Record<string, Json> = {};
+  for (const [route, op] of Object.entries(OPS) as [Documented, Op][]) {
+    const [method = "", path = ""] = HTTP_ROUTES[route].split(" ");
+    const parameters = Object.entries(op.params ?? {}).map(([name, s]) => ({
+      name,
+      in: "path",
+      required: true,
+      schema: s,
+    }));
+    const media = (s: Json, example?: Json) => (example ? { schema: s, example } : { schema: s });
+    const key = path.replace(/:(\w+)/g, "{$1}");
+    paths[key] = {
+      ...paths[key],
+      [method.toLowerCase()]: {
+        operationId: op.id,
+        tags: [op.tag],
+        summary: op.summary,
+        description: op.description,
+        ...(op.auth ? {} : { security: [] }),
+        ...(parameters.length ? { parameters } : {}),
+        ...(op.body
+          ? {
+              requestBody: {
+                required: true,
+                content: { [op.bodyType ?? "application/json"]: media(op.body, op.example) },
+              },
+            }
+          : {}),
+        responses: {
+          "200": {
+            description: "Success.",
+            content: { [op.responseType ?? "application/json"]: media(op.response) },
+          },
+          "4XX": { $ref: "#/components/responses/Error" },
+          "5XX": { $ref: "#/components/responses/Error" },
+        },
+      },
+    };
+  }
+  return {
+    openapi: "3.1.0",
+    info: {
+      title: "Eyes",
+      version: VERSION,
+      description: `${DESCRIPTION} Paths are relative to this server's origin. Start with /llms.txt. The same tools are available over MCP at POST /mcp.`,
+    },
+    servers: [{ url: "/" }],
+    security: [{ bearer: [] }],
+    tags: [
+      { name: "agent", description: "Called by AI agents with a bearer API key (signup is public)." },
+      { name: "worker", description: "Called by the Eyes worker web pages, not by agents." },
+      { name: "docs", description: "Public agent-facing documents." },
+    ],
+    paths,
+    components: {
+      securitySchemes: {
+        bearer: { type: "http", scheme: "bearer", description: "API key from POST /v1/signup." },
+      },
+      schemas: { Error: ERROR_SCHEMA },
+      responses: {
+        Error: {
+          description: `Error. Status by code: ${Object.entries(ERRORS)
+            .map(([code, e]) => `${code} ${e.status}`)
+            .join(", ")}.`,
+          content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+        },
+      },
+    },
+  };
+}
+
+const jsonBlock = (label: string, value: unknown) => [
+  `${label}:`,
+  "```json",
+  JSON.stringify(value, (_, v) =>
+    v && typeof v === "object" && "format" in v && "pattern" in v ? { ...v, pattern: undefined } : v,
+  ),
+  "```",
+];
+
+function llmsFull(llms: string): string {
+  const tools = (Object.entries(OPS) as [Documented, Op][]).filter(([, op]) => op.id in TOOLS);
+  const out = [
+    llms.trimEnd(),
+    "",
+    "## Signup (REST only)",
+    "",
+    `${HTTP_ROUTES.signup}. ${OPS.signup.description}`,
+    "",
+    ...jsonBlock("Input", OPS.signup.body),
+    ...jsonBlock("Output", OPS.signup.response),
+    "",
+    "## Tools",
+    "",
+    "Each tool is available over MCP (POST /mcp) and over REST. Over REST, task_id goes in the path and the other input fields go in the JSON body.",
+  ];
+  for (const [route, op] of tools) {
+    const name = op.id as ToolName;
+    out.push(
+      "",
+      `### ${name}: ${TOOL_DOCS[name].title}`,
+      "",
+      `REST: ${HTTP_ROUTES[route].replace(/:(\w+)/g, "{$1}")}`,
+      "",
+      TOOL_DOCS[name].summary,
+      "",
+      `Example: ${name}(${JSON.stringify(TOOL_DOCS[name].example)})`,
+      "",
+      ...jsonBlock("Input", schema(TOOLS[name].input, "input")),
+      ...jsonBlock("Output", schema(TOOLS[name].output)),
+    );
+  }
+  out.push(
+    "",
+    "## Errors",
+    "",
+    'Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...context}. Over REST it comes with the HTTP status below; over MCP the tool result has isError: true and the same JSON as text. A {name} in a fix below is filled from the field of the same name in the error body.',
+    "",
+    ...Object.entries(ERRORS).map(([code, e]) => `- ${code} (HTTP ${e.status}): ${e.message} Fix: ${e.fix}`),
+  );
+  return `${out.join("\n")}\n`;
+}
+
+function agentCard(): Json {
+  return {
+    name: "Eyes",
+    description: DESCRIPTION,
+    supportedInterfaces: [
+      { url: "/mcp", protocolBinding: MCP_BINDING, protocolVersion: "1.0" },
+      { url: "/", protocolBinding: OPENAPI_BINDING, protocolVersion: "1.0" },
+    ],
+    version: VERSION,
+    documentationUrl: "/llms.txt",
+    capabilities: { streaming: false, pushNotifications: false },
+    securitySchemes: {
+      bearer: {
+        httpAuthSecurityScheme: {
+          scheme: "Bearer",
+          description: "API key from POST /v1/signup, sent as Authorization: Bearer <api_key>.",
+        },
+      },
+    },
+    securityRequirements: [{ schemes: { bearer: { list: [] } } }],
+    defaultInputModes: ["application/json"],
+    defaultOutputModes: ["application/json"],
+    skills: (Object.keys(TOOLS) as ToolName[]).map((name) => ({
+      id: name,
+      name: TOOL_DOCS[name].title,
+      description: TOOL_DOCS[name].summary,
+      tags: TOOL_DOCS[name].tags,
+      examples: [`${name}(${JSON.stringify(TOOL_DOCS[name].example)})`],
+    })),
+  };
+}
+
+export function generateDocs(llms: string): Record<string, string | Json> {
+  return {
+    "openapi.json": openapi(),
+    ".well-known/agent-card.json": agentCard(),
+    "llms-full.txt": llmsFull(llms),
+  };
+}
+
+if (import.meta.main) {
+  const docs = generateDocs(readFileSync(new URL("llms.txt", PUBLIC_DIR), "utf8"));
+  for (const [file, content] of Object.entries(docs)) {
+    const text = typeof content === "string" ? content : `${JSON.stringify(content, null, 2)}\n`;
+    writeFileSync(new URL(file, PUBLIC_DIR), text);
+  }
+}

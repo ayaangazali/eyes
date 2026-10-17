@@ -1,0 +1,15 @@
+{
+  "name": "@eyes/cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "eyes": "./src/main.ts"
+  },
+  "scripts": {
+    "gen:docs": "node src/docs.ts && biome format --write ../docs/public"
+  },
+  "dependencies": {
+    "@eyes/core": "workspace:*",
+    "zod": "4.6.7"
+  }
+}
