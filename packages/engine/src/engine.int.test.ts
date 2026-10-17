@@ -4,6 +4,7 @@ import {
   type Agent,
   AppConfig,
   type AskEyesInput,
+  agentEmailAddress,
   fakeProviders,
   type LatLng,
   type SafetyVerdict,
@@ -45,6 +46,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       public_api_url: "https://api.eyes.test",
       worker_web_url: "https://w.eyes.test",
       link_secret: "test-link-secret-0123456789",
+      email_domain: "brave-otter.primitive.email",
     }),
   });
 
@@ -212,6 +214,21 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await service.getOffer(token)).toMatchObject({ status: "paid" });
     expect((await ledger(task_id)).filter((r) => r.type === "payout")).toHaveLength(1);
     expect(outbox.filter((m) => m.to === w.phone && m.kind === "paid")).toHaveLength(1);
+  });
+
+  it("gives each new agent its capability email address and mentions it in next_step", async () => {
+    const signup = await service.signupAgent({ name: "email-agent" });
+    expect(signup.email_address).toBe(
+      agentEmailAddress("test-link-secret-0123456789", signup.agent_id, "brave-otter.primitive.email"),
+    );
+    expect(signup.next_step).toContain(String(signup.email_address));
+  });
+
+  it("finds an agent by id and returns null for unknown or malformed ids", async () => {
+    const a = await agent();
+    expect(await service.agentById(a.id)).toEqual(a);
+    expect(await service.agentById(randomUUID())).toBeNull();
+    expect(await service.agentById("not-a-uuid")).toBeNull();
   });
 
   it("charges nothing on insufficient balance and tells the agent what it can afford", async () => {

@@ -3,6 +3,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   type Agent,
   type Answer,
+  agentEmailAddress,
   CaptureFields,
   centsToUsd,
   distanceMeters,
@@ -25,7 +26,7 @@ import {
   type Worker,
 } from "@eyes/core";
 import { createRpc, type RpcArgs } from "@eyes/db";
-import type { z } from "zod";
+import { z } from "zod";
 
 type Detail = { task: Task; submission: Submission | null; worker_rating: number | null };
 type Nearby = { worker_id: string; phone: string; distance_m: number };
@@ -241,13 +242,25 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_now: nowIso(),
       });
       const top_up_url = topUpUrl(agent.id);
+      const email_address = config.email_domain
+        ? agentEmailAddress(config.link_secret, agent.id, config.email_domain)
+        : null;
+      const byEmail = email_address
+        ? ` You can also email questions to ${email_address} and get the answer as a threaded reply; keep this address private, it works like the api_key.`
+        : "";
       return {
         agent_id: agent.id,
         api_key: apiKey,
+        email_address,
         balance_usd: centsToUsd(agent.balance_cents),
         top_up_url,
-        next_step: `Save api_key now; it is shown only once. Send it as the header Authorization: Bearer <api_key>. Ask your user to add funds at ${top_up_url}, then call quote_task or ask_eyes.`,
+        next_step: `Save api_key now; it is shown only once. Send it as the header Authorization: Bearer <api_key>. Ask your user to add funds at ${top_up_url}, then call quote_task or ask_eyes.${byEmail}`,
       };
+    },
+
+    async agentById(agentId) {
+      if (!z.uuid().safeParse(agentId).success) return null;
+      return (await maybe<Agent>("eyes_agent", { p_agent_id: agentId })) ?? null;
     },
 
     async quoteTask(_agent, input) {

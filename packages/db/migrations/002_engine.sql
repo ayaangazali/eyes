@@ -3,6 +3,11 @@ returns setof agents language sql stable as $$
   select * from agents where api_key_hash = p_api_key_hash
 $$;
 
+create function eyes_agent(p_agent_id uuid)
+returns setof agents language sql stable as $$
+  select * from agents where id = p_agent_id
+$$;
+
 create function eyes_credit_topup(p_agent_id uuid, p_amount_cents bigint, p_stripe_ref text, p_now timestamptz)
 returns setof agents language plpgsql as $$
 begin
