@@ -8,7 +8,7 @@ import { createDashboardServer } from "./server.ts";
 const FEED = {
   tasks: [],
   ledger: [],
-  workers: [],
+  workers: [{ id: "w1", lat: 37.78246, lng: -122.40776, available: true, opted_in: true }],
   totals: { escrowed_cents: 0, released_today_cents: 0, paid_out_today_cents: 0 },
 };
 
@@ -58,7 +58,7 @@ describe("dashboard server", () => {
     expect(res.body).toContain("<title>Eyes live</title>");
   });
 
-  it("serves the feed function's row at /feed", async () => {
+  it("serves the feed function's row at /feed, with worker positions at full precision", async () => {
     calls = [];
     const res = await get("/feed");
     expect(res.status).toBe(200);

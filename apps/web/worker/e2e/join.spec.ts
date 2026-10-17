@@ -1,7 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
 
 const joined = {
-  worker_id: "8f14e45f-ceea-467e-a2d8-0a8a5f2b6c11",
   opt_in_instructions: "Text START to +14155550199.",
   inkbox_number: "+14155550199",
   connect_url: null,

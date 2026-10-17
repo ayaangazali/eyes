@@ -91,7 +91,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const phone = newPhone();
     const joined = await service.joinWorker({ name: "Test Worker", phone, ...at });
     if (optIn) await service.handleWorkerReply({ phone, intent: "start", text: "START" });
-    return { ...joined, phone };
+    const [row] = await sql`select id from workers where phone = ${phone}`;
+    return { ...joined, worker_id: String(row?.id), phone };
   }
 
   async function agent() {
@@ -200,7 +201,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
   });
 
-  it("never lets a repeat join rewrite an existing worker, even after STOP, and sends the payout link only by text after START", async () => {
+  it("never lets a repeat join rewrite an existing worker or tell the caller it exists, even after STOP, and sends the payout link only by text after START", async () => {
     const at = somewhere();
     const phone = newPhone();
     const first = await service.joinWorker({ name: "Real Worker", phone, ...at });
@@ -210,6 +211,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
     const again = await service.joinWorker({ name: "Someone Else", phone, ...north(at, 2000) });
     expect(again).toEqual(first);
+    expect(again).toEqual(await service.joinWorker({ name: "Someone Else", phone: newPhone(), ...at }));
     await service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
     expect(await service.joinWorker({ name: "Someone Else", phone, lat: 0, lng: 0 })).toEqual(first);
     expect(await sql`select name, lat from workers where phone = ${phone}`).toEqual([

@@ -11,7 +11,6 @@ import {
   EyesError,
   FAKE_PLACES,
   fakeProviders,
-  type JoinWorkerOutput,
   type OfferMessage,
   type SignupOutput,
   type ToolName,
@@ -139,10 +138,8 @@ test.afterAll(async () => {
 test("an agent asks over MCP, a texted worker captures on site, the agent gets a verified answer and the worker is paid", async ({
   page,
 }) => {
-  const workerIds = new Map<string, string>();
   for (const w of [...NEAR, FAR]) {
-    const joined = (await post("/w/join", w)) as JoinWorkerOutput;
-    workerIds.set(w.phone, joined.worker_id);
+    await post("/w/join", w);
     await textEyes(w.phone, "START");
     expect(String(sent(w.phone, "text").at(-1)?.payload)).toContain("You are in.");
   }
@@ -150,9 +147,8 @@ test("an agent asks over MCP, a texted worker captures on site, the agent gets a
   expect(connectUrl?.startsWith(`${API}/w/connect/`)).toBe(true);
   const connect = await fetch(connectUrl ?? "", { redirect: "manual" });
   expect(connect.status).toBe(302);
-  expect(connect.headers.get("location")).toBe(
-    `https://connect.fake.test/onboard/acct_fake_${workerIds.get(PAYEE.phone)}`,
-  );
+  const account = connect.headers.get("location")?.split("https://connect.fake.test/onboard/")[1];
+  expect(account).toMatch(/^acct_fake_[\da-f-]{36}$/);
 
   expect(await tool("get_balance")).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
   expect(await tool("quote_task", { location: WHERE, task_type: "line_length" })).toMatchObject({
@@ -210,7 +206,7 @@ test("an agent asks over MCP, a texted worker captures on site, the agent gets a
     expect.objectContaining({
       amount_cents: 300,
       task_id: taskId,
-      account_id: `acct_fake_${workerIds.get(PAYEE.phone)}`,
+      account_id: account,
     }),
   ]);
   expect(sent(PAYEE.phone, "paid").map((m) => m.payload)).toEqual([

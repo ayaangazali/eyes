@@ -52,7 +52,7 @@ const QUOTE = {
 
 const OPS_KEY = "ops-5f2c9a1e7b3d4c8a9e0f1a2b3c4d5e6f";
 const FEED = {
-  tasks: [],
+  tasks: [{ id: TASK_ID, lat: 37.78246, lng: -122.40776, photo_url: "https://storage.eyes.test/p.jpg" }],
   ledger: [],
   workers: [{ lat: 37.78246, lng: -122.40776, available: true, opted_in: true }],
   totals: { escrowed_cents: 0, released_today_cents: 0, paid_out_today_cents: 0 },
@@ -218,7 +218,6 @@ describe("signup and join throttle", () => {
     ["/w/join", { name: "Ana Diaz", phone: "+14155550121", lat: 37.78246, lng: -122.40776 }],
   ])("allows 5 valid %s calls per hour per right-most X-Forwarded-For entry", async (path, body) => {
     const joined = {
-      worker_id: AGENT.id,
       opt_in_instructions: "Text START.",
       inkbox_number: null,
       connect_url: null,
@@ -246,7 +245,6 @@ describe("signup and join throttle", () => {
   const caller = () => {
     const { fetch } = setup({
       joinWorker: async () => ({
-        worker_id: AGENT.id,
         opt_in_instructions: "Text START.",
         inkbox_number: null,
         connect_url: null,
@@ -816,7 +814,6 @@ describe("routes", () => {
       const { fetch } = setup(
         {
           joinWorker: async () => ({
-            worker_id: AGENT.id,
             opt_in_instructions: "Text START.",
             inkbox_number,
             connect_url: null,
@@ -840,6 +837,34 @@ describe("routes", () => {
     const body = await res.json();
     expect(body).toMatchObject({ error: "invalid_input", message: "Unknown route.", path: "/nope" });
     expect(body.fix).toContain("/openapi.json");
+  });
+});
+
+describe("page headers", () => {
+  it("sends a CSP, no referrer and no-store on every public page and its error pages, and leaves JSON alone", async () => {
+    const refuse = async () => {
+      throw new EyesError("offer_invalid");
+    };
+    const { fetch } = setup({ topupCheckoutUrl: refuse, workerConnectUrl: refuse });
+    for (const path of [
+      "/",
+      "/status",
+      "/topup/done?amount_cents=500",
+      "/topup/cancel",
+      "/topup/not-a-token",
+      "/w/connect/done",
+      "/w/connect/not-a-token",
+    ]) {
+      const res = await fetch(`http://eyes.test${path}`);
+      expect(res.headers.get("content-type"), path).toContain("text/html");
+      expect(res.headers.get("content-security-policy"), path).toBe(
+        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+      );
+      expect(res.headers.get("referrer-policy"), path).toBe("no-referrer");
+      expect(res.headers.get("cache-control"), path).toBe("no-store");
+    }
+    const health = await fetch("http://eyes.test/healthz");
+    expect([...health.headers.keys()].sort()).toEqual(["content-type"]);
   });
 });
 
@@ -956,7 +981,7 @@ describe("ops dashboard", () => {
     expect(rpcCalls).toEqual([]);
   });
 
-  it("serves the dashboard page and its feed for the right key, uncached, with no referrer and a CSP that allows only the page's own script", async () => {
+  it("serves the dashboard page and its feed for the right key, uncached, with no referrer, a CSP that allows only the page's own script, and worker positions rounded to 3 decimals", async () => {
     const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
     const page = await fetch(`http://eyes.test/ops/${OPS_KEY}`);
     const feed = await fetch(`http://eyes.test/ops/${OPS_KEY}/feed`);
@@ -966,7 +991,10 @@ describe("ops dashboard", () => {
     const body = await page.text();
     expect(body).toBe(PAGE);
     expect(feed.status).toBe(200);
-    expect(await feed.json()).toEqual(FEED);
+    expect(await feed.json()).toEqual({
+      ...FEED,
+      workers: [{ lat: 37.782, lng: -122.408, available: true, opted_in: true }],
+    });
     expect(rpcCalls).toEqual([{ fn: "eyes_dashboard_feed", args: { p_limit: 50 } }]);
     for (const res of [page, feed]) {
       expect(res.headers.get("referrer-policy")).toBe("no-referrer");

@@ -704,7 +704,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
 
     async joinWorker(input) {
       const join = parse(JoinWorkerInput, input);
-      const worker = await one<Worker>("eyes_join_worker", {
+      await rpc("eyes_join_worker", {
         p_name: join.name,
         p_phone: join.phone,
         p_lat: join.lat,
@@ -712,7 +712,6 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_now: nowIso(),
       });
       return {
-        worker_id: worker.id,
         opt_in_instructions:
           "Text START to the Eyes number to start getting paid tasks near you; we reply with your payout setup link. When a task text arrives, reply YES to claim it. Text STOP any time to pause.",
         inkbox_number: null,

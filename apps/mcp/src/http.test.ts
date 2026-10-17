@@ -419,7 +419,7 @@ describe("node adapter on a real socket", () => {
       providers: fakeProviders(),
       config,
       env: { EYES_OPS_KEY: opsKey },
-      rpc: (async () => [{ tasks: [] }]) as Rpc,
+      rpc: (async () => [{ tasks: [], workers: [] }]) as Rpc,
     });
     const base = await listenOn((request) => server.fetch(request));
     const log = quiet();
