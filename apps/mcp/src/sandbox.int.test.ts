@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { AppConfig, fakeProviders, TOOLS, type ToolName, type ToolOutput } from "@eyes/core";
 import { migrate } from "@eyes/db";
 import { createAssessTask } from "@eyes/safety";
 import { verifySubmission } from "@eyes/verify";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSandboxService, SANDBOX } from "./sandbox.ts";
 import { createServer } from "./server.ts";
 
@@ -26,21 +26,26 @@ describe.skipIf(!url)("keyless sandbox on Postgres", () => {
   });
   const server = createServer({ service, providers, config, env: { EYES_SANDBOX: "1" } });
 
-  beforeAll(() => migrate(url ?? ""));
+  const client = new Client({ name: "sandbox-int", version: "1.0.0" });
+  const call = async <T extends ToolName>(name: T, args: Record<string, unknown>) => {
+    const result = await client.callTool({ name, arguments: args });
+    expect(result.isError).toBeFalsy();
+    return TOOLS[name].output.parse(result.structuredContent) as ToolOutput<T>;
+  };
+  const somewhere = () => ({ lat: 10 + Math.random() * 40, lng: -120 + Math.random() * 60 });
 
-  it("answers quote_task, ask_eyes and await_answer with no API key, verified, for parallel asks at one place", async () => {
-    const client = new Client({ name: "sandbox-int", version: "1.0.0" });
+  beforeAll(async () => {
+    await migrate(url ?? "");
     await client.connect(
       new StreamableHTTPClientTransport(new URL("http://sandbox.eyes.test/mcp"), {
         fetch: (input, init) => server.fetch(new Request(input, init)),
       }),
     );
-    const call = async <T extends ToolName>(name: T, args: Record<string, unknown>) => {
-      const result = await client.callTool({ name, arguments: args });
-      expect(result.isError).toBeFalsy();
-      return TOOLS[name].output.parse(result.structuredContent) as ToolOutput<T>;
-    };
-    const place = { lat: 10 + Math.random() * 40, lng: -120 + Math.random() * 60 };
+  });
+  afterAll(() => client.close());
+
+  it("answers quote_task, ask_eyes and await_answer with no API key, verified, for parallel asks at one place", async () => {
+    const place = somewhere();
 
     const quote = await call("quote_task", { location: place, task_type: "line_length" });
     expect(quote.allowed).toBe(true);
@@ -70,6 +75,26 @@ describe.skipIf(!url)("keyless sandbox on Postgres", () => {
       expect(answer.answer?.answer_text).toMatch(/^Simulated sandbox answer, nobody went: /);
       expect(answer.next_step).toContain(SANDBOX);
     }
-    await client.close();
+  }, 30_000);
+
+  it("never answers for a worker whose number is not a sandbox number", async () => {
+    const place = somewhere();
+    const phone = `+1415867${String(randomInt(10_000)).padStart(4, "0")}`;
+    await service.joinWorker({ name: "Real Worker", phone, ...place });
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+
+    const asked = await call("ask_eyes", {
+      question: "Is it open right now?",
+      location: place,
+      task_type: "is_open",
+      idempotency_key: randomUUID(),
+    });
+    expect(asked.workers_notified).toBe(1);
+    const sent = providers.messaging.outbox.filter((m) => m.to === phone).map((m) => m.kind);
+    expect(sent).toContain("offer");
+
+    const waited = await call("await_answer", { task_id: asked.task_id, timeout_seconds: 8 });
+    expect(waited).toMatchObject({ status: "dispatched", answered: false });
+    expect(providers.messaging.outbox.filter((m) => m.to === phone).map((m) => m.kind)).toEqual(sent);
   }, 30_000);
 });

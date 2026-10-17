@@ -57,10 +57,11 @@ describe("main.ts", () => {
     expect(run.stdout).not.toContain("listening");
   });
 
-  it("refuses EYES_SANDBOX=1 unless every provider is fake and EYES_FAKE_WEBHOOKS is unset", async () => {
+  it("refuses EYES_SANDBOX=1 unless every provider is fake and EYES_FAKE_WEBHOOKS and ANTHROPIC_API_KEY are unset", async () => {
     const refused: Record<string, string>[] = [
       { ANTHROPIC_API_KEY: "sk-ant-test" },
       { EYES_PROVIDERS: "fake", EYES_FAKE_WEBHOOKS: "1" },
+      { EYES_PROVIDERS: "fake", ANTHROPIC_API_KEY: "sk-ant-test" },
     ];
     for (const env of refused) {
       const run = await boot({ EYES_SANDBOX: "1", ...env });

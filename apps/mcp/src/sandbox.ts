@@ -4,6 +4,7 @@ import {
   type EngineDeps,
   EyesError,
   type EyesService,
+  FAKE_PLACES,
   type LatLng,
   type RouteDeps,
   signToken,
@@ -13,10 +14,18 @@ import {
 import { createEyesService } from "@eyes/engine";
 
 const CAPTURE_DELAY_MS = 5000;
-const ANSWER_IN = `a simulated worker answers each task in about ${CAPTURE_DELAY_MS / 1000} seconds`;
+const ANSWER_IN = `A simulated worker answers each task in about ${CAPTURE_DELAY_MS / 1000} seconds.`;
 export const SANDBOX = "Sandbox: keyless, simulated worker, no real people or money.";
-export const SANDBOX_NOTICE = `${SANDBOX} Call /mcp or /v1 with no Authorization header to get a sandbox agent with play money; ${ANSWER_IN}.`;
+export const SANDBOX_NOTICE = `${SANDBOX} Call /mcp or /v1 with no Authorization header to get a sandbox agent with play money. ${ANSWER_IN} quote_task counts the worker ask_eyes adds when none is free nearby, so workers_nearby is at least 1. Place names resolve only for ${Object.values(
+  FAKE_PLACES,
+)
+  .map((place) => `"${place.label}"`)
+  .join(", ")}; pass {lat, lng} for any other place.`;
 
+const SANDBOX_PHONE = /^\+1[2-9]\d{2}55501\d{2}$/;
+const ASK_TIMEOUT_MS = 15_000;
+const ASK_QUEUE_MAX = 10;
+const ASK_RETRY_S = 15;
 const HIRE_TRIES = 3;
 const KEYLESS_TTL_MS = 60 * 60 * 1000;
 const KEYLESS_MAX = 10_000;
@@ -40,14 +49,33 @@ const errorName = (err: unknown) =>
 
 const sandboxed = <T extends { next_step: string }>(out: T): T => ({
   ...out,
-  next_step: `${SANDBOX} Here ${ANSWER_IN}. ${out.next_step}`,
+  next_step: `${SANDBOX} ${ANSWER_IN} ${out.next_step}`,
 });
 
 export function createSandboxService(deps: EngineDeps): EyesService {
   const { messaging, clock } = deps.providers;
   let queue: Promise<unknown> = Promise.resolve();
-  const serial = <T>(fn: () => Promise<T>): Promise<T> => {
-    const run = queue.then(fn);
+  let queued = 0;
+  const busy = (message: string) =>
+    new EyesError(
+      "rate_limited",
+      { retry_after_s: ASK_RETRY_S },
+      { message, fix: `Wait ${ASK_RETRY_S} seconds and call ask_eyes again with the same idempotency_key.` },
+    );
+  const serial = async <T>(fn: () => Promise<T>): Promise<T> => {
+    if (queued >= ASK_QUEUE_MAX) throw busy(`The sandbox already has ${ASK_QUEUE_MAX} asks waiting.`);
+    queued += 1;
+    const run = queue
+      .then(() => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const late = new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(busy("The sandbox ask took too long.")), ASK_TIMEOUT_MS);
+        });
+        return Promise.race([fn(), late]).finally(() => clearTimeout(timer));
+      })
+      .finally(() => {
+        queued -= 1;
+      });
     queue = run.catch(() => undefined);
     return run;
   };
@@ -81,6 +109,7 @@ export function createSandboxService(deps: EngineDeps): EyesService {
         ...messaging,
         sendOffer: async (to, offer) => {
           const sent = await messaging.sendOffer(to, offer);
+          if (!SANDBOX_PHONE.test(to)) return sent;
           await service
             .handleWorkerReply({ phone: to, intent: "yes", text: "YES" })
             .catch((err) => console.error(`sandbox claim failed: ${errorName(err)}`));
@@ -88,7 +117,7 @@ export function createSandboxService(deps: EngineDeps): EyesService {
         },
         sendCaptureLink: async (to, link) => {
           const sent = await messaging.sendCaptureLink(to, link);
-          setTimeout(() => capture(link.capture_url), CAPTURE_DELAY_MS);
+          if (SANDBOX_PHONE.test(to)) setTimeout(() => capture(link.capture_url), CAPTURE_DELAY_MS);
           return sent;
         },
       },
@@ -101,21 +130,25 @@ export function createSandboxService(deps: EngineDeps): EyesService {
     await service.handleWorkerReply({ phone, intent: "start", text: "START" });
   }
 
-  async function quoteWithWorker(agent: Agent, input: ToolInput<"quote_task">) {
+  async function hireIfNone(agent: Agent, input: ToolInput<"quote_task">) {
     let quote = await service.quoteTask(agent, input);
     for (let tries = 0; quote.allowed && quote.workers_nearby === 0 && tries < HIRE_TRIES; tries++) {
       await hire(quote.resolved_location);
       quote = await service.quoteTask(agent, input);
     }
-    return quote;
   }
 
   return {
     ...service,
-    quoteTask: quoteWithWorker,
+    quoteTask: async (agent, input) => {
+      const quote = await service.quoteTask(agent, input);
+      return quote.allowed && quote.workers_nearby === 0
+        ? { ...quote, workers_nearby: 1, est_minutes_to_answer: 1 }
+        : quote;
+    },
     askEyes: (agent, input) =>
       serial(async () => {
-        await quoteWithWorker(agent, { location: input.location, task_type: input.task_type }).catch(
+        await hireIfNone(agent, { location: input.location, task_type: input.task_type }).catch(
           () => undefined,
         );
         return sandboxed(await service.askEyes(agent, input));
@@ -164,7 +197,11 @@ export function keylessAgents({ service, config, providers }: RouteDeps) {
     }
     held.set(address, { key, at: now });
     const agent = await service.authenticate(await key);
-    if (agent && agent.balance_cents < SANDBOX_FLOOR_CENTS) {
+    if (!agent) {
+      if (held.get(address)?.key === key) held.delete(address);
+      return null;
+    }
+    if (agent.balance_cents < SANDBOX_FLOOR_CENTS) {
       await service.creditTopup({
         agent_id: agent.id,
         amount_cents: SANDBOX_CREDIT_CENTS,

@@ -277,6 +277,30 @@ describe("auth", () => {
     expect((await quote({ "x-forwarded-for": "198.51.100.99" })).status).toBe(200);
     expect(signupAgent).toHaveBeenCalledTimes(31);
   });
+
+  it("gives a keyless address a new sandbox agent once its held key stops working", async () => {
+    const keys = ["eyes_test_rotated", KEY];
+    const signupAgent = vi.fn(async () => ({
+      agent_id: AGENT.id,
+      api_key: keys.shift() ?? KEY,
+      balance_usd: 20,
+      top_up_url: null,
+      email_address: null,
+      next_step: "Call quote_task.",
+    }));
+    const { fetch } = setup(
+      { signupAgent, updateSpendPolicy: vi.fn(), creditTopup: async () => undefined },
+      { EYES_SANDBOX: "1" },
+    );
+    const quote = () =>
+      fetch("http://eyes.test/v1/quote", {
+        method: "POST",
+        body: JSON.stringify({ location: "Ferry Building, San Francisco", task_type: "line_length" }),
+      });
+    expect((await quote()).status).toBe(401);
+    expect((await quote()).status).toBe(200);
+    expect(signupAgent).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("signup and join throttle", () => {

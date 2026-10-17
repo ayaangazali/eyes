@@ -113,7 +113,7 @@ type Live = ReturnType<typeof liveProviders>;
 
 const simulatedNotice = (live: Live, sandbox: boolean) => {
   const fake = (Object.keys(SIMULATED) as (keyof typeof SIMULATED)[])
-    .filter((name) => !live[name] && !(sandbox && name === "messaging"))
+    .filter((name) => !live[name] && !(sandbox && (name === "messaging" || name === "geo")))
     .map((name) => SIMULATED[name]);
   const lines = sandbox ? [SANDBOX_NOTICE, ...fake] : fake;
   return lines.length
@@ -287,12 +287,12 @@ async function readCapture(c: Context) {
 export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
   const { service, config, env } = deps;
   const sandbox = env.EYES_SANDBOX === "1";
-  const note = (text: string) => (sandbox ? `${SANDBOX} ${text}` : text);
+  const note = (text: string) => (sandbox ? `${SANDBOX_NOTICE}\n${text}` : text);
   const server = new MCPServer<never, AppEnv>({
     name: "eyes",
     title: "Eyes",
     version: "0.1.0",
-    description: note("Pay a nearby human a few dollars to check something in the physical world right now."),
+    description: `${sandbox ? `${SANDBOX} ` : ""}Pay a nearby human a few dollars to check something in the physical world right now.`,
     instructions: note(INSTRUCTIONS),
     logging: { enabled: false },
   });
@@ -337,12 +337,13 @@ export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
     {
       name: "quote_task",
       title: "Quote a task",
-      description: `Check whether Eyes can answer a question at a place before you spend anything. Free and read-only.
+      description:
+        note(`Check whether Eyes can answer a question at a place before you spend anything. Free and read-only.
 Returns workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, reason_if_not and resolved_location (where Eyes thinks you mean).
 suggested_bounty_usd already fits this API key's max_bounty_usd, the daily cap left and your balance, so ask_eyes accepts it. allowed is false only when you cannot post this task right now: the safety rules refuse this task_type at this place, the task_type is not allowed for this key, or even the 1 USD minimum bounty plus the 0.50 USD fee does not fit your limits or balance; reason_if_not says what to do. quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task.
 location is {lat, lng} or a string such as "Blue Bottle Coffee, Mint Plaza, San Francisco". task_type is one of: is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public.
 Example: quote_task({ "location": "Ferry Building, San Francisco", "task_type": "line_length" })
-Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`,
+Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`),
       inputSchema: TOOLS.quote_task.input,
       outputSchema: TOOLS.quote_task.output,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
