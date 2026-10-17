@@ -547,10 +547,21 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
 
   server.use("/w/*", cors({ origin: new URL(config.worker_web_url).origin }));
   server.post("/w/join", async (c) => {
+    const number = env.INKBOX_PHONE_NUMBER;
+    if (!number) {
+      throw new EyesError(
+        "not_implemented",
+        {},
+        {
+          message: "Worker sign-up is not open yet.",
+          fix: "Worker sign-up opens once the Eyes texting line is set up.",
+        },
+      );
+    }
     const input = parse(JoinWorkerInput, await readJson(c));
     throttle(c);
     const joined = await service.joinWorker(input);
-    return c.json({ ...joined, inkbox_number: joined.inkbox_number || env.INKBOX_PHONE_NUMBER || null });
+    return c.json({ ...joined, inkbox_number: joined.inkbox_number || number });
   });
   server.get("/w/offers/:token", async (c) => c.json(await service.getOffer(c.req.param("token"))));
   const uploads = new Set<string>();

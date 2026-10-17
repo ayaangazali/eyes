@@ -479,7 +479,7 @@ describe("place label in every template", () => {
 });
 
 describe("post-reply templates", () => {
-  it("capture link has the url, place, local deadline and the no-faces rule", () => {
+  it("capture link has the url, place, local deadline, the no-faces rule and how to give it back", () => {
     const text = captureLinkText({
       task_id: "t",
       place_label: "Ferry Building, San Francisco",
@@ -487,7 +487,7 @@ describe("post-reply templates", () => {
       deadline_at: "2026-10-17T19:30:00.000Z",
     });
     expect(text).toBe(
-      "Eyes: it's yours! Take the photo at Ferry Building by 12:30 PM PDT. Never photograph people's faces. Open: https://w.eyes.test/c/abc",
+      "Eyes: it's yours! Take the photo at Ferry Building by 12:30 PM PDT. Never photograph people's faces. Can't make it? Reply NO to give it back. Open: https://w.eyes.test/c/abc",
     );
   });
 

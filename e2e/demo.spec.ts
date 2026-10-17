@@ -207,7 +207,11 @@ test.beforeAll(async () => {
     service,
     providers,
     config,
-    env: { INKBOX_WEBHOOK_SIGNING_KEY: INKBOX_KEY, PRIMITIVE_WEBHOOK_SECRET: PRIMITIVE_SECRET },
+    env: {
+      INKBOX_WEBHOOK_SIGNING_KEY: INKBOX_KEY,
+      INKBOX_PHONE_NUMBER: "+14155550100",
+      PRIMITIVE_WEBHOOK_SECRET: PRIMITIVE_SECRET,
+    },
   });
   api.on("request", toNodeListener(server.fetch));
   dashboard = createDashboardServer(createRpc(db));

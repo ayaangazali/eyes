@@ -222,7 +222,10 @@ describe("signup and join throttle", () => {
       inkbox_number: null,
       connect_url: null,
     };
-    const { fetch, clock } = setup({ joinWorker: async () => joined });
+    const { fetch, clock } = setup(
+      { joinWorker: async () => joined },
+      { INKBOX_PHONE_NUMBER: "+14155550199" },
+    );
     const call = (forwardedFor: string, json: unknown = body) =>
       fetch(`http://eyes.test${path}`, {
         method: "POST",
@@ -243,13 +246,16 @@ describe("signup and join throttle", () => {
   });
 
   const caller = () => {
-    const { fetch } = setup({
-      joinWorker: async () => ({
-        opt_in_instructions: "Text START.",
-        inkbox_number: null,
-        connect_url: null,
-      }),
-    });
+    const { fetch } = setup(
+      {
+        joinWorker: async () => ({
+          opt_in_instructions: "Text START.",
+          inkbox_number: null,
+          connect_url: null,
+        }),
+      },
+      { INKBOX_PHONE_NUMBER: "+14155550199" },
+    );
     return (path: string, forwardedFor: string) =>
       fetch(`http://eyes.test${path}`, {
         method: "POST",
@@ -807,6 +813,26 @@ describe("routes", () => {
     expect(await page({ ANTHROPIC_API_KEY: secret }, "/")).toContain(
       "Every task passes the safety rules and an AI safety classifier",
     );
+  });
+
+  it("refuses /w/join without INKBOX_PHONE_NUMBER and never stores the phone", async () => {
+    const joinWorker = vi.fn(async () => ({
+      opt_in_instructions: "Text START.",
+      inkbox_number: null,
+      connect_url: null,
+    }));
+    const { fetch } = setup({ joinWorker });
+    const res = await fetch("http://eyes.test/w/join", {
+      method: "POST",
+      body: JSON.stringify({ name: "Ana Diaz", phone: "+14155550121", lat: 37.78246, lng: -122.40776 }),
+    });
+    expect(res.status).toBe(501);
+    expect(await res.json()).toEqual({
+      error: "not_implemented",
+      message: "Worker sign-up is not open yet.",
+      fix: "Worker sign-up opens once the Eyes texting line is set up.",
+    });
+    expect(joinWorker).not.toHaveBeenCalled();
   });
 
   it("fills the Inkbox number on /w/join from INKBOX_PHONE_NUMBER when the engine has none", async () => {

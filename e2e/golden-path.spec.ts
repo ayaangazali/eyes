@@ -114,7 +114,7 @@ test.beforeAll(async () => {
     service,
     providers,
     config,
-    env: { INKBOX_WEBHOOK_SIGNING_KEY: INKBOX_KEY },
+    env: { INKBOX_WEBHOOK_SIGNING_KEY: INKBOX_KEY, INKBOX_PHONE_NUMBER: "+14155550100" },
   });
   http = createHttpServer(toNodeListener(server.fetch));
   await new Promise<void>((resolve) => http?.listen(3399, "127.0.0.1", resolve));

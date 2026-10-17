@@ -849,6 +849,14 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
+  it("points a bad payout setup link at START for a fresh one, not at tasks", async () => {
+    await expect(service.workerConnectUrl("garbage")).rejects.toMatchObject({
+      code: "offer_invalid",
+      message: "This payout setup link is invalid or has expired.",
+      fix: "Text START to the Eyes number for a fresh payout setup link.",
+    });
+  });
+
   it("replaces a leaked API key from the owner link: the old key stops working at once and the new key appears nowhere else", async () => {
     const logs = (["log", "info", "warn", "error"] as const).map((m) => vi.spyOn(console, m));
     try {
