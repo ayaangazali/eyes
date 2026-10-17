@@ -399,7 +399,6 @@ export const JoinWorkerInput = z.object({
   lng: z.number().min(-180).max(180),
 });
 export const JoinWorkerOutput = z.object({
-  worker_id: Id,
   opt_in_instructions: z.string(),
   inkbox_number: z.string().nullable(),
   connect_url: z.string().nullable(),

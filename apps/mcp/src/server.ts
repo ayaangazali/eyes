@@ -24,7 +24,7 @@ import {
   verifyToken,
 } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
-import { stripeRoutes } from "@eyes/payments";
+import { PAGE_HEADERS, stripeRoutes } from "@eyes/payments";
 import { PAGE as DASHBOARD, readFeed } from "@eyes/web-dashboard";
 import type { Context, MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
@@ -73,6 +73,7 @@ code{font:.9em ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef0f3;pa
 .state.live::before{background:#1f9d63}
 .box+.button{margin-top:1.5rem}`;
 const sha256 = (text: string) => createHash("sha256").update(text);
+const coarse = (degrees: number) => Math.round(degrees * 1000) / 1000;
 const DASHBOARD_SCRIPT = sha256(/<script>([\s\S]*?)<\/script>/.exec(DASHBOARD)?.[1] ?? "").digest("base64");
 const OPS_HEADERS = {
   "Referrer-Policy": "no-referrer",
@@ -595,7 +596,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   const live = liveProviders(env);
   const classifier = Boolean(env.ANTHROPIC_API_KEY);
   const home = homePage(config.worker_web_url, live, classifier);
-  server.get("/", (c) => c.html(home, 200, { link: LINK }));
+  server.get("/", (c) => c.html(home, 200, { link: LINK, ...PAGE_HEADERS }));
   for (const [path, contentType] of Object.entries(DOCS)) {
     server.get(path, async (c) => {
       c.header("link", LINK);
@@ -622,7 +623,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     return c.json({ ok: true, providers, db });
   });
   const status = statusPage(live, classifier, db, env.EYES_COMMIT);
-  server.get("/status", (c) => c.html(status));
+  server.get("/status", (c) => c.html(status, 200, PAGE_HEADERS));
 
   const { rpc } = deps;
   if (env.EYES_OPS_KEY && rpc) {
@@ -631,9 +632,12 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     server.get("/ops/:key", (c) =>
       operator(c.req.param("key")) ? c.html(DASHBOARD, 200, OPS_HEADERS) : c.notFound(),
     );
-    server.get("/ops/:key/feed", async (c) =>
-      operator(c.req.param("key")) ? c.json(await readFeed(rpc), 200, OPS_HEADERS) : c.notFound(),
-    );
+    server.get("/ops/:key/feed", async (c) => {
+      if (!operator(c.req.param("key"))) return c.notFound();
+      const { workers, ...feed } = (await readFeed(rpc)) as { workers: { lat: number; lng: number }[] };
+      const coarseWorkers = workers.map((w) => ({ ...w, lat: coarse(w.lat), lng: coarse(w.lng) }));
+      return c.json({ ...feed, workers: coarseWorkers }, 200, OPS_HEADERS);
+    });
   }
 
   return server;

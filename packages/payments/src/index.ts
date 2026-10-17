@@ -196,7 +196,7 @@ async function explained(c: Context, respond: () => Promise<Response>) {
 const redirectTo = (c: Context, url: () => Promise<string>) =>
   explained(c, async () => c.redirect(await url(), 302));
 
-const OWNER_HEADERS = {
+export const PAGE_HEADERS = {
   "Referrer-Policy": "no-referrer",
   "Cache-Control": "no-store",
   "Content-Security-Policy":
@@ -336,6 +336,11 @@ const newKeyPage = (apiKey: string, token: string) =>
 
 export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
   const app = new Hono();
+  const pageHeaders = async (c: Context, next: Next) => {
+    for (const [name, value] of Object.entries(PAGE_HEADERS)) c.header(name, value);
+    await next();
+  };
+  for (const path of ["/topup/*", "/owner/*", "/w/connect/*", "/w/earnings/*"]) app.use(path, pageHeaders);
 
   app.post("/webhooks/stripe", async (c) => {
     const rawBody = await c.req.text();
@@ -394,12 +399,6 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
   const formNumber = (v: unknown) =>
     typeof v === "string" && /^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : Number.NaN;
 
-  const privateLink = async (c: Context, next: Next) => {
-    for (const [name, value] of Object.entries(OWNER_HEADERS)) c.header(name, value);
-    await next();
-  };
-  app.use("/owner/*", privateLink);
-  app.use("/w/earnings/*", privateLink);
   app.get("/owner/:token", (c) => ownerView(c, c.req.query("saved") === undefined ? null : SAVED));
   app.post("/owner/:token/policy", async (c) => {
     const form = await c.req.parseBody({ all: true });

@@ -72,7 +72,13 @@ describe.skipIf(!url)("engine under races and guards", () => {
     const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
     const joined = await env.service.joinWorker({ name: "Worker", phone, ...at });
     await env.service.handleWorkerReply({ phone, intent: "start", text: "START" });
-    return { ...joined, phone, connectToken: lastText(env, phone).split("/w/connect/")[1] ?? "" };
+    const [row] = await sql`select id from workers where phone = ${phone}`;
+    return {
+      ...joined,
+      worker_id: String(row?.id),
+      phone,
+      connectToken: lastText(env, phone).split("/w/connect/")[1] ?? "",
+    };
   }
   async function agent(env: Env = main) {
     const { api_key } = await env.service.signupAgent({ name: "adv" });
