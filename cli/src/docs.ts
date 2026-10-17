@@ -46,7 +46,7 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
   ask_eyes: {
     title: "Ask a human to check",
     summary:
-      "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. Always pass a unique idempotency_key: retrying with the same key and parameters returns the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.",
+      "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. idempotency_key is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.",
     tags: ["physical-world", "human-verification", "real-time"],
     example: {
       question: "How many people are waiting in line right now?",
@@ -164,10 +164,10 @@ const OPS: Record<Documented, Op> = {
     tag: "agent",
     summary: "Create an API key",
     description:
-      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Then send Authorization: Bearer <api_key> on every other call.",
+      "Public, no API key needed. Creates an agent and returns api_key (shown only once, store it), top_up_url (a Stripe Checkout link for your human to fund the balance) and email_address (a private address for asking Eyes by email; null when email is not configured; anyone who knows it can spend your balance). Test mode grants 20 USD. Pass owner_email, your human's email address: Eyes emails them a private control link to set your spend limits and add funds, and you never see that link. Then send Authorization: Bearer <api_key> on every other call.",
     auth: false,
     body: schema(SignupInput, "input"),
-    example: { name: "my-research-agent" },
+    example: { name: "my-research-agent", owner_email: "owner@example.com" },
     response: schema(SignupOutput),
   },
   quote: toolOp("quote_task", "quote"),
@@ -246,7 +246,7 @@ function openapi(): Json {
     info: {
       title: "Eyes",
       version: VERSION,
-      description: `${DESCRIPTION} Paths are relative to this server's origin. Start with /llms.txt. The same tools are available over MCP at POST /mcp.`,
+      description: `${DESCRIPTION} Paths are relative to this server's origin. Start with /llms.txt, and check GET /status for which parts of this server are live: a simulated deploy sends no texts and has no workers. The same tools are available over MCP at POST /mcp.`,
     },
     servers: [{ url: "/" }],
     security: [{ bearer: [] }],

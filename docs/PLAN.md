@@ -4,41 +4,36 @@ Living plan. `STATUS.md` is the task board; this file says what remains, who doe
 
 Hacking: Sat Oct 17 10:30 AM to Sun Oct 18 10:00 AM (submissions). Feature freeze 6:00 AM Sun.
 
-## 1. Where we are
+## 1. Where we are (2026-10-17 04:25 PT)
 
 | Area | State |
 |---|---|
-| Contracts, CI, intent system (Phase 0) | done; G0 passed |
-| Golden path on fakes (G1 fakes half) | done; Playwright e2e green in CI |
-| MCP server on Manufact | live at https://dark-wave-wfmpm.run.mcp-use.com/mcp; redeploy by hand after each merge (`npx mcp-use deploy --yes --dockerfile Dockerfile`); env changes need `deployments restart` |
-| InsForge Postgres + Sites | live; signup/balance/policy served from InsForge; worker web at https://7t6779x4.insforge.site |
-| Stripe, Inkbox, Primitive, Claude vision/classifier, Armature | code merged on fakes; waiting on keys |
-| Safety gate (T1.5, PR #7) | round 6 in verification |
-| Agent docs + `eyes` CLI (T3.2, PR #9) | round 5 in verification |
+| Golden path, demo script, swarm | on fakes in CI: `pnpm test:e2e` (golden + demo), `pnpm test:demo` passes 3x in a row (G3 machine check), `pnpm swarm` fills the dashboard |
+| MCP server on Manufact | live: 9 tools, REST mirror, agent docs (`/llms.txt`, `/openapi.json`, agent card), HOME and `/status`; `pnpm smoke:live` 13/13 |
+| InsForge | live: Postgres (migrations 001-008), photo storage (delete verified), Sites (worker JOIN, capture, privacy) |
+| Owner control (Stripe track) | live: owner console (limits, freeze, add funds, ledger); owner link to `owner_email` and (after #53) to the Checkout payer |
+| Safety | live: rules layer; Claude classifier switches on with `ANTHROPIC_API_KEY` |
+| Money paths | escrow, refund, payout retry, operator resolve (`pnpm resolve-task`), forged-webhook guard (#56); payout recovery after a Stripe refusal in review (#57) |
+| Agent experience | AX eval (`pnpm ax:eval`) runs the scripted client in CI; Claude client runs when the key lands |
+| Vendors | Stripe, Inkbox, Primitive, Claude vision/classifier, Armature: code merged, waiting on keys |
 
-## 2. Work in flight (wave 4)
+## 2. Work in flight
 
-| Task | What | Why | Agent |
-|---|---|---|---|
-| T2.5 owner console (ADR-011) | `/owner/:token` page: users set max bounty, daily cap, allowed task types, freeze, add funds; link emailed to `owner_email`, never shown to the agent | Stripe track: clear user control over what agents can do and spend | builder + security/spec/test verifiers |
-| T4.1 hardening | deferred #17-#23; per-IP throttle on signup and worker join | unauthenticated signup grants test money that can text real workers | builder + security/test verifiers |
-| T3.5a demo rehearsal + swarm | `e2e/demo.spec.ts` encodes the §13 demo; `pnpm swarm` lights the dashboard with ~50 simulated agents | G3 needs a machine check that the demo passes 3x; the map needs activity | builder + integration verifier |
-| SPEC coverage ledger | every SPEC/ADR obligation marked met/partial/unmet with file:line + test evidence; product gaps outside the SPEC | "cover everything" needs a list, not a feeling | auditor (read-only) |
-| UX/UI audit | screenshots of every human screen at iPhone and desktop size; findings ranked | a cold-texted stranger must trust the link and finish in 60 s | auditor (read-only), then a UI builder |
+| Task | What | Status |
+|---|---|---|
+| T4.9 (#57) | payouts recover after a Stripe refusal, no starvation | round-2 adversarial verify |
+| T4.13 (#60) | every user-facing sentence true on the running system | verifying |
+| T4.11b (#59) | signup never claims an email was sent when email is simulated | merging |
 
-Every PR: spec + test + intent verifiers, plus security on money/auth/webhooks/safety and ax on agent surfaces (SPEC §4). Auto-merge on PASS + green CI. ADR-010 decides blocking vs deferred.
+Every PR: spec + test + intent verifiers, security on money/auth/webhooks/safety, ax on agent surfaces. Auto-merge on PASS + green CI. ADR-010 decides blocking vs deferred. Verdicts live in `intent/verdicts/`.
 
-## 3. Next waves (queued, start as slots free; builder cap raised from 4 to 6 on 2026-10-17 per the humans' "keep adding agents")
+## 3. Next (in order)
 
-1. **UI fixes, part 2** (after T2.5 and T4.1 free their files): HOME page for humans who got a text (UX 10), shared header on top-up pages and amount on /topup/done (UX 13, 24), engine returns the Inkbox number to JOIN (UX 9).
-2. **T4.2 money never stuck** (after T2.5 frees packages/engine): payout retry sweep for verified-but-unpaid tasks; operator resolve of `needs_review`/`disputed` to refund or release (plpgsql + script + runbook); refuse an `sk_live_` key while `EYES_TEST_MODE=true`; tests for `bounty_exceeds_max` and `task_type_not_allowed`.
-3. **T4.3 worker lifecycle**: STOP confirmation and HELP reply; Inkbox new-recipient budget counted from `offers`.
-4. **T3.6 `list_tasks`** tool and `GET /v1/tasks` (ADR needed; frozen TOOLS) so an agent that lost a task_id can recover it.
-5. **Status page** for humans next to `/healthz`.
-6. Filed for after the demo: #27-#34, #36.
-7. **T3.4 Armature + evals**: golden-path eval across Claude and a second MCP client; analytics once the key and their mcp-use answer land.
-8. **T3.5b Blaxel**: run `pnpm swarm` and the ax/eval agents as Blaxel batch jobs and sandboxes (needs `BL_WORKSPACE`, `BL_API_KEY`). Never on the golden path.
-9. **Phase 4 package**: README (judge-facing), submission text, 90 s video script, backup video, demo runbook card.
+1. **T4.14** a worker who replies NO after YES releases the claim so the task goes back to other workers (migration 010, after #57).
+2. Redeploy Manufact and Sites after #57/#59/#60 so the live text matches the code; rerun `pnpm smoke:live`.
+3. Deferred issues, by demo impact: #54 (owner link scope), #55 (capture upload cap), #33 (worker earnings page), #28 (key revocation), #29 (withdraw to card), #30 (per-task event trail), #31 (durable expiry), #32 (hosted read-only dashboard), #34 (worker report), #36/#42 done.
+4. **T3.4b Armature** analytics once the key and their mcp-use answer land; **T3.5b Blaxel** swarm and eval sandboxes once BL keys land (never on the golden path).
+5. **Phase 4**: fill docs/SUBMISSION.md TODO slots from STATUS live verification, record the 90 s video from docs/DEMO.md, backup video, final README pass.
 
 ## 4. When each key lands (exact steps)
 

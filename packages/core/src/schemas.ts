@@ -214,12 +214,14 @@ export const AskEyesInput = z.object({
       "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
     ),
   idempotency_key: z
-    .string()
+    .string({
+      error:
+        "Required. Pass any unique string for each task you intend to create, for example a UUID, and send the same key again when you retry that task, so the retry returns the original task instead of charging twice.",
+    })
     .min(1)
     .max(128)
-    .optional()
     .describe(
-      "Any unique string per question. Retrying with the same key never double-charges. Always set it.",
+      "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question.",
     ),
 });
 export const AskEyesOutput = z.object({

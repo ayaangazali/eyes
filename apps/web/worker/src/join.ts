@@ -3,7 +3,11 @@ import { $, call, LOCATION_HELP, Problem, showError } from "./api.ts";
 
 const form = $<HTMLFormElement>("join");
 const error = $("error");
+const inkboxNumber = import.meta.env.VITE_INKBOX_NUMBER;
 let spot: { lat: number; lng: number } | null = null;
+
+form.hidden = !inkboxNumber;
+$("closed").hidden = Boolean(inkboxNumber);
 
 function toE164(input: string): string | null {
   const digits = input.replace(/\D/g, "");
@@ -83,18 +87,14 @@ form.addEventListener("submit", async (event) => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name, phone, ...spot }),
     });
-    const number = out.inkbox_number || import.meta.env.VITE_INKBOX_NUMBER;
-    if (number) {
-      $("start").prepend(
-        Object.assign(document.createElement("a"), {
-          href: `sms:${number}?&body=START`,
-          className: "button",
-          textContent: `Text START to ${number}`,
-        }),
-      );
-    } else {
-      $("start").textContent = out.opt_in_instructions;
-    }
+    const number = out.inkbox_number || inkboxNumber;
+    $("start").prepend(
+      Object.assign(document.createElement("a"), {
+        href: `sms:${number}?&body=START`,
+        className: "button",
+        textContent: `Text START to ${number}`,
+      }),
+    );
     $("start").hidden = false;
     form.hidden = true;
     $("done").hidden = false;

@@ -33,6 +33,7 @@ describe("tool schemas", () => {
       question: "Is it open?",
       location: "Ferry Building",
       task_type: "is_open",
+      idempotency_key: "k1",
     });
     expect(parsed).toMatchObject({ bounty_usd: 3, deadline_minutes: 30, require_photo: true });
   });

@@ -38,7 +38,7 @@ export const ERRORS = {
   location_not_found: {
     status: 422,
     message: "Could not resolve that location.",
-    fix: 'Pass {lat, lng}, or a more specific string such as "Blue Bottle Coffee, 66 Mint St, San Francisco".',
+    fix: 'Pass the coordinates as numbers, e.g. {"lat": 37.7955, "lng": -122.3937}; coordinates always resolve. Or pass "place name, city", e.g. "Ferry Building, San Francisco".',
   },
   no_workers_nearby: {
     status: 409,

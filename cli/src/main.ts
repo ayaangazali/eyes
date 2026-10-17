@@ -20,6 +20,8 @@ import {
 } from "@eyes/core";
 import type { z } from "zod";
 
+const AskParams = AskEyesInput.partial({ idempotency_key: true });
+
 type Json = Record<string, unknown>;
 type Config = { api_url?: string; api_key?: string };
 type PendingAsk = { idempotency_key: string; task_id: string | null };
@@ -419,9 +421,9 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           require_photo: o["no-photo"] ? false : undefined,
         };
         const explicit = o["idempotency-key"];
-        check(AskEyesInput, { ...params, idempotency_key: explicit }, usage);
+        check(AskParams, { ...params, idempotency_key: explicit }, usage);
         const id = createHash("sha256")
-          .update(JSON.stringify([config.api_url, config.api_key, AskEyesInput.parse(params)]))
+          .update(JSON.stringify([config.api_url, config.api_key, AskParams.parse(params)]))
           .digest("hex");
         const pendingFile = join(dirname(deps.configPath), "pending-asks", `${id}.json`);
         const settled = async (taskId: string) =>
