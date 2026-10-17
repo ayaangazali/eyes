@@ -170,6 +170,8 @@ describe("createAssessTask with the classifier", () => {
     );
     const verdict = await assess()(f);
     expect(verdict).toMatchObject({ allowed: false, layer: "classifier" });
+    expect(verdict.reason).toBeTruthy();
+    expect(verdict.fix).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
