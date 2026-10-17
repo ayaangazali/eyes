@@ -157,7 +157,7 @@ const config = AppConfig.parse({
 const service = createEyesService({
   db: { kind: "postgres", url: DATABASE_URL },
   providers,
-  assessTask: createAssessTask(process.env),
+  assessTask: createAssessTask({}),
   verifySubmission,
   config,
 });
@@ -318,4 +318,4 @@ await writeFile(
 await writeFile(new URL("table.txt", OUT), `${table}\n`);
 await writeFile(new URL("server.log", OUT), `${serverLog.join("\n")}\n`);
 process.stdout.write(`${table}\n`);
-process.exit(results.every((r) => r.pass) ? 0 : 1);
+process.exit(results.length > 0 && results.every((r) => r.pass) ? 0 : 1);

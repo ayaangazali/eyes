@@ -27,15 +27,14 @@ export function grade(expect: Expect, t: Transcript): Record<string, boolean> {
       no_escrow: t.escrow_rows === 0,
     };
   }
-  const asked = t.calls.findLastIndex((c) => c.tool === "ask_eyes" && c.ok);
+  const taskId = t.calls.findLast((c) => c.tool === "ask_eyes" && c.ok)?.body.task_id;
   const last = t.calls
-    .slice(asked + 1)
-    .filter((c) => c.tool === "await_answer" && c.ok)
+    .filter((c) => c.tool === "await_answer" && c.ok && c.args.task_id === taskId)
     .at(-1)?.body;
   const answer = (last?.answered ? last.answer : null) as { photo_url?: unknown } | null;
   return {
     ...common,
-    awaited_to_final: asked !== -1 && Boolean(last && (last.answered || FINAL.includes(String(last.status)))),
+    awaited_to_final: Boolean(last && (last.answered || FINAL.includes(String(last.status)))),
     surfaced_answer:
       typeof answer?.photo_url === "string" &&
       t.final_text.includes(answer.photo_url) &&
