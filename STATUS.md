@@ -104,6 +104,24 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 
 Earlier verifier minors (non-blocking by severity) are in each task's intent Known gaps.
 
+## Manufact usage (whole lifecycle)
+
+Checked 11:56 PT on 2026-10-17. Plan: Manufact **Free** (`GET /api/v1/billing`: `previewDeploys: false`; features `publishing_checks`, `evals`). "live-verified" means seen working on Manufact, with the evidence named; nothing here blocks the golden path or another sponsor.
+
+| # | Item | State | live-verified | Evidence / blocker |
+|---|---|---|---|---|
+| 1 | Build: mcp-use SDK | done | **yes** | mcp-use 2.10 server, 9 tools, deployed on Manufact Cloud since 2026-10-17 01:40 PT |
+| 1b | MCP App widget from the `mcp-apps` template | building (T4.30) | no | task-card view; screenshot to docs/manufact/widget-task-card.png |
+| 2 | Dev: `mcp-use` tunnel + Inspector | building (T4.30) | no | `dev --tunnel` gives `https://<name>.tunnel.mcp-use.run/mcp`; hosted Inspector `https://inspector.mcp-use.com/inspect?autoConnect=<url>` |
+| 3 | Deploy: GitHub auto-deploy on merge, branch previews per PR | not started | no | **Human:** install the Manufact GitHub App on `ayaangazali/eyes` (browser), then the server's source moves from managed upload to GitHub in place (REST `PUT /api/v1/servers/<id>/repository`, same URL). Previews need the **Hobby** plan; PR preview URL is `https://<slug>--br-<branch>.run.mcp-use.com/mcp`. Deploys today: CLI managed upload, by hand after merge |
+| 4 | Agent-driven ops | partly | **yes** for CLI + REST | The orchestrator deploys, sets env, reads logs, runs audits and reads analytics with `mcp-use` CLI and the Manufact REST API (this session). Manufact's own MCP server (`https://mcp.manufact.com/mcp`) rejects the CLI key ("JWT verification failed"): **human:** one OAuth sign-in |
+| 5 | Cross-client test suites in CI | blocked, sandbox building (T4.29) | no | Eval suites exist (REST `/api/v1/server-evals`; clients Claude, ChatGPT, Codex, Pi; Gemini is not a client target). The harness authenticates only by OAuth and every Eyes tool needs a bearer key, so the suites need the keyless sandbox server. Then a non-blocking CI job with a `MANUFACT_API_KEY` secret |
+| 6 | Publishing checks, autofix, submission pack, directories | partly | **yes** for the catalog review | Catalog review of the live server (frozen read-only key): 30 checks, one fail `tool-hints-present`, fixed in #83. Private audit (`04445131`) could not authenticate (OAuth only). Autofix needs the GitHub link (item 3); submission pack needs Hobby; directory submission is a human form, target 4 AM if green |
+| 7 | MCP Catalog quality score | done | **yes** | **91/100, grade A** at https://manufact.com/mcp-catalog/eyes (11:53 PT): protocol 20/20, tools 27.9/30, metadata 8/10, documentation 35.2/40; Manufact: ready for Claude, not yet ChatGPT. Screenshot saved for docs/manufact/ |
+| 8 | OAuth for real accounts, keyless sandbox | sandbox building (T4.29); OAuth not started | no | mcp-use 2.10 ships Auth0, Better Auth, Clerk, Convex, Keycloak, Supabase (not used, owner rule), WorkOS, Scalekit and custom/proxy providers with `mixedAuth`. **Human:** an identity-provider account; design decision recorded before any change to agent keys |
+| 9 | Analytics + session tracking | on | **yes** | Automatic on gateway traffic, no SDK change: `analytics/summary` 108 tool calls, 29 sessions; client "Anthropic/API" 1 session, 5 requests = the real-Claude MCP run at 10:27 PT. Payload capture left off on purpose (requests carry locations and photo URLs). Dashboard screenshots need a signed-in browser (**human**) |
+| 10 | Judges: public chat | blocked on plan | no | Public Chat needs **Hobby** (`/chat` is 404 on Free). Free fallback for the README: hosted Inspector link to the keyless sandbox once T4.29 deploys |
+
 ## Live verification
 
 | Integration | live-verified | Evidence |
