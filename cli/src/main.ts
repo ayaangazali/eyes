@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -20,11 +21,11 @@ import type { z } from "zod";
 
 type Json = Record<string, unknown>;
 type Config = { api_url?: string; api_key?: string };
+type PendingAsks = Record<string, { idempotency_key: string; task_id: string | null }>;
 export type Deps = {
   fetch: typeof fetch;
   env: Record<string, string | undefined>;
   configPath: string;
-  self: string;
   out: (line: string) => void;
   err: (line: string) => void;
   sleep: (ms: number, signal?: AbortSignal) => Promise<unknown>;
@@ -35,48 +36,48 @@ export type Deps = {
 const COMMANDS = {
   signup: {
     args: 0,
-    usage: "signup --name <name> [--email <owner email>]",
+    usage: "eyes signup --name <name> [--email <owner email>]",
     about:
       "Create an API key. Prints it once, then saves api_url and api_key to ~/.config/eyes/config.json (0600).",
   },
   ask: {
     args: 1,
     usage:
-      'ask "<question>" --at "<place or lat,lng>" --type <task_type> [--bounty 3] [--deadline 30] [--no-photo] [--idempotency-key <key>] [--no-wait]',
+      'eyes ask "<question>" --at "<place or lat,lng>" --type <task_type> [--bounty 3] [--deadline 30] [--no-photo] [--idempotency-key <key>] [--no-wait]',
     about:
-      "Pay a nearby human to check a public place. Prints the idempotency_key before sending and the task_id once created, then waits for the answer. Re-running with the same --idempotency-key never charges twice.",
+      "Pay a nearby human to check a public place. Prints the idempotency_key before sending and the task_id once created, then waits for the answer. Re-running the same ask while its task is open reuses the same key, so it never charges twice.",
   },
   await: {
     args: 1,
-    usage: "await <task_id> [--timeout <seconds per poll, max 55>]",
+    usage: "eyes await <task_id> [--timeout <seconds per poll, max 55>]",
     about: "Wait until the task is answered, expired, refunded or disputed, then print the answer.",
   },
   quote: {
     args: 0,
-    usage: 'quote --at "<place or lat,lng>" --type <task_type>',
+    usage: 'eyes quote --at "<place or lat,lng>" --type <task_type>',
     about: "Free check of coverage, time to answer and suggested bounty.",
   },
   status: {
     args: 1,
-    usage: "status <task_id>",
+    usage: "eyes status <task_id>",
     about: "Show a task's status, and its answer once there is one.",
   },
   cancel: {
     args: 1,
-    usage: "cancel <task_id>",
+    usage: "eyes cancel <task_id>",
     about: "Cancel a task no worker has claimed yet; full refund.",
   },
   dispute: {
     args: 1,
-    usage: 'dispute <task_id> --reason "<what is wrong>"',
+    usage: 'eyes dispute <task_id> --reason "<what is wrong>"',
     about: "Hold the worker payout and flag the answer for human review.",
   },
-  balance: { args: 0, usage: "balance", about: "Show your balance, escrow and top_up_url." },
-  policy: { args: 0, usage: "policy", about: "Show this API key's spend limits." },
+  balance: { args: 0, usage: "eyes balance", about: "Show your balance, escrow and top_up_url." },
+  policy: { args: 0, usage: "eyes policy", about: "Show this API key's spend limits." },
 } as const;
 type Command = keyof typeof COMMANDS;
 
-const NOTES = `--json prints one JSON object per line. -h or --help after a command shows its usage. task_type: ${TASK_TYPES.join(", ")}. EYES_API_URL and EYES_API_KEY override ~/.config/eyes/config.json.`;
+const NOTES = `eyes means node cli/src/main.ts. --json prints one JSON object per line. -h or --help after a command shows its usage. task_type: ${TASK_TYPES.join(", ")}. EYES_API_URL and EYES_API_KEY override ~/.config/eyes/config.json.`;
 
 const FLAGS: Record<string, string> = {
   question: '"<question>"',
@@ -92,6 +93,8 @@ const FLAGS: Record<string, string> = {
   owner_email: "--email",
 };
 const FINAL = ["expired", "refunded", "disputed"];
+const SETTLED = [...FINAL, "verified", "paid", "needs_review"];
+const PERMANENT = ["task_not_found", "unauthorized", "invalid_input"];
 const GIVE_UP_MS = 10 * 60_000;
 
 const fail = (message: string, fix: string, error = "invalid_input", context: Json = {}): never => {
@@ -125,33 +128,22 @@ const lines = (value: Json, prefix = ""): string[] =>
       : [`${prefix}${key}: ${typeof v === "object" ? JSON.stringify(v) : v}`],
   );
 
-async function loadConfig(deps: Deps): Promise<Config> {
-  let file: Config = {};
+async function readPrivate<T>(path: string, empty: T, fix: string): Promise<T> {
   try {
-    file = JSON.parse(await readFile(deps.configPath, "utf8"));
+    return JSON.parse(await readFile(path, "utf8")) ?? empty;
   } catch (e) {
-    if ((e as { code?: string }).code !== "ENOENT") {
-      fail(
-        `Could not read ${deps.configPath}: ${(e as Error).message}`,
-        `Fix or delete ${deps.configPath}, or set EYES_API_URL and EYES_API_KEY.`,
-        "config_error",
-      );
-    }
+    if ((e as { code?: string }).code === "ENOENT") return empty;
+    return fail(`Could not read ${path}: ${(e as Error).message}`, fix, "config_error");
   }
-  return {
-    api_url: deps.env.EYES_API_URL || file?.api_url,
-    api_key: deps.env.EYES_API_KEY || file?.api_key,
-  };
 }
 
-async function saveConfig(path: string, config: Config) {
+async function writePrivate(path: string, value: unknown) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  await writeFile(path, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
   await chmod(path, 0o600);
 }
 
 export async function run(argv: string[], deps: Deps): Promise<number> {
-  const { self } = deps;
   const json = argv.includes("--json");
   const print = (value: Json) => deps.out(json ? JSON.stringify(value) : lines(value).join("\n"));
   try {
@@ -178,22 +170,18 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
     const topic = first === "help" ? args[0] : first;
     if (!first || first === "help" || o.help) {
       if (topic && topic in COMMANDS) {
-        const usage = `${self} ${COMMANDS[topic as Command].usage}`;
-        const { about } = COMMANDS[topic as Command];
+        const { usage, about } = COMMANDS[topic as Command];
         deps.out(
           json ? JSON.stringify({ command: topic, usage, about }) : `Usage: ${usage}\n\n${about}\n\n${NOTES}`,
         );
       } else {
         const commands = Object.fromEntries(
-          Object.entries(COMMANDS).map(([name, c]) => [
-            name,
-            { usage: `${self} ${c.usage}`, about: c.about },
-          ]),
+          Object.entries(COMMANDS).map(([name, c]) => [name, { usage: c.usage, about: c.about }]),
         );
         deps.out(
           json
             ? JSON.stringify({ commands, notes: NOTES })
-            : `Usage:\n${Object.values(commands)
+            : `Usage:\n${Object.values(COMMANDS)
                 .map((c) => `  ${c.usage}`)
                 .join("\n")}\n\n${NOTES}`,
         );
@@ -201,10 +189,10 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
       return 0;
     }
     if (!(first in COMMANDS)) {
-      return fail(`Unknown command "${first}".`, `Run \`${self} help\` for the list of commands.`);
+      return fail(`Unknown command "${first}".`, "Run `eyes help` for the list of commands.");
     }
     const cmd = first as Command;
-    const usage = `${self} ${COMMANDS[cmd].usage}`;
+    const { usage } = COMMANDS[cmd];
     if (args.length > COMMANDS[cmd].args) {
       fail(
         `Unexpected extra arguments: ${args.slice(COMMANDS[cmd].args).join(" ")}.`,
@@ -212,7 +200,15 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
       );
     }
     const [arg] = args;
-    const config = await loadConfig(deps);
+    const file = await readPrivate<Config>(
+      deps.configPath,
+      {},
+      `Fix or delete ${deps.configPath}, or set EYES_API_URL and EYES_API_KEY.`,
+    );
+    const config: Config = {
+      api_url: deps.env.EYES_API_URL || file.api_url,
+      api_key: deps.env.EYES_API_KEY || file.api_key,
+    };
 
     const call = async <T = Json>(route: string, body?: Json): Promise<T> => {
       const [method, path] = route.split(" ");
@@ -220,7 +216,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         ? config.api_url.replace(/\/+$/, "")
         : fail(
             "No Eyes server configured.",
-            `Set EYES_API_URL to the Eyes server's origin (where /llms.txt is served), then run \`${self} signup --name <name>\`.`,
+            "Set EYES_API_URL to the Eyes server's origin (where /llms.txt is served), then run `eyes signup --name <name>`.",
             "config_error",
           );
       const url = `${base}${path}`;
@@ -239,7 +235,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           return fail("Stopped by Ctrl-C.", "Run the command again if you still need it.", "interrupted");
         }
         return fail(
-          `Could not reach ${url}: ${(e as Error).message}`,
+          `Could not reach ${url}: ${(e as Error).message}.`,
           "Check EYES_API_URL and your network, then retry.",
           "network_error",
         );
@@ -271,17 +267,24 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           } catch (e) {
             const { body, status = 0 } = e as { body?: Json; status?: number };
             const retry = body?.error === "rate_limited" || body?.error === "network_error" || status >= 500;
+            if (!retry || !body) throw e;
             failingSince ??= deps.now();
-            if (!retry || deps.now() - failingSince >= GIVE_UP_MS) throw e;
+            if (deps.now() - failingSince >= GIVE_UP_MS) {
+              body.message =
+                status >= 500
+                  ? `The server is temporarily failing (HTTP ${status}); gave up after 10 minutes of retries.`
+                  : `${body.message} Gave up after 10 minutes of retries.`;
+              throw e;
+            }
             const seconds =
-              typeof body?.retry_after_s === "number" ? body.retry_after_s : Math.min(2 ** attempt++, 30);
+              typeof body.retry_after_s === "number" ? body.retry_after_s : Math.min(2 ** attempt++, 30);
             deps.err(
               json
-                ? JSON.stringify({ retrying_in_s: seconds, error: body?.error, message: body?.message })
-                : `${body?.message} Retrying in ${seconds}s.`,
+                ? JSON.stringify({ retrying_in_s: seconds, error: body.error, message: body.message })
+                : `${body.message} Retrying in ${seconds}s.`,
             );
             await deps.sleep(seconds * 1000, deps.signal).catch(() => undefined);
-            if (deps.signal?.aborted) fail("Stopped by Ctrl-C.", "The task keeps running.", "interrupted");
+            if (deps.signal?.aborted) fail("Stopped by Ctrl-C.", "", "interrupted");
             continue;
           }
           failingSince = null;
@@ -296,7 +299,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
           }
           const done = reply.answered === true || FINAL.includes(status);
           if (json && (status !== last || done)) deps.out(JSON.stringify(reply));
-          if (!json && status !== last) deps.out(`status: ${status}`);
+          if (!json && status !== last && !done) deps.out(`status: ${status}`);
           if (done) {
             if (!json) deps.out(lines(reply).join("\n"));
             return reply.answered === true ? 0 : 1;
@@ -306,10 +309,15 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
       } catch (e) {
         const body = (e as { body?: Json }).body;
         if (body) {
+          const resume = `resume with: eyes await ${taskId}`;
           Object.assign(body, {
             task_id: taskId,
             ...(key ? { idempotency_key: key } : {}),
-            fix: `${body.fix} The task is not lost; resume with: ${self} await ${taskId}`,
+            fix: PERMANENT.includes(String(body.error))
+              ? body.fix
+              : body.error === "interrupted"
+                ? `The task keeps running; ${resume}`
+                : `${body.fix} The task keeps running; ${resume}`,
           });
         }
         throw e;
@@ -323,7 +331,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         const out = await call<SignupOutput>("POST /v1/signup", input);
         print(out);
         try {
-          await saveConfig(deps.configPath, { api_url: config.api_url, api_key: out.api_key });
+          await writePrivate(deps.configPath, { api_url: config.api_url, api_key: out.api_key });
         } catch (e) {
           return fail(
             `Could not save ${deps.configPath}: ${(e as Error).message}`,
@@ -335,37 +343,74 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         return 0;
       }
       case "ask": {
-        const key = o["idempotency-key"] ?? crypto.randomUUID();
-        const input = {
+        const params = {
           question: arg,
           location: location(o.at),
           task_type: o.type,
           bounty_usd: num(o.bounty),
           deadline_minutes: num(o.deadline),
           require_photo: o["no-photo"] ? false : undefined,
-          idempotency_key: key,
         };
-        check(AskEyesInput, input, usage);
+        const explicit = o["idempotency-key"];
+        check(AskEyesInput, { ...params, idempotency_key: explicit }, usage);
+        const pendingPath = join(dirname(deps.configPath), "pending-asks.json");
+        const id = createHash("sha256")
+          .update(JSON.stringify([config.api_url, config.api_key, params]))
+          .digest("hex");
+        const pending = explicit
+          ? {}
+          : await readPrivate<PendingAsks>(
+              pendingPath,
+              {},
+              `Delete ${pendingPath}, or pass --idempotency-key <your own unique key> and reuse it on every retry.`,
+            );
+        const prior = pending[id];
+        const priorStatus = prior?.task_id
+          ? await call(`GET /v1/tasks/${prior.task_id}`).then(
+              (t) => t.status,
+              () => undefined,
+            )
+          : undefined;
+        const reuse = prior && !SETTLED.includes(String(priorStatus));
+        const key = explicit ?? (reuse ? prior.idempotency_key : crypto.randomUUID());
+        if (!explicit) {
+          pending[id] = { idempotency_key: key, task_id: reuse ? prior.task_id : null };
+          await writePrivate(pendingPath, pending).catch((e: Error) =>
+            fail(
+              `Could not save ${pendingPath} before sending: ${e.message}`,
+              `Nothing was sent. Pass --idempotency-key <your own unique key> and reuse it on every retry, or make ${dirname(pendingPath)} writable.`,
+              "config_error",
+            ),
+          );
+        }
         deps.err(JSON.stringify({ idempotency_key: key }));
         let task: ToolOutput<"ask_eyes">;
         try {
-          task = await call<ToolOutput<"ask_eyes">>("POST /v1/tasks", input);
+          task = await call<ToolOutput<"ask_eyes">>("POST /v1/tasks", { ...params, idempotency_key: key });
         } catch (e) {
           const body = (e as { body?: Json }).body;
           if (body) {
+            const retry = explicit
+              ? `pass --idempotency-key ${key} again`
+              : `re-run this exact command, which reuses idempotency_key ${key}`;
             Object.assign(body, {
               idempotency_key: key,
-              fix: `${body.fix} When you retry, pass --idempotency-key ${key} so the task is never created twice.`,
+              fix:
+                body.error === "interrupted"
+                  ? `The task may already exist. To continue, ${retry}, so it is never created twice.`
+                  : `${body.fix} To retry, ${retry}, so the task is never created twice.`,
             });
           }
           throw e;
         }
+        if (!explicit) {
+          pending[id] = { idempotency_key: key, task_id: task.task_id };
+          await writePrivate(pendingPath, pending).catch(() => undefined);
+        }
         print({ ...task, idempotency_key: key });
         if (o["no-wait"]) return 0;
         if (!json)
-          deps.out(
-            `Waiting for the answer. Ctrl-C stops waiting; resume with: ${self} await ${task.task_id}`,
-          );
+          deps.out(`Waiting for the answer. Ctrl-C stops waiting; resume with: eyes await ${task.task_id}`);
         return await waitFor(task.task_id, undefined, task.status, key);
       }
       case "await": {
@@ -404,7 +449,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
     const shown = body ?? {
       error: "invalid_input",
       message: (e as Error).message,
-      fix: `Run \`${self} help\` for usage.`,
+      fix: "Run `eyes help` for usage.",
     };
     if (json) {
       deps.out(JSON.stringify(shown));
@@ -421,12 +466,10 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
 if (import.meta.main) {
   const stop = new AbortController();
   process.once("SIGINT", () => stop.abort());
-  const script = process.argv[1] ?? "cli/src/main.ts";
   process.exitCode = await run(process.argv.slice(2), {
     fetch,
     env: process.env,
     configPath: join(homedir(), ".config", "eyes", "config.json"),
-    self: `node ${/\s/.test(script) ? JSON.stringify(script) : script}`,
     out: (line) => console.log(line),
     err: (line) => console.error(line),
     sleep: (ms, signal) => delay(ms, undefined, { signal }),

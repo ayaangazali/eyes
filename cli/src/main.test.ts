@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { type Deps, run } from "./main.ts";
 
 const TASK_ID = "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b";
-const SELF = "node cli/src/main.ts";
+const OTHER_TASK_ID = "7a1d2c3b-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
 const ASK = [
   "ask",
   "How long is the line?",
@@ -43,6 +43,7 @@ const SIGNED_UP = {
   next_step: "Save api_key now.",
 };
 const KEYS = { EYES_API_URL: "https://eyes.test", EYES_API_KEY: "eyes_env_key" };
+const SERVER_ERROR = { error: "internal_error", message: "Something went wrong.", fix: "Retry." };
 
 type Reply = [number, unknown] | Error;
 
@@ -79,7 +80,6 @@ function setup(replies: Reply[], env: Record<string, string> = KEYS) {
     configPath: join(mkdtempSync(join(tmpdir(), "eyes-cli-")), "eyes", "config.json"),
     out: (line) => out.push(line),
     err: (line) => err.push(line),
-    self: SELF,
     sleep: async (ms) => {
       sleeps.push(ms);
       clock += ms;
@@ -88,6 +88,11 @@ function setup(replies: Reply[], env: Record<string, string> = KEYS) {
   };
   return { deps, calls, out, err, sleeps };
 }
+
+const abortingFetch = (stop: AbortController) => async () => {
+  stop.abort();
+  throw new DOMException("This operation was aborted", "AbortError");
+};
 
 it("signup prints the key, saves it 0600 over an existing 0644 file, and later calls use it", async () => {
   const { deps, calls, out } = setup(
@@ -139,7 +144,7 @@ it("env vars override an existing config file", async () => {
   expect(calls[0]).toMatchObject({ url: "https://eyes.test/v1/balance", auth: "Bearer eyes_env_key" });
 });
 
-it("ask prints task_id and idempotency_key before waiting, loops await until answered, then prints the answer", async () => {
+it("ask prints the key before sending and the task before waiting, loops await, and prints the answer once", async () => {
   const { deps, calls, out } = setup([
     [200, ASKED],
     [200, pending("dispatched")],
@@ -171,6 +176,7 @@ it("ask prints task_id and idempotency_key before waiting, loops await until ans
   }
   expect(out).toContain("status: claimed");
   expect(out.join("\n")).toContain("answer.answer_text: About 4 people in line");
+  expect(out.join("\n").match(/status: verified/g)).toHaveLength(1);
 });
 
 it("ask --json and signup --json print only JSON lines, the ask result first", async () => {
@@ -196,6 +202,50 @@ it("ask --json and signup --json print only JSON lines, the ask result first", a
   expect(out.map((line) => JSON.parse(line))).toEqual([SIGNED_UP]);
 });
 
+it("re-running an ask reuses its key while the task is open, gets a new key once it settles, and --idempotency-key wins", async () => {
+  const { deps, calls } = setup([
+    [200, ASKED],
+    [200, pending("claimed")],
+    [200, ASKED],
+    [200, pending("expired")],
+    [200, { ...ASKED, task_id: OTHER_TASK_ID }],
+    [200, { ...ASKED, task_id: OTHER_TASK_ID }],
+  ]);
+  const noWait = [...ASK, "--no-wait"];
+
+  expect(await run(noWait, deps)).toBe(0);
+  const first = calls[0]?.body?.idempotency_key;
+  const pendingFile = join(dirname(deps.configPath), "pending-asks.json");
+  expect(statSync(pendingFile).mode & 0o777).toBe(0o600);
+
+  expect(await run(noWait, deps)).toBe(0);
+  expect(calls[1]).toMatchObject({ method: "GET", url: `https://eyes.test/v1/tasks/${TASK_ID}` });
+  expect(calls[2]?.body?.idempotency_key).toBe(first);
+
+  expect(await run(noWait, deps)).toBe(0);
+  expect(calls[3]).toMatchObject({ method: "GET", url: `https://eyes.test/v1/tasks/${TASK_ID}` });
+  expect(calls[4]?.body?.idempotency_key).not.toBe(first);
+
+  expect(await run([...noWait, "--idempotency-key", "mine"], deps)).toBe(0);
+  expect(calls).toHaveLength(6);
+  expect(calls[5]?.body?.idempotency_key).toBe("mine");
+});
+
+it("an ask killed mid-request is re-sent with the same key on the next identical run", async () => {
+  const { deps, calls, err } = setup([[200, ASKED]]);
+  const stop = new AbortController();
+
+  expect(await run([...ASK, "--no-wait"], { ...deps, fetch: abortingFetch(stop), signal: stop.signal })).toBe(
+    130,
+  );
+  const { idempotency_key } = JSON.parse(err[0] ?? "");
+  expect(err[2]).toContain(`re-run this exact command, which reuses idempotency_key ${idempotency_key}`);
+
+  expect(await run([...ASK, "--no-wait"], deps)).toBe(0);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.body?.idempotency_key).toBe(idempotency_key);
+});
+
 it.each(["expired", "refunded", "disputed"])("ask stops waiting on %s and exits 1", async (status) => {
   const { deps, calls } = setup([
     [200, ASKED],
@@ -215,13 +265,13 @@ it("treats an await reply without a string status as an unexpected response inst
   expect(await run(ASK, deps)).toBe(1);
   expect(calls).toHaveLength(2);
   expect(err[1]).toMatch(/^Error \(unexpected_response\)/);
-  expect(err[2]).toContain(`resume with: ${SELF} await ${TASK_ID}`);
+  expect(err[2]).toContain(`resume with: eyes await ${TASK_ID}`);
 });
 
-it("await retries in place on rate_limited, internal_error and network errors, and stops on other errors", async () => {
+it("await retries in place on rate_limited, 5xx and network errors, and stops on permanent errors without a resume line", async () => {
   const retried = setup([
     [429, { error: "rate_limited", message: "Too many requests.", fix: "Wait 7 seconds.", retry_after_s: 7 }],
-    [500, { error: "internal_error", message: "Something went wrong.", fix: "Retry." }],
+    [500, SERVER_ERROR],
     new TypeError("fetch failed"),
     [200, ANSWERED],
   ]);
@@ -232,10 +282,30 @@ it("await retries in place on rate_limited, internal_error and network errors, a
   const stopped = setup([
     [404, { error: "task_not_found", message: "No task.", fix: "Use the task_id from ask." }],
   ]);
-  expect(await run(["await", TASK_ID, "--timeout", "20"], stopped.deps)).toBe(1);
+  expect(await run(["await", TASK_ID, "--timeout", "20", "--json"], stopped.deps)).toBe(1);
   expect(stopped.calls).toHaveLength(1);
   expect(stopped.calls[0]?.body).toEqual({ timeout_seconds: 20 });
   expect(stopped.sleeps).toEqual([]);
+  expect(JSON.parse(stopped.out[0] ?? "")).toMatchObject({
+    error: "task_not_found",
+    task_id: TASK_ID,
+    fix: "Use the task_id from ask.",
+  });
+});
+
+it("a successful poll resets the backoff and the 10-minute failure window", async () => {
+  const failures = (n: number) => Array.from({ length: n }, (): Reply => [500, SERVER_ERROR]);
+  const { deps, sleeps } = setup([
+    ...failures(22),
+    [200, pending("claimed")],
+    ...failures(22),
+    [200, ANSWERED],
+  ]);
+
+  expect(await run(["await", TASK_ID], deps)).toBe(0);
+  expect(sleeps).toHaveLength(44);
+  expect(sleeps[22]).toBe(1000);
+  expect(sleeps.reduce((a, b) => a + b, 0)).toBeGreaterThan(600_000);
 });
 
 it("a gateway 504 with an HTML body while waiting is retried, so the task is asked once and answered", async () => {
@@ -251,43 +321,47 @@ it("a gateway 504 with an HTML body while waiting is retried, so the task is ask
   expect(sleeps).toEqual([1000]);
 });
 
-it("gives up after 10 minutes of failed polls with the resume command, task_id and idempotency_key", async () => {
-  const failures = Array.from({ length: 40 }, () => new TypeError("fetch failed"));
-  const { deps, out, sleeps } = setup([[200, ASKED], ...failures]);
+it.each([
+  ["network_error", new TypeError("fetch failed"), "fetch failed. Gave up after 10 minutes of retries."],
+  ["unexpected_response", [503, "<html>busy</html>"], "The server is temporarily failing (HTTP 503)"],
+] as [string, Reply, string][])(
+  "gives up after 10 minutes of %s with task_id, idempotency_key and the resume command",
+  async (code, failure, message) => {
+    const { deps, out, sleeps } = setup([[200, ASKED], ...Array.from({ length: 40 }, () => failure)]);
 
-  expect(await run([...ASK, "--idempotency-key", "k-2", "--json"], deps)).toBe(1);
-  const total = sleeps.reduce((a, b) => a + b, 0);
-  expect(total).toBeGreaterThanOrEqual(600_000);
-  expect(total).toBeLessThan(640_000);
-  const error = JSON.parse(out.at(-1) ?? "");
-  expect(error).toMatchObject({ error: "network_error", task_id: TASK_ID, idempotency_key: "k-2" });
-  expect(error.fix).toContain(`resume with: ${SELF} await ${TASK_ID}`);
-});
+    expect(await run([...ASK, "--idempotency-key", "k-2", "--json"], deps)).toBe(1);
 
-it("Ctrl-C while waiting prints how to resume and exits 130", async () => {
+    const total = sleeps.reduce((a, b) => a + b, 0);
+    expect(total).toBeGreaterThanOrEqual(600_000);
+    expect(total).toBeLessThan(640_000);
+    const error = JSON.parse(out.at(-1) ?? "");
+    expect(error).toMatchObject({ error: code, task_id: TASK_ID, idempotency_key: "k-2" });
+    expect(error.message).toContain(message);
+    expect(error.fix).toContain(`resume with: eyes await ${TASK_ID}`);
+  },
+);
+
+it("Ctrl-C while waiting says how to resume, never to run the command again, and exits 130", async () => {
   const { deps, err } = setup([]);
   const stop = new AbortController();
-  const fetch = async () => {
-    stop.abort();
-    throw new DOMException("This operation was aborted", "AbortError");
-  };
 
-  expect(await run(["await", TASK_ID], { ...deps, fetch, signal: stop.signal })).toBe(130);
-  expect(err[0]).toBe("Error (interrupted): Stopped by Ctrl-C.");
-  expect(err[1]).toContain(`resume with: ${SELF} await ${TASK_ID}`);
+  expect(await run(["await", TASK_ID], { ...deps, fetch: abortingFetch(stop), signal: stop.signal })).toBe(
+    130,
+  );
+  expect(err).toEqual([
+    "Error (interrupted): Stopped by Ctrl-C.",
+    `Fix: The task keeps running; resume with: eyes await ${TASK_ID}`,
+    `task_id: ${TASK_ID}`,
+  ]);
 });
 
 it("Ctrl-C during the ask request exits 130 with the idempotency key to retry with", async () => {
   const { deps, out } = setup([]);
   const stop = new AbortController();
-  const fetch = async () => {
-    stop.abort();
-    throw new DOMException("This operation was aborted", "AbortError");
-  };
 
   const code = await run([...ASK, "--idempotency-key", "k-3", "--json"], {
     ...deps,
-    fetch,
+    fetch: abortingFetch(stop),
     signal: stop.signal,
   });
 
@@ -317,7 +391,7 @@ it("prints the error message and fix from an error body, keeps the idempotency k
   expect(err).toEqual([
     '{"idempotency_key":"k-1"}',
     "Error (insufficient_balance): Your balance is too low to escrow this task.",
-    "Fix: Ask your user to top up at https://eyes.test/topup/abc, or lower bounty_usd to 0.7 or less. When you retry, pass --idempotency-key k-1 so the task is never created twice.",
+    "Fix: Ask your user to top up at https://eyes.test/topup/abc, or lower bounty_usd to 0.7 or less. To retry, pass --idempotency-key k-1 again, so the task is never created twice.",
     "balance_usd: 1.2",
     "idempotency_key: k-1",
   ]);
@@ -373,10 +447,10 @@ it("help works without config, per command and as JSON", async () => {
   writeFileSync(deps.configPath, "{not json");
 
   expect(await run(["ask", "--help"], deps)).toBe(0);
-  expect(out[0]).toMatch(/^Usage: node cli\/src\/main\.ts ask "<question>"/);
+  expect(out[0]).toMatch(/^Usage: eyes ask "<question>"/);
   expect(await run(["help", "--json"], deps)).toBe(0);
   expect(JSON.parse(out[1] ?? "").commands.await.usage).toBe(
-    `${SELF} await <task_id> [--timeout <seconds per poll, max 55>]`,
+    "eyes await <task_id> [--timeout <seconds per poll, max 55>]",
   );
 });
 

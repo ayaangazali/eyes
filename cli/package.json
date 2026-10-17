@@ -14,5 +14,11 @@
   "dependencies": {
     "@eyes/core": "workspace:*",
     "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eyes/db": "workspace:*",
+    "@eyes/engine": "workspace:*",
+    "@eyes/mcp": "workspace:*",
+    "postgres": "3.4.9"
   }
 }
