@@ -49,12 +49,13 @@ const REL =
 const PERSON = "(?:man|woman|guy|girl|boy|person|lady|gentleman|kid|child|couple)";
 const STAFF =
   "(?:cashier|barista|bartender|bouncer|security guard|guard|employee|worker|owner|waiter|waitress)";
-const SOMEONE = `(?:him|her|them|someone|somebody|anyone|(?:my|his|her|their) ${REL}|that ${PERSON}|the (?:${PERSON}|${STAFF}))`;
-const POSS = "(?:his|her|someone's|somebody's|a person's|(?:my|his|her|their|our) [a-z-]+'s)";
-const HOME =
-  "(?:house|home|apartment|apt|condo|townhouse|residence|bedroom|backyard|back yard|front yard|driveway|porch|mailbox)";
-const VEHICLE = "(?:car|truck|van|suv|vehicle|motorcycle|motorbike|scooter|tesla|honda|toyota|bmw)";
-const PHOTO = "(?:photo|photograph|picture|pic|snap|shot|film|record|video|selfie|close-?up)(?:s|ed|ing)?";
+const SOMEONE = `(?:him|her|someone|somebody|(?:my|his|her|their) ${REL}|(?:that|the|this) ${PERSON})\\b(?!')`;
+const POSS = "(?:his|her|someone's|somebody's|(?:my|his|her|their|our) [a-z-]+'s)";
+const VEHICLE =
+  "(?:car|truck|van|minivan|suv|sedan|jeep|vehicle|motorcycle|motorbike|scooter|tesla|prius|honda|toyota|bmw)";
+const PLATE = "(?:licen[cs]e plates?|number plates?|plate numbers?)";
+const ENDS =
+  "(?=\\s*(?:$|[.,!?;:)]|(?:in|at|on|by|near|outside|inside|behind|who|that|is|was|are|working|standing|sitting|wearing|with|from|of|and|or|so|while|when|as|right|now|today|tonight|to|for)\\b))";
 
 const re = (source: string) => new RegExp(source, "i");
 
@@ -62,63 +63,64 @@ const RULES: [SafetyCategory, RegExp[]][] = [
   [
     "illegal_or_dangerous",
     [
-      re("\\b(?:bombs?|explosives?|grenades?|molotov|ied)\\b"),
-      re("\\b(?:cocaine|heroin|meth|methamphetamine|fentanyl|mdma|drug deal(?:er|ers|ing)?)\\b"),
-      re("\\b(?:buy|score|get me|cop)\\s+(?:some\\s+)?drugs\\b"),
+      re(
+        "\\b(?:(?:plant|place|leave|hide|build|make|set off|detonate) (?:a |the )?(?:bomb|explosive)s?|pipe bombs?|molotov\\w*|grenades?)\\b",
+      ),
+      /\bIEDs?\b/,
+      re("\\b(?:buy|score|sell|get me|cop)\\s+(?:some\\s+)?(?:drugs|cocaine|heroin|meth|fentanyl|crack)\\b"),
       re(
         "\\b(?:buy|purchase|sell|get me)\\b(?:\\s+\\w+){0,3}?\\s+(?:a |some )?(?:ghost guns?|stolen \\w+|fake ids?)\\b",
       ),
       re(
-        "\\b(?:bring|carry|plant|hide|stash|deliver|drop off|leave|sneak|smuggle)\\b(?:\\s+\\w+){0,3}?\\s+(?:a |an |the |some )?(?:guns?|firearms?|pistols?|rifles?|handguns?|weapons?|knife|knives|ammo|ammunition)\\b",
+        "\\b(?:bring|carry|sneak|smuggle)\\s+(?:a |an |the |my |his |her )?(?:guns?|firearms?|pistols?|handguns?|weapons?)\\s+(?:in|into|inside)\\b",
       ),
-      re("\\b(?<!(?:a|any|no|the|lunch) )br(?:eak|eaking|oke)\\s+in(?:to)?\\b"),
-      re("\\b(?:burglar\\w*|shoplift\\w*|pickpocket\\w*|robbing|robbery|vandali[sz]\\w*|lock ?pick\\w*)\\b"),
-      re("\\b(?<!a )(?:steal|stealing|stole)\\b"),
+      re(
+        "\\bbr(?:eak|eaking|oke) into (?:the |a |an |his |her |their |someone's )?(?:[a-z-]+ )?(?:house|home|apartment|car|shop|store|building|office|garage|business|cafe|restaurant|bar|warehouse)\\b",
+      ),
+      re(
+        "\\b(?:shoplift|steal|pickpocket|vandali[sz]e|burglari[sz]e|rob)\\s+(?:the|a|an|some|it|him|her|them|someone|somebody|from)\\b",
+      ),
       re(
         "\\b(?:pick|picking|jimmy|force|forcing)\\s+(?:open\\s+)?(?:the|a|their|his|her)\\s+(?:lock|door|window)s?\\b",
       ),
       re(
-        "\\b(?:kill|murder|stab|assault|attack|beat up|hurt|harm|kidnap|abduct|threaten|intimidate|harass|confront|punch)\\s+(?:him|her|them|someone|somebody|anyone|the|that|this|my|his|their)\\b",
+        `\\b(?:kill|murder|stab|assault|attack|beat up|hurt|harm|kidnap|abduct|threaten|intimidate|harass|confront|punch|shoot)\\s+${SOMEONE}`,
       ),
-      re("\\bshoot\\s+(?:him|her|them|someone|somebody|at)\\b"),
       re("\\b(?:arson|set fire to|burn (?:it|the \\w+) down)\\b"),
       re(
         "\\b(?:walk|stand|step|climb|get|jump)\\s+(?:on|onto|down onto|into|down to)\\s+(?:the\\s+)?(?:\\w+\\s+)?tracks\\b",
       ),
       re(
-        "\\b(?:walk|stand|step|run|wander)\\s+(?:into|in the middle of|on|onto|across)\\s+(?:the\\s+)?(?:traffic|freeway|highway|interstate)\\b",
+        "\\b(?:walk|stand|step|run|wander)\\s+(?:into|in the middle of|onto)\\s+(?:the\\s+)?(?:traffic|freeway|highway|interstate)\\b",
       ),
       re(
-        "\\b(?:climb|scale|climbing|scaling)\\s+(?:up\\s+|onto\\s+|on\\s+)?(?:the|a)\\s+(?:\\w+\\s+){0,3}(?:bridge|tower|roof|scaffold\\w*|crane|billboard|pole)\\b",
+        "\\b(?:climb|scale)\\s+(?:up\\s+|onto\\s+|on\\s+)?(?:the\\s+|a\\s+)?(?:roof|billboard|crane|scaffolding|utility pole)\\b",
       ),
-      re("\\b(?:counterfeit|bribe|bribing|smuggl\\w+|traffick\\w+|money launder\\w*)\\b"),
-      re("\\b(?:(?:sneak|get|go) in without paying|jump the turnstile|fare evasion|dine and dash)\\b"),
+      re("\\b(?:brib(?:e|es|ing)|(?:sneak|get|go) in without paying|jump the turnstile|dine and dash)\\b"),
     ],
   ],
   [
     "following",
     [
       re(
-        `\\b(?:follow|following|followed|tail|tailing|shadow|shadowing)\\s+(?:${SOMEONE}|the (?:car|vehicle|truck|van)|a (?:${PERSON}|car))\\b`,
+        `\\b(?:follow|following|followed|tail|tailing|shadow|shadowing)\\s+(?:${SOMEONE}|(?:that|the) (?:car|vehicle|truck|van)\\b|a (?:${PERSON}|car)\\b)`,
       ),
-      re("\\bstalk(?:ing|ed|er|ers)?\\b"),
-      re("\\bspy(?:ing)? on\\b"),
-      re("\\b(?:stake ?out|surveil\\w*)\\b"),
-      re(`\\bkeep (?:an eye|tabs|watch) on (?:${SOMEONE}|their (?:house|home|kids?)|the (?:house|car))\\b`),
+      re(`\\bstalk(?:ing|ed)?\\s+(?:${SOMEONE}|the ${STAFF})`),
+      re(`\\bspy(?:ing)? on\\s+${SOMEONE}`),
+      re(`\\bkeep (?:an eye|tabs|watch) on\\s+${SOMEONE}`),
       re(
-        `\\b(?:track|tracking|trace|locate|locating|monitor|monitoring|watch|watching|observe|observing)\\s+(?:${SOMEONE}|his|their (?:house|home|apartment|car|kids?|movements)|the (?:house|home|apartment|car)|who (?:comes|goes|enters|leaves|visits)|down)\\b`,
+        `\\b(?:track|tracking|monitor|monitoring|watch|watching|observe|observing)\\s+(?:${SOMEONE}|that (?:car|vehicle|truck|van)\\b|who (?:comes|goes|enters|leaves|visits)\\b)`,
       ),
       re(
-        "\\b(?:his|her|someone's|somebody's)\\s+(?:whereabouts|movements|schedule|routine|location|comings and goings)\\b",
+        "\\b(?:his|her|their|someone's|somebody's)\\s+(?:whereabouts|movements|comings and goings|daily routine)\\b",
       ),
-      re("\\btheir (?:whereabouts|movements|comings and goings)\\b"),
       re(
         `\\b(?:when|what time) (?:does|did|will|do) (?:he|she|(?:my|his|her) ${REL}) (?:leave|arrive|get|come|go|head)\\b`,
       ),
       re(
         `\\b(?:find out|figure out|see|check|tell me|report|let me know) where (?:he|she|(?:my|his|her) ${REL}|that ${PERSON}) (?:is|was|goes|went|lives?)\\b`,
       ),
-      re(`\\bwhere (?:is|was) (?:he|she|(?:my|his|her) ${REL})\\b`),
+      re(`\\bwhere (?:is|was) (?:my|his|her) ${REL}\\b`),
       re(
         "\\b(?:log|record|note|note down|write down|list) (?:everyone|everybody|who|anyone) (?:who )?(?:enters|leaves|comes|goes|visits|walks)\\b",
       ),
@@ -127,33 +129,31 @@ const RULES: [SafetyCategory, RegExp[]][] = [
   [
     "private_property",
     [
-      re("\\b(?:private property|trespass\\w*)\\b"),
+      re("\\b(?:enter|onto|into|inside|go on)\\s+(?:the\\s+)?private property\\b"),
       re(
-        "\\b(?:hop|hopping|jump|jumping|climb|climbing|scale|scaling|get over|go over)\\s+(?:over\\s+)?(?:the|a|their|his|her)\\s+(?:fence|wall|gate)\\b",
+        "\\b(?:(?:hop|hopping|jump|jumping|scale|scaling|get over|go over)\\s+(?:over\\s+)?|climb(?:ing)? over\\s+)(?:the|a|their|his|her)\\s+(?:fence|wall|gate)\\b",
       ),
       re(
-        `\\b(?:inside|into|enter|entering|go in|get in|let yourself in|look in|look into|peek in|peek into|peer in|peer into|through)\\s+(?:the\\s+)?(?:windows?\\s+of\\s+)?(?:${POSS}|their|a private|the private|the neighbou?r's)\\s+(?:house|home|apartment|condo|bedroom|backyard|back yard|yard|garage|room|unit|property|basement|shed)\\b`,
+        `\\b(?:inside|into|enter|entering|go in|get in|let yourself in|look in|look into|peek in|peek into|peer in|peer into|through)\\s+(?:the\\s+)?(?:windows?\\s+of\\s+)?(?:${POSS}|their|a private|the private|the neighbou?r's)\\s+(?:house|home|apartment|condo|bedroom|backyard|back yard|yard|garage|property|basement|shed)\\b`,
       ),
       re(
         "\\b(?:look|peek|peer|see)\\s+(?:in|into|through)\\s+(?:his|her|someone's|somebody's)\\s+windows?\\b",
       ),
       re("\\bsneak(?:ing)? (?:in|into|inside)\\b"),
-      re("\\b(?:employees?|staff)[- ]only\\b"),
-      re("\\b(?:enter|into|inside|access)\\s+(?:the|a)\\s+restricted area\\b"),
-      re("\\b(?:gated community|private (?:land|road|estate|driveway))\\b"),
+      re(
+        "\\b(?:enter|into|inside|go in(?:to)?|access|get into)\\s+(?:the\\s+|an?\\s+)?(?:(?:employees?|staff)[- ]only|restricted)\\b",
+      ),
     ],
   ],
   [
     "vehicle",
     [
-      re("\\b(?:license|licence|registration|number|tag)\\s+plates?\\b"),
-      re("\\bplate (?:number|numbers|#)\\b"),
-      re("\\bread (?:the|his|her|their|its) plates?\\b"),
-      /\bVIN\b/,
       re(
-        `\\b${POSS}\\s+(?:(?!food\\b)[a-z]+\\s+)?${VEHICLE}\\b(?!\\s+(?:park|wash|lot|rental|dealership|share|repair|shop|stop)\\b)`,
+        `\\b${PLATE}\\s+(?:numbers?\\s+)?(?:of|on|for)\\s+(?:the|that|this|a|an|his|her|their|my|someone's|somebody's)\\s+(?:[a-z-]+\\s+){0,3}?${VEHICLE}\\b`,
       ),
-      re(`\\b(?:whose|which) ${VEHICLE}\\b`),
+      re(`\\b${POSS}\\s+${PLATE}`),
+      re(`\\b${POSS}\\s+(?:(?!food\\b)[a-z]+\\s+)?${VEHICLE}\\b`),
+      re(`\\bwhose ${VEHICLE}\\b`),
       re(`\\b${VEHICLE}\\s+(?:belongs to|belonging to|registered to|owned by)\\b`),
       re(`\\bwho (?:owns|drives) (?:the|that|this) ${VEHICLE}\\b`),
     ],
@@ -161,33 +161,25 @@ const RULES: [SafetyCategory, RegExp[]][] = [
   [
     "private_residence",
     [
-      re(
-        `\\b(?!(?:it|that|what|there|here|who|he|she|let|where|everyone|today|tonight)'s)(?:${POSS}|their|[a-z]+'s)\\s+${HOME}\\b(?!\\s+(?:stadium|field|court|arena|games?|page|turf|depot|goods|improvement|cooking|made|style|store|section|department|decor|furnishings))`,
-      ),
-      re("\\b(?:home|house|residential|mailing) address\\b"),
-      re(
-        "\\bwhere (?:(?:does|do|did) .{1,40}? (?:live|reside|stay)|is .{1,40}? (?:living|residing|staying))\\b",
-      ),
-      re("\\bwho (?:lives|is living|is staying|stays|resides)\\b(?!\\s+open)"),
+      re(`\\b(?:(?:my|his|her|their|your) [a-z-]+'s|[a-z]+s'|his|her)\\s+(?:home|house|apartment)\\b${ENDS}`),
+      re("\\b(?:home|residential) address(?:es)?\\b"),
+      re("\\bwhere (?:(?:does|do|did) .{1,40}? (?:live|reside)|is .{1,40}? (?:living|residing))\\b"),
+      re("\\bwho (?:lives?|is living|resides)\\b(?!-)"),
       re("\\b(?:apartment|apt\\.?)\\s*(?:#|no\\.?|number)?\\s*\\d+[a-z]?\\b"),
-      re("\\b(?:house|residence|condo|townhouse)\\b.*(?:\\bunit\\s*|#\\s*)\\d+"),
-      re("\\bthe [a-z]+ (?:family )?(?:residence|household|family home)\\b(?!\\s+inn)"),
-      re("\\b(?:private|residential) (?:homes?|houses?|residences?|address|property)\\b"),
+      re("\\bprivate (?:homes?|houses?|residences?)\\b"),
       re("\\bis (?:anyone|anybody|someone|somebody|he|she) (?:at )?home\\b"),
       re("\\b(?:the|a|this|that|his|her|their|my) (?:house|home|residence) (?:at|on|number) \\d"),
-      re("\\bdriveway\\b"),
     ],
   ],
   [
     "identifiable_people",
     [
       re(
-        `\\b${PHOTO}(?:\\s+(?:of|showing|capturing))?\\s+(?:(?!no\\b|not\\b|without\\b|any\\b)\\w+\\s+){0,2}?(?:faces?|him|her|everyone|everybody|someone|somebody|that ${PERSON}|the (?:${PERSON}|${STAFF})(?!\\s+(?:counter|desk|station|area|section|window|stand|booth|entrance|door|line|menu|sign|board|register)))\\b`,
+        `\\b(?:(?:photo|picture|pic|shot|snapshot|video|selfie|close-?up|image)s?\\s+(?:of|showing|capturing)|(?:photograph|film|record|snap|videotape|shoot)(?:s|ed|ing)?)\\s+(?:(?!no\\b|not\\b|without\\b|any\\b)\\w+\\s+){0,2}?(?:faces?|him|her|everyone|everybody|someone|somebody|(?:that|the|this) (?:${PERSON}|${STAFF})s?)\\b${ENDS}`,
       ),
       re(
-        `\\b(?:identify|recogni[sz]e)\\s+(?:the |that |this |a |any |every |each )?(?:${PERSON}|people|customers?|employees?|faces?|individuals?|who)\\b`,
+        `\\b(?:identify|recogni[sz]e)\\s+(?:the |that |this |a |any |every |each )?(?:${PERSON}|people|faces?|individuals?)\\b`,
       ),
-      re("\\b(?:facial|face) recognition\\b"),
       re(`\\bwhat (?:does|did) (?:he|she|the (?:${PERSON}|${STAFF})) look like\\b`),
     ],
   ],
@@ -197,14 +189,14 @@ const RULES: [SafetyCategory, RegExp[]][] = [
       re(
         `\\b(?:my|his|her|their|our|your)\\s+${REL}\\s+(?:is\\s+|was\\s+|are\\s+)?(?:still\\s+)?(?:at|in|inside|there|here|home|with|working|going|leaving|arriving|around|out|currently)\\b`,
       ),
-      re(`\\b(?:${PERSON}|someone|somebody|${STAFF})\\s+(?:named|called)\\b`),
-      /\b(?:[Ii]s|whether|if)\s+[A-Z][a-z]+\s+[A-Z][a-z]+\s+(?:still\s+)?(?:at home|home|on shift|on duty|at work)\b/,
+      re(`\\b(?:${PERSON}|someone|somebody|${STAFF})\\s+named\\b`),
+      /\b(?:[Ii]s|whether|if)\s+[A-Z][a-z]+\s+[A-Z][a-z]+\s+(?:still\s+)?(?:on shift|on duty|at work)\b/,
       re(`\\bwho(?:'s| is| was)\\s+(?:that|this)\\s+${PERSON}\\b`),
-      re("\\bwhat(?:'s| is) (?:his|her|their) (?:name|phone|number|address)\\b"),
+      re("\\bwhat(?:'s| is) (?:his|her) (?:name|phone|number|address)\\b"),
       re(
-        `\\b(?:find|get|learn|tell me) (?:out )?(?:his|her|the (?:${PERSON}|${STAFF})'s) (?:name|identity|phone|number|instagram|age)\\b`,
+        `\\b(?:find|get|learn|tell me) (?:out )?(?:his|her|the ${PERSON}'s) (?:name|identity|phone|number|instagram|age)\\b`,
       ),
-      re("\\bidentity of\\b"),
+      re(`\\bidentity of (?:the|that|this|a) ${PERSON}\\b`),
       re("\\b(?:a specific|this particular|a particular) (?:person|man|woman|individual)\\b"),
     ],
   ],
@@ -213,8 +205,8 @@ const RULES: [SafetyCategory, RegExp[]][] = [
 const normalize = (text: string) =>
   text
     .normalize("NFKC")
-    .replace(/[​-‍⁠﻿­]/g, "")
-    .replace(/[‘’ʼ`´]/g, "'")
+    .replace(/\p{Default_Ignorable_Code_Point}/gu, "")
+    .replace(/[\u{2018}\u{2019}\u{02BC}\u{0060}\u{00B4}]/gu, "'")
     .replace(/\s+/g, " ");
 
 export function checkRules(input: SafetyInput): SafetyVerdict {

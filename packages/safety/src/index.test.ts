@@ -133,6 +133,28 @@ describe("createAssessTask with the classifier", () => {
     expect(await pending).toEqual(failClosed);
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("fails closed when the response body stalls past the overall deadline", async () => {
+    const deadline = new AbortController();
+    vi.spyOn(AbortSignal, "timeout").mockReturnValue(deadline.signal);
+    fetchMock.mockImplementation(
+      async (_, init) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener("abort", () =>
+                controller.error(new DOMException("aborted", "AbortError")),
+              );
+            },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    );
+    const pending = assess()(benign);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    deadline.abort();
+    expect(await pending).toEqual(failClosed);
+  });
 });
 
 describe("createAssessTask without ANTHROPIC_API_KEY", () => {
@@ -148,6 +170,15 @@ describe("createAssessTask without ANTHROPIC_API_KEY", () => {
     });
     await assess(benign);
     expect(console.warn).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("still blocks on the rules", async () => {
+    const verdict = await createAssessTask({})({
+      ...benign,
+      question: "What is the license plate of the car outside?",
+    });
+    expect(verdict).toEqual(block("vehicle", "rules"));
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

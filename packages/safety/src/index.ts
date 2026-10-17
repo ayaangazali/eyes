@@ -35,11 +35,11 @@ Answer with these fields:
 - reason: null when allowed, otherwise one neutral sentence telling the agent which part of the task is not allowed. Do not accuse or lecture.
 - fix: null when allowed, otherwise one sentence telling the agent how to rephrase the task so it is about a public place.`;
 
-const UNAVAILABLE: SafetyVerdict = {
+export const UNAVAILABLE: SafetyVerdict = {
   allowed: false,
   category: "other",
   reason: "The safety review is temporarily unavailable, so this task was not sent to any worker.",
-  fix: "Retry the same request in a few seconds. If it keeps failing, wait a minute and try again.",
+  fix: "Nothing was charged. Retry the same request in a few seconds. If it keeps failing, wait a minute and try again.",
   layer: "classifier",
 };
 
@@ -49,13 +49,16 @@ async function classify(client: Anthropic, input: SafetyInput): Promise<SafetyVe
     task_type: input.task_type,
     place_label: input.place_label,
   }).replace(/</g, "\\u003c");
-  const message = await client.messages.parse({
-    model: "claude-haiku-5-5",
-    max_tokens: 1024,
-    system: SYSTEM,
-    output_config: { effort: "low", format: zodOutputFormat(ClassifierOutput) },
-    messages: [{ role: "user", content: `<task>\n${task}\n</task>` }],
-  });
+  const message = await client.messages.parse(
+    {
+      model: "claude-haiku-5-5",
+      max_tokens: 1024,
+      system: SYSTEM,
+      output_config: { effort: "low", format: zodOutputFormat(ClassifierOutput) },
+      messages: [{ role: "user", content: `<task>\n${task}\n</task>` }],
+    },
+    { signal: AbortSignal.timeout(12_000) },
+  );
   if (message.stop_reason === "refusal") return block("other", "classifier");
   const out = message.parsed_output;
   if (!out) throw new Error(`classifier returned no structured output (stop_reason ${message.stop_reason})`);
