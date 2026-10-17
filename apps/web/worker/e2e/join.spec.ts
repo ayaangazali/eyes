@@ -64,10 +64,15 @@ test("bad phone, short name or missing location explain the problem and post not
     await fill(page, "Ada Lovelace", phone, false);
     await expect(alert).toContainText("That phone number does not look right.");
   }
+  const phone = page.getByLabel("Mobile number");
+  await expect(phone).toBeFocused();
+  await expect(phone).toHaveAttribute("aria-invalid", "true");
   await fill(page, "  A ", "(415) 555-0123", false);
   await expect(alert).toContainText("Please enter your name.");
   await fill(page, "Ada Lovelace", "(415) 555-0123", false);
   await expect(alert).toContainText("We need your location");
+  await expect(phone).not.toHaveAttribute("aria-invalid");
+  await expect(page.getByRole("button", { name: "Use my location" })).toBeFocused();
   expect(posts).toEqual([]);
 });
 

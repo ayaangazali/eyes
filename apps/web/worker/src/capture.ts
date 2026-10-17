@@ -1,5 +1,5 @@
 import type { CaptureResult, OfferView, TaskStatus, TaskType } from "@eyes/core";
-import { $, call, Problem, showError } from "./api.ts";
+import { $, call, LOCATION_HELP, Problem, showError } from "./api.ts";
 
 const ALREADY_SENT = "A photo was already sent for this task. Nothing else to do.";
 const CLOSED: Record<TaskStatus, string> = {
@@ -12,6 +12,11 @@ const CLOSED: Record<TaskStatus, string> = {
   disputed: ALREADY_SENT,
   expired: "This task expired. Watch for the next task text.",
   refunded: "This task was cancelled. Watch for the next task text.",
+};
+const OUTCOME: Partial<Record<TaskStatus, string>> = {
+  paid: "Verified and paid",
+  verified: "Verified, payout pending",
+  needs_review: "Sent, needs a quick review",
 };
 const YES_NO: TaskType[] = ["is_open", "in_stock"];
 const GPS_GOOD_M = 50;
@@ -33,6 +38,7 @@ let sending = false;
 let closed = false;
 let watch = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
+let ticker: ReturnType<typeof setInterval> | undefined;
 
 function meters(a: GeolocationCoordinates, b: { lat: number; lng: number }): number {
   const rad = Math.PI / 180;
@@ -44,7 +50,17 @@ function meters(a: GeolocationCoordinates, b: { lat: number; lng: number }): num
 
 function ready() {
   shutter.disabled = closed || video.readyState < video.HAVE_CURRENT_DATA;
-  send.disabled = closed || sending || searching || !here || (offer.require_photo && !photo);
+  const todo = sending
+    ? "Sending..."
+    : offer.require_photo && !photo
+      ? "Take the photo first."
+      : searching
+        ? "Waiting for GPS..."
+        : here
+          ? ""
+          : "Your location is needed to send.";
+  send.disabled = closed || todo !== "";
+  $("todo").textContent = todo;
 }
 
 function showGps() {
@@ -62,6 +78,9 @@ function stopGps() {
 
 function finish() {
   closed = true;
+  clearInterval(ticker);
+  $("deadline").hidden = true;
+  $("relocate").hidden = true;
   stopGps();
   for (const track of (video.srcObject as MediaStream | null)?.getTracks() ?? []) track.stop();
   form.hidden = true;
@@ -84,6 +103,7 @@ function tick() {
 function locate() {
   stopGps();
   error.hidden = true;
+  $("relocate").hidden = true;
   searching = true;
   const previous = here;
   let best: GeolocationCoordinates | null = null;
@@ -94,11 +114,10 @@ function locate() {
         error,
         new Problem(
           "We could not get your location.",
-          denied
-            ? "Allow location for this page in your browser settings, then take the photo again."
-            : "Move near a window or step outside, then take the photo again.",
+          denied ? LOCATION_HELP : "Move near a window or step outside, then tap Try location again.",
         ),
       );
+      $("relocate").hidden = false;
     }
     showGps();
     ready();
@@ -126,10 +145,8 @@ async function startCamera() {
     ?.getUserMedia({ video: { facingMode: "environment" } })
     .catch((err: Error) => {
       if (err.name === "NotAllowedError") {
-        throw new Problem(
-          "Your camera is blocked.",
-          "Allow camera access for this page in your browser settings, then reload it.",
-        );
+        $("why").textContent =
+          "Camera access is blocked for this page, so the live view cannot open. Tap Take the photo to use your phone's camera instead, and take it now, not from your gallery.";
       }
       return null;
     });
@@ -147,12 +164,15 @@ function usePhoto(file: File, at: string) {
   const preview = $<HTMLImageElement>("preview");
   preview.src = URL.createObjectURL(file);
   preview.hidden = false;
+  video.hidden = true;
   shutter.textContent = "Retake photo";
+  shutter.className = "secondary";
   locate();
 }
 
-function showResult({ message, verification: v }: CaptureResult) {
+function showResult({ status, message, verification: v }: CaptureResult) {
   finish();
+  $("outcome").textContent = OUTCOME[status] ?? "Sent";
   $("message").textContent = message;
   const checks = [
     ["Location matches the place", v.gps_ok],
@@ -174,6 +194,14 @@ function showResult({ message, verification: v }: CaptureResult) {
 video.addEventListener("loadeddata", ready);
 
 shutter.addEventListener("click", () => {
+  if (video.hidden) {
+    photo = null;
+    video.hidden = false;
+    $("preview").hidden = true;
+    shutter.textContent = "Take photo";
+    shutter.className = "";
+    return ready();
+  }
   const at = new Date().toISOString();
   const canvas = document.createElement("canvas");
   canvas.width = video.videoWidth;
@@ -187,6 +215,8 @@ shutter.addEventListener("click", () => {
     0.85,
   );
 });
+
+$("relocate").addEventListener("click", locate);
 
 $<HTMLInputElement>("file").addEventListener("change", (event) => {
   const file = (event.currentTarget as HTMLInputElement).files?.[0];
@@ -229,7 +259,7 @@ async function main() {
     throw new Problem("This task link is incomplete.", "Open the full link from the newest Eyes text.");
   offer = await call<OfferView>(`/w/offers/${encodeURIComponent(token)}`);
   $("question").textContent = offer.question;
-  $("bounty").textContent = `$${offer.bounty_usd.toFixed(2)}`;
+  $("bounty").textContent = `$${offer.bounty_usd.toFixed(2)} for this task`;
   $("place").replaceChildren(
     Object.assign(document.createElement("a"), {
       href: `https://www.google.com/maps/search/?api=1&query=${offer.lat},${offer.lng}`,
@@ -238,15 +268,19 @@ async function main() {
       textContent: `${offer.place_label} (map)`,
     }),
   );
-  $("task").hidden = false;
-  if (offer.status !== "claimed" || !offer.claimed_by_you) close(CLOSED[offer.status]);
+  const lost = !offer.claimed_by_you && CLOSED[offer.status] === ALREADY_SENT;
+  if (offer.status !== "claimed" || !offer.claimed_by_you)
+    close(lost ? CLOSED.claimed : CLOSED[offer.status]);
   tick();
-  setInterval(tick, 1000);
   if (closed) return;
+  ticker = setInterval(tick, 1000);
   $("yesno").hidden = !YES_NO.includes(offer.task_type);
   form.hidden = false;
   locate();
   await startCamera();
 }
 
-main().catch((err) => showError(error, err));
+main().catch((err) => {
+  $("question").textContent = "We could not open this task";
+  showError(error, err);
+});

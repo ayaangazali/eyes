@@ -19,7 +19,11 @@ const WORDS: Partial<Record<ErrorCode, [string, string]>> = {
   ],
   invalid_input: ["Eyes could not accept that.", "Check what you entered, then try again."],
   internal_error: ["Something went wrong at Eyes.", TRY_AGAIN],
+  rate_limited: ["Too many sign-ups from this network right now.", "Wait up to an hour, then try again."],
 };
+
+export const LOCATION_HELP =
+  "On iPhone, tap aA in the address bar > Website Settings > Location > Allow, or turn on Settings > Privacy & Security > Location Services > Safari Websites. On Android, tap the icon left of the address > Permissions > Location. Then tap Try location again.";
 
 export class Problem extends Error {
   fix: string;

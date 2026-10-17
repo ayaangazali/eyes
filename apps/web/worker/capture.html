@@ -3,36 +3,44 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#121820" />
     <title>Eyes task</title>
+    <meta property="og:title" content="Eyes task: take one photo, get paid" />
+    <meta
+      property="og:description"
+      content="Open this at the place you said YES to. Take one live photo and Eyes pays you once it checks out."
+    />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
+    <header class="bar"><span class="mark" aria-hidden="true"></span>Eyes</header>
     <main>
-      <section id="task" hidden>
+      <section id="task">
         <p class="meta"><strong id="bounty"></strong> <span id="deadline"></span></p>
         <h1 id="question">Loading your task</h1>
         <p id="place"></p>
       </section>
-      <p id="closed" class="notice" hidden></p>
+      <p id="closed" class="notice" role="status" hidden></p>
       <p id="error" class="error" role="alert" hidden></p>
+      <button type="button" id="relocate" class="secondary" hidden>Try location again</button>
 
       <form id="capture" hidden>
         <p class="warn">
           <strong>Do not photograph faces.</strong> Point the camera at the place, the line or the shelf. Photos
           with faces are rejected.
         </p>
+        <img id="preview" alt="What you captured" hidden />
         <div id="live" hidden>
           <video id="video" autoplay muted playsinline></video>
           <button type="button" id="shutter" disabled>Take photo</button>
         </div>
         <div id="fallback" hidden>
-          <p class="warn">
+          <p id="why" class="warn">
             Your browser cannot show a live camera. A live photo is still required: take it now with your
             camera, not from your gallery.
           </p>
-          <label>Take the photo <input type="file" id="file" accept="image/*" capture="environment" /></label>
+          <label class="button">Take the photo <input type="file" id="file" accept="image/*" capture="environment" /></label>
         </div>
-        <img id="preview" alt="What you captured" hidden />
         <p id="gps" class="muted"></p>
         <fieldset id="yesno" hidden>
           <legend>Your answer</legend>
@@ -43,15 +51,24 @@
           Anything to add? (optional)
           <input name="answer_text" maxlength="1000" placeholder="e.g. about 6 people in line" />
         </label>
-        <button type="submit" id="send" disabled>Send to Eyes</button>
+        <div class="dock">
+          <button type="submit" id="send" disabled aria-describedby="todo">Send to Eyes</button>
+          <p id="todo" class="muted"></p>
+        </div>
+        <p class="muted">
+          Can't make it? Just close this page. If no photo arrives by the deadline, the task closes on its own and
+          the agent gets a refund.
+        </p>
       </form>
 
       <section id="result" hidden>
-        <h2>Sent</h2>
+        <h2 id="outcome">Sent</h2>
         <p id="message"></p>
         <ul id="checks" class="checks"></ul>
         <p id="reason" class="muted"></p>
+        <p>You can close this page.</p>
       </section>
+      <p class="muted">Questions? Reply HELP to the Eyes text.</p>
     </main>
     <script type="module" src="/src/capture.ts"></script>
   </body>
