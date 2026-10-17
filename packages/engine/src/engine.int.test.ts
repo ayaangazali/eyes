@@ -205,6 +205,31 @@ describe.skipIf(!url)("engine on Postgres", () => {
     ]);
   });
 
+  it("STOP gets one confirmation, then nothing until START, which confirms the worker is back in", async () => {
+    const { phone } = await worker(somewhere());
+    const sent = () => outbox.filter((m) => m.to === phone).map((m) => m.payload);
+    const before = sent().length;
+    await service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
+    for (const intent of ["stop", "help", "yes", "no", "unknown"] as const) {
+      await service.handleWorkerReply({ phone, intent, text: intent });
+    }
+    const after = sent().slice(before);
+    expect(after).toEqual(["Eyes: you're opted out and won't get task texts. Text START to rejoin."]);
+    expect(String(after[0]).length).toBeLessThanOrEqual(159);
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+    expect(sent().slice(before + 1)).toEqual([expect.stringMatching(/^You are in\. .*\/w\/connect\//)]);
+  });
+
+  it("HELP says what Eyes is, how to opt out and where to read more, in one iMessage-sized text", async () => {
+    const { phone } = await worker(somewhere());
+    await service.handleWorkerReply({ phone, intent: "help", text: "HELP" });
+    const help = String(outbox.findLast((m) => m.to === phone)?.payload);
+    expect(help).toBe(
+      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out. More: https://w.eyes.test",
+    );
+    expect(help.length).toBeLessThanOrEqual(159);
+  });
+
   it("returns outputs that parse against the frozen contract schemas on every service call", async () => {
     const at = somewhere();
     const signup = SignupOutput.parse(await service.signupAgent({ name: "contract-agent" }));

@@ -350,17 +350,19 @@ describe("node adapter on a real socket", () => {
     expect(logged()).not.toContain(tokenBody);
   });
 
-  it("passes the socket address as X-Forwarded-For only when the request has none", async () => {
+  it("passes the socket address as X-Forwarded-For only when the request has none or a blank one", async () => {
     const seen: Request[] = [];
     const base = await start({}, seen);
     quiet();
 
     await fetch(`${base}/healthz`);
     await fetch(`${base}/healthz`, { headers: { "x-forwarded-for": "198.51.100.7, 203.0.113.9" } });
+    await fetch(`${base}/healthz`, { headers: { "x-forwarded-for": "" } });
 
     expect(seen.map((request) => request.headers.get("x-forwarded-for"))).toEqual([
       "127.0.0.1",
       "198.51.100.7, 203.0.113.9",
+      "127.0.0.1",
     ]);
   });
 
