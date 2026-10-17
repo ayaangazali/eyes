@@ -660,4 +660,92 @@ describe.skipIf(!url)("engine under races and guards", () => {
     expect(svc.providers.payments.transfers).toHaveLength(0);
     expect(await svc.service.getBalance(a)).toMatchObject({ balance_usd: 16.5, escrowed_usd: 3.5 });
   });
+
+  it("an opted-in but unavailable worker cannot claim (the SQL guard on its own)", async () => {
+    const at = somewhere();
+    const w = await worker(north(at, 100));
+    const a = await agent();
+    const { task_id } = await ask(a, at);
+    await sql`update workers set available = false where id = ${w.worker_id}`;
+    await yes(w.phone);
+    expect(await task(task_id)).toEqual({ status: "dispatched", claimed_by: null });
+  });
+
+  it("a worker who never sent START gets no text for anything but START", async () => {
+    const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
+    await service.joinWorker({ name: "Worker", phone, ...somewhere() });
+    const before = outbox.length;
+    for (const intent of ["yes", "no", "help", "unknown", "stop"] as const) {
+      await service.handleWorkerReply({ phone, intent, text: intent });
+    }
+    expect(outbox.slice(before).filter((m) => m.to === phone)).toEqual([]);
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+    expect(lastText(main, phone)).toContain("/w/connect/");
+  });
+
+  it("a capture at exactly deadline_at does not settle", async () => {
+    const edge = make({ verify: async () => PASS });
+    const at = somewhere();
+    const w = await worker(north(at, 100), edge);
+    const a = await agent(edge);
+    const { task_id, deadline_at } = await ask(a, at, { deadline_minutes: 5 }, edge);
+    await yes(w.phone, edge);
+    const atDeadline = make({
+      verify: async () => {
+        atDeadline.providers.clock.set(new Date(deadline_at));
+        return PASS;
+      },
+    });
+    atDeadline.providers.clock.set(new Date(new Date(deadline_at).getTime() - 1000));
+    await expect(
+      atDeadline.service.submitCapture(
+        tokenOf(edge.outbox, w.phone),
+        capture(at, atDeadline.providers.clock.now()),
+        photo,
+      ),
+    ).rejects.toMatchObject({ code: "offer_invalid" });
+    expect((await task(task_id)).status).toBe("claimed");
+    expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow"]);
+  });
+
+  it("the same worker's YES delivered twice at once resends the same link and never says already claimed", async () => {
+    const at = somewhere();
+    const w = await worker(north(at, 100));
+    const a = await agent();
+    const { task_id } = await ask(a, at);
+    let race: Promise<unknown> = Promise.resolve();
+    await sql.begin(async (tx) => {
+      await tx`select id from tasks where id = ${task_id} for update`;
+      race = Promise.all([yes(w.phone), yes(w.phone)]);
+      await untilWaiting("eyes_claim", 2);
+    });
+    await race;
+    const mine = outbox.filter((m) => m.to === w.phone && m.kind !== "text" && m.kind !== "offer");
+    expect(mine.map((m) => m.kind)).toEqual(["capture_link", "capture_link"]);
+    expect(mine[0]?.payload.capture_url).toBe(mine[1]?.payload.capture_url);
+    expect(await task(task_id)).toEqual({ status: "claimed", claimed_by: w.worker_id });
+  });
+
+  it("a failed transfer for an onboarded worker says the payout will be retried and sends no setup link", async () => {
+    const down = make();
+    down.providers.payments.payoutWorker = async () => {
+      throw new Error("stripe down");
+    };
+    const at = somewhere();
+    const w = await worker(north(at, 100), down);
+    await down.service.workerConnectUrl(w.connectToken);
+    const a = await agent(down);
+    const { task_id } = await ask(a, at, {}, down);
+    await yes(w.phone, down);
+    const sent = down.outbox.length;
+    const res = await down.service.submitCapture(
+      tokenOf(down.outbox, w.phone),
+      capture(at, down.providers.clock.now()),
+      photo,
+    );
+    expect(res.status).toBe("verified");
+    expect(res.message).toContain("retried");
+    expect(down.outbox.slice(sent)).toEqual([]);
+    expect((await rows(task_id)).map((r) => r.type)).toEqual(["escrow", "fee", "release"]);
+  });
 });

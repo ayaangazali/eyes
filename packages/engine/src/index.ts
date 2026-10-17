@@ -623,8 +623,10 @@ export function createEyesService(deps: EngineDeps): EyesService {
           ? `Verified and paid. ${amount} is on its way to your account. Thank you!`
           : settled.status === "needs_review"
             ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). You will be paid once it is approved.`
-            : `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`;
-      if (settled.status === "verified") {
+            : worker.stripe_account_id
+              ? `Verified. Your ${amount} payout did not go through yet; it will be retried.`
+              : `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`;
+      if (settled.status === "verified" && !worker.stripe_account_id) {
         await messaging.sendText(
           worker.phone,
           `Your ${amount} for this task is waiting. Set up payouts here: ${connectUrl(workerId)}`,
