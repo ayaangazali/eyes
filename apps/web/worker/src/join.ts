@@ -1,5 +1,5 @@
 import type { JoinWorkerOutput } from "@eyes/core";
-import { $, call, LIVE_PAYOUTS, LOCATION_HELP, Problem, showError } from "./api.ts";
+import { $, call, LOCATION_HELP, Problem, showError } from "./api.ts";
 
 const form = $<HTMLFormElement>("join");
 const error = $("error");
@@ -9,9 +9,6 @@ let spot: { lat: number; lng: number } | null = null;
 
 form.hidden = !inkboxNumber;
 $("closed").hidden = Boolean(inkboxNumber);
-$("simulated").hidden = LIVE_PAYOUTS;
-$("pay").hidden = !LIVE_PAYOUTS;
-$("payout-step").hidden = !LIVE_PAYOUTS;
 
 function toE164(input: string): string | null {
   const digits = input.replace(/\D/g, "");

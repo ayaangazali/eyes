@@ -61,8 +61,21 @@ test("a build without an Inkbox number says sign-up opens soon and asks for noth
   await expect(page.getByLabel("Mobile number")).toBeHidden();
   await expect(page.getByRole("button", { name: "Join" })).toBeHidden();
   await expect(page.getByText("Payouts are simulated")).toBeHidden();
-  for (const live of ["#pay", "#payout-step"]) await expect(page.locator(live)).not.toHaveAttribute("hidden");
+  for (const live of ["paid out through Stripe", "we'll text you a link to set up payouts"]) {
+    await expect(page.getByText(live)).not.toHaveCSS("display", "none");
+  }
   expect(offsite).toEqual([]);
+});
+
+test("the payout notice is right in the static page, before any script runs", async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByText("Payouts are simulated, so tasks pay no real money.")).toBeVisible();
+  await page.goto("http://127.0.0.1:4174/");
+  await expect(page.getByText("You need an iPhone.")).toBeVisible();
+  await expect(page.getByText("Payouts are simulated")).toBeHidden();
+  await context.close();
 });
 
 test("phone formats normalize to E.164 and the build-time number is the START fallback", async ({ page }) => {

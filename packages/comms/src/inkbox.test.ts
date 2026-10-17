@@ -344,6 +344,22 @@ describe("createInkboxMessaging", () => {
     expect(sdk.sendText).not.toHaveBeenCalled();
   });
 
+  it("keys the simulated paid notice apart from the real one, so a later real payout of the same task is not replayed away", async () => {
+    const m = createInkboxMessaging(env);
+    const paid = {
+      task_id: "t1",
+      place_label: "Ferry Building",
+      amount_cents: 300,
+      earnings_url: EARNINGS_URL,
+    };
+    await m.sendPaid(TO, { ...paid, live_payouts: false });
+    await m.sendPaid(TO, { ...paid, live_payouts: true });
+    expect(sdk.sendIMessage.mock.calls.map(([options]) => options.idempotencyKey)).toEqual([
+      `accepted:t1:${TO}`,
+      `paid:t1:${TO}`,
+    ]);
+  });
+
   it("delivers a second offer for the same task to the same worker instead of replaying the first", async () => {
     const delivered: string[] = [];
     const replies = new Map<string, unknown>();
