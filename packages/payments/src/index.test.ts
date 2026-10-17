@@ -197,6 +197,15 @@ describe("stripeRoutes", () => {
     expect(service.workerConnectUrl).not.toHaveBeenCalled();
   });
 
+  it("shows the top-up amount from the success URL and ignores a malformed one", async () => {
+    const { app } = setup();
+    const done = async (query: string) => (await app.request(`/topup/done${query}`)).text();
+    expect(await done("?amount_cents=2050")).toContain("$20.50 added to your agent&#39;s balance.");
+    for (const query of ["", "?amount_cents=20.5", "?amount_cents=1e9", "?amount_cents=<b>"]) {
+      expect(await done(query)).toContain("Your payment was added to your agent&#39;s balance.");
+    }
+  });
+
   it("redirects a worker connect link to a freshly minted onboarding URL", async () => {
     const { app } = setup();
     const res = await app.request("/w/connect/tok");
@@ -324,7 +333,7 @@ describe("outbound Stripe requests", () => {
       "metadata[topup_cents]": "2050",
       "payment_intent_data[metadata][agent_id]": "agt_9",
       "payment_intent_data[transfer_group]": "topup_agt_9",
-      success_url: "https://api.eyes.test/topup/done",
+      success_url: "https://api.eyes.test/topup/done?amount_cents=2050",
       cancel_url: "https://api.eyes.test/topup/cancel",
     });
   });
@@ -502,5 +511,19 @@ describe("createStripePayments().parseWebhook", () => {
 
   it("refuses to start without STRIPE_SECRET_KEY", () => {
     expect(() => createStripePayments({})).toThrow(/STRIPE_SECRET_KEY/);
+  });
+
+  it("refuses a live key unless EYES_TEST_MODE is exactly false", () => {
+    for (const key of ["sk_live_unit", "rk_live_unit"]) {
+      for (const mode of [undefined, "true", "FALSE", "0", ""]) {
+        expect(() => createStripePayments({ STRIPE_SECRET_KEY: key, EYES_TEST_MODE: mode })).toThrow(
+          /live key.*EYES_TEST_MODE/,
+        );
+      }
+      expect(() => createStripePayments({ STRIPE_SECRET_KEY: key, EYES_TEST_MODE: "false" })).not.toThrow();
+    }
+    expect(() =>
+      createStripePayments({ STRIPE_SECRET_KEY: "sk_test_unit", EYES_TEST_MODE: "true" }),
+    ).not.toThrow();
   });
 });

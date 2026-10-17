@@ -697,15 +697,17 @@ export function createEyesService(deps: EngineDeps): EyesService {
           { fix: "Take a photo with the capture page camera and submit again." },
         );
       }
+      const key = `${task.id}/${randomUUID()}.jpg`;
       const photo_url = photo
         ? (
             await providers.storage.putPhoto({
-              key: `${task.id}/${randomUUID()}.jpg`,
+              key,
               bytes: photo.bytes,
               content_type: photo.content_type,
             })
           ).url
         : null;
+      let faces = false;
       const v = await deps.verifySubmission({
         task,
         submission: {
@@ -718,12 +720,23 @@ export function createEyesService(deps: EngineDeps): EyesService {
           answer_text: capture.answer_text,
           answer_bool: capture.answer_bool,
         },
-        vision: providers.vision,
+        vision: {
+          judge: async (i) => {
+            const verdict = await providers.vision.judge(i);
+            faces = verdict.prominent_faces;
+            return verdict;
+          },
+        },
       });
+      if (faces) {
+        await providers.storage
+          .deletePhoto({ key })
+          .catch(() => console.error(`photo delete for task ${task.id} failed`));
+      }
       const submitted = await one<Task>("eyes_submit", {
         p_task_id: task.id,
         p_worker_id: workerId,
-        p_photo_url: photo_url,
+        p_photo_url: faces ? null : photo_url,
         p_answer_text: capture.answer_text,
         p_answer_bool: capture.answer_bool,
         p_lat: capture.lat,

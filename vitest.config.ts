@@ -8,7 +8,7 @@ export default defineConfig({
       {
         test: {
           name: "unit",
-          include: ["{apps,packages,cli,scripts}/**/*.test.ts"],
+          include: ["{apps,packages,cli,scripts}/**/*.test.ts", "evals/**/*.test.ts"],
           exclude: [...ignore, "**/*.{contract,int,rules}.test.ts"],
         },
       },
