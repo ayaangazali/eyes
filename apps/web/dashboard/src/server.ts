@@ -3,9 +3,14 @@ import { createServer } from "node:http";
 import type { DbConfig } from "@eyes/core";
 import { createRpc, type Rpc } from "@eyes/db";
 
-const PAGE = readFileSync(new URL("./index.html", import.meta.url));
+export const PAGE = readFileSync(new URL("./index.html", import.meta.url), "utf8");
 const LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
 const FEED_LIMIT = 50;
+
+export async function readFeed(rpc: Rpc) {
+  const [feed] = await rpc<Record<string, unknown>>("eyes_dashboard_feed", { p_limit: FEED_LIMIT });
+  return feed;
+}
 
 export function createDashboardServer(rpc: Rpc) {
   return createServer(async (req, res) => {
@@ -20,7 +25,7 @@ export function createDashboardServer(rpc: Rpc) {
     }
     if (path === "/feed") {
       try {
-        const [feed] = await rpc("eyes_dashboard_feed", { p_limit: FEED_LIMIT });
+        const feed = await readFeed(rpc);
         res
           .writeHead(200, { "content-type": "application/json", "cache-control": "no-store" })
           .end(JSON.stringify(feed));

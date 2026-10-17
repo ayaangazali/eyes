@@ -50,6 +50,13 @@ describe("main.ts", () => {
     expect(run.stderr).toContain("PORT must be an integer from 0 to 65535");
   });
 
+  it("refuses an EYES_OPS_KEY shorter than 32 characters", async () => {
+    const run = await boot({ EYES_PROVIDERS: "fake", EYES_OPS_KEY: "demo" });
+    expect(run.code).toBe(1);
+    expect(run.stderr).toContain("EYES_OPS_KEY must be at least 32 random characters");
+    expect(run.stdout).not.toContain("listening");
+  });
+
   it("wires InsForge storage in live mode and starts serving", async () => {
     const run = await boot({
       ANTHROPIC_API_KEY: "sk-ant-test",

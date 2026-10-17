@@ -56,6 +56,9 @@ importers:
       '@eyes/verify':
         specifier: workspace:*
         version: link:../../packages/verify
+      '@eyes/web-dashboard':
+        specifier: workspace:*
+        version: link:../web/dashboard
       hono:
         specifier: 4.13.13
         version: 4.13.13
