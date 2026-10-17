@@ -26,7 +26,8 @@
     "safety:eval": "node evals/safety/run.ts",
     "ax:eval": "node evals/ax/run.ts",
     "smoke:live": "node scripts/smoke-live.ts",
-    "owner-link": "node scripts/owner-link.ts"
+    "owner-link": "node scripts/owner-link.ts",
+    "resolve-task": "node scripts/resolve-task.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.135.0",
