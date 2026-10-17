@@ -12,9 +12,11 @@ import {
   type LatLng,
   OfferView,
   OwnerConsole,
+  type OwnerPolicyInput,
   type SafetyVerdict,
   SignupOutput,
   signToken,
+  type TaskStatus,
   TOOLS,
   type VerificationResult,
 } from "@eyes/core";
@@ -289,6 +291,78 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await service.agentById(a.id)).toEqual(a);
     expect(await service.agentById(randomUUID())).toBeNull();
     expect(await service.agentById("not-a-uuid")).toBeNull();
+  });
+
+  it("lists only the calling agent's tasks, newest first, filtered by status and bounded by limit", async () => {
+    const at = somewhere();
+    await worker(north(at, 100));
+    const [a, b] = [await agent(), await agent()];
+    const mine: string[] = [];
+    for (const question of ["Is it open right now?", "Is the line long?", "Is it busy right now?"]) {
+      mine.unshift((await ask(a, at, { question })).task_id);
+      providers.clock.advance(1000);
+    }
+    const theirs = await ask(b, at);
+    await service.cancelTask(a, { task_id: mine[1] as string });
+    const ids = async (who: Agent, input: { status?: TaskStatus; limit: number }) =>
+      (await service.listTasks(who, input)).tasks.map((t) => t.task_id);
+
+    const listed = TOOLS.list_tasks.output.parse(await service.listTasks(a, { limit: 20 }));
+    expect(listed.tasks.map((t) => t.task_id)).toEqual(mine);
+    expect(listed.tasks[0]).toMatchObject({
+      question: "Is it busy right now?",
+      status: "dispatched",
+      bounty_usd: 3,
+      answered: false,
+    });
+    expect(await ids(b, { limit: 20 })).toEqual([theirs.task_id]);
+    expect(await ids(a, { status: "refunded", limit: 20 })).toEqual([mine[1]]);
+    expect(await ids(a, { limit: 2 })).toEqual(mine.slice(0, 2));
+    await expect(service.listTasks(a, { limit: 51 })).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  describe("quote_task against the key's limits and balance", () => {
+    const at = somewhere();
+    beforeAll(() => worker(north(at, 100)));
+    const fits = (suggested_bounty_usd: number) => ({
+      allowed: true,
+      reason_if_not: null,
+      suggested_bounty_usd,
+    });
+    const blocked = (says: string) => ({ allowed: false, reason_if_not: expect.stringContaining(says) });
+    const cases: [string, Partial<OwnerPolicyInput>, number | null, object][] = [
+      ["suggests the default bounty when it fits", {}, null, fits(3)],
+      ["caps the suggestion at max_bounty_usd", { max_bounty_usd: 2 }, null, fits(2)],
+      ["caps the suggestion at the daily cap left minus the fee", { daily_cap_usd: 3 }, null, fits(2.5)],
+      ["caps the suggestion at the balance minus the fee", {}, 250, fits(2)],
+      [
+        "blocks a task_type the key may not post",
+        { allowed_task_types: ["is_open"] },
+        null,
+        blocked("is_open"),
+      ],
+      ["blocks a max_bounty_usd below the minimum bounty", { max_bounty_usd: 0.5 }, null, blocked("is 0.5")],
+      [
+        "blocks when the minimum does not fit the cap left",
+        { daily_cap_usd: 1 },
+        null,
+        blocked("2026-10-18T00:00:00.000Z"),
+      ],
+      ["blocks when the minimum does not fit the balance", {}, 120, blocked("https://api.eyes.test/topup/")],
+    ];
+
+    it.each(cases)("%s", async (_, policy, balance_cents, expected) => {
+      const a = await agent();
+      await service.updateSpendPolicy(signToken("test-link-secret-0123456789", `p:${a.id}`), {
+        max_bounty_usd: 10,
+        daily_cap_usd: 20,
+        allowed_task_types: ["line_length"],
+        ...policy,
+      });
+      if (balance_cents !== null)
+        await sql`update agents set balance_cents = ${balance_cents} where id = ${a.id}`;
+      expect(await service.quoteTask(a, { location: at, task_type: "line_length" })).toMatchObject(expected);
+    });
   });
 
   it("charges nothing on insufficient balance and tells the agent what it can afford", async () => {

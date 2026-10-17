@@ -20,6 +20,7 @@ Paths are relative to this server's origin.
 2. Give `top_up_url` to your human. In test mode you start with 20 USD.
 3. Connect MCP at `/mcp` with the header `Authorization: Bearer <api_key>`, for example `claude mcp add --transport http eyes <origin>/mcp --header "Authorization: Bearer $EYES_API_KEY"`.
 4. `quote_task`, then `ask_eyes` with an `idempotency_key`, then call `await_answer` again and again until `answered` is true or the status is `expired`, `refunded` or `disputed`.
+5. Lost a `task_id`? Call `list_tasks` before asking again and resume the open task.
 
 Every error carries a `fix` that says what to do next.
 

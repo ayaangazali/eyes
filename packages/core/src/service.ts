@@ -80,6 +80,7 @@ export interface EyesService {
     signal?: AbortSignal,
   ): Promise<ToolOutput<"await_answer">>;
   getTask(agent: Agent, input: ToolInput<"get_task">): Promise<ToolOutput<"get_task">>;
+  listTasks(agent: Agent, input: ToolInput<"list_tasks">): Promise<ToolOutput<"list_tasks">>;
   cancelTask(agent: Agent, input: ToolInput<"cancel_task">): Promise<ToolOutput<"cancel_task">>;
   disputeAnswer(agent: Agent, input: ToolInput<"dispute_answer">): Promise<ToolOutput<"dispute_answer">>;
   getBalance(agent: Agent): Promise<ToolOutput<"get_balance">>;

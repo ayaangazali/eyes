@@ -31,7 +31,7 @@
         "operationId": "mcp",
         "tags": ["agent"],
         "summary": "MCP endpoint",
-        "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
+        "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, list_tasks, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
         "requestBody": {
           "content": {
             "application/json": {
@@ -153,7 +153,7 @@
         "operationId": "quote_task",
         "tags": ["agent"],
         "summary": "Quote a task",
-        "description": "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed (false if this API key may not post that task_type, see reason_if_not) and resolved_location (where Eyes thinks you mean). Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type. Same as the MCP tool quote_task.",
+        "description": "Free and read-only. Check whether Eyes can answer at a place before you spend anything: workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed with reason_if_not, and resolved_location (where Eyes thinks you mean). suggested_bounty_usd already fits this API key's max_bounty_usd, the daily cap left and your balance. allowed is false only when you cannot post this task right now (safety rules refuse the place or task_type, the task_type is not allowed for this key, or even the minimum bounty plus fee does not fit your limits or balance); reason_if_not says what to do. quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task. Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type. Same as the MCP tool quote_task.",
         "requestBody": {
           "required": true,
           "content": {
@@ -229,12 +229,15 @@
                       "type": ["number", "null"]
                     },
                     "suggested_bounty_usd": {
-                      "type": "number"
+                      "type": "number",
+                      "description": "A bounty ask_eyes accepts for this API key right now: the default, lowered to fit max_bounty_usd, the daily cap left after the fee, and your balance after the fee. Pass it as bounty_usd."
                     },
                     "allowed": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "False when this API key cannot post this task right now: Eyes' safety rules refuse this task_type at this place, the task_type is not in allowed_task_types, or even the 1 USD minimum bounty plus fee does not fit max_bounty_usd, the daily cap left or the balance. It does not check your question: ask_eyes checks the question itself and can still refuse it with unsafe_task."
                     },
                     "reason_if_not": {
+                      "description": "Why allowed is false and what to do: change the place or task_type, top up at top_up_url, wait for the daily cap to reset at midnight UTC, or ask your user to raise a limit. Null when allowed is true.",
                       "type": ["string", "null"]
                     },
                     "resolved_location": {
@@ -417,6 +420,131 @@
                     "deadline_at",
                     "next_step"
                   ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      },
+      "get": {
+        "operationId": "list_tasks",
+        "tags": ["agent"],
+        "summary": "List your tasks",
+        "description": "Instant, read-only list of the tasks this API key created, newest first: task_id, status, question, place_label, bounty_usd, created_at, deadline_at and answered. Call it when you lost a task_id (context reset, crash) and before asking a question again, so you resume an open task instead of paying twice. status filters to one status; limit is 1 to 50 (default 20). Next: await_answer any task still dispatched, claimed or submitted; get_task any task where answered is true. Same as the MCP tool list_tasks.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "description": "Only return tasks in this status, e.g. \"dispatched\" for tasks no worker has claimed yet. Omit for every status.",
+              "type": "string",
+              "enum": [
+                "dispatched",
+                "claimed",
+                "submitted",
+                "verified",
+                "paid",
+                "expired",
+                "refunded",
+                "disputed",
+                "needs_review"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "default": 20,
+              "description": "How many tasks to return, newest first. 1 to 50.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "tasks": {
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "task_id": {
+                            "type": "string",
+                            "format": "uuid",
+                            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "dispatched",
+                              "claimed",
+                              "submitted",
+                              "verified",
+                              "paid",
+                              "expired",
+                              "refunded",
+                              "disputed",
+                              "needs_review"
+                            ]
+                          },
+                          "question": {
+                            "type": "string"
+                          },
+                          "place_label": {
+                            "type": "string"
+                          },
+                          "bounty_usd": {
+                            "type": "number"
+                          },
+                          "created_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          "deadline_at": {
+                            "type": "string",
+                            "format": "date-time",
+                            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                          },
+                          "answered": {
+                            "type": "boolean",
+                            "description": "True when status is verified, paid or needs_review; get_task returns the answer."
+                          }
+                        },
+                        "required": [
+                          "task_id",
+                          "status",
+                          "question",
+                          "place_label",
+                          "bounty_usd",
+                          "created_at",
+                          "deadline_at",
+                          "answered"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "next_step": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["tasks", "next_step"],
                   "additionalProperties": false
                 }
               }

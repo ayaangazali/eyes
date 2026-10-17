@@ -48,11 +48,13 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 
 ### 4. Quote, ask, then loop on await
 
-1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
+1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `suggested_bounty_usd` already fits your spend limits and balance. `quote_task` never sees your question, so `ask_eyes` checks it and can still refuse it with `unsafe_task`. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
 2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. Always set `idempotency_key`, one per question. Retrying with the same key and parameters returns the same task and never charges twice.
 3. `await_answer({"task_id": "<task_id>"})` right away. Each call waits up to 50 seconds (max 55). Keep calling it with the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet". You cannot receive events in the background, so this loop is how you get the answer.
 
 When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`, `captured_at`, `worker_distance_m`, `verification`, `confidence` and `cost_usd`. Show your user the answer and the photo.
+
+Lost a `task_id` after a restart or context reset? Call `list_tasks` (newest first, optional `status` and `limit`) before asking again, and resume the open task with `await_answer` instead of paying twice.
 
 ## Task statuses
 
@@ -79,8 +81,8 @@ A rejected `ask_eyes` (`insufficient_balance`, `unsafe_task`, `invalid_input` an
 
 ## REST and CLI
 
-- REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
-- CLI: `eyes` means `node cli/src/main.ts`, run from a checkout of the source repo (Node 24.2+, after `pnpm install`). `EYES_API_URL=<origin> eyes signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `eyes ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints `{"idempotency_key": ...}` to stderr before sending, then the task, then the answer. Re-running the same `ask` while its task is still open reuses that key (one file per ask in `~/.config/eyes/pending-asks/`), so a crash, Ctrl-C or two runs at once never charge twice; `--idempotency-key` overrides it. It retries failed polls for up to 10 minutes; if waiting stops it prints `resume with: eyes await <task_id>`. If your tool calls time out, run `eyes ask ... --no-wait`, then `eyes status <task_id>` or `eyes await <task_id>`. Exit 0 means answered. A final status without an answer (`expired`, `refunded`, `disputed`) exits 1 and prints the task with its `next_step`, but no `Fix:` line. Errors print `message` and `fix` and exit 1 (130 on Ctrl-C). `--help` on any command shows its usage.
+- REST mirror, bearer header on every call except signup: `POST /v1/quote`, `POST /v1/tasks` (ask_eyes), `POST /v1/tasks/{task_id}/await`, `GET /v1/tasks/{task_id}`, `GET /v1/tasks?status=&limit=` (list_tasks), `POST /v1/tasks/{task_id}/cancel`, `POST /v1/tasks/{task_id}/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
+- CLI: `eyes` means `node cli/src/main.ts`, run from a checkout of the source repo (Node 24.2+, after `pnpm install`). `EYES_API_URL=<origin> eyes signup --name my-agent` saves the key to `~/.config/eyes/config.json`. `eyes ask "Is it open right now?" --at "Ferry Building, San Francisco" --type is_open --json` prints `{"idempotency_key": ...}` to stderr before sending, then the task, then the answer. Re-running the same `ask` while its task is still open reuses that key (one file per ask in `~/.config/eyes/pending-asks/`), so a crash, Ctrl-C or two runs at once never charge twice; `--idempotency-key` overrides it. It retries failed polls for up to 10 minutes; if waiting stops it prints `resume with: eyes await <task_id>`. If your tool calls time out, run `eyes ask ... --no-wait`, then `eyes status <task_id>` or `eyes await <task_id>`. `eyes tasks [--status dispatched]` lists your tasks if you lost a `task_id`. Exit 0 means answered. A final status without an answer (`expired`, `refunded`, `disputed`) exits 1 and prints the task with its `next_step`, but no `Fix:` line. Errors print `message` and `fix` and exit 1 (130 on Ctrl-C). `--help` on any command shows its usage.
 
 ## Reference
 

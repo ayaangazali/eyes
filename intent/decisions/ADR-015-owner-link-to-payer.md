@@ -20,3 +20,5 @@ ADR-011 promises the agent never sees the `p:` owner link, but the link goes to 
 
 ## Consequences
 An agent that pays with its own card becomes its own owner; that is its own money, which is the premise of this ADR. The signup link is still valid after a top-up, so an agent that named its own inbox keeps control until the link secret rotates; the payer can see the limits change on the console but cannot lock the agent out.
+
+Addendum (orchestrator, after the PR #53 security review): every Checkout payer receives the owner link, and the `t:` top-up link is agent-visible, so a third party who obtains it and pays the minimum gains owner control of that agent. Accepted for the event; tracked in #54 (first-top-up-only delivery is the proposed limit). With fake payments the Stripe webhook must not be reachable on a public deploy (fixed separately by T4.12), or a forged event could trigger this email.

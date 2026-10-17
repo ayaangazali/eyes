@@ -13,6 +13,7 @@ import {
   EyesError,
   GetTaskInput,
   JoinWorkerInput,
+  ListTasksInput,
   QuoteTaskInput,
   type RouteDeps,
   SignupInput,
@@ -275,7 +276,8 @@ export function createServer(deps: RouteDeps & { env: Env }) {
       name: "quote_task",
       title: "Quote a task",
       description: `Check whether Eyes can answer a question at a place before you spend anything. Free and read-only.
-Returns workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed (false if this API key may not post that task_type, see reason_if_not) and resolved_location (where Eyes thinks you mean).
+Returns workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, reason_if_not and resolved_location (where Eyes thinks you mean).
+suggested_bounty_usd already fits this API key's max_bounty_usd, the daily cap left and your balance, so ask_eyes accepts it. allowed is false only when you cannot post this task right now: the safety rules refuse this task_type at this place, the task_type is not allowed for this key, or even the 1 USD minimum bounty plus the 0.50 USD fee does not fit your limits or balance; reason_if_not says what to do. quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task.
 location is {lat, lng} or a string such as "Blue Bottle Coffee, Mint Plaza, San Francisco". task_type is one of: is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public.
 Example: quote_task({ "location": "Ferry Building, San Francisco", "task_type": "line_length" })
 Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`,
@@ -355,6 +357,22 @@ Next: to wait for an answer call await_answer instead of polling get_task.`,
       annotations: { readOnlyHint: true, openWorldHint: false },
     },
     (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
+  );
+
+  server.tool(
+    {
+      name: "list_tasks",
+      title: "List your tasks",
+      description: `List the tasks this API key created, newest first, with task_id, status, question, place_label, bounty_usd, created_at, deadline_at and answered. Read-only and instant. You only ever see your own tasks.
+Call it when you lost a task_id (context reset, crash, restart) and before you ask a question again, so you resume an open task instead of paying twice. Find yours by question and place_label.
+status keeps only tasks in that status, for example "dispatched" for tasks no worker has claimed yet. limit is 1 to 50 (default 20); raise it if the task you want is older.
+Example: list_tasks({ "status": "dispatched", "limit": 5 })
+Next: for a task with status dispatched, claimed or submitted, call await_answer with its task_id. For a task where answered is true, call get_task to read the answer. Call ask_eyes only if no listed task covers your question.`,
+      inputSchema: TOOLS.list_tasks.input,
+      outputSchema: TOOLS.list_tasks.output,
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    (input, ctx) => run(() => service.listTasks(ctx.get("agent"), input)),
   );
 
   server.tool(
@@ -458,6 +476,14 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   server.post("/v1/tasks", async (c) =>
     c.json(await service.askEyes(c.get("agent"), parse(AskEyesInput, await readJson(c)))),
   );
+  server.get("/v1/tasks", async (c) => {
+    const { status, limit } = c.req.query();
+    const input = parse(ListTasksInput, {
+      status: status || undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
+    return c.json(await service.listTasks(c.get("agent"), input));
+  });
   server.get("/v1/tasks/:task_id", async (c) =>
     c.json(await service.getTask(c.get("agent"), parse(GetTaskInput, c.req.param()))),
   );
