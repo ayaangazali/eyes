@@ -387,6 +387,14 @@ describe("stripeRoutes", () => {
     expect(res.status).toBe(404);
     expect(await res.text()).toContain("invalid or has expired");
   });
+
+  it("rejects a webhook with no stripe-signature header with 400", async () => {
+    const { app, service } = setup();
+    const res = await app.request("/webhooks/stripe", { method: "POST", body: "{}" });
+    expect(res.status).toBe(400);
+    expect(await res.text()).toMatch(/^Webhook Error: /);
+    expect(service.creditTopup).not.toHaveBeenCalled();
+  });
 });
 
 describe("owner console routes", () => {
@@ -503,6 +511,49 @@ describe("owner console routes", () => {
     }
     expect(service.rotateApiKey.mock.calls).toEqual([["owner-tok"], ["agent-tok"]]);
   });
+
+  it("shows a frozen cap, no top-up button and empty task and money lists", async () => {
+    const { app, service } = setup();
+    service.ownerConsole.mockResolvedValueOnce({
+      ...OWNER_VIEW,
+      policy: { ...OWNER_VIEW.policy, daily_cap_usd: 0, remaining_today_usd: 0 },
+      tasks: [],
+      ledger: [],
+      top_up_url: null,
+    });
+    const body = await (await app.request("/owner/owner-tok")).text();
+    expect(body).toContain("<dd>Frozen (daily cap $0)</dd>");
+    expect(body).not.toContain("Add funds");
+    expect(body).toContain("<p>No tasks yet.</p>");
+    expect(body).toContain("<p>No money in or out yet.</p>");
+  });
+
+  it("signs negative amounts, labels answered tasks as success, and leaves task-less ledger rows bare", async () => {
+    const { app, service } = setup();
+    service.ownerConsole.mockResolvedValueOnce({
+      ...OWNER_VIEW,
+      tasks: [{ ...(OWNER_VIEW.tasks[0] as OwnerConsole["tasks"][number]), status: "paid" }],
+      ledger: [
+        { type: "topup", amount_usd: 20, task_id: null, created_at: "2026-10-17T09:00:00.000Z" },
+        { type: "refund", amount_usd: -3.5, task_id: TASK_ID, created_at: "2026-10-17T09:30:00.000Z" },
+      ],
+    });
+    const body = await (await app.request("/owner/owner-tok")).text();
+    expect(body).toContain('<span class="ui-badge ui-badge--success">Answered and paid</span>');
+    expect(body).toContain('<span class="ledger__amount">-$3.50</span>');
+    expect(body).toContain(
+      '<span class="ledger__meta"><time datetime="2026-10-17T09:00:00.000Z">2026-10-17 09:00 UTC</time></span>',
+    );
+    expect(body).toContain("Is it open? · <time");
+  });
+
+  it("answers a failure that is not an EyesError with a plain 500, not an explained page", async () => {
+    const { app, service } = setup();
+    service.ownerConsole.mockRejectedValueOnce(new Error("db down"));
+    const res = await app.request("/owner/owner-tok");
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("db down");
+  });
 });
 
 describe("worker earnings page", () => {
@@ -569,6 +620,22 @@ describe("worker earnings page", () => {
     expect(body).not.toContain("<script");
     expect(body).toContain("This earnings link is invalid or has expired.");
     expect(body).toContain("Text HELP to the Eyes number for a fresh link.");
+  });
+
+  it("shows no payout note once payouts are live and set up, a plain badge for a claimed task, and an empty list", async () => {
+    const { app, service } = setup();
+    const claimed = {
+      ...(EARNINGS_VIEW.tasks[0] as WorkerEarnings["tasks"][number]),
+      status: "claimed" as const,
+    };
+    service.workerEarnings.mockResolvedValueOnce({ ...EARNINGS_VIEW, tasks: [claimed] });
+    const body = await (await app.request("/w/earnings/earnings-tok")).text();
+    expect(body).toContain('<span class="ui-badge">Claimed</span>');
+    expect(body).not.toContain('class="note"');
+    service.workerEarnings.mockResolvedValueOnce({ paid_usd: 0, pending_usd: 0, tasks: [] });
+    const empty = await (await app.request("/w/earnings/earnings-tok")).text();
+    expect(empty).toContain("<p>No tasks yet. Reply YES to a task text to claim one.</p>");
+    expect(empty).not.toContain("<script");
   });
 });
 
@@ -743,6 +810,35 @@ describe("outbound Stripe requests", () => {
     }
   });
 
+  it("refuses a Checkout Session that comes back without a url", async () => {
+    http.response = { id: "cs_2", object: "checkout.session", url: null };
+    await expect(
+      payments.createTopupCheckout({
+        agent_id: "agt_9",
+        amount_cents: 2000,
+        success_url: "https://api.eyes.test/topup/done",
+        cancel_url: "https://api.eyes.test/topup/cancel",
+      }),
+    ).rejects.toThrow("Stripe returned Checkout Session cs_2 without a url");
+  });
+
+  it("reverses a fraudulent Transfer for the given amount with the caller's idempotency key", async () => {
+    http.response = { id: "trr_1", object: "transfer_reversal" };
+    const out = await payments.reverseTransfer({
+      transfer_id: "tr_1",
+      amount_cents: 300,
+      idempotency_key: "reverse-tsk_5",
+    });
+    expect(out).toEqual({ reversal_id: "trr_1" });
+    const [req] = http.captured;
+    expect(req).toMatchObject({
+      method: "POST",
+      url: "https://api.stripe.com/v1/transfers/tr_1/reversals",
+      body: { amount: "300", "metadata[reason]": "fraud" },
+    });
+    expect(req?.headers["idempotency-key"]).toBe("reverse-tsk_5");
+  });
+
   it("bounds every Stripe request: 80 s timeout and 2 network retries", () => {
     createStripePayments({ STRIPE_SECRET_KEY: "sk_test_unit" });
     expect(http.config).toMatchObject({ timeout: 80_000, maxNetworkRetries: 2 });
@@ -863,6 +959,11 @@ describe("createStripePayments().parseWebhook", () => {
 
   it("returns null for other event types", async () => {
     const body = event("payment_intent.succeeded", { id: "pi_1", object: "payment_intent" });
+    expect(await payments.parseWebhook(body, sign(body))).toBeNull();
+  });
+
+  it("ignores a paid top-up session without an agent_id", async () => {
+    const body = session({ metadata: {} });
     expect(await payments.parseWebhook(body, sign(body))).toBeNull();
   });
 
