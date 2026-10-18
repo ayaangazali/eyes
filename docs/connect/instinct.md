@@ -11,7 +11,7 @@ Instinct does not publish setup steps for custom MCP servers. Its own Granola co
 | Setting | Value |
 | --- | --- |
 | Transport | Streamable HTTP, `POST https://api.eyes.pictures/mcp`. There is no SSE-only endpoint and no stdio server. |
-| Sign-in, option 1 | OAuth 2.1: discovery, dynamic client registration and PKCE S256. Any https redirect URI is accepted. |
+| Sign-in, option 1 | OAuth 2.1 with PKCE S256. Discovery starts from the 401 on `/mcp`. Eyes accepts both client styles: dynamic client registration (`POST /oauth/register`), or an https URL as `client_id` pointing to a client metadata document (MCP 2025-11-25). Any https redirect URI is accepted. |
 | Sign-in, option 2 | Header `Authorization: Bearer eyes_test_...` |
 | Tools | 10: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `dispute_answer`, `get_balance`, `get_spend_policy` |
 
@@ -36,6 +36,7 @@ curl -s -X POST https://api.eyes.pictures/v1/signup \
 ## Troubleshooting
 
 - **The link says "invalid_redirect_uri".** Eyes accepts only https redirect URIs, plus http on localhost. Send the exact redirect URI to the Eyes team.
+- **"Eyes could not use this app's client metadata".** Instinct sent a URL as `client_id`, and its document failed a check. The message names the check. The document must be public https JSON under 5 KB, served within 5 seconds, with `client_id` equal to its own URL and the redirect URI listed in `redirect_uris`.
 - **"0 workers nearby".** The quote still works. The task waits for a worker, and you can cancel it with `cancel_task` before anyone accepts it.
 - **Instinct shows text, not cards.** That is expected. The Eyes cards are for ChatGPT and Claude. In Instinct, every tool replies in text.
 - **401 from `/mcp`.** The key is missing or rotated. Connect again, or send a new key.

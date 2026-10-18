@@ -5,7 +5,11 @@
 // ponytail: the access token is the API key (no expiry, no refresh, revoke = rotate the key); an
 // authorization code can be redeemed again within its 5 minutes by the same client with the same
 // PKCE verifier. Short-lived tokens plus refresh need storage; add them if a host demands expiry.
+// Clients that skip DCR can use an https URL as client_id (Client ID Metadata Documents, MCP
+// 2025-11-25): the document is fetched, checked and cached for 10 minutes.
 import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { lookup as dnsLookup } from "node:dns/promises";
+import { BlockList, isIP } from "node:net";
 import type { Context, Env, Hono } from "hono";
 import { getCookie, setCookie } from "hono/cookie";
 import { html } from "hono/html";
@@ -24,9 +28,11 @@ export interface OAuthDeps {
   /** Creates an agent through the signup service (rate limit included). */
   signup: (c: Context, name: string) => Promise<{ api_key: string; balance_usd: number }>;
   layout: (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) => unknown;
+  /** Loads a Client ID Metadata Document; defaults to cimdLoader(). */
+  cimd?: (clientId: string) => Promise<Client | { error: string }>;
 }
 
-type Client = { t: "client"; r: string[]; n: string };
+export type Client = { t: "client"; r: string[]; n: string };
 type Code = { t: "code"; k: string; c: string; r: string; ch: string; exp: number };
 
 const b64url = (b: Buffer) => b.toString("base64url");
@@ -71,9 +77,135 @@ const okRedirect = (uri: unknown): uri is string => {
 const same = (a: string, b: string) =>
   a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
+// Private, loopback, link-local, CGNAT, multicast and reserved ranges: never fetched.
+const blocked = new BlockList();
+for (const [net, bits] of [
+  ["0.0.0.0", 8],
+  ["10.0.0.0", 8],
+  ["100.64.0.0", 10],
+  ["127.0.0.0", 8],
+  ["169.254.0.0", 16],
+  ["172.16.0.0", 12],
+  ["192.0.0.0", 24],
+  ["192.168.0.0", 16],
+  ["198.18.0.0", 15],
+  ["224.0.0.0", 3],
+] as const)
+  blocked.addSubnet(net, bits, "ipv4");
+// BlockList already checks IPv4-mapped IPv6 (::ffff:a.b.c.d) against the IPv4 rules above.
+for (const [net, bits] of [
+  ["::", 127],
+  ["64:ff9b::", 96],
+  ["fc00::", 7],
+  ["fe80::", 10],
+  ["ff00::", 8],
+] as const)
+  blocked.addSubnet(net, bits, "ipv6");
+export const privateIp = (ip: string) => {
+  const v = isIP(ip);
+  return v === 0 || blocked.check(ip, v === 4 ? "ipv4" : "ipv6");
+};
+
+const MAX_DOC_BYTES = 5 * 1024;
+const DOC_TTL_MS = 10 * 60 * 1000;
+
+export const okClientIdUrl = (id: string) => {
+  if (id.length > 2000) return false;
+  try {
+    const url = new URL(id);
+    return (
+      url.protocol === "https:" &&
+      url.pathname !== "/" &&
+      !url.hash &&
+      !url.username &&
+      !url.password &&
+      url.href === id
+    );
+  } catch {
+    return false;
+  }
+};
+
+// ponytail: the DNS check and the connection resolve separately, so a rebinding host could still
+// slip past; pin the connection to the checked address if this ever fetches anything but JSON.
+export function cimdLoader({
+  fetch = globalThis.fetch,
+  lookup = (host: string) => dnsLookup(host, { all: true, verbatim: true }),
+  timeoutMs = 5000,
+  now = Date.now,
+}: {
+  fetch?: typeof globalThis.fetch;
+  lookup?: (host: string) => Promise<{ address: string }[]>;
+  timeoutMs?: number;
+  now?: () => number;
+} = {}) {
+  const cache = new Map<string, { client: Client; exp: number }>();
+  const get = async (start: string, signal: AbortSignal) => {
+    let url = new URL(start);
+    for (let hop = 0; ; hop++) {
+      if (url.protocol !== "https:") throw new Error("it redirects to a non-https address");
+      const host = url.hostname.replace(/^\[|\]$/g, "");
+      const ips = isIP(host) ? [{ address: host }] : await lookup(host);
+      if (ips.length === 0 || ips.some((a) => privateIp(a.address)))
+        throw new Error("its host is a private address");
+      const res = await fetch(url, { redirect: "manual", signal, headers: { accept: "application/json" } });
+      const next = res.headers.get("location");
+      if (res.status >= 300 && res.status < 400 && next && hop < 3) {
+        url = new URL(next, url);
+        continue;
+      }
+      if (res.status !== 200 || !res.body) throw new Error(`it answered HTTP ${res.status}`);
+      if (Number(res.headers.get("content-length") ?? 0) > MAX_DOC_BYTES) throw new Error("it is over 5 KB");
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for await (const chunk of res.body as AsyncIterable<Uint8Array>) {
+        size += chunk.byteLength;
+        if (size > MAX_DOC_BYTES) throw new Error("it is over 5 KB");
+        chunks.push(chunk);
+      }
+      return JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    }
+  };
+  return async (clientId: string): Promise<Client | { error: string }> => {
+    const hit = cache.get(clientId);
+    if (hit && hit.exp > now()) return hit.client;
+    const fail = (why: string) => ({ error: `Eyes could not use this app's client metadata: ${why}.` });
+    if (!okClientIdUrl(clientId)) return fail("the client_id is not a valid https URL with a path");
+    let doc: Record<string, unknown>;
+    try {
+      doc = await get(clientId, AbortSignal.timeout(timeoutMs));
+    } catch (err) {
+      const e = err as Error;
+      return fail(
+        e.name === "TimeoutError"
+          ? "it took longer than 5 seconds"
+          : e instanceof SyntaxError
+            ? "it is not JSON"
+            : e.message,
+      );
+    }
+    if (doc?.client_id !== clientId) return fail("its client_id does not match its URL");
+    const uris = doc.redirect_uris;
+    if (!Array.isArray(uris) || uris.length === 0 || uris.length > 10 || !uris.every(okRedirect))
+      return fail("redirect_uris must be 1 to 10 https (or loopback http) URLs");
+    if (doc.token_endpoint_auth_method !== undefined && doc.token_endpoint_auth_method !== "none")
+      return fail("Eyes supports only token_endpoint_auth_method none");
+    const host = new URL(clientId).host;
+    const name =
+      typeof doc.client_name === "string" && doc.client_name.trim()
+        ? doc.client_name.trim().slice(0, 60)
+        : "";
+    const client: Client = { t: "client", r: uris, n: name ? `${name} (${host})` : host };
+    if (cache.size >= 500) cache.clear();
+    cache.set(clientId, { client, exp: now() + DOC_TTL_MS });
+    return client;
+  };
+}
+
 export function oauthRoutes<E extends Env>(app: Hono<E>, deps: OAuthDeps) {
   const { base, layout } = deps;
   const box = sealer(deps.secret);
+  const cimd = deps.cimd ?? cimdLoader();
   const resource = `${base}/mcp`;
   const protectedResource = {
     resource,
@@ -92,6 +224,7 @@ export function oauthRoutes<E extends Env>(app: Hono<E>, deps: OAuthDeps) {
     code_challenge_methods_supported: ["S256"],
     token_endpoint_auth_methods_supported: ["none"],
     authorization_response_iss_parameter_supported: true,
+    client_id_metadata_document_supported: true,
   };
   for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"])
     app.get(path, (c) => c.json(protectedResource));
@@ -130,8 +263,13 @@ export function oauthRoutes<E extends Env>(app: Hono<E>, deps: OAuthDeps) {
 
   // Validates the authorize parameters; returns an error message for a page, never a redirect,
   // because an unverified redirect_uri must not receive anything.
-  const check = (q: Record<string, string | undefined>) => {
-    const client = box.open<Client>(q.client_id, "client");
+  const check = async (q: Record<string, string | undefined>) => {
+    let client: Client | null;
+    if (q.client_id?.startsWith("https://")) {
+      const doc = await cimd(q.client_id);
+      if ("error" in doc) return doc;
+      client = doc;
+    } else client = box.open<Client>(q.client_id, "client");
     if (!client)
       return { error: "This app is not registered with Eyes. Remove the connector and add it again." };
     if (!q.redirect_uri || !client.r.includes(q.redirect_uri))
@@ -218,9 +356,9 @@ ${hidden}<input type="hidden" name="action" value="create">
     );
   };
 
-  app.get("/oauth/authorize", (c) => {
+  app.get("/oauth/authorize", async (c) => {
     const q = c.req.query();
-    const ok = check(q);
+    const ok = await check(q);
     if ("error" in ok)
       return c.html(
         layout(
@@ -235,7 +373,7 @@ ${hidden}<input type="hidden" name="action" value="create">
 
   app.post("/oauth/authorize", async (c) => {
     const form = (await c.req.parseBody()) as Record<string, string | undefined>;
-    const ok = check(form);
+    const ok = await check(form);
     if ("error" in ok)
       return c.html(
         layout(

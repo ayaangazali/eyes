@@ -81,6 +81,7 @@ If you leave out `headers`, Cursor runs the OAuth sign-in instead.
 
 - **Discovery:** `GET /.well-known/oauth-protected-resource` and `GET /.well-known/oauth-authorization-server`. A 401 from `/mcp` also points to the first one through `WWW-Authenticate`.
 - **Registration:** `POST /oauth/register` is dynamic client registration. Only https redirect URIs are accepted, plus loopback http.
+- **Client metadata documents:** a client can skip registration and send an https URL as `client_id` (MCP 2025-11-25). Eyes fetches it with a 5 s timeout and a 5 KB cap, refuses private, loopback and link-local addresses, and caches it for 10 minutes. The document's `client_id` must equal the URL, and the `redirect_uri` must be in its `redirect_uris`. The sign-in page shows `client_name (host)`.
 - **Sign-in page:** `GET /oauth/authorize`. It requires PKCE S256. **Create a key** counts against the same per-IP limit as `/v1/signup` (5 per hour).
 - **Token:** `POST /oauth/token` returns the Eyes API key as the access token, so existing bearer clients work unchanged. The token does not expire. To revoke it, rotate the key.
 - **Server secret:** set `EYES_OAUTH_SECRET` to at least 32 random characters, for example from `openssl rand -hex 32`. Without it, the OAuth routes are off and only bearer keys work. If you change the secret, open sign-in pages and registered clients stop working; connected apps just register and sign in again.
