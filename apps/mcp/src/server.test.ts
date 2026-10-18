@@ -16,9 +16,11 @@ import {
   QuoteTaskOutput,
   signToken,
   TOOLS,
+  WorkerLocationInput,
 } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
-import { PAGE } from "@eyes/web-dashboard";
+import { PAGE_HEADERS } from "@eyes/payments";
+import { createEventLog, OPS_PAGE, PAGE } from "@eyes/web-dashboard";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer } from "./server.ts";
@@ -210,6 +212,61 @@ describe("auth", () => {
     });
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ api_key: KEY });
+  });
+});
+
+describe("worker location", () => {
+  it.each(["/w/location", "/v1/worker/location"])(
+    "%s passes the bearer token and body to the service and answers 204, with no agent key",
+    async (path) => {
+      const calls: unknown[][] = [];
+      const { fetch } = setup({ updateWorkerLocation: async (...args) => void calls.push(args) });
+      const res = await fetch(`http://eyes.test${path}`, {
+        method: "POST",
+        headers: { authorization: "Bearer code123", "content-type": "text/plain" },
+        body: JSON.stringify({ lat: "37,761", lng: "-122,386", source: "shortcut" }),
+      });
+      expect(res.status).toBe(204);
+      expect(calls).toEqual([["code123", { lat: "37,761", lng: "-122,386", source: "shortcut" }]]);
+    },
+  );
+
+  it("answers 401 without a bearer token and passes the service's 429 through", async () => {
+    const { fetch } = setup({
+      updateWorkerLocation: async () => {
+        throw new EyesError("rate_limited", { retry_after_s: 30 });
+      },
+    });
+    const post = (headers: Record<string, string>) =>
+      fetch("http://eyes.test/w/location", { method: "POST", headers, body: "{}" });
+    expect((await post({})).status).toBe(401);
+    expect((await post({ authorization: "Bearer x" })).status).toBe(429);
+  });
+
+  const ok = { lat: 37.761, lng: -122.386, source: "here_link" };
+  it.each([
+    [
+      { ...ok, lat: "37,761", lng: " -122.386 " },
+      { lat: 37.761, lng: -122.386 },
+    ],
+    [{ ...ok, accuracy_m: "12,5" }, { accuracy_m: 12.5 }],
+    [{ ...ok, accuracy_m: "far", input: 7, captured_at: "yesterday" }, { accuracy_m: undefined }],
+    [{ ...ok, input: "Eyes ping 0a1b2c3d" }, { input: "Eyes ping 0a1b2c3d" }],
+  ])("accepts %j", (body, expected) => {
+    expect(WorkerLocationInput.parse(body)).toMatchObject(expected);
+  });
+
+  it.each([
+    { ...ok, lat: 0, lng: 0 },
+    { ...ok, lat: "0,0", lng: "0" },
+    { ...ok, lat: 91 },
+    { ...ok, lng: -180.5 },
+    { ...ok, lat: "abc" },
+    { ...ok, lat: "" },
+    { ...ok, source: "gps" },
+    { lng: ok.lng, source: ok.source },
+  ])("rejects %j", (body) => {
+    expect(WorkerLocationInput.safeParse(body).success).toBe(false);
   });
 });
 
@@ -858,6 +915,18 @@ describe("routes", () => {
     expect(await join("+14155550100")).toBe("+14155550100");
   });
 
+  it("answers an unknown route in a browser with an HTML page that links to the landing page", async () => {
+    const res = await setup().fetch("http://eyes.test/no-such-page", {
+      headers: { accept: "text/html,*/*" },
+    });
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expect(res.headers.get("content-security-policy")).toBe(PAGE_HEADERS["Content-Security-Policy"]);
+    const body = await res.text();
+    expect(body).toContain("Page not found");
+    expect(body).toContain('href="https://eyes.pictures"');
+  });
+
   it("answers an unknown route with a JSON error that points at the docs", async () => {
     const res = await setup().fetch("http://eyes.test/nope");
     expect(res.status).toBe(404);
@@ -981,58 +1050,344 @@ describe("agent docs", () => {
 });
 
 describe("ops dashboard", () => {
-  const paths = (key: string) => [`/ops/${key}`, `/ops/${key}/feed`];
+  const PAGES = ["/ops", "/ops/live", "/ops/allowlist"];
+  const FEEDS = ["/ops/feed", "/ops/events", "/ops/tickets"];
+  type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
-  it.each([
-    ["unset", {}],
-    ["empty, as in .env.example", { EYES_OPS_KEY: "" }],
-  ])("does not exist while EYES_OPS_KEY is %s", async (_, env: Record<string, string>) => {
-    const { fetch, rpcCalls } = setup({}, env);
-    for (const path of [...paths(OPS_KEY), ...paths("")]) {
-      const res = await fetch(`http://eyes.test${path}`);
+  async function signIn(fetch: Fetch) {
+    const res = await fetch(`http://eyes.test/ops/${OPS_KEY}`);
+    expect(res.status).toBe(303);
+    expect(res.headers.get("location")).toBe("/ops");
+    const cookie = res.headers.get("set-cookie") ?? "";
+    expect(cookie).toMatch(
+      /^__Host-eyes_ops=[^;]+; Max-Age=43200; Path=\/; HttpOnly; Secure; SameSite=Strict$/,
+    );
+    return cookie.split(";")[0] ?? "";
+  }
+
+  it("sends browsers without a session to the sign-in page and answers feeds 401, without reading anything", async () => {
+    const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
+    for (const path of PAGES) {
+      const res = await fetch(`http://eyes.test${path}`, { headers: { accept: "text/html" } });
+      expect(res.status).toBe(303);
+      expect(res.headers.get("location")).toBe("/ops/login");
+    }
+    for (const path of [...PAGES, ...FEEDS]) {
+      const res = await fetch(`http://eyes.test${path}`, { headers: { cookie: "__Host-eyes_ops=forged" } });
+      expect(res.status).toBe(401);
+    }
+    expect(rpcCalls).toEqual([]);
+  });
+
+  it("answers a wrong or unset break-glass key exactly like an unknown route", async () => {
+    const { fetch } = setup({}, { EYES_OPS_KEY: OPS_KEY });
+    for (const key of [OPS_KEY.slice(0, -1), `${OPS_KEY}0`, OPS_KEY.toUpperCase()]) {
+      const res = await fetch(`http://eyes.test/ops/${key}`);
       expect(res.status).toBe(404);
-      expect(await res.json()).toMatchObject({ error: "invalid_input", message: "Unknown route.", path });
+      expect(res.headers.get("set-cookie")).toBeNull();
     }
-    expect(rpcCalls).toEqual([]);
+    const unset = setup({}, { EYES_OPS_KEY: "" });
+    expect((await unset.fetch(`http://eyes.test/ops/${OPS_KEY}`)).status).toBe(404);
   });
 
-  it("answers a wrong key exactly like an unknown route, without reading the feed", async () => {
+  it("signs in with the break-glass key and then serves the ops page, the live map and the feed, uncached, with a CSP that allows only each page's own script, and worker positions rounded to 3 decimals", async () => {
     const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
-    for (const key of [OPS_KEY.slice(0, -1), `${OPS_KEY}0`, OPS_KEY.toUpperCase(), "x"]) {
-      for (const path of paths(key)) {
-        const res = await fetch(`http://eyes.test${path}`);
-        expect(res.status).toBe(404);
-        expect(await res.json()).toMatchObject({ error: "invalid_input", message: "Unknown route.", path });
-      }
-    }
-    expect(rpcCalls).toEqual([]);
-  });
+    const cookie = await signIn(fetch);
+    const headers = { cookie };
+    const ops = await fetch("http://eyes.test/ops", { headers });
+    const live = await fetch("http://eyes.test/ops/live", { headers });
+    const feed = await fetch("http://eyes.test/ops/feed", { headers });
 
-  it("serves the dashboard page and its feed for the right key, uncached, with no referrer, a CSP that allows only the page's own script, and worker positions rounded to 3 decimals", async () => {
-    const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
-    const page = await fetch(`http://eyes.test/ops/${OPS_KEY}`);
-    const feed = await fetch(`http://eyes.test/ops/${OPS_KEY}/feed`);
-
-    expect(page.status).toBe(200);
-    expect(page.headers.get("content-type")).toContain("text/html");
-    const body = await page.text();
-    expect(body).toBe(PAGE);
     expect(feed.status).toBe(200);
-    expect(await feed.json()).toEqual({
+    expect(await feed.json()).toMatchObject({
       ...FEED,
       workers: [{ lat: 37.782, lng: -122.408, available: true, opted_in: true }],
+      ops: {
+        operator: "break-glass",
+        health: { db: "insforge", classifier: "rules only", commit: null, db_error: null },
+        workers: { total: 1, opted_in: 1, online: 1 },
+        queue: [],
+        errors: [],
+      },
     });
-    expect(rpcCalls).toEqual([{ fn: "eyes_dashboard_feed", args: { p_limit: 50 } }]);
-    for (const res of [page, feed]) {
-      expect(res.headers.get("referrer-policy")).toBe("no-referrer");
-      expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(rpcCalls).toEqual([{ fn: "eyes_dashboard_feed", args: { p_limit: 500 } }]);
+    for (const [res, page] of [
+      [ops, OPS_PAGE],
+      [live, PAGE],
+    ] as const) {
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toContain("text/html");
+      const body = await res.text();
+      expect(body).toBe(page);
+      const inline = [...body.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
+        ([, script = ""]) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+      );
+      expect(inline).toHaveLength(1);
+      expect(res.headers.get("content-security-policy")).toBe(
+        `default-src 'none'; script-src https://unpkg.com ${inline.join(" ")}; style-src https://unpkg.com 'unsafe-inline'; img-src https: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      );
+      // same-origin, not no-referrer: under no-referrer the page's own fetch POSTs carry `Origin: null`.
+      expect(res.headers.get("referrer-policy")).toBe("same-origin");
     }
-    const inline = [...body.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
-      ([, script = ""]) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+    for (const res of [ops, live, feed]) expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("still serves health and the error log when the database read fails, with the failure redacted", async () => {
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    const events = createEventLog();
+    events.log({ kind: "log", level: "error", summary: "boom" });
+    const server = createServer({
+      service: {} as EyesService,
+      providers: fakeProviders(),
+      config: AppConfig.parse({
+        public_api_url: "http://api.eyes.test",
+        worker_web_url: "http://worker.eyes.test",
+        link_secret: SECRET,
+      }),
+      env: { EYES_OPS_KEY: OPS_KEY, CLOUDFLARE_ACCOUNT_ID: "a", CLOUDFLARE_API_TOKEN: "t" },
+      rpc: (async () => {
+        throw new Error("connect ECONNREFUSED postgres://admin:hunter2@db.internal");
+      }) as Rpc,
+      events,
+    });
+    const fetch: Fetch = (url, init) => server.fetch(new Request(url, init));
+    const res = await fetch("http://eyes.test/ops/feed", { headers: { cookie: await signIn(fetch) } });
+    quiet.mockRestore();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ops.health).toMatchObject({
+      classifier: "clef",
+      db_error: "connect ECONNREFUSED postgres://[redacted]@db.internal",
+    });
+    expect(body.ops.errors).toMatchObject([{ kind: "log", level: "error", summary: "boom" }]);
+    expect(body.tasks).toEqual([]);
+  });
+});
+
+describe("ChatGPT and Claude widget", () => {
+  const WIDGET_TOOLS = ["quote_task", "ask_eyes", "await_answer", "get_task", "get_balance"];
+
+  it("binds the five card tools to ui://eyes/card.html in both MCP Apps and ChatGPT metadata", async () => {
+    const client = await connect(setup().fetch);
+    const { tools } = await client.listTools();
+    for (const tool of tools) {
+      const meta = tool._meta as Record<string, unknown> | undefined;
+      if (WIDGET_TOOLS.includes(tool.name)) {
+        expect(meta, tool.name).toMatchObject({
+          ui: { resourceUri: "ui://eyes/card.html" },
+          "openai/outputTemplate": "ui://eyes/card.html",
+        });
+      } else {
+        expect(meta?.ui, tool.name).toBeUndefined();
+      }
+    }
+  });
+
+  it("serves the card as an MCP Apps resource with the photo hosts in its CSP", async () => {
+    const client = await connect(setup().fetch);
+    const { contents } = await client.readResource({ uri: "ui://eyes/card.html" });
+    const [card] = contents as unknown as {
+      mimeType: string;
+      text: string;
+      _meta: { ui: { csp: { resourceDomains: string[] } } };
+    }[];
+    expect(card?.mimeType).toBe("text/html;profile=mcp-app");
+    expect(card?.text).toContain('"ui/initialize"');
+    expect(card?.text).toContain("ui/notifications/tool-result");
+    expect(card?._meta.ui.csp.resourceDomains).toEqual([
+      "https://pagp38bu.us-west.insforge.app",
+      "https://cdn.insforge.dev",
+    ]);
+  });
+});
+
+describe("Claude sandbox domain", () => {
+  const claudeDomain = `${createHash("sha256").update("http://api.eyes.test/mcp").digest("hex").slice(0, 32)}.claudemcpcontent.com`;
+  const read = async (name: string, userAgent?: string) => {
+    const { fetch } = setup();
+    const client = new Client({ name, version: "1.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+        fetch,
+        requestInit: {
+          headers: { authorization: `Bearer ${KEY}`, ...(userAgent ? { "user-agent": userAgent } : {}) },
+        },
+      }),
     );
-    expect(inline).toHaveLength(1);
-    expect(page.headers.get("content-security-policy")).toBe(
-      `default-src 'none'; script-src https://unpkg.com ${inline.join(" ")}; style-src https://unpkg.com 'unsafe-inline'; img-src https: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    const { contents } = await client.readResource({ uri: "ui://eyes/card.html" });
+    return (contents[0] as unknown as { _meta: { ui: { domain?: string }; "openai/widgetDomain": string } })
+      ._meta;
+  };
+
+  it("sends Claude the hashed connector URL as ui.domain", async () => {
+    expect((await read("mcp-client", "Claude-User/1.0"))?.ui.domain).toBe(claudeDomain);
+  });
+
+  it("leaves ui.domain out for other hosts and keeps openai/widgetDomain for ChatGPT", async () => {
+    const meta = await read("openai-mcp", "openai-mcp/1.0.0");
+    expect(meta?.ui.domain).toBeUndefined();
+    expect(meta?.["openai/widgetDomain"]).toBe("http://api.eyes.test");
+  });
+});
+
+describe("OAuth for connectors", () => {
+  const OAUTH_SECRET = "s".repeat(64);
+  const REDIRECT = "https://chatgpt.com/connector_platform_oauth_redirect";
+  const VERIFIER = "v".repeat(43);
+  const CHALLENGE = createHash("sha256").update(VERIFIER).digest("base64url");
+
+  async function begin(overrides: Partial<EyesService> = {}) {
+    const ctx = setup(overrides, { EYES_OAUTH_SECRET: OAUTH_SECRET });
+    const reg = await ctx.fetch("http://eyes.test/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ client_name: "ChatGPT", redirect_uris: [REDIRECT] }),
+    });
+    expect(reg.status).toBe(201);
+    const { client_id } = await reg.json();
+    const params = {
+      response_type: "code",
+      client_id,
+      redirect_uri: REDIRECT,
+      code_challenge: CHALLENGE,
+      code_challenge_method: "S256",
+      state: "st8",
+    };
+    const page = await ctx.fetch(`http://eyes.test/oauth/authorize?${new URLSearchParams(params)}`);
+    const cookie = (page.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    const csrf = cookie.split("=")[1] ?? "";
+    const submit = (fields: Record<string, string>, headers: Record<string, string> = {}) =>
+      ctx.fetch("http://eyes.test/oauth/authorize", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", cookie, ...headers },
+        body: new URLSearchParams({ ...params, csrf, ...fields }),
+      });
+    const token = (fields: Record<string, string>) =>
+      ctx.fetch("http://eyes.test/oauth/token", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id,
+          redirect_uri: REDIRECT,
+          code_verifier: VERIFIER,
+          ...fields,
+        }),
+      });
+    return { ...ctx, client_id, params, page, submit, token };
+  }
+
+  it("publishes discovery metadata and challenges /mcp with resource_metadata", async () => {
+    const { fetch } = setup({}, { EYES_OAUTH_SECRET: OAUTH_SECRET });
+    const prm = await (await fetch("http://eyes.test/.well-known/oauth-protected-resource")).json();
+    expect(prm).toMatchObject({
+      resource: "http://api.eyes.test/mcp",
+      authorization_servers: ["http://api.eyes.test"],
+    });
+    const as = await (await fetch("http://eyes.test/.well-known/oauth-authorization-server")).json();
+    expect(as).toMatchObject({
+      issuer: "http://api.eyes.test",
+      registration_endpoint: "http://api.eyes.test/oauth/register",
+      code_challenge_methods_supported: ["S256"],
+      token_endpoint_auth_methods_supported: ["none"],
+    });
+    const res = await fetch("http://eyes.test/mcp", { method: "POST", body: "{}" });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("www-authenticate")).toBe(
+      'Bearer resource_metadata="http://api.eyes.test/.well-known/oauth-protected-resource"',
+    );
+  });
+
+  it("runs register, authorize with a key, token with PKCE, then MCP with the token", async () => {
+    const { page, submit, token, fetch } = await begin();
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Connect ChatGPT to Eyes");
+    expect(page.headers.get("content-security-policy")).toContain("form-action 'self' https://chatgpt.com");
+    const redirect = await submit({ action: "key", api_key: KEY });
+    expect(redirect.status).toBe(302);
+    const back = new URL(redirect.headers.get("location") ?? "");
+    expect(back.origin + back.pathname).toBe(REDIRECT);
+    expect(back.searchParams.get("state")).toBe("st8");
+    expect(back.searchParams.get("iss")).toBe("http://api.eyes.test");
+    const res = await token({ code: back.searchParams.get("code") ?? "" });
+    expect(res.status).toBe(200);
+    const { access_token, token_type } = await res.json();
+    expect(token_type).toBe("Bearer");
+    const client = new Client({ name: "chatgpt-test", version: "1.0.0" });
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+        fetch,
+        requestInit: { headers: { authorization: `Bearer ${access_token}` } },
+      }),
+    );
+    expect((await client.listTools()).tools.length).toBe(Object.keys(TOOLS).length);
+    const quote = await client.callTool({
+      name: "quote_task",
+      arguments: { location: "Blue Bottle Coffee, Mint Plaza, San Francisco", task_type: "line_length" },
+    });
+    expect(quote.structuredContent).toEqual(QUOTE);
+  });
+
+  it("creates a key through signup, shows it with its balance, and shares the /v1/signup budget", async () => {
+    const { submit, fetch } = await begin();
+    const ip = { "x-forwarded-for": "203.0.113.9" };
+    for (let i = 0; i < 4; i++)
+      await fetch("http://eyes.test/v1/signup", { method: "POST", headers: ip, body: '{"name":"my-agent"}' });
+    const shown = await submit({ action: "create" }, ip);
+    expect(shown.status).toBe(200);
+    const body = await shown.text();
+    expect(body).toContain(KEY);
+    expect(body).toContain("$20.00");
+    expect(body).toContain("code=");
+    const limited = await submit({ action: "create" }, ip);
+    expect(limited.status).toBe(400);
+    expect(await limited.text()).toContain("calls per hour");
+  });
+
+  it("rejects a wrong verifier, an expired code, a tampered client_id and a redirect_uri mismatch", async () => {
+    const { submit, token, params, fetch, client_id } = await begin();
+    const code = new URL(
+      (await submit({ action: "key", api_key: KEY })).headers.get("location") ?? "",
+    ).searchParams.get("code") as string;
+    const wrong = await token({ code, code_verifier: "w".repeat(43) });
+    expect(wrong.status).toBe(400);
+    expect(await wrong.json()).toMatchObject({ error: "invalid_grant" });
+    expect((await token({ code, redirect_uri: "https://evil.example/cb" })).status).toBe(400);
+    expect((await token({ code: `${code.slice(0, -2)}AA` })).status).toBe(400);
+    const now = Date.now();
+    vi.spyOn(Date, "now").mockReturnValue(now + 6 * 60 * 1000);
+    try {
+      expect(await (await token({ code })).json()).toMatchObject({ error: "invalid_grant" });
+    } finally {
+      vi.restoreAllMocks();
+    }
+    const tampered = { ...params, client_id: `${client_id.slice(0, -2)}AA` };
+    expect((await fetch(`http://eyes.test/oauth/authorize?${new URLSearchParams(tampered)}`)).status).toBe(
+      400,
+    );
+    const otherRedirect = { ...params, redirect_uri: "https://evil.example/cb" };
+    const mismatch = await fetch(`http://eyes.test/oauth/authorize?${new URLSearchParams(otherRedirect)}`);
+    expect(mismatch.status).toBe(400);
+    expect(mismatch.headers.get("location")).toBeNull();
+    const bad = await submit({ action: "key", api_key: "eyes_test_nope" });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toContain("That key is not valid");
+    const noCsrf = await submit({ action: "key", api_key: KEY }, { cookie: "" });
+    expect(noCsrf.status).toBe(400);
+    expect(await noCsrf.text()).toContain("This form expired");
+  });
+
+  it("refuses non-https redirect_uris at registration and is off without EYES_OAUTH_SECRET", async () => {
+    const { fetch } = setup({}, { EYES_OAUTH_SECRET: OAUTH_SECRET });
+    const reg = await fetch("http://eyes.test/oauth/register", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ redirect_uris: ["http://evil.example/cb"] }),
+    });
+    expect(reg.status).toBe(400);
+    const off = setup();
+    expect((await off.fetch("http://eyes.test/oauth/register", { method: "POST", body: "{}" })).status).toBe(
+      404,
     );
   });
 });

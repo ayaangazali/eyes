@@ -226,11 +226,25 @@ aside > section:last-child { border-bottom: 0; }
 @keyframes enter { from { opacity: 0; transform: translateX(1.5rem); } }
 @keyframes swap { from { opacity: 0; transform: translateY(0.4rem); } }
 @keyframes rowflash { from { background: color-mix(in srgb, var(--c) 28%, transparent); } }
+.brand { color: inherit; text-decoration: none; }
+/* Phones: one column, map on top, the page scrolls instead of the aside. */
+@media (max-width: 760px) {
+  html, body { height: auto; }
+  body { overflow: visible; }
+  header { gap: 0.75rem; padding: 0.7rem 1rem; }
+  .brand { font-size: 1.3rem; }
+  .tagline { display: none; }
+  .status { gap: 0.9rem; white-space: nowrap; }
+  main { grid-template-columns: minmax(0, 1fr); }
+  #map { height: 22rem; }
+  aside { overflow: visible; border-left: 0; border-top: 1px solid var(--line); }
+  aside > section { padding: 1.1rem 1rem; }
+}
 </style>
 </head>
 <body>
 <header>
-  <div class="brand"><span class="mark"></span>Eyes</div>
+  <a class="brand" href="https://eyes.pictures"><span class="mark" aria-hidden="true"></span>Eyes</a>
   <p class="tagline">Agents pay people nearby to look at the street for them</p>
   <div class="status">
     <p id="online"></p>
@@ -243,7 +257,7 @@ aside > section:last-child { border-bottom: 0; }
     <section id="now">
       <p id="chip" class="chip"></p>
       <h1 id="headline">Waiting for an agent to ask</h1>
-      <p id="question">Ask Claude about a place nearby. The task shows up here as soon as Eyes texts workers.</p>
+      <p id="question">When an agent asks about a place, the task shows up here.</p>
       <p id="cost"></p>
       <ol id="steps" class="steps"></ol>
       <div id="proof" hidden>
@@ -493,7 +507,7 @@ function renderMap(feed, shown) {
   };
   const active = feed.tasks.filter((t) => ACTIVE.includes(t.status));
   const ringed = new Set(active.flatMap(notified));
-  for (const w of feed.workers) {
+  for (const w of feed.workers.filter((w) => w.lat != null)) {
     const on = w.available && w.opted_in;
     L.circleMarker([w.lat, w.lng], {
       radius: 10,
@@ -551,7 +565,7 @@ let lastText = "";
 async function poll() {
   const live = $("live");
   try {
-    const res = await fetch(location.pathname.replace(/\/?$/, "/feed"), { cache: "no-store" });
+    const res = await fetch(location.pathname.replace(/(\/live)?\/?$/, "/feed"), { cache: "no-store" });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const text = await res.text();
     live.className = "ok";

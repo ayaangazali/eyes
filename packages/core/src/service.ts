@@ -17,6 +17,7 @@ import type {
   ToolInput,
   ToolOutput,
   WorkerEarnings,
+  WorkerLocationInput,
 } from "./schemas.ts";
 
 export const SAFETY_CATEGORIES = [
@@ -105,6 +106,8 @@ export interface EyesService {
   workerEarnings(token: string): Promise<WorkerEarnings>;
   getOffer(token: string): Promise<OfferView>;
   submitCapture(token: string, fields: CaptureFields, photo: PhotoUpload | null): Promise<CaptureResult>;
+  /** token: a 30-minute HERE token or the worker's long-lived location token. Throws unauthorized, invalid_input or rate_limited. */
+  updateWorkerLocation(token: string, input: WorkerLocationInput): Promise<void>;
 
   expireOverdue(): Promise<{ expired: number }>;
   retryPayouts(): Promise<{ paid: number }>;
@@ -113,6 +116,11 @@ export interface EyesService {
     decision: "refund" | "release",
     note: string,
   ): Promise<{ task_id: string; status: TaskStatus }>;
+  resolveTicket(input: {
+    ticket_id: number;
+    outcome: "release" | "refund" | "close";
+    note: string;
+  }): Promise<{ ticket_id: number; task_id: string; status: "resolved" }>;
 }
 
 export const AppConfig = z.object({
@@ -124,6 +132,11 @@ export const AppConfig = z.object({
   dispatch_radius_m: z.int().min(100).default(3000),
   dispatch_max_workers: z.int().min(1).default(3),
   verify_radius_m: z.int().min(10).default(150),
+  location_max_age_h: z.int().min(1).default(24),
+  location_ping: z.boolean().default(false),
+  shortcut_url: z.url().nullable().default(null),
+  location_min_interval_s: z.int().min(1).default(30),
+  location_daily_max: z.int().min(1).default(1500),
   signup_grant_cents: z.int().min(0).default(2000),
   test_mode: z.boolean().default(true),
   email_domain: z.string().min(3).nullable().default(null),

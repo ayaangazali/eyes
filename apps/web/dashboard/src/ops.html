@@ -1,0 +1,520 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Eyes ops</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+/* @eyes/ui */
+body { margin: 0; background: var(--eyes-surface-secondary); min-height: 100vh; }
+.bar { position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; gap: var(--eyes-space-4); padding: var(--eyes-space-3) var(--eyes-space-6); background: var(--eyes-surface); box-shadow: 0 1px 0 var(--eyes-border); }
+.brand { display: inline-flex; align-items: center; gap: var(--eyes-space-2); font-weight: var(--eyes-weight-semibold); font-size: var(--eyes-heading-sm); }
+.mark { width: 1.1rem; height: 1.1rem; border-radius: 0.25rem; border: 2px solid var(--eyes-accent); box-shadow: inset 0 0 0 3px var(--eyes-surface), inset 0 0 0 9px var(--eyes-accent); }
+.bar .spacer { flex: 1; }
+.bar a { color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
+main { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--eyes-space-4); padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-10); }
+main > .ui-card { max-width: none; align-content: start; }
+.c3 { grid-column: span 3; } .c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c6 { grid-column: span 6; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
+@media (max-width: 1100px) { main > .ui-card { grid-column: span 12; } }
+.ui-card__title { font-size: var(--eyes-text-md); }
+.sub { color: var(--eyes-text-secondary); font-size: var(--eyes-text-xs); font-weight: var(--eyes-weight-normal); }
+.big { font-size: var(--eyes-heading-xl); font-weight: var(--eyes-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--eyes-space-2); }
+.stat { padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-secondary); }
+.stat b { display: block; font-size: var(--eyes-heading-md); font-variant-numeric: tabular-nums; }
+.stat span { color: var(--eyes-text-secondary); font-size: var(--eyes-text-xs); }
+.stat.hot { background: var(--eyes-danger-bg); } .stat.hot b, .stat.hot span { color: var(--eyes-danger-text); }
+.stat.live { box-shadow: inset 3px 0 0 var(--eyes-accent); }
+.rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.rows > li { padding: var(--eyes-space-3) 0; border-bottom: 1px solid var(--eyes-border-subtle); display: grid; gap: var(--eyes-space-1); }
+.rows > li:last-child { border-bottom: 0; }
+.scroll { max-height: 34rem; overflow: auto; margin-right: calc(-1 * var(--eyes-space-2)); padding-right: var(--eyes-space-2); }
+.task-head { display: flex; gap: var(--eyes-space-2); align-items: baseline; justify-content: space-between; }
+.q { margin: 0; font-weight: var(--eyes-weight-medium); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.muted { color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
+.tiny { color: var(--eyes-text-tertiary); font-size: var(--eyes-text-xs); font-variant-numeric: tabular-nums; }
+.line { display: flex; flex-wrap: wrap; gap: var(--eyes-space-1) var(--eyes-space-3); align-items: center; font-size: var(--eyes-text-sm); color: var(--eyes-text-secondary); }
+.line strong { color: var(--eyes-text); font-variant-numeric: tabular-nums; }
+.flow { display: flex; flex-wrap: wrap; gap: var(--eyes-space-1); }
+.flow span { font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); font-variant-numeric: tabular-nums; }
+.flow span + span::before { content: "→ "; color: var(--eyes-text-tertiary); }
+code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); }
+.cmd { display: block; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-tertiary); user-select: all; overflow-x: auto; white-space: nowrap; }
+.err { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); white-space: pre-wrap; word-break: break-word; margin: 0; max-height: 6.5em; overflow: hidden; }
+.ledger { display: grid; grid-template-columns: auto 1fr auto; gap: var(--eyes-space-1) var(--eyes-space-3); font-size: var(--eyes-text-sm); margin: 0; }
+.ledger > * { padding: var(--eyes-space-1) 0; border-bottom: 1px solid var(--eyes-border-subtle); }
+.ledger .amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--eyes-weight-medium); }
+#map { height: 22rem; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); z-index: 0; }
+#map.nomap { display: grid; place-items: center; color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
+@media (prefers-color-scheme: dark) { .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9); } }
+.ui-status > li { padding: var(--eyes-space-2) 0; }
+.ui-notice { margin: 0; }
+#banner { grid-column: span 12; }
+.filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1.5fr; gap: var(--eyes-space-2); }
+.filters .ui-input { min-height: 2.25rem; padding: 0 var(--eyes-space-3); font-size: var(--eyes-text-sm); }
+.events { width: 100%; border-collapse: collapse; font-size: var(--eyes-text-xs); }
+.events td { padding: var(--eyes-space-1) var(--eyes-space-2); border-bottom: 1px solid var(--eyes-border-subtle); vertical-align: top; }
+.events td:first-child { white-space: nowrap; color: var(--eyes-text-tertiary); font-variant-numeric: tabular-nums; }
+.events .sum { font-family: var(--eyes-font-mono); word-break: break-word; }
+.events button { all: unset; cursor: pointer; color: var(--eyes-text-secondary); text-decoration: underline; }
+.ticket { display: grid; grid-template-columns: 9rem 1fr; gap: var(--eyes-space-4); }
+.ticket img, .ticket .nophoto { width: 9rem; height: 9rem; object-fit: cover; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); }
+.ticket .nophoto { display: grid; place-items: center; color: var(--eyes-text-tertiary); font-size: var(--eyes-text-xs); }
+.ticket textarea { width: 100%; min-height: 2.5rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); }
+.actions { display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; }
+.msg { margin: 0; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-secondary); white-space: pre-wrap; font-size: var(--eyes-text-sm); }
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--eyes-space-4); }
+.chart h3 { margin: 0; font-size: var(--eyes-text-sm); font-weight: 500; color: var(--eyes-text-secondary); display: flex; justify-content: space-between; gap: var(--eyes-space-2); }
+.chart svg { display: block; width: 100%; height: 3rem; margin-top: var(--eyes-space-1); }
+.chart .area { fill: var(--eyes-accent, #3b82f6); opacity: .18; }
+.chart .line { fill: none; stroke: var(--eyes-accent, #3b82f6); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.chart.bad .area { fill: var(--eyes-danger, #dc2626); } .chart.bad .line { stroke: var(--eyes-danger, #dc2626); }
+.bar { flex-wrap: wrap; row-gap: var(--eyes-space-2); }
+.bar .brand { color: var(--eyes-text); font-size: var(--eyes-heading-sm); text-decoration: none; white-space: nowrap; }
+.bar a, #updated { white-space: nowrap; }
+#operator { white-space: nowrap; max-width: 16rem; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 640px) {
+  .bar { gap: var(--eyes-space-2) var(--eyes-space-3); padding: var(--eyes-space-3) var(--eyes-space-4); }
+  .bar .spacer { flex-basis: 100%; }
+  main { padding: var(--eyes-space-3) var(--eyes-space-3) var(--eyes-space-8); }
+  .filters { grid-template-columns: 1fr 1fr; }
+  .filters > :first-child { grid-column: span 2; }
+}
+</style>
+</head>
+<body class="ui">
+<header class="bar">
+  <a class="brand" href="https://eyes.pictures"><span class="mark" aria-hidden="true"></span>Eyes ops</a>
+  <span id="state" class="ui-badge">Connecting</span>
+  <span id="updated" class="tiny"></span>
+  <span class="spacer"></span>
+  <span id="operator" class="tiny"></span>
+  <a href="/ops/live">Live map</a>
+  <a href="/ops/allowlist">Allowlist</a>
+  <button id="logout" class="ui-button ui-button--ghost ui-button--sm" type="button">Log out</button>
+</header>
+<main>
+  <p id="banner" class="ui-notice ui-notice--danger" hidden></p>
+
+  <section class="ui-card c3">
+    <header class="ui-card__header"><h2 class="ui-card__title">Health</h2><span id="uptime" class="ui-badge"></span></header>
+    <ul id="providers" class="ui-status"></ul>
+    <dl id="health" class="ui-kv"></dl>
+  </section>
+
+  <section class="ui-card c5">
+    <header class="ui-card__header"><h2 class="ui-card__title">Tasks, last 24 h</h2><span id="tasks-total" class="sub"></span></header>
+    <div id="statuses" class="stats"></div>
+  </section>
+
+  <section class="ui-card c4">
+    <header class="ui-card__header"><h2 class="ui-card__title">Money</h2><span class="sub">24 h, except escrow held</span></header>
+    <div><div id="escrowed" class="big"></div><div class="muted">held in escrow now</div></div>
+    <dl id="money" class="ui-kv"></dl>
+  </section>
+
+  <section class="ui-card c12">
+    <header class="ui-card__header"><h2 class="ui-card__title">Trends</h2><span id="series-source" class="sub"></span></header>
+    <div id="charts" class="charts"></div>
+  </section>
+
+  <section class="ui-card c12">
+    <header class="ui-card__header"><h2 class="ui-card__title">Support tickets</h2><span id="tickets-count" class="ui-badge"></span></header>
+    <ul id="tickets-list" class="rows"></ul>
+  </section>
+
+  <section class="ui-card c12">
+    <header class="ui-card__header"><h2 class="ui-card__title">Ops queue</h2><span id="queue-count" class="ui-badge"></span></header>
+    <ul id="queue" class="rows"></ul>
+  </section>
+
+  <section class="ui-card c7">
+    <header class="ui-card__header"><h2 class="ui-card__title">Recent tasks</h2><span class="sub">newest first</span></header>
+    <ul id="tasks" class="rows scroll"></ul>
+  </section>
+
+  <section class="ui-card c5">
+    <header class="ui-card__header"><h2 class="ui-card__title">Workers</h2><span class="sub">positions rounded to about 100 m</span></header>
+    <div id="workers" class="stats"></div>
+    <div id="map"></div>
+  </section>
+
+  <section class="ui-card c5">
+    <header class="ui-card__header"><h2 class="ui-card__title">Ledger</h2><span class="sub">latest rows</span></header>
+    <div class="scroll"><div id="ledger" class="ledger"></div></div>
+  </section>
+
+  <section class="ui-card c7">
+    <header class="ui-card__header"><h2 class="ui-card__title">Server errors and warnings</h2><span class="sub">this process, newest first, redacted</span></header>
+    <ul id="errors" class="rows scroll"></ul>
+  </section>
+
+  <section class="ui-card c12">
+    <header class="ui-card__header"><h2 class="ui-card__title">Event log</h2><span id="events-source" class="sub"></span></header>
+    <div class="filters">
+      <input id="f-q" class="ui-input" type="search" placeholder="Search summary and details">
+      <select id="f-kind" class="ui-input">
+        <option value="">All kinds</option>
+        <option>http</option><option>mcp</option><option>call</option><option>task</option><option>ledger</option>
+        <option>text</option><option>email</option><option>reply</option><option>webhook</option><option>safety</option>
+        <option>vision</option><option>payout</option><option>ticket</option><option>ops</option><option>auth</option><option>log</option>
+      </select>
+      <select id="f-level" class="ui-input">
+        <option value="">All levels</option><option>info</option><option>warn</option><option>error</option>
+      </select>
+      <input id="f-task" class="ui-input" placeholder="Task id">
+    </div>
+    <div class="scroll"><table class="events"><tbody id="events"></tbody></table></div>
+    <button id="older" class="ui-button ui-button--ghost ui-button--sm" type="button" hidden>Load older</button>
+  </section>
+</main>
+<script>
+const POLL_MS = 10000;
+const $ = (id) => document.getElementById(id);
+const STATUS_TONE = {
+  dispatched: "accent", claimed: "accent", submitted: "accent", verified: "success", paid: "success",
+  needs_review: "danger", disputed: "danger", expired: "", refunded: "",
+};
+const LIVE = ["dispatched", "claimed", "submitted"];
+const LEDGER_LABEL = { topup: "Top-up", escrow: "Escrow", release: "Release", refund: "Refund", payout: "Payout", fee: "Fee" };
+const usd = (cents) => `$${((cents || 0) / 100).toFixed(2)}`;
+const time = (iso) => (iso ? new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "");
+const stamp = (iso) => (iso ? new Date(iso).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "");
+const after = (from, to) => {
+  const s = Math.round((Date.parse(to) - Date.parse(from)) / 1000);
+  return s < 90 ? `+${s}s` : `+${Math.round(s / 60)}m`;
+};
+const cut = (text, n) => (text && text.length > n ? `${text.slice(0, n - 1)}…` : text || "");
+
+function h(tag, cls, ...kids) {
+  const el = document.createElement(tag);
+  if (cls) el.className = cls;
+  for (const kid of kids) if (kid != null && kid !== false) el.append(kid);
+  return el;
+}
+const badge = (text, tone) => h("span", `ui-badge${tone ? ` ui-badge--${tone}` : ""}`, text);
+const kv = (dl, pairs) => dl.replaceChildren(...pairs.flatMap(([k, v]) => [h("dt", null, k), h("dd", null, v)]));
+const empty = (text) => h("li", "muted", text);
+
+function uptime(s) {
+  if (s < 3600) return `up ${Math.floor(s / 60)}m`;
+  if (s < 86400) return `up ${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
+  return `up ${Math.floor(s / 86400)}d ${Math.floor((s % 86400) / 3600)}h`;
+}
+
+function checks(t) {
+  if (t.gps_ok == null) return null;
+  const mark = (ok, label) => badge(`${ok ? "✓" : "✗"} ${label}`, ok ? "success" : "danger");
+  return h("span", "flow-checks", mark(t.gps_ok, "GPS"), " ", mark(t.fresh_ok, "fresh"), " ", mark(t.vision_ok, "photo"),
+    t.confidence != null ? h("span", "tiny", ` ${Math.round(t.confidence * 100)}% sure`) : null);
+}
+
+function flow(t) {
+  const steps = [["asked", t.created_at], ["claimed", t.claimed_at], ["answered", t.submitted_at]];
+  for (const [type, at] of Object.entries(t.money_at || {})) if (type !== "escrow") steps.push([type === "release" ? "released" : type === "payout" ? "paid out" : type === "refund" ? "refunded" : type, at]);
+  steps.sort((a, b) => Date.parse(a[1] || 0) - Date.parse(b[1] || 0));
+  return h("div", "flow", ...steps.filter(([, at]) => at).map(([label, at], i) =>
+    h("span", null, i === 0 ? `${label} ${stamp(at)}` : `${label} ${after(t.created_at, at)}`)));
+}
+
+function taskRow(t, withCommands) {
+  const li = h("li");
+  li.append(
+    h("div", "task-head", h("p", "q", cut(t.question, 160)), badge(t.status.replace("_", " "), STATUS_TONE[t.status])),
+    h("div", "line",
+      h("span", null, cut(t.place_label, 70)),
+      h("span", null, "bounty ", h("strong", null, usd(t.bounty_cents))),
+      h("span", null, "notified ", h("strong", null, String(t.workers_notified ?? 0))),
+      checks(t)),
+    flow(t),
+    h("span", "tiny", t.id),
+  );
+  if (withCommands) li.append(h("code", "cmd", t.commands.refund), h("code", "cmd", t.commands.release));
+  return li;
+}
+
+let map = null;
+let layer = null;
+let fitted = false;
+function renderMap(all) {
+  const workers = all.filter((w) => w.lat != null); // STOP deletes a worker's location
+  if (!window.L) {
+    $("map").classList.add("nomap");
+    $("map").textContent = "Map needs Leaflet from unpkg.com.";
+    return;
+  }
+  if (!map) {
+    map = L.map("map", { zoomControl: false, attributionControl: true }).setView([37.7749, -122.4194], 12);
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 16,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+    layer = L.layerGroup().addTo(map);
+  }
+  layer.clearLayers();
+  for (const w of workers) {
+    const on = w.available && w.opted_in;
+    L.circleMarker([w.lat, w.lng], {
+      radius: 7, weight: 2, color: "#0d0d0d", fillColor: on ? "#ffd60a" : "#8f8f8f", fillOpacity: on ? 0.95 : 0.5,
+    }).addTo(layer);
+  }
+  if (!fitted && workers.length) {
+    map.fitBounds(L.latLngBounds(workers.map((w) => [w.lat, w.lng])).pad(0.3), { maxZoom: 14 });
+    fitted = true;
+  }
+}
+
+function render(feed) {
+  const o = feed.ops;
+  const hl = o.health;
+  $("uptime").textContent = uptime(hl.uptime_s);
+  $("providers").replaceChildren(...Object.entries(hl.providers).map(([name, mode]) =>
+    h("li", null, h("span", "ui-status__name", name), badge(mode, mode === "live" ? "success" : "warning"))));
+  kv($("health"), [
+    ["Database", hl.db_error ? badge("failing", "danger") : hl.db === "insforge" ? "hosted Postgres" : "local Postgres"],
+    ["Safety classifier", hl.classifier],
+    ["Commit", hl.commit ? h("code", null, hl.commit.slice(0, 10)) : "unknown"],
+    ["Node", hl.node],
+  ]);
+  const banner = $("banner");
+  banner.hidden = !hl.db_error;
+  banner.textContent = hl.db_error ? `Database read failed: ${hl.db_error}. Health and errors below are still live.` : "";
+
+  const total = Object.values(o.statuses).reduce((a, b) => a + b, 0);
+  $("operator").textContent = o.operator ? `signed in: ${o.operator}` : "";
+  $("tasks-total").textContent = `${total}${o.partial.tasks ? "+" : ""} created since ${time(o.since)} yesterday`;
+  $("statuses").replaceChildren(...Object.entries(o.statuses).map(([s, n]) => {
+    const hot = (s === "needs_review" || s === "disputed") && n > 0;
+    return h("div", `stat${hot ? " hot" : ""}${LIVE.includes(s) && n > 0 ? " live" : ""}`, h("b", null, String(n)), h("span", null, s.replace("_", " ")));
+  }));
+
+  const m = o.money_24h;
+  $("escrowed").textContent = usd(feed.totals.escrowed_cents);
+  kv($("money"), [
+    ["Escrowed", usd(m.escrow)],
+    ["Released to workers", usd(m.release)],
+    ["Refunded to agents", usd(m.refund)],
+    ["Fees", usd(m.fee)],
+    ["Paid out (Stripe)", usd(m.payout)],
+    ["Top-ups", usd(m.topup)],
+  ]);
+
+  $("queue-count").textContent = String(o.queue.length);
+  $("queue-count").className = `ui-badge${o.queue.length ? " ui-badge--danger" : " ui-badge--success"}`;
+  $("queue").replaceChildren(...(o.queue.length ? o.queue.map((t) => taskRow(t, true))
+    : [empty("Nothing needs a decision. Tasks in needs_review or disputed show here with the command to settle them.")]));
+
+  $("tasks").replaceChildren(...(feed.tasks.length ? feed.tasks.map((t) => taskRow(t, false)) : [empty("No tasks yet.")]));
+
+  const w = o.workers;
+  $("workers").replaceChildren(
+    h("div", "stat", h("b", null, `${w.opted_in}${o.partial.workers ? "+" : ""}`), h("span", null, "opted in")),
+    h("div", "stat live", h("b", null, String(w.online)), h("span", null, "available now")),
+    h("div", "stat", h("b", null, String(w.total)), h("span", null, "signed up")),
+  );
+  renderMap(feed.workers);
+
+  const places = new Map(feed.tasks.map((t) => [t.id, t.place_label]));
+  $("ledger").replaceChildren(...(feed.ledger.length ? feed.ledger.flatMap((row) => [
+    h("span", "tiny", stamp(row.created_at)),
+    h("span", null, LEDGER_LABEL[row.type] || row.type, row.task_id ? h("span", "tiny", ` ${cut(places.get(row.task_id) || row.task_id.slice(0, 8), 40)}`) : null),
+    h("span", "amt", usd(row.amount_cents)),
+  ]) : [h("span", "muted", "No ledger rows yet.")]));
+
+  $("errors").replaceChildren(...(o.errors.length ? o.errors.map((e) =>
+    h("li", null, h("div", "line", badge(e.level, e.level === "error" ? "danger" : "warning"), h("span", "tiny", stamp(e.at))), h("pre", "err", e.summary)))
+    : [empty("No errors or warnings since the server started.")]));
+}
+
+// Two clicks: the first arms the button for 5 s and says what will happen, the second does it.
+function confirmButton(label, armed, tone, act) {
+  const b = h("button", `ui-button ui-button--sm${tone ? ` ui-button--${tone}` : ""}`, label);
+  b.type = "button";
+  let timer = 0;
+  b.addEventListener("click", async () => {
+    if (!b.dataset.armed) {
+      b.dataset.armed = "1";
+      b.textContent = armed;
+      timer = setTimeout(() => { delete b.dataset.armed; b.textContent = label; }, 5000);
+      return;
+    }
+    clearTimeout(timer);
+    b.disabled = true;
+    b.textContent = "Working";
+    await act().finally(() => { b.disabled = false; delete b.dataset.armed; b.textContent = label; });
+  });
+  return b;
+}
+
+async function act(t, action, note, out) {
+  if (!note.value.trim()) { out.textContent = "Write a note first; it is texted to the worker."; return; }
+  const res = await fetch(`/ops/tickets/${t.id}/${action}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ task_id: t.task_id, note: note.value }),
+  });
+  const body = await res.json().catch(() => ({}));
+  out.textContent = res.ok ? `Done: ticket #${t.id} ${action}.` : `Failed: ${body.message || body.error || res.status}`;
+  if (res.ok) await loadTickets();
+}
+
+function ticketRow(t) {
+  const open = t.status === "open";
+  const photo = t.photo_url ? h("img") : h("div", "nophoto", "No photo");
+  if (t.photo_url) { photo.src = t.photo_url; photo.alt = "Worker photo"; photo.referrerPolicy = "no-referrer"; }
+  const note = h("textarea", "ui-input");
+  note.placeholder = "Note, texted to the worker";
+  const out = h("span", "tiny");
+  const bounty = usd(t.bounty_cents);
+  const body = h("div", null,
+    h("div", "task-head", h("p", "q", `#${t.id} ${cut(t.question, 160)}`),
+      badge(open ? "open" : "resolved", open ? "danger" : "success")),
+    h("div", "line",
+      h("span", null, cut(t.place_label, 70)),
+      h("span", null, "bounty ", h("strong", null, bounty)),
+      h("span", null, "worker ", h("strong", null, t.distance_m == null ? "?" : `${t.distance_m} m`), ` from the place (radius ${t.radius_m} m)`),
+      checks(t)),
+    t.vision_reason ? h("p", "muted", `Vision: ${t.vision_reason}`) : null,
+    t.answer_text ? h("p", "muted", `Answer: ${cut(t.answer_text, 300)}`) : null,
+    h("p", "msg", t.message || "(no message)"),
+    h("span", "tiny", `task ${t.task_id}, ${t.task_status}, opened ${stamp(t.created_at)}`),
+  );
+  if (open) {
+    body.append(note, h("div", "actions",
+      t.task_status === "needs_review" || t.task_status === "disputed"
+        ? confirmButton("Release", `Confirm: pay worker ${bounty}`, "primary", () => act(t, "release", note, out)) : null,
+      t.task_status === "needs_review" || t.task_status === "disputed"
+        ? confirmButton("Refund", "Confirm: refund the agent", "ghost", () => act(t, "refund", note, out)) : null,
+      confirmButton("Resolve with note", "Confirm: close, no money moves", "ghost", () => act(t, "close", note, out)),
+      out));
+  } else {
+    body.append(h("p", "muted", `Resolved ${stamp(t.resolved_at)}: ${t.note || ""}`));
+  }
+  return h("li", "ticket", photo, body);
+}
+
+let ticketsText = "";
+async function loadTickets() {
+  const res = await fetch("/ops/tickets", { cache: "no-store" });
+  if (!res.ok) return;
+  const text = await res.text();
+  if (text === ticketsText) return;
+  ticketsText = text;
+  const { tickets } = JSON.parse(text);
+  const open = tickets.filter((t) => t.status === "open").length;
+  $("tickets-count").textContent = `${open} open`;
+  $("tickets-count").className = `ui-badge ${open ? "ui-badge--danger" : "ui-badge--success"}`;
+  $("tickets-list").replaceChildren(...(tickets.length ? tickets.map(ticketRow)
+    : [empty("No tickets. A worker opens one by texting HELP after an answer is held for review.")]));
+}
+
+let oldest = null;
+function eventQuery(older) {
+  const p = new URLSearchParams();
+  for (const [key, id] of [["q", "f-q"], ["kind", "f-kind"], ["level", "f-level"], ["task_id", "f-task"]]) {
+    const v = $(id).value.trim();
+    if (v) p.set(key, v);
+  }
+  if (older && oldest) p.set("before", String(oldest));
+  return p;
+}
+function eventRow(e) {
+  const task = e.task_id ? h("button", null, e.task_id.slice(0, 8)) : "";
+  if (e.task_id) task.addEventListener("click", () => { $("f-task").value = e.task_id; loadEvents(false); });
+  const tone = e.level === "error" ? "danger" : e.level === "warn" ? "warning" : "";
+  return h("tr", null, h("td", null, stamp(e.at)), h("td", null, badge(e.kind, tone)), h("td", null, task),
+    h("td", "sum", e.summary));
+}
+async function loadEvents(older) {
+  const res = await fetch(`/ops/events?${eventQuery(older)}`, { cache: "no-store" });
+  if (!res.ok) return;
+  const { source, events } = await res.json();
+  oldest = events.length ? events.at(-1).id ?? null : oldest;
+  $("events-source").textContent = source === "memory" ? "database unreachable: showing this process's memory only" : "searchable, newest first";
+  const rows = events.map(eventRow);
+  if (older) $("events").append(...rows);
+  else $("events").replaceChildren(...(rows.length ? rows : [h("tr", null, h("td", "muted", "No events match."))]));
+  $("older").hidden = source === "memory" || events.length < 200;
+}
+// One SVG area chart: values scaled to the panel, no axes. The title carries the latest value and the max.
+function chart(title, values, note, bad) {
+  const max = Math.max(1, ...values);
+  const n = Math.max(1, values.length - 1);
+  const pts = values.map((v, i) => `${(i / n) * 100},${30 - (v / max) * 28}`).join(" ");
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 100 30");
+  svg.setAttribute("preserveAspectRatio", "none");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", `${title}: ${note}`);
+  const area = document.createElementNS(svg.namespaceURI, "polygon");
+  area.setAttribute("class", "area");
+  area.setAttribute("points", `0,30 ${pts} 100,30`);
+  const line = document.createElementNS(svg.namespaceURI, "polyline");
+  line.setAttribute("class", "line");
+  line.setAttribute("points", pts);
+  svg.append(area, line);
+  return h("div", `chart${bad ? " bad" : ""}`, h("h3", null, h("span", null, title), h("span", "sub", note)), svg);
+}
+const sum = (xs) => xs.reduce((a, b) => a + b, 0);
+
+let seriesText = "";
+async function loadSeries() {
+  const res = await fetch("/ops/series", { cache: "no-store" });
+  if (!res.ok) return;
+  const text = await res.text();
+  if (text === seriesText) return;
+  seriesText = text;
+  const s = JSON.parse(text);
+  $("series-source").textContent = s.source === "clickhouse"
+    ? `ClickHouse${s.dropped ? `, ${s.dropped} events dropped while it was down` : ""}`
+    : "Postgres and this process's last 500 events (ClickHouse off)";
+  const errorRate = s.requests.map((r, i) => (r ? (s.errors[i] / r) * 100 : 0));
+  const reqs = sum(s.requests);
+  const errs = sum(s.errors);
+  const statuses = Object.keys(s.tasks);
+  $("charts").replaceChildren(
+    chart("Requests / min", s.requests, `${s.requests.at(-1) ?? 0} now, ${reqs} in 2 h`),
+    chart("Error rate (5xx)", errorRate, `${reqs ? ((errs / reqs) * 100).toFixed(1) : "0.0"}% over 2 h`, errs > 0),
+    chart("p95 latency", s.p95_ms, `${Math.max(0, ...s.p95_ms)} ms max over 2 h`),
+    ...(statuses.length
+      ? statuses.map((st) => chart(`Tasks / hour: ${st}`, s.tasks[st], `${sum(s.tasks[st])} in 24 h`, ["needs_review", "disputed"].includes(st)))
+      : [chart("Tasks / hour", s.hours.map(() => 0), "none in 24 h")]),
+    chart("Payouts / hour", s.payouts.ok, `${sum(s.payouts.ok)} ok, ${sum(s.payouts.failed)} failed in 24 h`, sum(s.payouts.failed) > 0),
+  );
+}
+
+// Refresh the first page on each poll unless the operator paged back.
+const pollEvents = () => (document.querySelectorAll("#events tr").length > 200 ? null : loadEvents(false));
+
+async function poll() {
+  const state = $("state");
+  try {
+    const res = await fetch("/ops/feed", { cache: "no-store" });
+    if (res.status === 401) return location.assign("/ops/login");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    render(await res.json());
+    await Promise.all([loadTickets(), pollEvents(), loadSeries()]);
+    state.className = "ui-badge ui-badge--success";
+    state.textContent = "Live";
+    $("updated").textContent = `updated ${new Date().toLocaleTimeString()}, every ${POLL_MS / 1000} s`;
+  } catch (err) {
+    state.className = "ui-badge ui-badge--danger";
+    state.textContent = `Feed failed: ${err.message}`;
+  }
+  setTimeout(poll, POLL_MS);
+}
+$("logout").addEventListener("click", async () => {
+  await fetch("/ops/logout", { method: "POST" }).catch(() => {});
+  location.assign("/ops/login");
+});
+for (const id of ["f-q", "f-kind", "f-level", "f-task"]) $(id).addEventListener("change", () => loadEvents(false));
+$("f-q").addEventListener("input", () => { clearTimeout(window.qTimer); window.qTimer = setTimeout(() => loadEvents(false), 300); });
+$("older").addEventListener("click", () => loadEvents(true));
+poll();
+</script>
+</body>
+</html>
