@@ -459,7 +459,11 @@ describe("MCP tools", () => {
         expect(typeof t.annotations?.[hint], `${t.name}.${hint}`).toBe("boolean");
       }
     }
-    expect(hints.ask_eyes).toMatchObject({ readOnlyHint: false, idempotentHint: true });
+    expect(hints.ask_eyes).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: true,
+    });
     expect(tools.every((t) => t.outputSchema && (t.description ?? "").includes("Next:"))).toBe(true);
   });
 
@@ -503,7 +507,7 @@ describe("MCP tools", () => {
     }
   });
 
-  it("binds only show_task to the built task-card view, allowing the photo host", async () => {
+  it("binds only show_task to the built task-card view with ChatGPT's progress labels, allowing the photo host", async () => {
     const dir = await mkdtemp(join(tmpdir(), "eyes-views-"));
     const manifest = join(dir, "manifest.json");
     const js = "document.body.dataset.card = 'eyes'";
@@ -511,7 +515,12 @@ describe("MCP tools", () => {
     const env = { EYES_VIEWS_MANIFEST: manifest, INSFORGE_BASE_URL: "https://eyes.us-west.insforge.app" };
     const client = await connect(setup({ getTask: async () => PAID_TASK }, env).fetch);
     const { tools } = await client.listTools();
-    expect(tools.find((t) => t.name === "show_task")?._meta).toMatchObject({ ui: { resourceUri: CARD_URI } });
+    expect(tools.find((t) => t.name === "show_task")?._meta).toMatchObject({
+      ui: { resourceUri: CARD_URI },
+      "openai/toolInvocation": { invoking: "Loading the Eyes task card", invoked: "Eyes task card ready" },
+      "openai/toolInvocation/invoking": "Loading the Eyes task card",
+      "openai/toolInvocation/invoked": "Eyes task card ready",
+    });
     expect(tools.filter((t) => t._meta !== undefined).map((t) => t.name)).toEqual(["show_task"]);
     const [card] = (await client.readResource({ uri: CARD_URI })).contents;
     expect(card).toMatchObject({
