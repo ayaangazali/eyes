@@ -85,7 +85,6 @@ describe("emailRow", () => {
     (email_status) => {
       const row = emailRow(setup({ email_status, email_skipped: true }));
       expect(row).toMatchObject({ status: email_status, title: "Email optional — skipped", skipped: true });
-      expect(row?.detail).toContain("Reply EMAIL");
     },
   );
 

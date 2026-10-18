@@ -122,7 +122,7 @@ for (const width of [390, 1440]) {
     finish();
     await expect(emailRow(page)).toHaveClass(/ui-check--pass/);
     await expect(emailRow(page)).toContainText("Email optional — skipped");
-    await expect(emailRow(page)).toContainText(instruction);
+    await expect(emailRow(page).locator(".me-email__help")).toBeHidden();
     await expect(emailRow(page).getByRole("button")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "You're set up" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Open \/ connect Eyes app/ })).toHaveCount(0);
@@ -138,7 +138,7 @@ for (const width of [390, 1440]) {
     await page.reload();
     await expect(emailRow(page)).toHaveClass(/ui-check--pass/);
     await expect(emailRow(page)).toContainText("Email optional — skipped");
-    await expect(emailRow(page)).toContainText(instruction);
+    await expect(emailRow(page).locator(".me-email__help")).toBeHidden();
     expect(writes).toHaveLength(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
     if (process.env.SHOTS) {

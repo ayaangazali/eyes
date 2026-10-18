@@ -99,7 +99,7 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
       <span class="me-row__text">
         <strong></strong>
         <span class="ui-check__detail"></span>
-        <span class="ui-text-sm ui-text-secondary">Send from an address your mail provider verifies; custom aliases need SPF/DKIM.</span>
+        <span class="ui-text-sm ui-text-secondary me-email__help">Send from an address your mail provider verifies; custom aliases need SPF/DKIM.</span>
       </span>
       <div class="me-email__actions" data-mode="idle">
         <button type="button" class="ui-button" data-act="skip">Use iMessage only</button>
@@ -477,6 +477,7 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
     else if (row.skipped) part(li, "use").setAttribute("href", "#i-check");
     part(li, "strong").textContent = row.title;
     part(li, ".ui-check__detail").textContent = row.detail;
+    part(li, ".me-email__help").hidden = row.skipped;
     const skip = part(li, "[data-act=skip]");
     skip.hidden = complete;
     part(li, "[data-act=remove]").hidden = !row.removable;

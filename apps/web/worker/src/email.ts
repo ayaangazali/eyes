@@ -45,7 +45,7 @@ export function emailRow(s: WorkerSetup): EmailRow | null {
     return {
       status: s.email_status,
       title: "Email optional — skipped",
-      detail: instruction,
+      detail: "Using iMessage only. You can add email later by replying EMAIL.",
       removable: s.email_status === "pending",
       skipped: true,
     };
