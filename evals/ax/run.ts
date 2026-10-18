@@ -163,7 +163,12 @@ const service = createEyesService({
 });
 setInterval(() => service.expireOverdue().catch((err) => console.error("expireOverdue failed", err)), 30_000);
 handle = toNodeListener(
-  createServer({ service, providers, config, env: { INKBOX_WEBHOOK_SIGNING_KEY: INKBOX_KEY } }).fetch,
+  createServer({
+    service,
+    providers,
+    config,
+    env: { INKBOX_WEBHOOK_SIGNING_KEY: INKBOX_KEY, INKBOX_PHONE_NUMBER: "+14155550100" },
+  }).fetch,
 );
 
 await post("/w/join", WORKER);

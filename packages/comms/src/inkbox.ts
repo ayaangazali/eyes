@@ -64,7 +64,7 @@ export function offerText(offer: OfferMessage): string {
 }
 
 export function captureLinkText(msg: Parameters<Messaging["sendCaptureLink"]>[1]): string {
-  return `Eyes: it's yours! Take the photo at ${placeText(msg.place_label)} by ${localTime(msg.deadline_at)}. Never photograph people's faces. Open: ${msg.capture_url}`;
+  return `Eyes: it's yours! Take the photo at ${placeText(msg.place_label)} by ${localTime(msg.deadline_at)}. Never photograph people's faces. Can't make it? Reply NO to give it back. Open: ${msg.capture_url}`;
 }
 
 export function alreadyClaimedText(msg: Parameters<Messaging["sendAlreadyClaimed"]>[1]): string {
