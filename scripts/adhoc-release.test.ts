@@ -9,6 +9,7 @@ import {
   type Device,
   main,
   manifestXml,
+  mask,
   missingFromProfile,
   parseArgs,
   profileDevices,
@@ -35,6 +36,12 @@ describe("helpers", () => {
   it("parseArgs: defaults and flags", () => {
     expect(parseArgs([])).toMatchObject({ dryRun: false });
     expect(parseArgs(["--dry-run", "--repo", "/tmp/x"])).toEqual({ dryRun: true, repo: "/tmp/x" });
+  });
+
+  it("mask: UDIDs to 6 characters, phone numbers to their last 2 digits", () => {
+    expect(mask(`HTTP 400 udid=eq.${U1} to +1 (555) 555-0101, ${U2.toLowerCase()}; 3 device(s)`)).toBe(
+      "HTTP 400 udid=eq.000081… to …01, 000081…; 3 device(s)",
+    );
   });
 
   it("ascToken is an ES256 JWT for App Store Connect, valid 10 minutes, that verifies", () => {

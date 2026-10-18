@@ -34,6 +34,11 @@ export type Deps = {
 };
 
 const short = (udid: string) => `${udid.slice(0, 6)}…`;
+/** Error text for public CI logs: UDIDs cut to 6 characters, phone numbers to their last 2 digits. */
+export const mask = (text: string) =>
+  text
+    .replace(/\b([0-9A-Fa-f]{6})[0-9A-Fa-f-]{18,}\b/g, "$1…")
+    .replace(/\+?\d[\d\s().-]{5,}(\d{2})\b/g, "…$1");
 const xml = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;");
 const plist = (dict: string) => `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -319,7 +324,7 @@ if (import.meta.main) {
     },
     now: () => new Date(),
   }).catch((err: unknown) => {
-    console.error(err instanceof Error ? err.message : err);
+    console.error(mask(err instanceof Error ? err.message : String(err)));
     process.exit(1);
   });
 }
