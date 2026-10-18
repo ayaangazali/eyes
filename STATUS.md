@@ -50,6 +50,9 @@ Updated: 2026-10-17 06:45 PT by orchestrator. 46 PRs merged in total, 0 open. Li
 | T4.20 owner link scope (#54) | builder | **merged** #68; 014 applied; live | [#68](https://github.com/ayaangazali/eyes/pull/68) | security PASS; race test added | masked owner email (item 2) dropped: needs a column |
 | T5.2 docs refresh | docs builder | **merged** #69 | [#69](https://github.com/ayaangazali/eyes/pull/69) | accuracy PASS; minors fixed | none |
 | Second full-main security sweep | auditor | **done**: 0 blocker, 0 major, 3 minor (public page headers, /w/join membership oracle, precise worker coords on the hosted ops feed); token matrix, rotation, money invariants and grants all sound | | | minors in T4.21 |
+| Second fresh-eyes journey audit | auditor | **done**: 0 blocker, 2 major, 12 minor; 102 doc promises: 62 true, 2 false (ADR count), 38 need keys; all 10 false promises from the first audit now true | | | fixes in T4.22a/b; operator contact needs a human |
+| T4.22a agent/owner AX fixes | builder | building | | | none |
+| T4.22b worker-facing fixes | builder | building | | | none |
 | T4.21 sweep-2 minors (headers, join oracle, coarse ops feed; ADR-021) | builder | **merged** #70; live | [#70](https://github.com/ayaangazali/eyes/pull/70) | PASS; timing side channel -> #71 | none |
 | T4.11b honest owner-email claim (ADR-018) | builder | **merged** #59 | [#59](https://github.com/ayaangazali/eyes/pull/59) | PASS | none |
 | T4.13 user-facing text matches the running system | builder | **merged** #60 | [#60](https://github.com/ayaangazali/eyes/pull/60) | PASS | none |
@@ -128,4 +131,4 @@ Keys go in `.env` at the repo root (never committed) and later as Manufact env v
 7. Armature: `ANALYTICS_INGEST_API_KEY`; ask them to enable Evaluation; confirm mcp-use support.
 8. Decisions: worker phones for the demo (whose, how many), demo cafe, public domain (or use Manufact + InsForge default URLs).
 9. Hackathon rules: the event page publishes no rule on pre-start code. Ask the organizers (host Ray Liao) before 10:30 AM. The repo's first commit is 2026-10-16 22:47 PT; docs/SUBMISSION.md has a TODO to disclose it per their answer.
-10. Privacy contact: who the worker privacy page (apps/web/worker/privacy.html, PR #47) names for data deletion requests (an email address the team monitors).
+10. Privacy and operator contact: an email address the team monitors, named on the worker privacy page (data deletion) and on owner-facing pages that today say "ask the Eyes operator" for an owner link (second journey audit, major 2).
