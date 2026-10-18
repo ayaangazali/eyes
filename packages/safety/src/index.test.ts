@@ -274,4 +274,36 @@ describe("createAssessTask with clef", () => {
     expect((await createAssessTask(CLEF_ENV)(benign)).allowed).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("fails closed when clef answers without a verdict", async () => {
+    fetchMock.mockResolvedValueOnce(Response.json({ result: { answers: {} } }));
+    expect(await createAssessTask(CLEF_ENV)(benign)).toEqual(failClosed);
+    expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+      "[safety] classifier failed, failing closed: clef returned no verdict",
+    );
+  });
+
+  it("asks Claude when clef fails, logging the clef error (Error or not)", async () => {
+    const allow = '{"allowed":true,"category":null,"reason":null,"fix":null}';
+    const assess = createAssessTask({ ...CLEF_ENV, ANTHROPIC_API_KEY: "sk-test" });
+    fetchMock
+      .mockResolvedValueOnce(new Response("down", { status: 503 }))
+      .mockResolvedValueOnce(reply(allow));
+    expect((await assess(benign)).allowed).toBe(true);
+    fetchMock.mockRejectedValueOnce("socket hang up").mockResolvedValueOnce(reply(allow));
+    expect((await assess(benign)).allowed).toBe(true);
+    expect(vi.mocked(console.error).mock.calls.map((call) => call[0])).toEqual([
+      "[safety] clef failed, asking Claude: clef HTTP 503",
+      "[safety] clef failed, asking Claude: socket hang up",
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("fails closed on a non-Error clef failure without Claude, logging it as is", async () => {
+    fetchMock.mockRejectedValueOnce("socket hang up");
+    expect(await createAssessTask(CLEF_ENV)(benign)).toEqual(failClosed);
+    expect(vi.mocked(console.error)).toHaveBeenCalledWith(
+      "[safety] classifier failed, failing closed: socket hang up",
+    );
+  });
 });
