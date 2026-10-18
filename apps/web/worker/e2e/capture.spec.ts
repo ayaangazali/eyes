@@ -27,6 +27,8 @@ const okResult = {
   message: "Verified. $3.00 is on its way to you.",
 };
 
+const okBody = "$3.00 is on its way to you.";
+
 function mockOffer(page: Page, view: object, onPost?: (route: Route) => Promise<void> | void) {
   return page.route("**/api/**", (route) => {
     if (route.request().method() === "GET") return route.fulfill({ json: view });
@@ -113,7 +115,7 @@ test("capture sends a live photo with GPS and shows the verification", async ({ 
   await page.getByRole("button", { name: "Send to Eyes" }).click();
 
   await expect(page.getByRole("heading", { name: "Verified", exact: true })).toBeVisible();
-  await expect(page.getByText(okResult.message)).toBeVisible();
+  await expect(page.locator("#message")).toHaveText(okBody);
   await expect(page.getByText("Photo answers the question: passed")).toBeVisible();
   await expect(page.getByText(okResult.verification.vision_reason)).toBeVisible();
   await expect(page.getByText(/\d+:\d\d left/)).toBeHidden();
@@ -130,6 +132,20 @@ test("capture sends a live photo with GPS and shows the verification", async ({ 
   expect(form?.get("answer_text")).toBe("Two cartons left");
   const capturedAt = Date.parse(String(form?.get("captured_at")));
   expect(Math.abs(Date.now() - capturedAt)).toBeLessThan(60_000);
+});
+
+test("a message that does not repeat the title is shown whole", async ({ page }) => {
+  const message =
+    "Thanks, we got it. Your answer needs a quick manual check (Shelf is cut off). To request a manual review, reply HELP to the Eyes text.";
+  await mockOffer(page, offer, (route) =>
+    route.fulfill({ json: { ...okResult, status: "needs_review", message } }),
+  );
+  await page.goto("/capture.html?t=tok");
+  await takePhoto(page);
+  await page.getByRole("button", { name: "Send to Eyes" }).click();
+
+  await expect(page.getByRole("heading", { name: "Sent, needs a quick review", exact: true })).toBeVisible();
+  await expect(page.locator("#message")).toHaveText(message);
 });
 
 test("an expired or invalid link shows the error and fix, with no camera", async ({ page }) => {
@@ -200,7 +216,7 @@ test("after the shutter, a search that finds nothing better keeps the earlier fi
   await expect(send).toBeEnabled();
   await expect(page.getByRole("alert")).toBeHidden();
   await send.click();
-  await expect(page.getByText(okResult.message)).toBeVisible();
+  await expect(page.getByText(okBody)).toBeVisible();
   expect([form?.get("lat"), form?.get("accuracy_m")]).toEqual(["37.78246", "10"]);
 });
 
@@ -260,7 +276,7 @@ test("a task type without a yes/no answer hides it and sends an empty answer_boo
   await takePhoto(page);
   await expect(page.getByLabel("Yes")).toBeHidden();
   await page.getByRole("button", { name: "Send to Eyes" }).click();
-  await expect(page.getByText(okResult.message)).toBeVisible();
+  await expect(page.getByText(okBody)).toBeVisible();
   expect([form?.get("answer_bool"), form?.get("answer_text")]).toEqual(["", ""]);
 });
 
@@ -292,7 +308,7 @@ test("Send stays disabled during an upload despite a double tap, a retake and a 
   await expect(page.getByText("GPS within 5 m")).toBeVisible();
   await expect(send).toBeDisabled();
   release();
-  await expect(page.getByText(okResult.message)).toBeVisible();
+  await expect(page.getByText(okBody)).toBeVisible();
   expect(posts).toBe(1);
 });
 

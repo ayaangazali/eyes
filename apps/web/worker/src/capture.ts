@@ -170,10 +170,16 @@ function usePhoto(file: File, at: string) {
   locate();
 }
 
+function withoutTitle(title: string, message: string): string {
+  const lead = `${title}. `;
+  return message.startsWith(lead) ? message.slice(lead.length) : message;
+}
+
 function showResult({ status, message, verification: v }: CaptureResult) {
   finish();
-  $("outcome").textContent = OUTCOME[status] ?? "Sent";
-  $("message").textContent = message;
+  const title = OUTCOME[status] ?? "Sent";
+  $("outcome").textContent = title;
+  $("message").textContent = withoutTitle(title, message);
   const checks = [
     ["Location matches the place", v.gps_ok],
     ["Photo taken in time", v.fresh_ok],
