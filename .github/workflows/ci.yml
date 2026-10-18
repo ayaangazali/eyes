@@ -35,6 +35,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      # ci-scope.ts imports only node: builtins, so Node alone is enough (no pnpm install).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
       - id: scope
         env:
           EVENT: ${{ github.event_name }}

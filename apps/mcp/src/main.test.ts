@@ -117,6 +117,19 @@ describe("start", () => {
     expect(() => run({ EYES_OPS_KEY: "demo" })).toThrow(/EYES_OPS_KEY must be at least 32 random characters/);
   });
 
+  it.each([
+    { EYES_PROVIDERS: "live" },
+    { EYES_FAKE_WEBHOOKS: "1" },
+    { ANTHROPIC_API_KEY: "sk-ant-test" },
+    { CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_API_TOKEN: "cf-test" },
+  ])("refuses EYES_SANDBOX=1 with %j", (env) => {
+    expect(() => run({ EYES_SANDBOX: "1", ...env })).toThrow(/EYES_SANDBOX=1 gives an agent with play money/);
+  });
+
+  it("serves the sandbox when every provider is fake", async () => {
+    expect(await serve({ EYES_SANDBOX: "1" })).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
+  });
+
   it.each(["abc", "3000.5", "70000", "-1", " ", "0x50", "1e3"])("refuses PORT=%j", (port) => {
     expect(() => run({ PORT: port })).toThrow(/PORT must be an integer from 0 to 65535/);
   });

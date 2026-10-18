@@ -1,10 +1,11 @@
 import { Answer, AskEyesInput, GetTaskOutput, QuoteTaskOutput, TOOLS, type ToolName } from "@eyes/core";
-import { createElement, isValidElement, type ReactNode } from "react";
+import { Window } from "happy-dom";
+import { act, createElement, isValidElement, type ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { FIXTURES } from "../fixtures/index.ts";
 import { MockBridge } from "./bridge.ts";
-import { cardTree, cardView, TaskCard } from "./card.ts";
+import { type CardView, cardTree, cardView, TaskCard } from "./card.ts";
 import type { CardData, CardState } from "./types.ts";
 
 const render = (data: CardData) =>
@@ -187,6 +188,13 @@ const withAnswer = (patch: Partial<Answer>): CardData => {
   return data;
 };
 
+const variant = (state: CardState, patch: object, taskPatch: object = {}): CardData => {
+  const data = structuredClone(FIXTURES[state]);
+  Object.assign(data, patch);
+  if (data.kind === "task") Object.assign(data.task, taskPatch);
+  return data;
+};
+
 describe("task card", () => {
   it.each(Object.keys(EXPECTED) as CardState[])("renders the %s fixture", (state) => {
     const html = render(FIXTURES[state]);
@@ -335,5 +343,113 @@ describe("task card", () => {
     });
     for (const b of buttons(tree)) await b.click();
     expect(toasts).toEqual(["offline"]);
+  });
+
+  it("toasts a generic message when a bridge call fails without an Error", async () => {
+    const bridge = { ...new MockBridge(FIXTURES.error), callTool: () => Promise.reject("nope") };
+    const toasts: string[] = [];
+    const view = cardView(FIXTURES.error, "key-1");
+    const props = { view, theme: "dark" as const, sandbox: false, toast: null, bridge };
+    for (const b of buttons(cardTree({ ...props, onToast: (t) => toasts.push(t) }))) await b.click();
+    expect(toasts).toEqual(["Something went wrong"]);
+  });
+
+  it.each<[string, CardData, Partial<CardView>]>([
+    [
+      "a check done just now",
+      variant("cached", { as_of: "2026-10-17T18:02:00Z" }),
+      { footer: "Checked just now, free" },
+    ],
+    [
+      "a check hours ago",
+      variant("cached", { as_of: "2026-10-17T21:02:00Z" }),
+      { footer: "Checked 3 h ago, free" },
+    ],
+    [
+      "no notified count",
+      variant("dispatched", { workers_notified: undefined }),
+      { line: "Workers notified" },
+    ],
+    [
+      "no worker yet",
+      variant("claimed", { worker: undefined }),
+      { line: "A worker is on the way", footer: "$3.50 held" },
+    ],
+    [
+      "a paid task without an answer",
+      variant("answered", {}, { answer: null }),
+      { line: "Answer in, checking it", footer: "$3.50 total", badges: [] },
+    ],
+    ["a yes answer", withAnswer({ answer_bool: true }), { line: "Yes. Short line, about 4 people" }],
+    ["a no answer", withAnswer({ answer_bool: false }), { line: "No. Short line, about 4 people" }],
+    [
+      "a disputed task",
+      variant("needs_review", {}, { status: "disputed" }),
+      { pill: ["Disputed", "warn"], note: "The photo shows the counter, not the line.", buttons: [] },
+    ],
+    [
+      "a disputed task without an answer",
+      variant("needs_review", {}, { status: "disputed", answer: null }),
+      { note: null },
+    ],
+    [
+      "a review without an answer",
+      variant("needs_review", {}, { answer: null }),
+      { pill: ["Needs review", "warn"], note: null },
+    ],
+    [
+      "a cancelled task",
+      variant("expired_refunded", {}, { status: "refunded" }),
+      { line: "Cancelled. $3.50 refunded." },
+    ],
+  ])("shows %s", (_, data, expected) => {
+    expect(cardView(data, "key-1")).toMatchObject(expected);
+  });
+
+  it("counts a single nearby worker and drops a missing ETA", () => {
+    const data = structuredClone(FIXTURES.quote);
+    if (data.kind === "quote") Object.assign(data.quote, { workers_nearby: 1, est_minutes_to_answer: null });
+    expect(cardView(data, "key-1").line).toMatch(/^1 worker nearby, \$\d+\.\d\d$/);
+  });
+
+  it("labels a stale capture", () => {
+    const data = withAnswer({});
+    if (data.kind === "task" && data.task.answer) data.task.answer.verification.fresh_ok = false;
+    expect(cardView(data, "key-1").badges[1]).toEqual({ label: "Stale, 2 min ago", check: "failed" });
+  });
+
+  it("clears the toast after 4s and swaps a broken photo for the map", async () => {
+    const win = new Window();
+    vi.stubGlobal("window", win);
+    vi.stubGlobal("document", win.document);
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.useFakeTimers();
+    const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const { createRoot } = await import("react-dom/client");
+    const el = win.document.createElement("div");
+    win.document.body.appendChild(el);
+    const root = createRoot(el as unknown as Element);
+    const url = `${PHOTOS}${OBJ}`;
+    try {
+      await act(async () =>
+        root.render(createElement(TaskCard, { bridge: new MockBridge(withAnswer({ photo_url: url })) })),
+      );
+      await act(async () => el.querySelector("button")?.click());
+      expect(el.querySelector(".eyes-toast")?.textContent).toMatch(/^Mock call: tip_worker/);
+      await act(async () => vi.advanceTimersByTime(4000));
+      expect(el.querySelector(".eyes-toast")).toBeNull();
+
+      const img = el.querySelector("img");
+      expect(img?.getAttribute("src")).toBe(url);
+      await act(async () => img?.dispatchEvent(new win.Event("error")));
+      expect(el.querySelector("img")).toBeNull();
+      expect(el.querySelector('[aria-label="Map placeholder"]')).not.toBeNull();
+    } finally {
+      await act(async () => root.unmount());
+      info.mockRestore();
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      await win.happyDOM.close();
+    }
   });
 });

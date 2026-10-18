@@ -35,6 +35,8 @@ export default defineConfig({
         "**/.wrangler/**",
         "**/.astro/**",
         "scripts/**",
+        // Widget dev harness: a browser preview page and a Playwright screenshot script.
+        "apps/web/widget-task-card/{preview,scripts}/**",
         "apps/mobile/ios/**",
       ],
       thresholds: gate
