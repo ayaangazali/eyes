@@ -7,6 +7,7 @@ declare global {
     readonly VITE_INKBOX_CONNECT?: string;
     readonly VITE_LIVE_PAYOUTS?: string;
     readonly VITE_TESTFLIGHT_URL?: string;
+    readonly VITE_ADHOC_MANIFEST_URL?: string;
   }
   interface ImportMeta {
     readonly env: ImportMetaEnv;

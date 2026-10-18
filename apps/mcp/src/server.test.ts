@@ -271,6 +271,67 @@ describe("worker location", () => {
   });
 });
 
+describe("worker device (ad hoc install)", () => {
+  const UDID = "00008110-001A2B3C4D5E801E";
+  const callback = (udid: string) =>
+    Buffer.concat([
+      Buffer.from([0x30, 0x82, 0x0a]), // CMS envelope bytes around the plist
+      Buffer.from(
+        `<?xml version="1.0"?><plist><dict><key>PRODUCT</key><string>iPhone18,1</string><key>UDID</key><string>${udid}</string><key>VERSION</key><string>23F79</string></dict></plist>`,
+      ),
+      Buffer.from([0x00, 0xa0]),
+    ]);
+
+  it("POST /w/device passes the bearer code to the service and returns its JSON; 401 without one", async () => {
+    const codes: string[] = [];
+    const state = { profile_url: "http://api.eyes.test/w/device/profile/t", registered: false, ready: false };
+    const { fetch } = setup({
+      workerDevice: async (code) => {
+        codes.push(code);
+        return state;
+      },
+    });
+    const res = await fetch("http://eyes.test/w/device", {
+      method: "POST",
+      headers: { authorization: "Bearer c0de" },
+    });
+    expect([res.status, await res.json(), codes]).toEqual([200, state, ["c0de"]]);
+    expect((await fetch("http://eyes.test/w/device", { method: "POST" })).status).toBe(401);
+  });
+
+  it("serves the profile for a device ticket only, with a callback to the same ticket", async () => {
+    const { fetch, clock } = setup();
+    const ticket = signToken(SECRET, "d:worker-1", new Date(clock.now().getTime() + 60_000));
+    const res = await fetch(`http://eyes.test/w/device/profile/${ticket}`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/x-apple-aspen-config");
+    const body = await res.text();
+    expect(body).toContain(`<string>http://api.eyes.test/w/device/${ticket}</string>`);
+    expect(body).toContain("<string>Profile Service</string>");
+    for (const bad of [signToken(SECRET, "l:worker-1"), "nope"])
+      expect((await fetch(`http://eyes.test/w/device/profile/${bad}`)).status).toBe(401);
+  });
+
+  it("stores the posted UDID and redirects (301) to the install page; rejects a body without one", async () => {
+    const calls: unknown[][] = [];
+    const { fetch } = setup({ addWorkerDevice: async (...args) => void calls.push(args) });
+    const post = (body: Buffer) =>
+      fetch("http://eyes.test/w/device/t1", {
+        method: "POST",
+        body: new Uint8Array(body),
+        redirect: "manual",
+      });
+    const res = await post(callback(UDID));
+    expect([res.status, res.headers.get("location")]).toEqual([
+      301,
+      "http://worker.eyes.test/install?registered=1",
+    ]);
+    expect(calls).toEqual([["t1", { udid: UDID, product: "iPhone18,1", version: "23F79" }]]);
+    expect((await post(callback("not-a-udid"))).status).toBe(400);
+    expect(calls).toHaveLength(1);
+  });
+});
+
 describe("signup and join throttle", () => {
   it.each([
     ["/v1/signup", { name: "my-agent" }],

@@ -350,4 +350,34 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     expect(await ask(pinging, a, at)).toMatchObject({ workers_notified: 2 });
     expect(pings()).toHaveLength(2);
   });
+  it("device: the code gets a 1-hour profile ticket; the ticket stores the UDID; ready after release; STOP deletes", async () => {
+    const w = await worker(somewhere());
+    await say(w.phone, "app", "APP");
+    const appCode = /\/app#c=([\w-]{43})$/.exec(lastText(w.phone))?.[1] ?? "";
+    const first = await service.workerDevice(appCode);
+    expect(first).toMatchObject({ registered: false, ready: false });
+    const ticket = first.profile_url.replace("https://api.eyes.test/w/device/profile/", "");
+    expect(ticket).not.toContain(appCode);
+    const udid = `00008110-${randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase()}`;
+    await service.addWorkerDevice(ticket, { udid, product: "iPhone18,1", version: "23F79" });
+    await service.addWorkerDevice(ticket, { udid, product: "iPhone18,1", version: "23G5" });
+    expect(await service.workerDevice(appCode)).toMatchObject({ registered: true, ready: false });
+    await sql`update worker_devices set apple_registered_at = now(), released_at = now() where udid = ${udid}`;
+    expect(await service.workerDevice(appCode)).toMatchObject({ registered: true, ready: true });
+    expect((await sql`select os_version from worker_devices where udid = ${udid}`)[0]?.os_version).toBe(
+      "23G5",
+    );
+    expect(await code(service.workerDevice("not-a-code"))).toBe("unauthorized");
+    expect(
+      await code(
+        service.addWorkerDevice(signToken(SECRET, `l:${w.id}`), { udid, product: null, version: null }),
+      ),
+    ).toBe("unauthorized");
+    providers.clock.advance(61 * 60_000);
+    expect(await code(service.addWorkerDevice(ticket, { udid, product: null, version: null }))).toBe(
+      "unauthorized",
+    );
+    await say(w.phone, "stop", "STOP");
+    expect(await sql`select 1 from worker_devices where udid = ${udid}`).toHaveLength(0);
+  });
 });

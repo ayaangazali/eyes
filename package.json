@@ -30,11 +30,13 @@
     "ax:eval": "node evals/ax/run.ts",
     "smoke:live": "node scripts/smoke-live.ts",
     "owner-link": "node scripts/owner-link.ts",
-    "resolve-task": "node scripts/resolve-task.ts"
+    "resolve-task": "node scripts/resolve-task.ts",
+    "adhoc:release": "node scripts/adhoc-release.ts"
   },
   "devDependencies": {
     "@anthropic-ai/sdk": "0.135.0",
     "@biomejs/biome": "2.5.15",
+    "@insforge/sdk": "1.5.2",
     "@modelcontextprotocol/client": "2.3.1",
     "@playwright/test": "1.64.1",
     "@types/node": "^24.19.2",

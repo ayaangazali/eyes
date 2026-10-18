@@ -108,6 +108,13 @@ export interface EyesService {
   submitCapture(token: string, fields: CaptureFields, photo: PhotoUpload | null): Promise<CaptureResult>;
   /** token: a 30-minute HERE token or the worker's long-lived location token. Throws unauthorized, invalid_input or rate_limited. */
   updateWorkerLocation(token: string, input: WorkerLocationInput): Promise<void>;
+  /** code: the worker's location code. A 1-hour profile link to register an iPhone for ad hoc install, and that worker's device state. Throws unauthorized. */
+  workerDevice(code: string): Promise<{ profile_url: string; registered: boolean; ready: boolean }>;
+  /** ticket: from workerDevice's profile link. Stores the iPhone's UDID for that worker. Throws unauthorized. */
+  addWorkerDevice(
+    ticket: string,
+    device: { udid: string; product: string | null; version: string | null },
+  ): Promise<void>;
 
   expireOverdue(): Promise<{ expired: number }>;
   retryPayouts(): Promise<{ paid: number }>;

@@ -83,6 +83,10 @@ const POLL_MS = 1000;
 const WORKER_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 const PAYOUT_BATCH = 25;
 const HERE_LINK_MS = 30 * 60 * 1000;
+const DEVICE_LINK_EXPIRED = {
+  message: "This install link is invalid or has expired.",
+  fix: "Text APP to the Eyes number for a new link.",
+};
 const HOUR_MS = 3_600_000;
 const PING_MAX = 5;
 const PING_WAIT_MS = 30_000;
@@ -248,7 +252,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const ownerUrl = (agentId: string) =>
     `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
 
-  function tokenPayload(token: string, kind: "t" | "c" | "o" | "p" | "e" | "l"): string | null {
+  function tokenPayload(token: string, kind: "t" | "c" | "o" | "p" | "e" | "l" | "d"): string | null {
     const payload = verifyToken(config.link_secret, token, now());
     return payload?.startsWith(`${kind}:`) ? payload.slice(kind.length + 1) : null;
   }
@@ -1300,6 +1304,36 @@ export function createEyesService(deps: EngineDeps): EyesService {
           { fix: `Wait ${wait} seconds and send again.` },
         );
       }
+    },
+
+    async workerDevice(code) {
+      const workerId = (await maybe<Worker>("eyes_worker_by_location_token", { p_token_hash: sha256(code) }))
+        ?.id;
+      if (!workerId) throw new EyesError("unauthorized", {}, DEVICE_LINK_EXPIRED);
+      const devices = await rpc<{ released_at: string | null }>("eyes_worker_devices", {
+        p_worker_id: workerId,
+      });
+      const ticket = signToken(
+        config.link_secret,
+        `d:${workerId}`,
+        new Date(now().getTime() + HERE_LINK_MS * 2),
+      );
+      return {
+        profile_url: `${config.public_api_url}/w/device/profile/${ticket}`,
+        registered: devices.length > 0,
+        ready: devices.some((d) => d.released_at !== null),
+      };
+    },
+
+    async addWorkerDevice(ticket, device) {
+      const workerId = tokenPayload(ticket, "d");
+      if (!workerId) throw new EyesError("unauthorized", {}, DEVICE_LINK_EXPIRED);
+      await rpc("eyes_add_worker_device", {
+        p_worker_id: workerId,
+        p_udid: device.udid,
+        p_product: device.product,
+        p_os_version: device.version,
+      });
     },
 
     async expireOverdue() {

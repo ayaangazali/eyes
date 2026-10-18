@@ -1,0 +1,96 @@
+---
+import Icon from "../components/Icon.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Install the Eyes app"
+  ogTitle="Eyes: install the app"
+  description="Install the Eyes app on your iPhone, so paid tasks near you find you."
+  noindex
+>
+  <h1 class="ui-h1">Install the Eyes app</h1>
+  <p class="ui-text-secondary">
+    Eyes installs straight from us, not from the App Store. Two steps: register this iPhone, then install the app.
+  </p>
+
+  <p id="checking" class="ui-notice" role="status"><Icon name="pending" /> Checking your iPhone…</p>
+
+  <p id="not-iphone" class="ui-notice" hidden>
+    <Icon name="info" /> Open this page on your iPhone in Safari: tap the link Eyes texted you.
+  </p>
+
+  <p id="missing" class="ui-notice" hidden><Icon name="message" /> Text APP to Eyes to get your install link.</p>
+
+  <p id="expired" class="ui-notice ui-notice--danger" role="alert" hidden>
+    <Icon name="alert" /> This link has expired. Text APP to Eyes for a new one.
+  </p>
+
+  <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+
+  <section id="register" class="ui-card prose" hidden>
+    <h2 class="ui-card__title">Step 1: Register this iPhone</h2>
+    <p class="ui-field__hint">This only works in Safari on the iPhone you want Eyes on.</p>
+    <a id="profile" class="ui-button ui-button--primary ui-button--block"><Icon name="shield" /> Register this iPhone</a>
+    <ol>
+      <li>Tap <b>Register this iPhone</b>, then <b>Allow</b>. Safari downloads a profile.</li>
+      <li>Open Settings, tap <b>Profile Downloaded</b> near the top, then <b>Install</b>.</li>
+      <li>
+        iOS says the profile is "Unverified". That's expected: it only reads this iPhone's device ID and installs
+        nothing.
+      </li>
+      <li>When it's done, iOS brings you back to this page.</li>
+    </ol>
+    <p class="ui-field__hint">
+      Apple lets an app from outside the App Store run only on iPhones registered by device ID.
+      <a class="ui-link" href="privacy.html">How Eyes uses it</a>
+    </p>
+  </section>
+
+  <p id="waiting" class="ui-notice ui-notice--success" role="status" hidden>
+    <Icon name="check" /> Your iPhone is registered. Eyes texts you when the app is ready to install (usually within a
+    day). You can close this page.
+  </p>
+
+  <div id="install" hidden>
+    <section class="ui-card prose">
+      <h2 class="ui-card__title">Step 2: Install Eyes</h2>
+      <a id="itms" class="ui-button ui-button--primary ui-button--block"><Icon name="expand" /> Install Eyes</a>
+      <ol>
+        <li>Tap <b>Install Eyes</b>, then <b>Install</b>. The Eyes icon appears on your Home Screen.</li>
+      </ol>
+    </section>
+    <section class="ui-card prose">
+      <h2 class="ui-card__title">Turn on Developer Mode (iOS 16 and later)</h2>
+      <ol>
+        <li>Open Eyes. iOS says Developer Mode is required: tap <b>OK</b>.</li>
+        <li>Open Settings &gt; Privacy &amp; Security &gt; <b>Developer Mode</b> (near the bottom) and turn it on.</li>
+        <li>Tap <b>Restart</b>. After the restart, tap <b>Turn On</b> and enter your passcode.</li>
+        <li>Open Eyes and tap the link Eyes texted you to connect.</li>
+      </ol>
+    </section>
+  </div>
+</Layout>
+
+<script>
+  import { $, call, showError } from "../api.ts";
+  import { startInstall } from "../install.ts";
+
+  // The code arrives in the URL fragment; startInstall clears it from the address bar.
+  startInstall({
+    hash: location.hash,
+    pathname: location.pathname,
+    search: location.search,
+    userAgent: navigator.userAgent,
+    replaceUrl: (url) => history.replaceState(null, "", url),
+    send: call,
+    show: (id) => {
+      $("checking").hidden = true;
+      $(id).hidden = false;
+    },
+    setHref: (id, href) => {
+      $<HTMLAnchorElement>(id).href = href;
+    },
+    report: (err) => showError($("error"), err),
+  });
+</script>

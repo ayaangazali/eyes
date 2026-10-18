@@ -51,6 +51,7 @@ import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { MCPServer } from "mcp-use";
 import { z } from "zod";
+import { deviceProfile, parseDeviceAttributes } from "./device-profile.ts";
 import { oauthRoutes } from "./oauth.ts";
 import { type Operator, opsAuth } from "./ops-auth.ts";
 import { WIDGET_HTML, WIDGET_MIME, WIDGET_URI, widgetResourceMeta, widgetToolMeta } from "./widget.ts";
@@ -790,6 +791,28 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     if (!offer.claimed_by_you) throw new EyesError("task_already_claimed");
     if (offer.status !== "claimed") throw new EyesError("offer_invalid", { status: offer.status });
     if (uploads.has(token)) {
+  // Ad hoc install (T6.31): the page trades the worker's code (header, never a URL) for a 1-hour
+  // profile link; the iPhone posts its device ID back to the same ticket URL.
+  server.post("/w/device", async (c) => {
+    const code = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1];
+    if (!code) throw new EyesError("unauthorized");
+    return c.json(await service.workerDevice(code));
+  });
+  server.get("/w/device/profile/:ticket", (c) => {
+    const ticket = c.req.param("ticket");
+    if (!verifyToken(config.link_secret, ticket, deps.providers.clock.now())?.startsWith("d:"))
+      throw new EyesError("unauthorized");
+    return c.body(deviceProfile(`${config.public_api_url}/w/device/${ticket}`), 200, {
+      "content-type": "application/x-apple-aspen-config",
+      "content-disposition": 'attachment; filename="Eyes.mobileconfig"',
+    });
+  });
+  server.post("/w/device/:ticket", async (c) => {
+    const device = parseDeviceAttributes(new Uint8Array(await c.req.arrayBuffer()));
+    if (!device) throw new EyesError("invalid_input", { field: "udid" });
+    await service.addWorkerDevice(c.req.param("ticket"), device);
+    return c.redirect(`${config.worker_web_url}/install?registered=1`, 301);
+  });
       throw new EyesError("rate_limited", { retry_after_s: 5 }, { fix: "Wait 5 seconds and submit again." });
     }
     uploads.add(token);
