@@ -1,4 +1,4 @@
-import type { SafetyCategory, SafetyInput } from "@eyes/core";
+import { SAFETY_CATEGORIES, type SafetyCategory, type SafetyInput } from "@eyes/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixtures from "../../../evals/safety/fixtures.json" with { type: "json" };
 import { createAssessTask } from "./index.ts";
@@ -98,9 +98,9 @@ describe("createAssessTask with the classifier", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("fills a missing category, reason and fix on a block", async () => {
-    fetchMock.mockResolvedValue(reply('{"allowed":false,"category":null,"reason":null,"fix":null}'));
-    expect(await assess()(benign)).toEqual(block("other", "classifier"));
+  it.each(["other", null])("treats generic category %s as advisory", async (category) => {
+    fetchMock.mockResolvedValue(reply(JSON.stringify({ allowed: false, category, reason: null, fix: null })));
+    expect(await assess()(benign)).toMatchObject({ allowed: true, layer: "classifier" });
   });
 
   it("blocks with category other when the model refuses", async () => {
@@ -305,6 +305,57 @@ describe("createAssessTask with clef", () => {
     expect(vi.mocked(console.error)).toHaveBeenCalledWith(
       "[safety] classifier failed, failing closed: socket hang up",
     );
+  });
+
+  it.each(["is it still open?", "Is the hackathon on going?", "How long is the line?"])(
+    "does not refuse public-place question for high-confidence generic other: %s",
+    async (question) => {
+      fetchMock.mockResolvedValueOnce(
+        Response.json({
+          result: { answers: { verdict: { probabilities: { allowed: 0, other: 1 } } } },
+        }),
+      );
+      const get = vi.fn(async () => 0.99);
+      expect(await createAssessTask(CLEF_ENV, get)({ ...benign, question })).toMatchObject({
+        allowed: true,
+        layer: "classifier",
+      });
+      expect(get).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(SAFETY_CATEGORIES.filter((category) => category !== "other"))(
+    "still blocks named %s at the persisted threshold even when other scores higher",
+    async (category) => {
+      fetchMock.mockResolvedValueOnce(
+        Response.json({
+          result: { answers: { verdict: { probabilities: { allowed: 0, other: 1, [category]: 0.99 } } } },
+        }),
+      );
+      expect(await createAssessTask(CLEF_ENV, async () => 0.99)(benign)).toEqual(
+        block(category, "classifier"),
+      );
+    },
+  );
+
+  it("respects the persisted cutoff for named categories", async () => {
+    fetchMock.mockResolvedValueOnce(
+      Response.json({
+        result: { answers: { verdict: { probabilities: { allowed: 0, other: 1, private_person: 0.98 } } } },
+      }),
+    );
+    expect((await createAssessTask(CLEF_ENV, async () => 0.99)(benign)).allowed).toBe(true);
+  });
+
+  it("keeps the real injection fixture blocked by rules without reading the getter", async () => {
+    const injection = fixtures.find(
+      (fixture) => fixture.category === "other" && fixture.expected === "block",
+    );
+    expect(injection).toBeDefined();
+    const get = vi.fn(async () => 0.99);
+    expect(await createAssessTask(CLEF_ENV, get)(injection as SafetyInput)).toEqual(block("other", "rules"));
+    expect(get).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it.each([

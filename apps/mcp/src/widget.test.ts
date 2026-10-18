@@ -55,13 +55,14 @@ function boot(
     },
   });
   if (opts.openai) win.openai = opts.openai;
+  let uuid = 0;
   new Function("window", "document", "ResizeObserver", "crypto", WIDGET_SCRIPT)(
     win,
     win.document,
     class {
       observe() {}
     },
-    { randomUUID: () => "key-1" },
+    { randomUUID: () => `key-${++uuid}` },
   );
   const root = win.document.getElementById("root") as HTMLElement;
   const show = (structuredContent: unknown, args: Record<string, unknown> = {}) => {
@@ -236,6 +237,219 @@ describe.each(["MCP Apps", "ChatGPT"])("%s readable tool errors", (bridge) => {
       w.button("ask").click();
       await w.settle();
       expect(w.root.querySelectorAll("[data-error]")).toHaveLength(1);
+    },
+  );
+
+  it.each(["detail", "screenshot", "python-repr", "nested-message", "structured-detail"])(
+    "extracts the human error from %s after an actual Ask click",
+    async (shape) => {
+      const payload = { error: "unsafe_task", message, fix: `${fix} Don't photograph <faces>.` };
+      const text = JSON.stringify(payload);
+      const repr = shape === "python-repr" ? text.replace(/\\/g, "\\\\").replace(/'/g, "\\'") : text;
+      const wrapped = `Error code: INVALID_ARGUMENT; Error: RuntimeException: Error calling MCP tool: [TextContent(type='text', text='${repr}', annotations=None, meta=None)]`;
+      const detail = shape === "detail" ? payload : wrapped;
+      const raw = JSON.stringify(
+        shape === "nested-message" ? { message: JSON.stringify({ detail }) } : { detail },
+      );
+      const result: Result = { isError: true, structuredContent: { detail } };
+      const w =
+        bridge === "ChatGPT"
+          ? boot({
+              openai: {
+                callTool: async () => {
+                  if (shape === "structured-detail") return result;
+                  throw new Error(raw);
+                },
+              },
+            })
+          : boot({ host: () => (shape === "structured-detail" ? result : { error: { message: raw } }) });
+      w.show(QUOTE, { question: "Is it still open?" });
+      w.button("ask").click();
+      await w.settle();
+      const alert = w.root.querySelector('[role="alert"]');
+      expect(alert?.textContent).toBe(`${message} ${payload.fix}`);
+      expect(alert?.innerHTML).toContain("&lt;faces&gt;");
+      expect(alert?.textContent).not.toMatch(/TextContent|INVALID_ARGUMENT|unsafe_task|\{"detail"/);
+      expect(w.button("ask").disabled).toBe(false);
+    },
+  );
+
+  it("hides malformed host wrappers instead of printing raw JSON", async () => {
+    const raw = JSON.stringify({
+      detail: "RuntimeException: [TextContent(type='text', text='{broken}', meta=None)]",
+    });
+    const w =
+      bridge === "ChatGPT"
+        ? boot({
+            openai: {
+              callTool: async () => {
+                throw new Error(raw);
+              },
+            },
+          })
+        : boot({ host: () => ({ error: { message: raw } }) });
+    w.show(QUOTE);
+    w.button("ask").click();
+    await w.settle();
+    expect(w.root.querySelector('[role="alert"]')?.textContent).toBe("The tool failed. Retry the request.");
+    expect(w.button("ask").disabled).toBe(false);
+  });
+});
+
+describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) => {
+  const error = {
+    error: "unsafe_task",
+    layer: "classifier",
+    category: "other",
+    message: "Safety review refused.",
+    fix: "Nothing was charged.",
+  };
+  const failed: Result = { isError: true, content: [{ type: "text", text: JSON.stringify(error) }] };
+  function setup(handler: (name: string, args: Record<string, unknown>) => Result) {
+    const invoke = vi.fn(handler);
+    const w =
+      bridge === "ChatGPT"
+        ? boot({
+            openai: { callTool: async (name: string, args: Record<string, unknown>) => invoke(name, args) },
+          })
+        : boot({
+            host: (m) => invoke(String(m.params?.name), m.params?.arguments as Record<string, unknown>),
+          });
+    w.show(QUOTE, {
+      location: { lat: 37.77, lng: -122.4 },
+      task_type: "is_open",
+    });
+    const report = (action: string) =>
+      w.root.querySelector(`[data-report-act="${action}"]`) as HTMLButtonElement | null;
+    const question = () => w.root.querySelector('[data-field="question"]') as HTMLInputElement;
+    const change = (value: string) => {
+      question().value = value;
+      const event = w.win.document.createEvent("Event");
+      event.initEvent("input", true, false);
+      question().dispatchEvent(event);
+    };
+    return { ...w, invoke, report, question, change };
+  }
+
+  it("reports the exact refusal, waits for manual approval, then explicitly retries only the original ask", async () => {
+    const w = setup((name, args) => {
+      if (name === "ask_eyes") return args.classifier_report_id ? { structuredContent: TASK } : failed;
+      if (name === "report_classifier")
+        return { structuredContent: { ticket_id: "42", created: true, status: "open" } };
+      return { structuredContent: { ticket_id: "42", status: "approved" } };
+    });
+    expect(w.question().value).toBe("");
+    w.change("Is it still open?");
+    w.button("ask").click();
+    await w.settle();
+    const original = w.invoke.mock.calls[0]?.[1];
+    expect(w.question().value).toBe("Is it still open?");
+    w.change("Different question");
+    w.report("submit")?.click();
+    expect(w.report("submit")?.disabled).toBe(true);
+    expect(w.button("ask").disabled).toBe(true);
+    await w.settle();
+    expect(w.invoke).toHaveBeenNthCalledWith(2, "report_classifier", {
+      ...original,
+      classifier_error: error,
+      ask_idempotency_key: "key-1",
+      idempotency_key: "key-2",
+    });
+    expect(w.root.textContent).toContain("Ticket 42: Awaiting manual review.");
+    expect(w.report("submit")).toBeNull();
+    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+    // Host report notifications must not replace the quote or its typed question.
+    if (bridge === "ChatGPT") {
+      const notification = w.win.document.createEvent("CustomEvent");
+      notification.initCustomEvent("openai:set_globals", false, false, {
+        globals: { toolInput: { ticket_id: "42" }, toolOutput: { ticket_id: "42", status: "open" } },
+      });
+      w.win.dispatchEvent(notification);
+    } else {
+      w.show({ ticket_id: "42", status: "open" }, { ticket_id: "42" });
+    }
+    expect(w.question().value).toBe("Different question");
+    w.report("check")?.click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenNthCalledWith(3, "get_classifier_report", { ticket_id: "42" });
+    expect(w.report("retry")?.disabled).toBe(true);
+    w.report("retry")?.click();
+    expect(w.invoke.mock.calls).toHaveLength(3);
+    w.change("Is it still open?");
+    w.report("retry")?.click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenNthCalledWith(4, "ask_eyes", { ...original, classifier_report_id: "42" });
+    expect(w.root.textContent).toContain("Finding a worker");
+  });
+
+  it("retries report failures with the same report key, without retrying or charging the ask", async () => {
+    let attempts = 0;
+    const w = setup((name) =>
+      name === "ask_eyes"
+        ? failed
+        : ++attempts === 1
+          ? {
+              isError: true,
+              content: [
+                { type: "text", text: JSON.stringify({ message: "Report failed.", fix: "Try again." }) },
+              ],
+            }
+          : { structuredContent: { ticket_id: "43", created: false, status: "open" } },
+    );
+    w.change("Is it still open?");
+    w.button("ask").click();
+    await w.settle();
+    w.report("submit")?.click();
+    await w.settle();
+    expect(w.root.querySelector('[data-report] [role="alert"]')?.textContent).toBe(
+      "Report failed. Try again.",
+    );
+    expect(w.report("submit")?.disabled).toBe(false);
+    expect(w.question().value).toBe("Is it still open?");
+    w.report("submit")?.click();
+    await w.settle();
+    expect(w.invoke.mock.calls[1]?.[1]).toEqual(w.invoke.mock.calls[2]?.[1]);
+    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+    expect(w.report("submit")).toBeNull();
+  });
+
+  it.each(["rejected", "expired", "consumed"])(
+    "shows review status %s without creating another task",
+    async (status) => {
+      const w = setup((name) => {
+        if (name === "ask_eyes") return failed;
+        if (name === "report_classifier") return { structuredContent: { ticket_id: "44", status: "open" } };
+        if (name === "get_task") return { structuredContent: TASK };
+        return { structuredContent: { ticket_id: "44", status, reason: "<reviewed>", task_id: "t1" } };
+      });
+      w.change("Is it still open?");
+      w.button("ask").click();
+      await w.settle();
+      w.report("submit")?.click();
+      await w.settle();
+      w.report("check")?.click();
+      await w.settle();
+      expect(w.report("retry")).toBeNull();
+      expect(w.root.querySelector("[data-report]")?.innerHTML).toContain("&lt;reviewed&gt;");
+      if (status === "consumed") {
+        w.report("view")?.click();
+        await w.settle();
+        expect(w.invoke).toHaveBeenLastCalledWith("get_task", { task_id: "t1" });
+      }
+      expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+    },
+  );
+
+  it.each(["insufficient_balance", "network_error", "rules"])(
+    "does not offer classifier reporting for %s",
+    async (kind) => {
+      const payload =
+        kind === "rules" ? { ...error, layer: "rules" } : { error: kind, message: "Cannot continue." };
+      const w = setup(() => ({ isError: true, content: [{ type: "text", text: JSON.stringify(payload) }] }));
+      w.change("Is it still open?");
+      w.button("ask").click();
+      await w.settle();
+      expect(w.report("submit")).toBeNull();
     },
   );
 });

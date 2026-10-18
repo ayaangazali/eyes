@@ -104,7 +104,10 @@ async function clefVerdict(clef: Clef, input: SafetyInput, blockMin: number): Pr
     )
   )
     throw new Error("clef returned invalid probabilities");
-  const category = SAFETY_CATEGORIES.reduce((best, c) => ((p[c] ?? 0) > (p[best] ?? 0) ? c : best));
+  // Generic "other" is advisory; only a named prohibited category can block.
+  const category = SAFETY_CATEGORIES.filter((c) => c !== "other").reduce((best, c) =>
+    (p[c] ?? 0) > (p[best] ?? 0) ? c : best,
+  );
   if ((p[category] ?? 0) >= blockMin) return block(category, "classifier");
   return { allowed: true, category: null, reason: null, fix: null, layer: "classifier" };
 }
@@ -128,9 +131,10 @@ async function classify(client: Anthropic, input: SafetyInput): Promise<SafetyVe
   if (message.stop_reason === "refusal") return block("other", "classifier");
   const out = message.parsed_output;
   if (!out) throw new Error(`classifier returned no structured output (stop_reason ${message.stop_reason})`);
-  // This fallback has no numeric confidence; preserve its explicit allow/block verdict.
-  if (out.allowed) return { allowed: true, category: null, reason: null, fix: null, layer: "classifier" };
-  const category = out.category ?? "other";
+  // The fallback has no numeric confidence. Generic concerns remain advisory here too.
+  if (out.allowed || out.category === "other" || out.category === null)
+    return { allowed: true, category: null, reason: null, fix: null, layer: "classifier" };
+  const category = out.category;
   return {
     allowed: false,
     category,

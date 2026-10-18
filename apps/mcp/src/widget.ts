@@ -20,6 +20,8 @@ export const WIDGET_CALLABLE = [
   "cancel_task",
   "dispute_answer",
   "get_balance",
+  "report_classifier",
+  "get_classifier_report",
 ];
 
 export const WIDGET_CSP = {
@@ -73,7 +75,7 @@ body.ui{background:transparent}
 
 export const WIDGET_SCRIPT = String.raw`
 const root = document.getElementById("root");
-let input = {}, last = null, seq = 0, askKey = null;
+let input = {}, last = null, seq = 0, askKey = null, refusal = null;
 const pending = new Map();
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const icon = (n) => '<svg class="ui-icon" aria-hidden="true"><use href="#i-' + n + '"></use></svg>';
@@ -93,19 +95,40 @@ function openLink(url) {
   if (window.openai?.openExternal) window.openai.openExternal({ href: url });
   else request("ui/open-link", { url });
 }
-function errorText(value) {
-  let detail = value?.fix !== undefined ? value : value?.message ?? value;
-  if (typeof detail === "string") {
-    try { detail = JSON.parse(detail); } catch {}
+function errorDetail(value) {
+  let detail = value;
+  for (let depth = 0; depth < 8; depth++) {
+    if (detail && typeof detail === "object") {
+      if (typeof detail.error === "string" || (typeof detail.message === "string" && detail.fix !== undefined))
+        return detail;
+      detail = detail.detail ?? detail.message;
+      continue;
+    }
+    if (typeof detail !== "string" || !detail) break;
+    try { detail = JSON.parse(detail); continue; } catch {}
+    if (detail.includes("TextContent(")) {
+      const json = detail.slice(detail.indexOf("{"), detail.lastIndexOf("}") + 1);
+      try { detail = JSON.parse(json); continue; } catch {}
+      const quote = detail.match(/\btext=(['"])/)?.[1];
+      try {
+        detail = JSON.parse(json.replace(/\\([\\'"])/g, (match, char) => char === "\\" || char === quote ? char : match));
+        continue;
+      } catch {}
+      break;
+    }
+    if (/^\s*[\[{]/.test(detail)) break;
+    return { message: detail };
   }
-  if (detail && typeof detail === "object")
-    return [detail.message, detail.fix].filter((v) => typeof v === "string" && v.trim()).join(" ") || "The tool failed.";
-  return typeof detail === "string" && detail ? detail : "The tool failed.";
+  return { message: "The tool failed. Retry the request." };
+}
+function errorText(value) {
+  const detail = errorDetail(value);
+  return [detail.message, detail.fix].filter((v) => typeof v === "string" && v.trim()).join(" ") || "The tool failed. Retry the request.";
 }
 async function call(name, args) {
   const r = window.openai?.callTool ? await window.openai.callTool(name, args) : await request("tools/call", { name, arguments: args });
   const text = r?.content?.find?.((c) => c.type === "text")?.text;
-  if (r?.isError) throw new Error(errorText(r.structuredContent ?? text));
+  if (r?.isError) throw errorDetail(r.structuredContent ?? text);
   return r?.structuredContent ?? JSON.parse(text ?? r?.result ?? "null");
 }
 function theme(t) { if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; }
@@ -213,7 +236,8 @@ function notSent(n) {
 }
 
 function render(out) {
-  if (!out || typeof out !== "object") return;
+  if (!out || typeof out !== "object" || !("workers_nearby" in out || "balance_usd" in out || out.status === "not_sent" || "task_id" in out)) return;
+  refusal = null;
   last = out;
   root.innerHTML = "workers_nearby" in out ? quote(out) : "balance_usd" in out ? balance(out)
     : out.status === "not_sent" ? notSent(out) : "task_id" in out ? task(out) : "";
@@ -232,18 +256,83 @@ const ACTS = {
   dispute: (t) => ["dispute_answer", { task_id: t.task_id, reason: field("reason") }, true],
   balance: () => ["get_balance", {}],
 };
+function renderReport() {
+  const box = root.querySelector("[data-report]");
+  if (!box || !refusal) return;
+  const t = refusal.ticket, edited = field("question") !== refusal.args.question;
+  const status = !t ? "" : t.status === "open" ? "Awaiting manual review."
+    : t.status === "approved" ? (edited ? "Approved. Restore the original question to retry." : "Approved. You can retry the original request; normal charges apply.")
+    : t.status === "rejected" ? "Report rejected. The request was not sent."
+    : t.status === "consumed" ? "This request was already sent." : "Approval expired. The request was not sent.";
+  box.innerHTML = (t ? "<p>Ticket " + esc(t.ticket_id) + ": " + status + (t.reason ? " " + esc(t.reason) : "") + "</p>" : "") +
+    (!t ? '<button class="ui-button" data-report-act="submit">Report incorrect block</button>'
+      : t.status === "open" ? '<button class="ui-button" data-report-act="check">Check review status</button>'
+      : t.status === "approved" ? '<button class="ui-button" data-report-act="retry"' + (edited ? " disabled" : "") + '>Retry original request</button>'
+      : t.status === "consumed" && t.task_id ? '<button class="ui-button" data-report-act="view">View existing task</button>' : "") +
+    (refusal.busy ? "<p>Working…</p>" : "") +
+    (refusal.failure ? '<p role="alert">' + esc(refusal.failure) + "</p>" : "");
+  for (const b of box.querySelectorAll("[data-report-act]")) {
+    b.disabled ||= refusal.busy;
+    b.onclick = () => reportAction(b.dataset.reportAct);
+  }
+  const ask = root.querySelector('[data-act="ask"]');
+  if (ask) ask.disabled = refusal.busy;
+  size();
+}
+async function reportAction(action) {
+  const current = refusal;
+  if (!current || current.busy) return;
+  if (action === "submit" && current.ticket) return;
+  if (action === "retry" && (current.ticket?.status !== "approved" || field("question") !== current.args.question)) return;
+  current.busy = true;
+  current.failure = null;
+  renderReport();
+  try {
+    if (action === "view") {
+      render(await call("get_task", { task_id: current.ticket.task_id }));
+    } else if (action === "retry") {
+      render(await call("ask_eyes", { ...current.args, classifier_report_id: current.ticket.ticket_id }));
+    } else {
+      const a = current.args;
+      const ticket = action === "submit"
+        ? await call("report_classifier", { ...a, classifier_error: current.error, ask_idempotency_key: a.idempotency_key, idempotency_key: current.key })
+        : await call("get_classifier_report", { ticket_id: current.ticket.ticket_id });
+      if (!ticket?.ticket_id || !["open", "approved", "rejected", "expired", "consumed"].includes(ticket.status))
+        throw new Error("The report response was incomplete. Check again.");
+      current.ticket = ticket;
+    }
+  } catch (err) {
+    current.failure = errorText(err);
+  } finally {
+    current.busy = false;
+    if (refusal === current) renderReport();
+  }
+}
 async function act(b) {
   if (b.dataset.act === "topup") return openLink(last.top_up_url);
   const [name, args, merge] = ACTS[b.dataset.act](last);
+  const submitted = name === "ask_eyes" ? structuredClone(args) : args;
   const card = root.firstElementChild;
   card.querySelector("[data-error]")?.remove();
+  card.querySelector("[data-report]")?.remove();
   b.disabled = true;
   try {
     const out = await call(name, args);
     render(merge ? { ...last, ...out } : out);
   } catch (err) {
     b.disabled = false;
-    card.insertAdjacentHTML("beforeend", '<div class="ui-notice ui-notice--danger" data-error role="alert">' + icon("alert") + "<span>" + esc(errorText(err)) + "</span></div>");
+    const detail = errorDetail(err);
+    card.insertAdjacentHTML("beforeend", '<div class="ui-notice ui-notice--danger" data-error role="alert">' + icon("alert") + "<span>" + esc(errorText(detail)) + "</span></div>");
+    if (name === "ask_eyes" && detail.error === "unsafe_task" && detail.layer !== "rules") {
+      if (!refusal || JSON.stringify(refusal.args) !== JSON.stringify(submitted))
+        refusal = { args: submitted, error: detail, key: crypto.randomUUID(), ticket: null, busy: false, failure: null };
+      card.insertAdjacentHTML("beforeend", '<div data-report></div>');
+      root.querySelector('[data-field="question"]')?.addEventListener("input", renderReport);
+      renderReport();
+    } else {
+      refusal = null;
+      card.querySelector("[data-report]")?.remove();
+    }
     size();
   }
 }
@@ -259,7 +348,12 @@ window.addEventListener("message", (e) => {
     pending.delete(m.id);
     return m.error ? p.reject(new Error(m.error.message ?? "The host refused the request.")) : p.resolve(m.result);
   }
-  if (m.method === "ui/notifications/tool-input") { input = m.params?.arguments ?? {}; if (last) render(last); }
+  if (m.method === "ui/notifications/tool-input") {
+    const args = m.params?.arguments ?? {};
+    if (args.classifier_error || args.ticket_id) return;
+    input = args;
+    if (last) render(last);
+  }
   if (m.method === "ui/notifications/tool-result") render(m.params?.structuredContent);
   if (m.method === "ui/notifications/host-context-changed") theme(m.params?.theme);
 });
@@ -272,8 +366,9 @@ if (window.openai) {
   window.addEventListener("openai:set_globals", (e) => {
     const g = e.detail?.globals ?? {};
     if (g.theme) theme(g.theme);
-    if (g.toolInput) input = g.toolInput;
-    if (g.toolOutput) render(g.toolOutput);
+    const report = g.toolInput?.classifier_error || g.toolInput?.ticket_id || g.toolOutput?.ticket_id;
+    if (g.toolInput && !report) input = g.toolInput;
+    if (g.toolOutput && !report) render(g.toolOutput);
   });
 }
 request("ui/initialize", { protocolVersion: "2026-01-26", appInfo: { name: "eyes", version: "1" }, appCapabilities: {} }).then((r) => {

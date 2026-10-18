@@ -1,19 +1,20 @@
 # Safety before money moves
 
-Every task is checked before any money is held and before any worker sees it. Fast rules run first, then an AI classifier reviews whatever the rules let through. Eyes only takes tasks about public, commercial or civic places. Tasks about homes, specific people, vehicles or faces are refused, and the refusal tells the agent how to rephrase.
+Every task is checked before any money is held and before any worker sees it. Fast rules run first, then an AI classifier reviews whatever the rules let through. The policy permits public, commercial or civic tasks and prohibits targeting homes, specific people, vehicles or faces. These checks can still miss or misclassify a request; they are not a zero-error guarantee.
 
 ## How it works
 
-- `checkRules` uses regular expressions to catch clear cases such as "my ex's house", license plates, "follow her" and "photo of the cashier's face".
-- With Cloudflare credentials, Clef blocks only when a blocked category has confidence at least `EYES_CLASSIFIER_BLOCK_MIN` (default `0.95`, finite range `0.5`–`1` inclusive). Otherwise it allows, including uncertain results. Higher values are more permissive; `1` still blocks confidence `1` and never disables deterministic rules.
+- `checkRules` uses regular expressions for clear cases involving private residences, vehicles, following and dangerous acts. A narrow guard also blocks explicit instructions to ignore the safety policy or force an allowed verdict; merely discussing the rules is allowed.
+- With Cloudflare credentials, Clef blocks only when a named prohibited category has confidence at least `EYES_CLASSIFIER_BLOCK_MIN` (default `0.95`, finite range `0.5`–`1` inclusive). Generic `other` is advisory after the rules pass, even at a high score. Higher values are more permissive; `1` still blocks a named category at confidence `1` and never disables deterministic rules.
 - `createAssessTask(env, blockMin?: () => Promise<number>)` accepts an optional async threshold getter, read on each classifier assessment. Invalid environment values fail startup; invalid or rejected getter results fail closed.
-- Clef provider errors fall back to Claude when `ANTHROPIC_API_KEY` is set. Claude's schema has no numeric confidence: its explicit allow/block result remains authoritative, independently of the Clef threshold. With neither provider configured, only rules run.
-- The task is passed to the classifier as data inside `<task>` tags. Any attempt in the task to override the policy is itself blocked.
+- Clef provider errors fall back to Claude when `ANTHROPIC_API_KEY` is set. Claude's schema has no numeric confidence: explicit named-category blocks remain authoritative, while generic `other` or an unspecified category is advisory. Native provider refusals and malformed output still block. With neither provider configured, only rules run.
+- Claude receives the task as data inside `<task>` tags; Clef receives structured task data. Explicit policy-override instructions are checked by the deterministic guard before either classifier.
 - Failing closed: if the classifier errors or times out, the task is refused as "temporarily unavailable" and nothing is charged.
 - `quote_task` checks the place and returns `allowed: false` with a `reason_if_not`. `ask_eyes` checks the question too and refuses with `unsafe_task` (HTTP 422).
 - Widget tool errors display the escaped human message and suggested fix, not the raw JSON response, in both MCP Apps and ChatGPT.
+- A classifier rejection can be reported from the card. Reporting creates an internal ticket; it does not charge or dispatch. After manual approval, an explicit retry uses only the original request and normal spending checks. Changing the question cannot reuse the approval; rejected or expired tickets cannot retry.
 
-The threshold is a model score, not a calibrated probability or a safety guarantee. In the unchanged 200-fixture evaluation, the demo default `0.95` produced 0 false blocks and 62 false allows (precision `1.000`, recall `0.415`), with no provider failures. The exact YC hackathon question was allowed. The user accepted this demo trade-off; the deterministic rules and fixture labels are unchanged.
+The threshold is a model score, not a calibrated probability or a safety guarantee. An earlier unchanged 200-fixture evaluation at `0.95` produced 0 false blocks and 62 false allows (precision `1.000`, recall `0.415`), with no provider failures. The exact YC hackathon question was allowed. That measurement predates the generic-category advisory distinction and injection guard; no new model evaluation was run. Specific-category model mistakes remain possible.
 
 ## How to try it
 

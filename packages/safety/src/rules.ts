@@ -138,6 +138,14 @@ const RULES: [SafetyCategory, RegExp[]][] = [
       /\b(?:[Tt]he|[Aa]|[Tt]his|[Tt]hat|[Hh]is|[Hh]er|[Tt]heir|[Mm]y) (?:house|home|residence)s?(?: (?:located|situated))? (?:(?:at|on)(?: number| no\.?| #)?|number|#) ?\d/,
     ],
   ],
+  [
+    "other",
+    [
+      /(?:^|[.!?;]\s*)(?:please\s+)?(?:ignore|override|bypass|disregard)\s+(?:the\s+)?safety\s+(?:policy|rules)\b/i,
+      /(?:^|[.!?;]\s*)(?:please\s+)?(?:mark|classify|label)\s+(?:this|the)\s+(?:task|request)\s+(?:as\s+)?(?:allowed|safe|approved)\b/i,
+      /(?:^|[.!?;]\s*)(?:please\s+)?force\s+(?:an?\s+)?(?:allowed|safe|approved)\s+(?:verdict|result)\b/i,
+    ],
+  ],
 ];
 
 const normalize = (text: string) =>
