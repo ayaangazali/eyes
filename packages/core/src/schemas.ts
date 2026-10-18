@@ -59,8 +59,9 @@ export const Worker = z.object({
   phone: Phone,
   name: z.string(),
   stripe_account_id: z.string().nullable(),
-  lat: z.number(),
-  lng: z.number(),
+  lat: z.number().nullable(),
+  lng: z.number().nullable(),
+  location_at: Timestamp.nullable(),
   available: z.boolean(),
   opted_in: z.boolean(),
   rating: z.number().min(0).max(5),
@@ -427,6 +428,22 @@ export const CaptureFields = z.object({
   answer_text: z.string().max(1000).nullable().default(null),
   answer_bool: z.boolean().nullable().default(null),
 });
+// iPhone Shortcuts send numbers as strings, with a comma decimal in many locales.
+const LooseNumber = z.preprocess(
+  (v) => (typeof v === "string" ? (v.trim() ? Number(v.trim().replace(",", ".")) : undefined) : v),
+  z.number(),
+);
+export const WorkerLocationInput = z
+  .object({
+    lat: LooseNumber.pipe(z.number().min(-90).max(90)),
+    lng: LooseNumber.pipe(z.number().min(-180).max(180)),
+    accuracy_m: LooseNumber.pipe(z.number().min(0)).optional().catch(undefined),
+    source: z.enum(["shortcut", "here_link", "capture", "findmy"]),
+    input: z.string().max(500).optional().catch(undefined),
+    captured_at: Timestamp.optional().catch(undefined),
+  })
+  .refine((v) => v.lat !== 0 || v.lng !== 0, { message: "0,0 is not a real location.", path: ["lat"] });
+export type WorkerLocationInput = z.input<typeof WorkerLocationInput>;
 export const WorkerEarnings = z.object({
   paid_usd: Usd,
   pending_usd: Usd,
@@ -434,6 +451,8 @@ export const WorkerEarnings = z.object({
     .array(
       z.object({
         task_id: Id,
+        question: z.string(),
+        task_type: TaskType,
         place_label: z.string(),
         status: TaskStatus,
         bounty_usd: Usd,

@@ -6,6 +6,17 @@ export const centsToUsd = (cents: number): number => cents / 100;
 
 const EARTH_RADIUS_M = 6_371_000;
 
+const COORDS = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+
+/**
+ * A place label people can read. Agents that ask by coordinates get a "lat,lng" label; people see it
+ * as "Near 37.761, -122.386", rounded to 3 decimals (about 100 m) so pages never show exact points.
+ */
+export function placeName(label: string): string {
+  const m = COORDS.exec(label);
+  return m ? `Near ${Number(m[1]).toFixed(3)}, ${Number(m[2]).toFixed(3)}` : label;
+}
+
 export function distanceMeters(a: LatLng, b: LatLng): number {
   const rad = (d: number) => (d * Math.PI) / 180;
   const dLat = rad(b.lat - a.lat);

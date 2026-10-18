@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   AppConfig,
   EyesError,
@@ -100,6 +101,8 @@ const EARNINGS_VIEW: WorkerEarnings = {
   tasks: [
     {
       task_id: "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e",
+      question: "Is the playground open?",
+      task_type: "is_open",
       place_label: "Dolores Park",
       status: "verified",
       bounty_usd: 2,
@@ -109,6 +112,8 @@ const EARNINGS_VIEW: WorkerEarnings = {
     },
     {
       task_id: "7a2d3c4b-5e6f-4a1b-8c9d-0e1f2a3b4c5d",
+      question: "<b>Is</b> the line long?",
+      task_type: "line_length",
       place_label: "<img src=x onerror=alert(1)> Cafe & Co",
       status: "verified",
       bounty_usd: 4.25,
@@ -118,12 +123,25 @@ const EARNINGS_VIEW: WorkerEarnings = {
     },
     {
       task_id: TASK_ID,
+      question: "",
+      task_type: "in_stock",
       place_label: "Ferry Building",
       status: "paid",
       bounty_usd: 3,
       payout: "paid",
       claimed_at: "2026-10-17T09:15:00.000Z",
       paid_at: "2026-10-17T09:40:00.000Z",
+    },
+    {
+      task_id: "6c1b2a3d-4e5f-4a0b-8c7d-9e0f1a2b3c4d",
+      question: "How crowded is the pier?",
+      task_type: "crowd_level",
+      place_label: "37.76071452444879,-122.38585301300247",
+      status: "needs_review",
+      bounty_usd: 3,
+      payout: null,
+      claimed_at: "2026-10-17T08:00:00.000Z",
+      paid_at: null,
     },
   ],
 };
@@ -133,6 +151,24 @@ const privateHeaders = (res: Response) => ({
   cache: res.headers.get("cache-control"),
   csp: res.headers.get("content-security-policy"),
 });
+// The earnings page runs one inline script (local dates), allowed by hash on that route only.
+const EARNINGS_PRIVATE = (body: string) => ({
+  ...PRIVATE,
+  csp: PRIVATE.csp.replace(
+    "default-src 'none';",
+    `default-src 'none'; script-src 'sha256-${createHash("sha256")
+      .update(/<script>([\s\S]*?)<\/script>/.exec(body)?.[1] ?? "")
+      .digest("base64")}';`,
+  ),
+});
+// Owner pages run the same local-date script, so their CSP may carry its hash.
+const expectPrivate = (res: Response) => {
+  expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  expect(res.headers.get("content-security-policy")).toMatch(
+    /^default-src 'none';( script-src 'sha256-[\w+/=]+';)? style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'$/,
+  );
+};
 const PRIVATE = {
   referrer: "no-referrer",
   cache: "no-store",
@@ -244,6 +280,36 @@ describe("stripeRoutes", () => {
     expect(res.status).toBe(500);
   });
 
+  it("acknowledges a top-up for an agent this database lacks with 200, logs it, and credits nothing", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { service, webhook } = setup();
+    service.creditTopup.mockRejectedValueOnce(
+      new Error('insert or update on table "ledger" violates foreign key constraint "ledger_agent_id_fkey"'),
+    );
+    const res = await webhook({
+      type: "topup.completed",
+      agent_id: "be11446e-cde3-4fa1-bd9f-9241835d010d",
+      amount_cents: 2000,
+      ref: "cs_test_a1FbfkgodzWyD5zN7BIEDATGkWuAAu8mY5dWUKnPb82jcA1Qwt5labegTh",
+    });
+    expect(res.status).toBe(200);
+    expect(error).toHaveBeenCalledWith(
+      "stripe top-up for unknown agent be11446e, not credited (session cs_test_a1Fb)",
+    );
+    error.mockRestore();
+  });
+
+  it("still answers 500 for a ledger failure that is not an unknown agent", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { service, webhook } = setup();
+    service.creditTopup.mockRejectedValueOnce(
+      new Error('duplicate key value violates unique constraint "ledger_stripe_ref"'),
+    );
+    const res = await webhook({ type: "topup.completed", agent_id: "agt_1", amount_cents: 500, ref: "cs_3" });
+    expect(res.status).toBe(500);
+    error.mockRestore();
+  });
+
   it("answers a generic 500 without naming the missing webhook secret", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     const { service, webhook } = setup(createStripePayments({ STRIPE_SECRET_KEY: "sk_test_unit" }));
@@ -334,9 +400,9 @@ describe("owner console routes", () => {
     const { app } = setup();
     const res = await app.request("/owner/owner-tok");
     expect(res.status).toBe(200);
-    expect(privateHeaders(res)).toEqual(PRIVATE);
     const body = await res.text();
-    expect(body).not.toContain("<script>");
+    expect(privateHeaders(res)).toEqual(EARNINGS_PRIVATE(body));
+    expect(body).not.toContain("<script>alert");
     expect(body).toContain("&lt;script&gt;alert(&quot;owned&quot;)&lt;/script&gt; Is it open?");
     expect(body).toContain("Scout &lt;b&gt;bot&lt;/b&gt;");
     expect(body).toContain("Cafe &amp; Co");
@@ -391,7 +457,7 @@ describe("owner console routes", () => {
       await post(app, "agent-tok", "max_bounty_usd=1&daily_cap_usd=1"),
     ]) {
       expect(res.status).toBe(404);
-      expect(privateHeaders(res)).toEqual(PRIVATE);
+      expectPrivate(res);
       expect(await res.text()).toContain("This owner control link is invalid.");
     }
   });
@@ -432,7 +498,7 @@ describe("owner console routes", () => {
     ];
     expect(elsewhere.map((r) => r.status)).toEqual([404, 200, 404]);
     for (const r of elsewhere) {
-      expect(privateHeaders(r)).toEqual(PRIVATE);
+      expectPrivate(r);
       expect(await r.text()).not.toContain(escaped);
     }
     expect(service.rotateApiKey.mock.calls).toEqual([["owner-tok"], ["agent-tok"]]);
@@ -440,25 +506,41 @@ describe("owner console routes", () => {
 });
 
 describe("worker earnings page", () => {
-  it("shows the totals and each task's payout, escaping place labels, behind private-link headers", async () => {
+  it("shows the totals and each task as a card, escaping labels, rounding coordinates, behind private-link headers", async () => {
     const { app } = setup();
     const res = await app.request("/w/earnings/earnings-tok");
     expect(res.status).toBe(200);
-    expect(privateHeaders(res)).toEqual(PRIVATE);
     const body = await res.text();
+    expect(privateHeaders(res)).toEqual(EARNINGS_PRIVATE(body));
     expect(body).toContain("<dt>Paid to you</dt><dd>$3.00</dd>");
     expect(body).toContain("<dt>Earned, not sent yet</dt><dd>$6.25</dd>");
     expect(body).toContain(
-      "<td>Dolores Park</td><td>$2.00</td><td>verified</td><td>Not sent yet. If you have not finished payout setup, use the link we texted, or text START for a new one.</td>",
+      '<span class="ui-badge ui-badge--success">Verified</span><span class="task__bounty">$2.00</span>',
+    );
+    expect(body).toContain(
+      '<p class="task__question">Is the playground open?</p>\n<p class="task__place">Dolores Park</p>',
+    );
+    expect(body).toContain(
+      '<p class="task__payout">Not sent yet. If you have not finished payout setup, use the link we texted, or text START for a new one.</p>',
     );
     expect(body).not.toContain("<img");
-    expect(body).toContain(
-      "<td>&lt;img src=x onerror=alert(1)&gt; Cafe &amp; Co</td><td>$4.25</td><td>verified</td><td>Waiting for your payout setup</td>",
-    );
+    expect(body).not.toContain("<b>Is</b>");
+    expect(body).toContain('<p class="task__place">&lt;img src=x onerror=alert(1)&gt; Cafe &amp; Co</p>');
+    expect(body).toContain('<p class="task__payout">Waiting for your payout setup</p>');
     expect(body).toContain("text START to the Eyes number");
+    // No question: the task type in plain words.
+    expect(body).toContain('<p class="task__question">Whether something is in stock</p>');
     expect(body).toContain(
-      "<td>Ferry Building</td><td>$3.00</td><td>paid</td><td>Paid 2026-10-17 09:40 UTC</td>",
+      '<p class="task__payout">Paid <time datetime="2026-10-17T09:40:00.000Z">2026-10-17 09:40 UTC</time></p>',
     );
+    expect(body).toContain(
+      '<p class="task__when">Claimed <time datetime="2026-10-17T09:15:00.000Z">2026-10-17 09:15 UTC</time></p>',
+    );
+    // Coordinate labels never show more than 3 decimals.
+    expect(body).toContain('<p class="task__place">Near 37.761, -122.386</p>');
+    expect(body).not.toContain("37.7607");
+    expect(body).toContain('<span class="ui-badge ui-badge--warning">Needs review</span>');
+    expect(body).toContain("Reply HELP for a manual review.");
   });
 
   it("says the amounts are not real money, instead of asking for payout setup, when payouts are simulated", async () => {
@@ -468,18 +550,23 @@ describe("worker earnings page", () => {
       "This is a test server and payouts are simulated, so the amounts on this page are not real money and nothing is sent to you.",
     );
     expect(body).not.toContain("waiting for you to set up payouts");
-    expect(body).toContain(
-      "<td>Ferry Building</td><td>$3.00</td><td>paid</td><td>Simulated, nothing sent</td>",
-    );
-    expect(body).not.toMatch(/Waiting for your payout setup|Not sent yet|Paid 2026/);
+    expect(body).toContain('<p class="task__payout">Simulated, nothing sent</p>');
+    expect(body).not.toMatch(/Waiting for your payout setup|Not sent yet|Paid <time/);
   });
 
   it("answers an invalid or expired link with a 404 page that says how to get a new one", async () => {
     const { app } = setup();
     const res = await app.request("/w/earnings/owner-tok");
     expect(res.status).toBe(404);
-    expect(privateHeaders(res)).toEqual(PRIVATE);
     const body = await res.text();
+    // Same route CSP as the page itself (its script hash), with no script on this page.
+    expect(privateHeaders(res)).toEqual({
+      ...PRIVATE,
+      csp: expect.stringMatching(
+        /^default-src 'none'; script-src 'sha256-[\w+/=]+'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'$/,
+      ),
+    });
+    expect(body).not.toContain("<script");
     expect(body).toContain("This earnings link is invalid or has expired.");
     expect(body).toContain("Text HELP to the Eyes number for a fresh link.");
   });
