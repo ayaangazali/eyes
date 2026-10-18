@@ -228,18 +228,18 @@ async function callHost(name, args) {
 async function call(name, args) {
   if (name !== "get_task" && name !== "await_answer") return callHost(name, args);
   if (readFlight) {
-    if (readFlight.taskId === args.task_id) return readFlight.promise;
+    if (readFlight.name === name && readFlight.taskId === args.task_id) return readFlight.promise;
     await readFlight.promise.catch(() => {});
     return call(name, args);
   }
   const promise = callHost(name, args);
-  readFlight = { taskId: args.task_id, promise };
+  readFlight = { name, taskId: args.task_id, promise };
   try { return await promise; }
   finally { if (readFlight?.promise === promise) readFlight = null; }
 }
 function canRefresh() {
   return !tornDown && root.isConnected && !document.hidden && bridgeReady && !actionsPending &&
-    !askPending && !acceptancePending && !retry && last?.task_id && !last.answer &&
+    !askPending && !acceptancePending && !retry && last?.task_id &&
     ["dispatched", "claimed", "submitted"].includes(last.status);
 }
 function scheduleRefresh() {

@@ -1279,18 +1279,22 @@ describe.each(["MCP Apps", "ChatGPT"])("%s pending task auto-refresh", (bridge) 
     return { ...w, invoke };
   }
 
-  it("automatically displays the submitted photo without another paid request and stops on the answer", async () => {
+  it("automatically shows a submitted photo and keeps refreshing until its final status", async () => {
     let reads = 0;
     const w = setup(async (name) => ({
       structuredContent:
-        name === "confirm_ask" ? TASK : ++reads === 1 ? { ...TASK, status: "submitted" } : answered,
+        name === "confirm_ask" ? TASK : ++reads === 1 ? { ...answered, status: "submitted" } : answered,
     }));
     w.show(QUOTE, { question: TASK.question, location: TASK.place_label });
     await vi.advanceTimersByTimeAsync(10_000);
     expect(w.invoke).not.toHaveBeenCalled();
     w.button("ask").click();
     await w.settle();
-    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(w.root.querySelector("img")?.getAttribute("src")).toBe(photo);
+    expect(w.button("accept")).toBeNull();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(w.button("accept")).not.toBeNull();
     expect(w.root.querySelector("img")?.getAttribute("src")).toBe(photo);
     expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["confirm_ask", "get_task", "get_task"]);
     await vi.advanceTimersByTimeAsync(30_000);
@@ -1314,6 +1318,26 @@ describe.each(["MCP Apps", "ChatGPT"])("%s pending task auto-refresh", (bridge) 
     expect(w.invoke).toHaveBeenCalledTimes(2);
     finish({ structuredContent: answered });
     await w.settle();
+    expect(w.root.querySelector("img")?.getAttribute("src")).toBe(photo);
+  });
+
+  it("serializes manual Wait after an in-flight poll instead of substituting the poll result", async () => {
+    let finish!: (result: Result) => void;
+    const waiting = new Promise<Result>((resolve) => {
+      finish = resolve;
+    });
+    const w = setup((name) =>
+      name === "get_task" ? waiting : Promise.resolve({ structuredContent: answered }),
+    );
+    w.show(TASK);
+    await vi.advanceTimersByTimeAsync(5_000);
+    w.button("wait").click();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["get_task"]);
+    finish({ structuredContent: TASK });
+    await w.settle();
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["get_task", "await_answer"]);
+    expect(w.invoke).toHaveBeenLastCalledWith("await_answer", { task_id: "t1" });
     expect(w.root.querySelector("img")?.getAttribute("src")).toBe(photo);
   });
 
