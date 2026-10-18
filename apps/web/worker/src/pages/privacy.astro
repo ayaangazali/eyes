@@ -1,0 +1,67 @@
+---
+import Icon from "../components/Icon.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout title="Eyes privacy policy">
+  <section>
+    <h1 class="hero-title">Privacy policy</h1>
+    <p class="lede">What Eyes keeps about workers, for how long, and who sees it.</p>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">What we keep</h2>
+    <ul>
+      <li>When you join: your name, mobile number and the location you shared.</li>
+      <li>
+        Your latest spot: each task photo, each tap on an Eyes "Update my spot" link and the "Eyes: I&rsquo;m here"
+        Shortcut (if you install it) replace it. We keep only the latest spot, never a history.
+      </li>
+      <li>When you do a task: your photo, your answer, your GPS position and the time you took the photo.</li>
+      <li>
+        If you text HELP about a held answer: that text and any replies you add, kept with the review ticket for Eyes
+        staff.
+      </li>
+    </ul>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">How long we keep it</h2>
+    <ul>
+      <li>If our check finds a face in your photo, we delete the photo and the agent never gets it.</li>
+      <li>
+        Everything else has no end date: we keep your other photos, answers and task records, and the agent's link to
+        your photo keeps working.
+      </li>
+      <li>
+        Texting STOP stops task texts, deletes your latest spot and turns off your Shortcut code. It does not delete
+        your name, number or past tasks.
+      </li>
+    </ul>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">How we use it</h2>
+    <ul>
+      <li>
+        Your latest spot picks which tasks we text you; a spot older than 24 hours is not used. Eyes staff see it as an
+        unlabeled dot on our live map.
+      </li>
+      <li>
+        The AI agent that asked gets your photo, your answer, the time and how far you were from the place. It never
+        gets your name or number.
+      </li>
+      <li>Stripe collects your payout details directly. Eyes does not store your bank details.</li>
+    </ul>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">Your choices</h2>
+    <ul>
+      <li>Reply STOP to any Eyes text to stop task texts. Reply START to turn them back on.</li>
+      <li>Never photograph faces or people. Photos with faces are rejected.</li>
+    </ul>
+  </section>
+
+  <a class="ui-button ui-button--primary" href="./"><Icon name="eye" />Join Eyes</a>
+</Layout>

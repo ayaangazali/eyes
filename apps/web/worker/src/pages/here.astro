@@ -1,0 +1,73 @@
+---
+import Icon from "../components/Icon.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Update my spot"
+  ogTitle="Eyes: update your spot"
+  description="One tap tells Eyes where you are, so you get paid tasks near you."
+  noindex
+>
+  <h1 class="ui-h1">Update my spot</h1>
+  <p class="ui-text-secondary">Eyes offers you tasks near your latest spot. We keep only that one spot and delete it when you text STOP.</p>
+
+  <button type="button" id="update" class="ui-button ui-button--primary ui-button--block">
+    <Icon name="locate" /> Update my spot
+  </button>
+  <p id="done" class="ui-notice" role="status" hidden></p>
+  <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+
+  <p class="ui-field__hint">Link expired? Text HERE to the Eyes number for a new one.</p>
+</Layout>
+
+<script>
+  import { $, call, LOCATION_HELP, Problem, showError } from "../api.ts";
+
+  const token = new URLSearchParams(location.search).get("t") ?? "";
+  const button = $<HTMLButtonElement>("update");
+  const done = $("done");
+  const error = $("error");
+
+  const position = () =>
+    new Promise<GeolocationPosition>((resolve, reject) =>
+      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 20_000 }),
+    );
+
+  button.addEventListener("click", async () => {
+    button.disabled = true;
+    done.hidden = true;
+    error.hidden = true;
+    try {
+      if (!token) throw new Problem("This link is missing its code.", "Text HERE to the Eyes number for a new link.");
+      if (!navigator.geolocation) throw new Problem("This browser cannot share your location.", LOCATION_HELP);
+      const pos = await position().catch((err: GeolocationPositionError) => {
+        throw err.code === err.PERMISSION_DENIED
+          ? new Problem("Location is blocked for this page.", LOCATION_HELP)
+          : new Problem("Could not find your location.", "Step outside or near a window, then tap again.");
+      });
+      const { latitude, longitude, accuracy } = pos.coords;
+      await call("/w/location", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lat: latitude,
+          lng: longitude,
+          accuracy_m: accuracy,
+          source: "here_link",
+          captured_at: new Date(pos.timestamp).toISOString(),
+        }),
+      }).catch((err: unknown) => {
+        // The server's own words fit here better than the generic ones (expired link, too soon).
+        const body = err instanceof Problem ? err.body : null;
+        throw body?.message ? new Problem(body.message, body.fix ?? "") : err;
+      });
+      done.textContent = `Spot updated. Near ${latitude.toFixed(3)}, ${longitude.toFixed(3)}. You can close this page.`;
+      done.hidden = false;
+    } catch (err) {
+      showError(error, err);
+    } finally {
+      button.disabled = false;
+    }
+  });
+</script>

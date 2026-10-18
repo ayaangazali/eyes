@@ -1,0 +1,371 @@
+---
+import Icon from "../../components/Icon.astro";
+import ThemePair from "../../components/ThemePair.astro";
+import Layout from "../../layouts/Layout.astro";
+
+const neutrals = [
+  ["text", "--eyes-text"],
+  ["text-secondary", "--eyes-text-secondary"],
+  ["text-tertiary", "--eyes-text-tertiary"],
+  ["surface", "--eyes-surface"],
+  ["surface-secondary", "--eyes-surface-secondary"],
+  ["surface-tertiary", "--eyes-surface-tertiary"],
+  ["border", "--eyes-border"],
+];
+const status = [
+  ["accent (Viewfinder)", "--eyes-accent"],
+  ["success", "--eyes-success-text"],
+  ["warning", "--eyes-warning-text"],
+  ["danger", "--eyes-danger-text"],
+];
+const icons = [
+  "eye",
+  "pin",
+  "locate",
+  "clock",
+  "camera",
+  "cash",
+  "check",
+  "x",
+  "pending",
+  "alert",
+  "info",
+  "shield",
+  "no-face",
+  "message",
+  "expand",
+  "chevron",
+];
+const type = [
+  ["heading-xl", "2rem", "Is it open?"],
+  ["heading-lg", "1.5rem", "How long is the line?"],
+  ["heading-md", "1.25rem", "About 4 people"],
+  ["heading-sm", "1.125rem", "Blue Bottle Coffee"],
+  ["text-md", "1rem", "Take one photo at the place and get paid."],
+  ["text-sm", "0.875rem", "GPS within 8 m. You are 38 m from the place."],
+  ["text-xs", "0.75rem", "Reply STOP to opt out."],
+];
+const tasks = [
+  ["Is the Ferry Building open right now?", "Ferry Building, San Francisco", "$3.00", "1.2 km", "Open"],
+  ["How long is the line?", "Blue Bottle Coffee, Mint Plaza", "$3.00", "380 m", "Claimed"],
+  ["Is oat milk in stock?", "Trader Joe's, 401 Bay St", "$4.00", "2.1 km", "Dispatched"],
+];
+---
+
+<Layout title="Eyes UI catalog" wide noindex>
+  <section>
+    <h1 class="hero-title">Eyes UI</h1>
+    <p class="lede">
+      Tokens, atoms, molecules and organisms for the worker web, server pages and ChatGPT app widgets. Every element
+      is shown in light and dark. Source: <code>packages/ui</code>. Direction:
+      <a class="ui-link" href="moodboard.html">mood board</a>.
+    </p>
+  </section>
+
+  <h2 class="ui-h2">Tokens</h2>
+
+  <ThemePair title="Color" note="System neutrals come from the host (ChatGPT) when present. One brand accent.">
+    <div class="swatches full">
+      {
+        [...neutrals, ...status].map(([name, v]) => (
+          <div class="swatch">
+            <span class="swatch__chip" style={`background: var(${v})`} />
+            <span class="ui-text-sm">{name}</span>
+          </div>
+        ))
+      }
+    </div>
+  </ThemePair>
+
+  <ThemePair title="Type" note="System font stack only. Tabular numerals for money, distance and time.">
+    <div class="full grid gap-2">
+      {
+        type.map(([name, size, sample]) => (
+          <div class="type-row">
+            <span class="ui-text-sm ui-text-secondary ui-num">
+              {name} {size}
+            </span>
+            <span style={`font-size: ${size}; font-weight: ${name.startsWith("heading") ? 600 : 400}; line-height: 1.25`}>
+              {sample}
+            </span>
+          </div>
+        ))
+      }
+    </div>
+  </ThemePair>
+
+  <ThemePair title="Space and shape" note="4 px grid. Corner rounds follow the host: lg inputs, 2xl cards, full buttons.">
+    <div class="full flex flex-wrap items-end gap-3">
+      {
+        [1, 2, 3, 4, 6, 8, 10].map((n) => (
+          <div class="grid justify-items-center gap-1">
+            <span class="space-bar" style={`height: var(--eyes-space-${n})`} />
+            <span class="ui-text-sm ui-text-secondary ui-num">{n * 4}</span>
+          </div>
+        ))
+      }
+    </div>
+    <div class="full flex flex-wrap gap-3">
+      {
+        ["sm", "md", "lg", "xl", "2xl", "full"].map((r) => (
+          <span class="radius-box" style={`border-radius: var(--eyes-radius-${r})`}>
+            {r}
+          </span>
+        ))
+      }
+    </div>
+  </ThemePair>
+
+  <h2 class="ui-h2">Atoms</h2>
+
+  <ThemePair title="Button" note="One primary per card or screen. Primary carries the accent.">
+    <button class="ui-button ui-button--primary">Send to Eyes</button>
+    <button class="ui-button"><Icon name="locate" />Use my location</button>
+    <button class="ui-button ui-button--ghost">Cancel task</button>
+    <button class="ui-button ui-button--sm">Show more</button>
+    <button class="ui-button ui-button--primary" disabled>Take photo</button>
+  </ThemePair>
+
+  <ThemePair title="Badge">
+    <span class="ui-badge ui-badge--accent">$3.00</span>
+    <span class="ui-badge">Dispatched</span>
+    <span class="ui-badge ui-badge--success"><Icon name="check" />Verified</span>
+    <span class="ui-badge ui-badge--warning">Needs review</span>
+    <span class="ui-badge ui-badge--danger">Expired</span>
+  </ThemePair>
+
+  <ThemePair title="Input and choice">
+    <input class="ui-input" placeholder="(415) 555-0123" aria-label="Mobile number" />
+    <input class="ui-input" value="555-0123" aria-invalid="true" aria-label="Mobile number, invalid" />
+    <label class="ui-choice"><input type="radio" name="demo-yes" checked /> Yes</label>
+    <label class="ui-choice"><input type="radio" name="demo-yes" /> No</label>
+  </ThemePair>
+
+  <ThemePair title="Icons" note="Outline, monochrome, 24 px grid, stroke follows text color.">
+    <div class="full flex flex-wrap gap-4">
+      {
+        icons.map((name) => (
+          <span class="icon-cell">
+            <Icon name={name} class="size-6" />
+            <span class="ui-text-sm ui-text-secondary">{name}</span>
+          </span>
+        ))
+      }
+    </div>
+  </ThemePair>
+
+  <ThemePair title="Link, number, divider, spinner">
+    <a class="ui-link" href="#">Privacy note</a>
+    <span class="ui-num">4:59 left</span>
+    <span class="ui-spinner" role="status" aria-label="Loading"></span>
+    <hr class="ui-divider full" />
+  </ThemePair>
+
+  <h2 class="ui-h2">Molecules</h2>
+
+  <ThemePair title="Field">
+    <label class="ui-field full">
+      <span class="ui-field__label">Mobile number</span>
+      <input class="ui-input" placeholder="(415) 555-0123" />
+      <span class="ui-field__hint">We text tasks to this number.</span>
+    </label>
+    <label class="ui-field full">
+      <span class="ui-field__label">Name</span>
+      <input class="ui-input" value="A" aria-invalid="true" />
+      <span class="ui-field__error">Use at least 2 letters.</span>
+    </label>
+  </ThemePair>
+
+  <ThemePair title="Notice" note="Icon carries the tone; text stays system color.">
+    <p class="ui-notice full"><Icon name="info" /><span><strong>This is a test server.</strong> Payouts are simulated.</span></p>
+    <p class="ui-notice ui-notice--warning full"><Icon name="no-face" /><strong>Never photograph faces or people.</strong></p>
+    <p class="ui-notice ui-notice--danger full"><Icon name="alert" /><span><strong>We could not get your location.</strong> Step outside, then try again.</span></p>
+    <p class="ui-notice ui-notice--success full"><Icon name="shield" /><span>Photo verified and paid.</span></p>
+  </ThemePair>
+
+  <ThemePair title="Meta, place, key-value">
+    <ul class="ui-meta full">
+      <li><Icon name="cash" /><strong>$3.00</strong></li>
+      <li><Icon name="clock" /><strong>4:59</strong> left</li>
+      <li><Icon name="pin" /><strong>380 m</strong> away</li>
+    </ul>
+    <p class="ui-place full">
+      <Icon name="pin" /><span><span class="ui-place__name">Blue Bottle Coffee</span><span class="ui-place__address"
+          >66 Mint St, San Francisco</span
+        ></span>
+    </p>
+    <dl class="ui-kv full">
+      <dt><Icon name="pin" />Distance</dt><dd>38 m</dd>
+      <dt><Icon name="clock" />Captured</dt><dd>5:08 PM</dd>
+      <dt><Icon name="cash" />Cost</dt><dd>$3.50</dd>
+    </dl>
+  </ThemePair>
+
+  <ThemePair title="Checks" note="The proof behind every answer.">
+    <ul class="ui-checks full">
+      <li class="ui-check ui-check--pass">
+        <span class="ui-check__mark"><Icon name="check" /></span><span>Location matches the place</span><span
+          class="ui-check__detail">38 m</span
+        >
+      </li>
+      <li class="ui-check ui-check--pass">
+        <span class="ui-check__mark"><Icon name="check" /></span><span>Photo taken in time</span><span
+          class="ui-check__detail">2 min</span
+        >
+      </li>
+      <li class="ui-check ui-check--fail">
+        <span class="ui-check__mark"><Icon name="x" /></span><span>Photo answers the question</span><span
+          class="ui-check__detail">face</span
+        >
+      </li>
+      <li class="ui-check"><span class="ui-check__mark"><Icon name="pending" /></span><span>Payout</span></li>
+    </ul>
+  </ThemePair>
+
+  <ThemePair title="Viewfinder" note="The signature: accent brackets frame what the worker locked onto. 4:3, never distorted.">
+    <figure class="ui-viewfinder">
+      <div class="ui-viewfinder__empty"><Icon name="camera" class="size-8" /><span>Point at the place, not at people</span></div>
+      <span class="ui-viewfinder__caption ui-badge ui-badge--accent">Live</span>
+    </figure>
+  </ThemePair>
+
+  <ThemePair title="Steps" note="Only for a real sequence.">
+    <ol class="ui-steps full">
+      <li data-done>Sign up with your number</li>
+      <li aria-current="step">Text "connect @eyes-dispatch" to +1 650 484 9720</li>
+      <li>Text START</li>
+    </ol>
+  </ThemePair>
+
+  <h2 class="ui-h2">Organisms</h2>
+
+  <ThemePair title="Task card" note="ChatGPT inline card: title, small data, at most two actions at the bottom.">
+    <article class="ui-card">
+      <header class="ui-card__header">
+        <h3 class="ui-card__title">How long is the line right now?</h3>
+        <span class="ui-badge">Dispatched</span>
+      </header>
+      <p class="ui-place"><Icon name="pin" /><span class="ui-place__name">Blue Bottle Coffee, Mint Plaza</span></p>
+      <ul class="ui-meta">
+        <li><Icon name="cash" /><strong>$3.50</strong> escrowed</li>
+        <li><Icon name="message" /><strong>3</strong> workers texted</li>
+        <li><Icon name="clock" /><strong>28:10</strong> left</li>
+      </ul>
+      <footer class="ui-card__actions">
+        <button class="ui-button">Cancel task</button>
+        <button class="ui-button ui-button--primary">Wait for answer</button>
+      </footer>
+    </article>
+  </ThemePair>
+
+  <ThemePair title="Answer card" note="What the agent gets back: photo, answer, proof.">
+    <article class="ui-card">
+      <header class="ui-card__header">
+        <span class="ui-text-sm ui-text-secondary">Blue Bottle Coffee, Mint Plaza</span>
+        <span class="ui-badge ui-badge--success"><Icon name="check" />Verified</span>
+      </header>
+      <figure class="ui-viewfinder ui-viewfinder--compact">
+        <div class="ui-viewfinder__empty"><Icon name="camera" class="size-8" /><span>Answer photo</span></div>
+      </figure>
+      <p class="ui-card__answer">Short line, about 4 people</p>
+      <ul class="ui-checks">
+        <li class="ui-check ui-check--pass"><span class="ui-check__mark"><Icon name="check" /></span><span>On site</span><span class="ui-check__detail">38 m</span></li>
+        <li class="ui-check ui-check--pass"><span class="ui-check__mark"><Icon name="check" /></span><span>Fresh photo</span><span class="ui-check__detail">5:08 PM</span></li>
+        <li class="ui-check ui-check--pass"><span class="ui-check__mark"><Icon name="check" /></span><span>Answers the question</span><span class="ui-check__detail">95%</span></li>
+      </ul>
+      <footer class="ui-card__actions">
+        <button class="ui-button">Dispute answer</button>
+      </footer>
+    </article>
+  </ThemePair>
+
+  <ThemePair title="Carousel" note="3 to 8 cards, one action each, snap scrolling.">
+    <ul class="ui-carousel">
+      {
+        tasks.map(([q, place, pay, dist, state]) => (
+          <li>
+            <article class="ui-card">
+              <span class="ui-badge">{state}</span>
+              <h3 class="ui-card__title">{q}</h3>
+              <p class="ui-place">
+                <Icon name="pin" />
+                <span class="ui-place__name">{place}</span>
+              </p>
+              <ul class="ui-meta">
+                <li>
+                  <Icon name="cash" />
+                  <strong>{pay}</strong>
+                </li>
+                <li>
+                  <Icon name="locate" />
+                  <strong>{dist}</strong>
+                </li>
+              </ul>
+              <button class="ui-button ui-button--sm">Open task</button>
+            </article>
+          </li>
+        ))
+      }
+    </ul>
+  </ThemePair>
+
+  <ThemePair title="Status list">
+    <ul class="ui-status full">
+      <li><span class="ui-status__name">Texting</span><span class="ui-badge ui-badge--success">Live</span><span class="ui-status__detail">Task texts and YES replies (Inkbox)</span></li>
+      <li><span class="ui-status__name">Payments</span><span class="ui-badge ui-badge--warning">Sandbox</span><span class="ui-status__detail">Top-ups and payouts (Stripe test mode)</span></li>
+      <li><span class="ui-status__name">Photo checks</span><span class="ui-badge">Simulated</span><span class="ui-status__detail">AI check that a photo answers the question</span></li>
+    </ul>
+  </ThemePair>
+
+  <ThemePair title="Empty state">
+    <div class="ui-empty full">
+      <Icon name="locate" />
+      <h3 class="ui-h3">No workers near this place yet</h3>
+      <p>Nothing was charged. Try a busier location, or ask again later.</p>
+      <button class="ui-button ui-button--sm">Check coverage</button>
+    </div>
+  </ThemePair>
+</Layout>
+
+<style>
+  .swatches {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+    gap: var(--eyes-space-3);
+  }
+  .swatch {
+    display: grid;
+    gap: var(--eyes-space-1);
+  }
+  .swatch__chip {
+    height: 3rem;
+    border-radius: var(--eyes-radius-lg);
+    box-shadow: var(--eyes-hairline);
+  }
+  .type-row {
+    display: grid;
+    grid-template-columns: 9rem 1fr;
+    align-items: baseline;
+    gap: var(--eyes-space-3);
+  }
+  .space-bar {
+    width: 1.5rem;
+    background: var(--eyes-accent);
+    border-radius: 2px;
+  }
+  .radius-box {
+    display: grid;
+    place-items: center;
+    width: 4rem;
+    height: 3rem;
+    background: var(--eyes-surface-tertiary);
+    box-shadow: var(--eyes-hairline);
+    font-size: var(--eyes-text-xs);
+  }
+  .icon-cell {
+    display: grid;
+    justify-items: center;
+    gap: var(--eyes-space-1);
+    width: 4.5rem;
+  }
+</style>

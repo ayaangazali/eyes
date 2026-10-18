@@ -1,0 +1,10 @@
+---
+// Points at a symbol from @eyes/ui/icons.svg, which Layout inlines once per page.
+interface Props {
+  name: string;
+  class?: string;
+}
+
+const { name, class: extra = "" } = Astro.props;
+---
+<svg class:list={["ui-icon", extra]} aria-hidden="true"><use href={`#i-${name}`}></use></svg>

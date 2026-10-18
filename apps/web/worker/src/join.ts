@@ -92,10 +92,10 @@ form.addEventListener("submit", async (event) => {
     const textLink = (body: string, label: string) =>
       Object.assign(document.createElement("a"), {
         href: `sms:${number}?&body=${encodeURIComponent(body)}`,
-        className: "button",
+        className: "ui-button ui-button--primary ui-button--block",
         textContent: label,
       });
-    $("start").prepend(
+    ($("start").firstElementChild as HTMLElement).prepend(
       ...(connectCommand
         ? [
             textLink(connectCommand, `First text "${connectCommand}" to ${number}`),

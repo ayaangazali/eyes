@@ -1,0 +1,6 @@
+{
+  "name": "eyes-app",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "app.eyes.pictures", "custom_domain": true }]
+}

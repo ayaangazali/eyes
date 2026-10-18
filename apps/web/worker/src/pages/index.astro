@@ -1,0 +1,119 @@
+---
+import Icon from "../components/Icon.astro";
+import Layout from "../layouts/Layout.astro";
+
+// Decided at build time so the page is honest before any script runs.
+const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
+---
+
+<Layout
+  title="Join Eyes"
+  ogTitle="Join Eyes: get paid to check places near you"
+  description="AI agents pay people nearby to check public places. Get a text, walk over, take one photo, get paid."
+>
+  <section>
+    <h1 class="hero-title">Get paid to check places near you</h1>
+    <p class="lede">
+      AI agents pay Eyes to answer quick questions about public places: is it open, how long is the line, is it
+      in stock. You get a text, walk over, take one photo and get paid.
+    </p>
+  </section>
+
+  <figure class="ui-viewfinder" aria-label="Example task">
+    <div class="ui-viewfinder__empty">
+      <Icon name="camera" class="size-8" />
+      <span class="text-default text-lg font-semibold">"How long is the line at Blue Bottle?"</span>
+      <span>Photo verified 38 m away, answer sent to the agent</span>
+    </div>
+    <span class="ui-viewfinder__caption ui-badge ui-badge--accent">{livePayouts ? "$3 per check" : "Example task"}</span>
+  </figure>
+
+  <section aria-label="Before you join">
+    {
+      !livePayouts && (
+        <p id="simulated" class="ui-notice">
+          <Icon name="info" />
+          <span>
+            <strong>This is a test server.</strong> Payouts are simulated, so tasks pay no real money.
+          </span>
+        </p>
+      )
+    }
+    <p class="ui-notice">
+      <Icon name="message" />
+      <span><strong>You need an iPhone.</strong> Eyes sends tasks over iMessage.</span>
+    </p>
+    <p class="ui-notice ui-notice--warning">
+      <Icon name="no-face" />
+      <strong>Only public places. Never photograph faces or people.</strong>
+    </p>
+  </section>
+
+  <section id="closed" class="ui-empty" hidden>
+    <Icon name="clock" />
+    <h2 class="ui-h2">Worker sign-up opens soon</h2>
+    <p>Eyes cannot text tasks yet, so we are not taking sign-ups. Check back soon.</p>
+  </section>
+
+  <form id="join" class="ui-form" hidden>
+    <h2 class="ui-h2">Join in a minute</h2>
+    <label class="ui-field">
+      <span class="ui-field__label">Name</span>
+      <input class="ui-input" id="name" name="name" autocomplete="name" required minlength="2" maxlength="80" />
+    </label>
+    <label class="ui-field">
+      <span class="ui-field__label">Mobile number</span>
+      <input
+        class="ui-input"
+        id="phone"
+        name="phone"
+        type="tel"
+        autocomplete="tel"
+        required
+        placeholder="(415) 555-0123"
+      />
+    </label>
+    <div class="ui-field">
+      <button type="button" id="locate" class="ui-button ui-button--block">
+        <Icon name="locate" />Use my location
+      </button>
+      <p id="where" class="ui-field__hint">We only use it to send you tasks nearby.</p>
+    </div>
+    <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+    <p class="ui-form__fineprint">
+      {
+        livePayouts && (
+          <span class="live-payouts">Checks usually pay $3 (each text shows the amount), paid out through Stripe. </span>
+        )
+      }
+      By tapping Join you agree to get task texts from Eyes at this number. Msg &amp; data rates may apply. Reply
+      STOP to opt out. <a class="ui-link" href="privacy.html">Privacy policy</a>
+    </p>
+    <button type="submit" id="submit" class="ui-button ui-button--primary ui-button--block">Join</button>
+  </form>
+
+  <section id="done" hidden>
+    <h2 class="ui-h2">You're in. Finish these steps.</h2>
+    <ol class="ui-steps">
+      <li id="start" hidden><div class="grid gap-2"><span>We can only text you tasks after you send START.</span></div></li>
+      {
+        livePayouts && (
+          <li class="live-payouts">After you text START, we'll text you a link to set up payouts (takes 2 minutes).</li>
+        )
+      }
+    </ol>
+    <div class="ui-card">
+      <h3 class="ui-card__title">What to expect</h3>
+      <ul class="ui-checks">
+        <li class="ui-check"><span class="ui-check__mark"><Icon name="message" /></span><span>Tasks arrive by text when one is near you.</span></li>
+        <li class="ui-check"><span class="ui-check__mark"><Icon name="check" /></span><span>Reply YES to claim a task. The first YES wins.</span></li>
+        <li class="ui-check"><span class="ui-check__mark"><Icon name="camera" /></span><span>We text you a link that opens your camera. Take the photo at the place.</span></li>
+        <li class="ui-check"><span class="ui-check__mark"><Icon name="no-face" /></span><span>Never photograph faces.</span></li>
+      </ul>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  import "../join.ts";
+</script>

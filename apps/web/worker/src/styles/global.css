@@ -1,0 +1,105 @@
+@import "tailwindcss";
+@import "@eyes/ui/tailwind.css";
+
+/* Site chrome only. Everything reusable lives in @eyes/ui. */
+
+html {
+  background: var(--eyes-surface);
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+}
+
+.site-bar {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--eyes-space-3) var(--eyes-space-4);
+  border-bottom: 1px solid var(--eyes-border-subtle);
+  background: color-mix(in srgb, var(--eyes-surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+/* Wordmark: "Eyes" beside a small viewfinder. The brackets are the brand, not a logo file. */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eyes-space-2);
+  color: var(--eyes-text);
+  font-size: var(--eyes-text-lg);
+  font-weight: var(--eyes-weight-semibold);
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.wordmark__mark {
+  --b: 0.4rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  background:
+    linear-gradient(var(--eyes-accent) 0 0) top left / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top left / 2px var(--b) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top right / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top right / 2px var(--b) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom left / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom left / 2px var(--b) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom right / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom right / 2px var(--b) no-repeat,
+    radial-gradient(circle, var(--eyes-text) 0 0.17rem, transparent 0.19rem) center / 100% 100% no-repeat;
+}
+
+.page {
+  display: grid;
+  gap: var(--eyes-space-6);
+  width: 100%;
+  max-width: calc(var(--eyes-measure) + 2 * var(--eyes-space-4));
+  margin: 0 auto;
+  padding: var(--eyes-space-6) var(--eyes-space-4) var(--eyes-space-10);
+}
+
+.page--wide {
+  max-width: 72rem;
+}
+
+.page > section {
+  display: grid;
+  gap: var(--eyes-space-4);
+}
+
+.hero-title {
+  margin: 0;
+  font-size: clamp(2rem, 8vw, 2.75rem);
+  font-weight: var(--eyes-weight-semibold);
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+}
+
+.lede {
+  margin: 0;
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-lg);
+  text-wrap: pretty;
+}
+
+.prose {
+  display: grid;
+  gap: var(--eyes-space-3);
+}
+
+.prose ul {
+  display: grid;
+  gap: var(--eyes-space-2);
+  margin: 0;
+  padding-left: 1.25rem;
+  list-style: disc;
+}
+
+.prose p {
+  margin: 0;
+}

@@ -1,0 +1,750 @@
+/*
+ * Eyes UI components. Load tokens.css first.
+ * Plain CSS classes so the same markup works in the worker web (Vite), server-rendered pages and
+ * ChatGPT widgets (inside or outside @openai/apps-sdk-ui). Catalog with every element: catalog.html.
+ *
+ * Atoms      ui-button, ui-badge, ui-input, ui-choice, ui-icon, ui-link, ui-num, ui-divider, ui-spinner
+ * Molecules  ui-field, ui-notice, ui-meta, ui-kv, ui-check, ui-place, ui-viewfinder, ui-steps
+ * Organisms  ui-card (task, answer), ui-carousel, ui-form, ui-capture, ui-status, ui-empty
+ */
+
+/* ---------- Base ---------- */
+
+.ui {
+  font-family: var(--eyes-font);
+  font-size: var(--eyes-text-md);
+  line-height: var(--eyes-leading-body);
+  color: var(--eyes-text);
+  background: var(--eyes-surface);
+  -webkit-font-smoothing: antialiased;
+  text-size-adjust: 100%;
+}
+
+.ui *,
+.ui *::before,
+.ui *::after {
+  box-sizing: border-box;
+}
+
+.ui [hidden] {
+  display: none !important;
+}
+
+.ui :focus-visible {
+  outline: 2px solid var(--eyes-ring);
+  outline-offset: 2px;
+}
+
+.ui-h1,
+.ui-h2,
+.ui-h3 {
+  margin: 0;
+  font-weight: var(--eyes-weight-semibold);
+  line-height: var(--eyes-leading-heading);
+  text-wrap: balance;
+}
+
+.ui-h1 {
+  font-size: var(--eyes-heading-lg);
+}
+
+.ui-h2 {
+  font-size: var(--eyes-heading-md);
+}
+
+.ui-h3 {
+  font-size: var(--eyes-heading-sm);
+}
+
+.ui-text-secondary {
+  color: var(--eyes-text-secondary);
+}
+
+.ui-text-sm {
+  font-size: var(--eyes-text-sm);
+}
+
+/* ---------- Atoms ---------- */
+
+.ui-icon {
+  width: 1.25em;
+  height: 1.25em;
+  flex: none;
+  vertical-align: -0.25em;
+}
+
+.ui-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-link {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--eyes-border-strong);
+  text-underline-offset: 0.2em;
+}
+
+.ui-link:hover {
+  text-decoration-color: currentColor;
+}
+
+.ui-divider {
+  height: 1px;
+  margin: var(--eyes-space-4) 0;
+  border: 0;
+  background: var(--eyes-border-subtle);
+}
+
+/* Button: secondary by default, --primary carries the brand accent (one per card). */
+.ui-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--eyes-space-2);
+  min-height: var(--eyes-tap);
+  padding: 0 var(--eyes-space-5);
+  border: 0;
+  border-radius: var(--eyes-radius-full);
+  background: var(--eyes-surface-tertiary);
+  color: var(--eyes-text);
+  font: inherit;
+  font-weight: var(--eyes-weight-medium);
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--eyes-duration) var(--eyes-ease);
+}
+
+.ui-button:hover {
+  background: var(--eyes-border-strong);
+}
+
+.ui-button--primary {
+  background: var(--eyes-accent);
+  color: var(--eyes-on-accent);
+}
+
+.ui-button--primary:hover {
+  background: var(--eyes-accent-hover);
+}
+
+.ui-button--primary:active {
+  background: var(--eyes-accent-pressed);
+}
+
+.ui-button--ghost {
+  background: transparent;
+}
+
+.ui-button--ghost:hover {
+  background: var(--eyes-surface-tertiary);
+}
+
+.ui-button--sm {
+  min-height: 2rem;
+  padding: 0 var(--eyes-space-3);
+  font-size: var(--eyes-text-sm);
+}
+
+.ui-button--block {
+  width: 100%;
+}
+
+.ui-button:disabled,
+.ui-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Badge: short status. Accent only for "yours / live / paid now" moments. */
+.ui-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eyes-space-1);
+  padding: 0.125rem var(--eyes-space-2);
+  border-radius: var(--eyes-radius-full);
+  background: var(--eyes-surface-tertiary);
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-xs);
+  font-weight: var(--eyes-weight-medium);
+  line-height: 1.25rem;
+  white-space: nowrap;
+}
+
+.ui-badge:empty {
+  display: none;
+}
+
+.ui-badge--accent {
+  background: var(--eyes-accent);
+  color: var(--eyes-on-accent);
+}
+
+.ui-badge--success {
+  background: var(--eyes-success-bg);
+  color: var(--eyes-success-text);
+}
+
+.ui-badge--warning {
+  background: var(--eyes-warning-bg);
+  color: var(--eyes-warning-text);
+}
+
+.ui-badge--danger {
+  background: var(--eyes-danger-bg);
+  color: var(--eyes-danger-text);
+}
+
+/* Inputs */
+.ui-input {
+  width: 100%;
+  min-height: var(--eyes-tap);
+  padding: var(--eyes-space-2) var(--eyes-space-3);
+  border: 1px solid var(--eyes-border);
+  border-radius: var(--eyes-radius-lg);
+  background: var(--eyes-surface);
+  color: var(--eyes-text);
+  font: inherit;
+  appearance: none;
+}
+
+.ui-input::placeholder {
+  color: var(--eyes-text-tertiary);
+}
+
+.ui-input:hover {
+  border-color: var(--eyes-border-strong);
+}
+
+.ui-input:focus-visible {
+  outline-offset: 0;
+  border-color: transparent;
+}
+
+.ui-input[aria-invalid="true"] {
+  border-color: var(--eyes-danger-text);
+}
+
+textarea.ui-input {
+  min-height: 5.5rem;
+  resize: vertical;
+}
+
+/* Choice: a radio or checkbox wrapped in its label, shown as a pill. */
+.ui-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eyes-space-2);
+  min-height: var(--eyes-tap);
+  padding: 0 var(--eyes-space-4);
+  border: 1px solid var(--eyes-border);
+  border-radius: var(--eyes-radius-full);
+  cursor: pointer;
+  font-weight: var(--eyes-weight-medium);
+}
+
+.ui-choice input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--eyes-text);
+}
+
+.ui-choice:has(:checked) {
+  border-color: var(--eyes-text);
+  background: var(--eyes-surface-tertiary);
+}
+
+.ui-choice:has(:focus-visible) {
+  outline: 2px solid var(--eyes-ring);
+  outline-offset: 2px;
+}
+
+.ui-spinner {
+  display: inline-block;
+  width: 1.25em;
+  height: 1.25em;
+  border: 2px solid var(--eyes-border-strong);
+  border-top-color: var(--eyes-text);
+  border-radius: 50%;
+  animation: ui-spin 0.8s linear infinite;
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(1turn);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* ---------- Molecules ---------- */
+
+/* Field: label, control, then one hint or one error. */
+.ui-field {
+  display: grid;
+  gap: var(--eyes-space-1);
+}
+
+.ui-field__label {
+  font-size: var(--eyes-text-sm);
+  font-weight: var(--eyes-weight-medium);
+}
+
+.ui-field__hint {
+  margin: 0;
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-sm);
+}
+
+.ui-field__error {
+  margin: 0;
+  color: var(--eyes-danger-text);
+  font-size: var(--eyes-text-sm);
+}
+
+/* Notice: one sentence that changes what the reader does next. Tinted icon, never tinted text blocks. */
+.ui-notice {
+  display: flex;
+  gap: var(--eyes-space-3);
+  margin: 0;
+  padding: var(--eyes-space-3) var(--eyes-space-4);
+  border-radius: var(--eyes-radius-xl);
+  background: var(--eyes-surface-secondary);
+  box-shadow: var(--eyes-hairline);
+  font-size: var(--eyes-text-sm);
+}
+
+.ui-notice > .ui-icon {
+  margin-top: 0.125rem;
+  color: var(--eyes-text-secondary);
+}
+
+.ui-notice--warning > .ui-icon {
+  color: var(--eyes-warning-text);
+}
+
+.ui-notice--danger > .ui-icon {
+  color: var(--eyes-danger-text);
+}
+
+.ui-notice--success > .ui-icon {
+  color: var(--eyes-success-text);
+}
+
+/* Meta: icon + value pairs (bounty, deadline, distance). Separated by space, not by dots. */
+.ui-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eyes-space-2) var(--eyes-space-4);
+  margin: 0;
+  padding: 0;
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-sm);
+  list-style: none;
+}
+
+.ui-meta > li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eyes-space-1);
+}
+
+.ui-meta strong {
+  color: var(--eyes-text);
+  font-weight: var(--eyes-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Key-value list: label left, value right. */
+.ui-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--eyes-space-2) var(--eyes-space-4);
+  margin: 0;
+  font-size: var(--eyes-text-sm);
+}
+
+.ui-kv dt {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eyes-space-2);
+  color: var(--eyes-text-secondary);
+}
+
+.ui-kv dd {
+  margin: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Check: one verification line with its outcome (GPS, freshness, photo). */
+.ui-checks {
+  display: grid;
+  gap: var(--eyes-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-check {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--eyes-space-3);
+  font-size: var(--eyes-text-sm);
+}
+
+.ui-check__mark {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: var(--eyes-surface-tertiary);
+  color: var(--eyes-text-secondary);
+}
+
+.ui-check__mark .ui-icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.ui-check--pass .ui-check__mark {
+  background: var(--eyes-success-bg);
+  color: var(--eyes-success-text);
+}
+
+.ui-check--fail .ui-check__mark {
+  background: var(--eyes-danger-bg);
+  color: var(--eyes-danger-text);
+}
+
+.ui-check__detail {
+  color: var(--eyes-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Place: the pin and the place name, the anchor of every task. */
+.ui-place {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--eyes-space-2);
+  margin: 0;
+}
+
+.ui-place > .ui-icon {
+  margin-top: 0.125rem;
+  color: var(--eyes-text-secondary);
+}
+
+.ui-place__name {
+  display: block;
+  font-weight: var(--eyes-weight-medium);
+}
+
+.ui-place__address {
+  display: block;
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-sm);
+}
+
+/* Viewfinder: the signature element. A photo (or live video) framed by accent corner brackets,
+   the way a camera marks what it has locked onto. Fixed 4:3 so imagery never distorts. */
+.ui-viewfinder {
+  --bracket: 1.5rem;
+  --bracket-width: 3px;
+  position: relative;
+  margin: 0;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--eyes-radius-xl);
+  background: var(--eyes-surface-tertiary);
+}
+
+.ui-viewfinder > img,
+.ui-viewfinder > video {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ui-viewfinder::before {
+  position: absolute;
+  z-index: 2;
+  inset: var(--eyes-space-3);
+  pointer-events: none;
+  content: "";
+  background:
+    linear-gradient(var(--eyes-accent) 0 0) top left / var(--bracket) var(--bracket-width) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top left / var(--bracket-width) var(--bracket) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top right / var(--bracket) var(--bracket-width) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top right / var(--bracket-width) var(--bracket) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom left / var(--bracket) var(--bracket-width) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom left / var(--bracket-width) var(--bracket) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom right / var(--bracket) var(--bracket-width) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom right / var(--bracket-width) var(--bracket) no-repeat;
+}
+
+.ui-viewfinder__caption {
+  position: absolute;
+  z-index: 3;
+  bottom: var(--eyes-space-5);
+  left: var(--eyes-space-5);
+  max-width: calc(100% - var(--eyes-space-10));
+}
+
+.ui-viewfinder__empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: var(--eyes-space-2);
+  padding: var(--eyes-space-8);
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-sm);
+  text-align: center;
+}
+
+.ui-viewfinder--compact {
+  --bracket: 1rem;
+  --bracket-width: 2px;
+}
+
+/* Steps: only for a real sequence (join: sign up, text the line, text START). */
+.ui-steps {
+  display: grid;
+  gap: var(--eyes-space-3);
+  margin: 0;
+  padding: 0;
+  counter-reset: ui-step;
+  list-style: none;
+}
+
+.ui-steps > li {
+  display: grid;
+  grid-template-columns: 1.75rem 1fr;
+  gap: var(--eyes-space-3);
+  counter-increment: ui-step;
+}
+
+.ui-steps > li::before {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 50%;
+  background: var(--eyes-surface-tertiary);
+  content: counter(ui-step);
+  font-size: var(--eyes-text-sm);
+  font-weight: var(--eyes-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui-steps > li[data-done]::before {
+  background: var(--eyes-success-bg);
+  color: var(--eyes-success-text);
+  content: "✓";
+}
+
+.ui-steps > li[aria-current="step"]::before {
+  background: var(--eyes-accent);
+  color: var(--eyes-on-accent);
+}
+
+/* ---------- Organisms ---------- */
+
+/* Card: the inline-card shape ChatGPT uses. Header, body, at most two actions at the bottom,
+   no nested scrolling, no tabs. */
+.ui-card {
+  display: grid;
+  gap: var(--eyes-space-4);
+  width: 100%;
+  max-width: var(--eyes-measure);
+  padding: var(--eyes-space-4);
+  border-radius: var(--eyes-radius-2xl);
+  background: var(--eyes-surface);
+  box-shadow: var(--eyes-hairline);
+}
+
+.ui-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--eyes-space-3);
+}
+
+.ui-card__title {
+  margin: 0;
+  font-size: var(--eyes-heading-sm);
+  font-weight: var(--eyes-weight-semibold);
+  line-height: var(--eyes-leading-heading);
+  text-wrap: balance;
+}
+
+.ui-card__answer {
+  margin: 0;
+  font-size: var(--eyes-heading-md);
+  font-weight: var(--eyes-weight-semibold);
+  line-height: var(--eyes-leading-heading);
+}
+
+.ui-card__actions {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: var(--eyes-space-3);
+  padding-top: var(--eyes-space-4);
+  border-top: 1px solid var(--eyes-border-subtle);
+}
+
+.ui-card__actions:has(> :only-child) {
+  grid-auto-columns: auto;
+  justify-content: end;
+}
+
+/* Carousel: 3 to 8 cards side by side, swipe or scroll, snapping to each card. */
+.ui-carousel {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: min(17.5rem, 85%);
+  gap: var(--eyes-space-3);
+  margin: 0;
+  padding: 0 0 var(--eyes-space-2);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  list-style: none;
+}
+
+.ui-carousel > * {
+  scroll-snap-align: start;
+}
+
+.ui-carousel .ui-card {
+  height: 100%;
+  align-content: start;
+}
+
+/* Form: a single-column stack of fields with the submit action docked last. */
+.ui-form {
+  display: grid;
+  gap: var(--eyes-space-4);
+  max-width: var(--eyes-measure);
+}
+
+.ui-form__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--eyes-space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.ui-form__choices > legend {
+  margin-bottom: var(--eyes-space-2);
+  padding: 0;
+  font-size: var(--eyes-text-sm);
+  font-weight: var(--eyes-weight-medium);
+}
+
+.ui-form__fineprint {
+  margin: 0;
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-xs);
+}
+
+/* Capture: the worker's camera screen. Viewfinder, shutter, answer, send. The send bar sticks
+   to the bottom on phones so the thumb always reaches it. */
+.ui-capture {
+  display: grid;
+  gap: var(--eyes-space-4);
+  max-width: var(--eyes-measure);
+}
+
+.ui-capture__shutter {
+  justify-self: center;
+  width: 4.5rem;
+  height: 4.5rem;
+  padding: 0;
+  border: 4px solid var(--eyes-surface);
+  border-radius: 50%;
+  background: var(--eyes-accent);
+  box-shadow: 0 0 0 2px var(--eyes-text);
+  cursor: pointer;
+}
+
+.ui-capture__shutter:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.ui-capture__dock {
+  position: sticky;
+  bottom: 0;
+  display: grid;
+  gap: var(--eyes-space-2);
+  margin: 0 calc(var(--eyes-space-4) * -1);
+  padding: var(--eyes-space-3) var(--eyes-space-4) max(var(--eyes-space-3), env(safe-area-inset-bottom));
+  border-top: 1px solid var(--eyes-border-subtle);
+  background: var(--eyes-surface);
+}
+
+/* Status list: one row per service with live / simulated. */
+.ui-status {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui-status > li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--eyes-space-1) var(--eyes-space-4);
+  padding: var(--eyes-space-3) 0;
+  border-bottom: 1px solid var(--eyes-border-subtle);
+}
+
+.ui-status > li:last-child {
+  border-bottom: 0;
+}
+
+.ui-status__name {
+  font-weight: var(--eyes-weight-medium);
+}
+
+.ui-status__detail {
+  grid-column: 1 / -1;
+  color: var(--eyes-text-secondary);
+  font-size: var(--eyes-text-sm);
+}
+
+/* Empty state: says why it is empty and what to do next. */
+.ui-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--eyes-space-2);
+  max-width: var(--eyes-measure);
+  padding: var(--eyes-space-8) var(--eyes-space-4);
+  text-align: center;
+}
+
+.ui-empty > .ui-icon {
+  width: 2rem;
+  height: 2rem;
+  color: var(--eyes-text-tertiary);
+}
+
+.ui-empty p {
+  margin: 0;
+  color: var(--eyes-text-secondary);
+}
