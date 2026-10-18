@@ -29,19 +29,26 @@ const testflightUrl: string | undefined = import.meta.env.VITE_TESTFLIGHT_URL ||
 </Layout>
 
 <script>
-  // The code arrives in the URL fragment (#c=...), which browsers never send to a server. Read it,
-  // hand it only to the app, and clear it from the address bar so a shared screenshot or copied
-  // URL does not carry it.
-  const code = new URLSearchParams(location.hash.slice(1)).get("c") ?? "";
-  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+  import { startApp } from "../app-link.ts";
 
-  if (/^[\w-]{20,200}$/.test(code)) {
-    const deep = `eyes://connect#c=${code}`;
-    (document.getElementById("open") as HTMLAnchorElement).href = deep;
-    (document.getElementById("ready") as HTMLElement).hidden = false;
-    // Opens the app at once when it is installed; after load, so the page is there to fall back on.
-    addEventListener("load", () => setTimeout(() => (location.href = deep), 300));
-  } else {
-    (document.getElementById("missing") as HTMLElement).hidden = false;
-  }
+  // The code arrives in the URL fragment; startApp clears it from the address bar.
+  startApp({
+    hash: location.hash,
+    pathname: location.pathname,
+    search: location.search,
+    replaceUrl: (url) => history.replaceState(null, "", url),
+    reveal: (id) => {
+      (document.getElementById(id) as HTMLElement).hidden = false;
+    },
+    setHref: (id, href) => {
+      (document.getElementById(id) as HTMLAnchorElement).href = href;
+    },
+    onLoad: (fn) => addEventListener("load", fn),
+    later: (fn, ms) => {
+      setTimeout(fn, ms);
+    },
+    navigate: (url) => {
+      location.href = url;
+    },
+  });
 </script>
