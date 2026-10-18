@@ -5,7 +5,7 @@ Eyes works as an app inside ChatGPT, claude.ai and Claude Desktop. You sign in w
 ## How it works
 
 - OAuth 2.1 with PKCE (S256) and dynamic client registration, served next to the existing API keys.
-- The sign-in page at `/oauth/authorize` takes an existing Eyes key or creates one. New test keys start with a $20 balance.
+- The sign-in page at `/oauth/authorize` takes an existing Eyes key or creates one. New keys start with $20 in test credits, not real cash. Copy is optional for direct API use; **Continue** automatically connects the new key in both ChatGPT and Claude.
 - `/oauth/token` returns the Eyes API key as the access token, so the `/mcp` bearer check does not change. The token does not expire. To revoke it, rotate the key.
 - Nothing is stored. Clients and authorization codes are AES-GCM sealed blobs keyed by `EYES_OAUTH_SECRET`. If that secret is unset, the OAuth routes are off and only bearer keys work.
 - A single widget resource, `ui://eyes/card.html` (`text/html;profile=mcp-app`), renders `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task` and `get_balance` results as cards. `show_task` uses the same current photo, theme, review and action UI as `get_task`; no separate view build is needed.
@@ -16,12 +16,12 @@ Eyes works as an app inside ChatGPT, claude.ai and Claude Desktop. You sign in w
 In ChatGPT (developer mode) or Claude, add a custom connector with this URL and choose OAuth:
 
 ```
-https://api.eyes.pictures/mcp
+https://mcp.eyes.pictures/mcp
 ```
 
 Then ask for a quote. Full steps are in [CONNECT.md](../CONNECT.md).
 
-The dedicated `https://mcp.eyes.pictures/mcp` connector is [prepared, not active](../CONNECT.md#dedicated-mcp-domain-prepared-not-active). Keep existing connectors unchanged until its OAuth and card origins are verified; REST, uploads and webhooks remain on `https://api.eyes.pictures`.
+The dedicated MCP endpoint is active, with OAuth configured for both ChatGPT and Claude. Existing `https://api.eyes.pictures/mcp` connectors still work; REST, uploads and webhooks remain on `https://api.eyes.pictures`. The marketplace listing is still a draft: preflight is complete, but it has not been submitted or published.
 
 ## Where in the code
 
