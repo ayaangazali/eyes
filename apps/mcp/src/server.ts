@@ -416,6 +416,7 @@ export function createServer(
     const started = performance.now();
     await next();
     const path = c.req.path
+      .replace(/^\/s\/[^/]*$/, "/s/:id")
       .split("/")
       .map((s) => (s.length >= 20 && !UUID.test(s) ? ":token" : s))
       .join("/");
@@ -1008,6 +1009,26 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
 
   const { rpc } = deps;
   if (rpc) {
+    // Short links in texts: /s/<id> redirects to the full link. Unknown, expired or malformed ids get a
+    // page that says how to get fresh links.
+    server.app.get("/s/:id", async (c) => {
+      for (const [name, value] of Object.entries(PAGE_HEADERS)) c.header(name, value);
+      const id = c.req.param("id");
+      const [row] = /^[0-9A-Za-z]{8}$/.test(id)
+        ? await rpc<{ target: string }>("eyes_short_link", {
+            p_id: id,
+            p_now: deps.providers.clock.now().toISOString(),
+          })
+        : [];
+      if (row) return c.redirect(row.target, 302);
+      return c.html(
+        layout(
+          "This link has expired",
+          html`<section class="notice-page"><h1>This link has expired</h1><p>Text HELP to the Eyes number for fresh links.</p><a class="button" href="https://eyes.pictures">Go to eyes.pictures</a></section>`,
+        ),
+        404,
+      );
+    });
     const ops = opsAuth({ rpc, providers: deps.providers, config, env, log, site: opsSite.site });
     const clef = Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN);
     const claude = Boolean(env.ANTHROPIC_API_KEY);

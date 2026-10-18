@@ -56,9 +56,9 @@ describe.skipIf(!url)("worker location on Postgres", () => {
   const north = (p: LatLng, meters: number): LatLng => ({ lat: p.lat + meters / 111_320, lng: p.lng });
   const lastText = (phone: string) => String(outbox.findLast((m) => m.to === phone)?.payload);
   const hereToken = (text: string) =>
-    new URL(/https:\S+/.exec(text)?.[0] ?? "x:").searchParams.get("t") ?? "";
+    new URL(/https:\S+here\.html\S+/.exec(text)?.[0] ?? "x:").searchParams.get("t") ?? "";
   const welcome = (phone: string) =>
-    String(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You are in."))?.payload);
+    String(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You're in."))?.payload);
   const row = async (phone: string) => (await sql`select * from workers where phone = ${phone}`)[0];
 
   async function worker(at: LatLng) {
@@ -168,16 +168,17 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     for (const c of codes.slice(1))
       expect(await code(service.updateWorkerLocation(c, fix))).toBe("unauthorized");
     await say(w.phone, "start", "START");
-    const after = outbox.filter((m) => m.to === w.phone).map((m) => String(m.payload));
-    expect(after.at(-2)).toContain("/here.html?t=");
-    // STOP deleted every code, so this START sends a fresh app link even within the hour.
-    expect(after.at(-1)).toMatch(
-      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/m,
-    );
+    // One text. STOP deleted every code, so this START sends a fresh app link even within the hour.
+    expect(lastText(w.phone).split("\n").slice(1, 3)).toEqual([
+      expect.stringMatching(
+        /^1\. Get the app \(keeps your spot fresh\): https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/,
+      ),
+      expect.stringMatching(/^2\. Update your spot: https:\/\/w\.eyes\.test\/here\.html\?t=/),
+    ]);
   });
 
   it("START texts the app link with a fresh code in the fragment, once per hour; APP always mints", async () => {
-    const appCode = (text: string) => /\/app#c=([\w-]{43})/.exec(text)?.[1] ?? "";
+    const appCode = (text: string) => /\/install#c=([\w-]{43})/.exec(text)?.[1] ?? "";
     const w = await worker(somewhere());
     const first = appCode(lastText(w.phone));
     expect(first).not.toBe("");
@@ -194,7 +195,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     const before = sent();
     await say(w.phone, "start", "START");
     expect(sent()).toBe(before + 1);
-    expect(lastText(w.phone)).toContain("You are in.");
+    expect(lastText(w.phone)).toContain("You're in.");
     expect(await codes()).toBe(1);
 
     // APP mints even within the hour, as one text.
@@ -353,7 +354,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
   it("device: the code gets a 1-hour profile ticket; the ticket stores the UDID; ready after release; STOP deletes", async () => {
     const w = await worker(somewhere());
     await say(w.phone, "app", "APP");
-    const appCode = /\/app#c=([\w-]{43})/.exec(lastText(w.phone))?.[1] ?? "";
+    const appCode = /\/install#c=([\w-]{43})/.exec(lastText(w.phone))?.[1] ?? "";
     const first = await service.workerDevice(appCode);
     expect(first).toMatchObject({ registered: false, ready: false });
     const ticket = first.profile_url.replace("https://api.eyes.test/w/device/profile/", "");

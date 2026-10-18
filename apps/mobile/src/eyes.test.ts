@@ -105,7 +105,7 @@ describe("onFix", () => {
     const { d, log } = deps({ fetch: fakeFetch(401).f });
     expect(await onFix(fix, d)).toEqual({ at: 1_000_000, result: "stopped", lat: 37.76, lng: -122.39 });
     expect(log.stopped).toBe(1);
-    expect(MESSAGES.stopped).toBe("Code stopped working: text APP to Eyes for a new link");
+    expect(MESSAGES.stopped).toBe("Code stopped working: text HELP to Eyes for a new link");
   });
 
   it("no code stops without posting", async () => {

@@ -86,9 +86,9 @@ const PAYOUT_BATCH = 25;
 const HERE_LINK_MS = 30 * 60 * 1000;
 const DEVICE_LINK_EXPIRED = {
   message: "This install link is invalid or has expired.",
-  fix: "Text APP to the Eyes number for a new link.",
+  fix: "Text HELP to the Eyes number for a fresh link.",
 };
-// The setup page's code (ADR-028) is the earnings token, which HELP renews.
+// The setup page's code (ADR-028) is the earnings token, which START and HELP renew.
 const SETUP_LINK_INVALID = {
   message: "This link is invalid or has expired.",
   fix: "Text HELP to the Eyes number for a fresh link.",
@@ -150,11 +150,9 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
     "You disputed this answer and it is flagged for human review. Call get_task later to see the outcome.",
 };
 
-const REPLY_TEXT: Record<"no" | "released" | "help" | "unknown", string> = {
+const REPLY_TEXT: Record<"no" | "released", string> = {
   no: "No problem, we will text you the next task nearby.",
   released: "Got it, the task is released. Thanks.",
-  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, TASK for your task link, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out.",
-  unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
 const SIMULATED_PAY = "This is a test server and payouts are simulated, so no real money is paid.";
 
@@ -249,17 +247,20 @@ export function createEyesService(deps: EngineDeps): EyesService {
     await one("eyes_rotate_location_token", { p_worker_id: workerId, p_token_hash: sha256(code) });
     return code;
   };
-  // The code rides in the URL fragment, so no server (ours or a CDN) ever logs it. Without TestFlight,
-  // the app installs from /install (ad hoc, T6.31), which uses the same code.
+  // The code rides in the URL fragment, so no server (ours or a CDN) ever logs it. /app opens or
+  // connects the app and falls back to TestFlight; without TestFlight, /install (ad hoc, T6.31).
   const installUrl = (code: string) => `${config.worker_web_url}/install#c=${code}`;
-  const appText = (code: string, installFirst = false) => {
-    const link = `Get the Eyes app so tasks find you: ${config.worker_web_url}/app#c=${code}`;
-    const url = config.testflight_url;
-    if (!url) return `${link}\nDon't have the app? ${installUrl(code)}`;
-    return installFirst
-      ? `Install the Eyes iPhone app first: ${url}\n${link}`
-      : `${link}\nDon't have the app? ${url}`;
-  };
+  const appUrl = (code: string) =>
+    config.testflight_url ? `${config.worker_web_url}/app#c=${code}` : installUrl(code);
+  // The hub text (START, HELP): links for everything, so YES and STOP are the only words to remember.
+  const hubText = (workerId: string, steps: string[]) =>
+    [
+      "Eyes texts you paid photo tasks near you.",
+      ...steps.map((s, i) => `${i + 1}. ${s}`),
+      ...(config.live_payouts ? [] : [SIMULATED_PAY]),
+      `Your setup: ${meUrl(workerId)}`,
+      "When a task comes, reply YES to take it. Reply STOP anytime to pause.",
+    ].join("\n");
   // ponytail: in memory (one server instance); a restart allows one extra code on the next START.
   const appLinkSentAt = new Map<string, number>();
 
@@ -1013,17 +1014,22 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const reply: Record<ReplyIntent, () => Promise<unknown>> = {
         start: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: true });
-          const fixAt = worker.lat === null ? 0 : Date.parse(worker.location_at ?? worker.created_at);
-          const stale = now().getTime() - fixAt > config.location_max_age_h * 3_600_000;
-          await messaging.sendText(
-            phone,
-            `You are in. Eyes will text you paid tasks nearby. ${config.live_payouts ? `Set up payouts here: ${connectUrl(worker.id)}` : SIMULATED_PAY}${stale ? ` Tap to update your spot so we offer you tasks near where you are: ${hereUrl(worker.id)}` : ""} Your setup: ${meUrl(worker.id)}`,
-          );
-          // START again within the hour (a retry, a double tap) reuses the link already sent.
+          const steps: string[] = [];
+          // START again within the hour (a retry, a double tap) mints no second code; /me has the button.
           const last = appLinkSentAt.get(worker.id);
-          if (last !== undefined && now().getTime() - last < HOUR_MS) return;
-          appLinkSentAt.set(worker.id, now().getTime());
-          await messaging.sendText(phone, appText(await mintLocationCode(worker.id), true));
+          if (last === undefined || now().getTime() - last >= HOUR_MS) {
+            appLinkSentAt.set(worker.id, now().getTime());
+            steps.push(`Get the app (keeps your spot fresh): ${appUrl(await mintLocationCode(worker.id))}`);
+          }
+          const fixAt = worker.lat === null ? 0 : Date.parse(worker.location_at ?? worker.created_at);
+          if (now().getTime() - fixAt > config.location_max_age_h * HOUR_MS) {
+            steps.push(`Update your spot: ${hereUrl(worker.id)}`);
+          }
+          if (config.live_payouts) {
+            const e = await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: worker.id });
+            if (!e?.payouts_set_up) steps.push(`Set up payouts: ${connectUrl(worker.id)}`);
+          }
+          await messaging.sendText(phone, `You're in. ${hubText(worker.id, steps)}`);
         },
         stop: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false });
@@ -1064,21 +1070,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
           ),
         app: async () => {
           appLinkSentAt.set(worker.id, now().getTime());
-          await messaging.sendText(phone, appText(await mintLocationCode(worker.id)));
+          await messaging.sendText(phone, `Get the Eyes app: ${appUrl(await mintLocationCode(worker.id))}`);
         },
-        install: async () => {
-          if (config.testflight_url) {
-            return messaging.sendText(
-              phone,
-              `Get the Eyes iPhone app: 1) Install TestFlight and Eyes here: ${config.testflight_url} 2) Then text APP to connect it.`,
-            );
-          }
-          appLinkSentAt.set(worker.id, now().getTime());
-          await messaging.sendText(
-            phone,
-            `Get the Eyes app: ${installUrl(await mintLocationCode(worker.id))}`,
-          );
-        },
+        install: () => reply.app(),
         // ADR-027: the live capture link again. Newest claim first; a claim past its deadline
         // stays 'claimed' until the sweep expires it, so the deadline is checked here.
         task: async () => {
@@ -1111,7 +1105,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
             phone,
             ticket
               ? `Eyes: ticket #${ticket.id} opened. Someone will check your answer by hand and text you the outcome. Reply here to add details.`
-              : `${REPLY_TEXT.help}${simulatedPay} More: ${config.worker_web_url} Your setup: ${meUrl(worker.id)}`,
+              : hubText(worker.id, []),
           );
         },
         unknown: async () => {
@@ -1145,7 +1139,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
             phone,
             ticket
               ? `Eyes: added to ticket #${ticket.id}. We will text you the outcome.`
-              : REPLY_TEXT.unknown,
+              : `Didn't catch that. Reply YES to take a task or STOP to pause. Your setup: ${meUrl(worker.id)}`,
           );
         },
       };
@@ -1229,7 +1223,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       if (!w?.opted_in) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
       const code = await mintLocationCode(w.id);
       return {
-        install_url: config.testflight_url ? `${config.worker_web_url}/app#c=${code}` : installUrl(code),
+        install_url: appUrl(code),
       };
     },
 
@@ -1366,7 +1360,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           {},
           {
             message: "This location link or code is invalid or has expired.",
-            fix: "Text HERE to the Eyes number for a fresh link, or AUTO for a new code.",
+            fix: "Text HELP to the Eyes number for a fresh link.",
           },
         );
       }

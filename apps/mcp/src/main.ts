@@ -20,6 +20,7 @@ import { toNodeListener } from "./http.ts";
 import { instrumentAssess, instrumentProviders, instrumentService } from "./instrument.ts";
 import { createSandboxService } from "./sandbox.ts";
 import { createServer, liveProviders } from "./server.ts";
+import { withShortLinks } from "./short-links.ts";
 
 const EXPIRE_EVERY_MS = 30_000;
 
@@ -104,6 +105,8 @@ export function start(env: Record<string, string | undefined>, exit: Exit = fail
   console.log(`db: ${db.kind}`);
 
   const rpc = createRpc(db);
+  if (live.messaging)
+    providers.messaging = withShortLinks(providers.messaging, rpc, config, providers.clock.now);
   const chConfig = clickHouseConfig(env);
   const clickhouse = chConfig ? createClickHouseSink(chConfig) : undefined;
   if (clickhouse) mirrorTriggerEvents(rpc, clickhouse.push);

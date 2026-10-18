@@ -71,8 +71,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
   // START sends the welcome (with the payout link) and then the app link.
   const welcomeText = (env: Env, phone: string) =>
     String(
-      env.outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You are in."))?.payload ??
-        "",
+      env.outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You're in."))?.payload ?? "",
     );
 
   async function worker(at: LatLng, env: Env = main) {

@@ -748,4 +748,28 @@ describe("parseReplyIntent", () => {
   ])("%j -> %s", (text, intent) => {
     expect(parseReplyIntent(text)).toBe(intent);
   });
+
+  it.each([
+    ["Strat", "start"],
+    ["strt", "start"],
+    ["stat", "start"],
+    ["Start!", "start"],
+    ["START", "start"],
+    ["sTaRt.", "start"],
+    ["yse", "yes"],
+    ["yess", "yes"],
+    ["stpo", "stop"],
+    ["hepl", "help"],
+    // one edit from both "help" and "here": ambiguous
+    ["hele", "unknown"],
+    // three letters: a substitution is not enough, only an adjacent swap
+    ["yez", "unknown"],
+    ["oen", "unknown"],
+    ["xz", "unknown"],
+    ["strat now", "unknown"],
+    ["shop?", "stop"],
+    ["strat?", "unknown"],
+  ])("typo %j -> %s", (text, intent) => {
+    expect(parseReplyIntent(text)).toBe(intent);
+  });
 });

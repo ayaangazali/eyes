@@ -222,8 +222,8 @@ test.beforeAll(async () => {
     await post("/w/join", w);
     await iMessageEyes(w.phone, "START");
   }
-  // START sends the welcome (with the payout link), then the app link.
-  const connectUrl = String(sent(PAYEE.phone, "text").at(-2)?.payload).match(/\S+\/w\/connect\/\S+/)?.[0];
+  // START is one text with the app, payout and setup links.
+  const connectUrl = String(sent(PAYEE.phone, "text").at(-1)?.payload).match(/\S+\/w\/connect\/\S+/)?.[0];
   expect((await fetch(connectUrl ?? "", { redirect: "manual" })).status).toBe(302);
 
   signup = (await post("/v1/signup", { name: "demo-rehearsal-agent" })) as SignupOutput;

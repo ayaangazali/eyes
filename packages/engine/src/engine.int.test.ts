@@ -262,32 +262,48 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(after).toEqual(["Eyes: you're opted out and won't get task texts. Text START to rejoin."]);
     expect(String(after[0]).length).toBeLessThanOrEqual(159);
     await service.handleWorkerReply({ phone, intent: "start", text: "START" });
-    // STOP reset the app link (it deleted every code), so START also texts a fresh one.
-    expect(sent().slice(before + 1)).toEqual([
-      // STOP also cleared the spot, so the welcome carries the HERE link before the setup link.
+    // One text: STOP reset the app link (it deleted every code) and cleared the spot.
+    const start = sent().slice(before + 1);
+    expect(start).toHaveLength(1);
+    const lines = String(start[0]).split("\n");
+    expect(lines).toEqual([
+      "You're in. Eyes texts you paid photo tasks near you.",
       expect.stringMatching(
-        /^You are in\. .*\/w\/connect\/.*\/here\.html\?t=\S+ Your setup: https:\/\/w\.eyes\.test\/me#c=[\w-]+\.[\w-]+$/,
+        /^1\. Get the app \(keeps your spot fresh\): https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/,
       ),
-      expect.stringMatching(/^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=/),
+      expect.stringMatching(/^2\. Update your spot: https:\/\/w\.eyes\.test\/here\.html\?t=\S+$/),
+      expect.stringMatching(/^3\. Set up payouts: \S+\/w\/connect\/\S+$/),
+      expect.stringMatching(/^Your setup: https:\/\/w\.eyes\.test\/me#c=[\w-]+\.[\w-]+$/),
+      "When a task comes, reply YES to take it. Reply STOP anytime to pause.",
+    ]);
+    const code = /#c=([\w-]{43})$/.exec(lines[1] ?? "")?.[1] ?? "";
+    expect(await service.workerDevice(code)).toMatchObject({ registered: false });
+    // START again within the hour mints no second code: the other steps move up.
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+    expect(String(sent().at(-1)).split("\n")).toEqual([
+      lines[0],
+      expect.stringMatching(/^1\. Update your spot: /),
+      expect.stringMatching(/^2\. Set up payouts: /),
+      expect.stringMatching(/^Your setup: /),
+      lines[5],
     ]);
   });
 
-  it("HELP says what Eyes is, how to opt out, where to read more and links the worker's setup page", async () => {
+  it("HELP is the hub text: the worker's setup page, YES and STOP, nothing else to remember", async () => {
     const { phone } = await worker(somewhere());
     await service.handleWorkerReply({ phone, intent: "help", text: "HELP" });
-    const help = String(outbox.findLast((m) => m.to === phone)?.payload);
-    const [text, url] = help.split(" Your setup: ");
-    expect(text).toBe(
-      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, TASK for your task link, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out. More: https://w.eyes.test",
-    );
-    expect(url).toMatch(/^https:\/\/w\.eyes\.test\/me#c=[\w-]+\.[\w-]+$/);
-    expect(await service.workerSetup(meToken(url))).toMatchObject({ opted_in: true, tasks: [] });
-    expect(help.length).toBeLessThanOrEqual(1600);
+    const help = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
+    expect(help).toEqual([
+      "Eyes texts you paid photo tasks near you.",
+      expect.stringMatching(/^Your setup: https:\/\/w\.eyes\.test\/me#c=[\w-]+\.[\w-]+$/),
+      "When a task comes, reply YES to take it. Reply STOP anytime to pause.",
+    ]);
+    expect(await service.workerSetup(meToken(help[1]))).toMatchObject({ opted_in: true, tasks: [] });
   });
 
   describe("worker setup page (ADR-028)", () => {
     const setupToken = (phone: string) =>
-      meToken(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You are in."))?.payload);
+      meToken(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You're in."))?.payload);
     const fixToken = (workerId: string) =>
       signToken(deps.config.link_secret, `l:${workerId}`, new Date(providers.clock.now().getTime() + 60_000));
     const refused = {
@@ -422,7 +438,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
   });
 
-  it("INSTALL without TestFlight texts the /install link with a fresh app code; APP adds it as a second line", async () => {
+  it("INSTALL and APP text one app link with a fresh code each: /install without TestFlight", async () => {
     const { phone } = await worker(somewhere());
     await service.handleWorkerReply({ phone, intent: "install", text: "INSTALL" });
     const install = String(outbox.findLast((m) => m.to === phone)?.payload);
@@ -430,55 +446,25 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const code = install.slice(-43);
     expect(await service.workerDevice(code)).toMatchObject({ registered: false, ready: false });
     await service.handleWorkerReply({ phone, intent: "app", text: "APP" });
-    const [first, second, ...rest] = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
-    const appCode = /\/app#c=([\w-]{43})$/.exec(first ?? "")?.[1];
-    expect(appCode).toMatch(/^[\w-]{43}$/);
-    expect(appCode).not.toBe(code);
-    expect([second, rest]).toEqual([`Don't have the app? https://w.eyes.test/install#c=${appCode}`, []]);
+    const app = String(outbox.findLast((m) => m.to === phone)?.payload);
+    expect(app).toMatch(/^Get the Eyes app: https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/);
+    expect(app.slice(-43)).not.toBe(code);
   });
 
-  it("INSTALL texts the TestFlight link and steps when EYES_TESTFLIGHT_URL is set", async () => {
+  it("START and APP link /app (which falls back to TestFlight) when EYES_TESTFLIGHT_URL is set", async () => {
     const link = "https://testflight.apple.com/join/TESTLINK1";
     const withLink = createEyesService({
       ...deps,
       config: AppConfig.parse({ ...deps.config, testflight_url: link }),
     });
     const { phone } = await worker(somewhere());
-    await withLink.handleWorkerReply({ phone, intent: "install", text: "INSTALL" });
-    expect(String(outbox.findLast((m) => m.to === phone)?.payload)).toBe(
-      `Get the Eyes iPhone app: 1) Install TestFlight and Eyes here: ${link} 2) Then text APP to connect it.`,
-    );
-  });
-
-  it("APP adds a second line with the TestFlight link when EYES_TESTFLIGHT_URL is set", async () => {
-    const link = "https://testflight.apple.com/join/TESTLINK1";
-    const withLink = createEyesService({
-      ...deps,
-      config: AppConfig.parse({ ...deps.config, testflight_url: link }),
-    });
-    const { phone } = await worker(somewhere());
+    const last = () => String(outbox.findLast((m) => m.to === phone)?.payload);
     await withLink.handleWorkerReply({ phone, intent: "app", text: "APP" });
-    const lines = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toMatch(
-      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
-    );
-    expect(lines[1]).toBe(`Don't have the app? ${link}`);
-  });
-
-  it("START puts the TestFlight install link before the app link when EYES_TESTFLIGHT_URL is set", async () => {
-    const link = "https://testflight.apple.com/join/TESTLINK1";
-    const withLink = createEyesService({
-      ...deps,
-      config: AppConfig.parse({ ...deps.config, testflight_url: link }),
-    });
-    const { phone } = await worker(somewhere());
+    expect(last()).toMatch(/^Get the Eyes app: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/);
+    await withLink.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
     await withLink.handleWorkerReply({ phone, intent: "start", text: "START" });
-    const lines = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
-    expect(lines).toHaveLength(2);
-    expect(lines[0]).toBe(`Install the Eyes iPhone app first: ${link}`);
-    expect(lines[1]).toMatch(
-      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
+    expect(last().split("\n")[1]).toMatch(
+      /^1\. Get the app \(keeps your spot fresh\): https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
     );
   });
 
@@ -914,14 +900,19 @@ describe.skipIf(!url)("engine on Postgres", () => {
     );
     await sim.handleWorkerReply({ phone, intent: "start", text: "START" });
     const texts = outbox.filter((m) => m.to === phone && m.kind === "text").map((m) => m.payload);
-    const [welcome, setup] = String(texts.at(-2)).split(" Your setup: ");
-    expect(welcome).toBe(`You are in. Eyes will text you paid tasks nearby. ${simulated}`);
-    expect(await sim.workerSetup(meToken(setup))).toMatchObject({
+    // One text: no payout step on a test server, the simulated note instead.
+    const lines = String(texts.at(-1)).split("\n");
+    expect(lines.slice(0, 3)).toEqual([
+      "You're in. Eyes texts you paid photo tasks near you.",
+      expect.stringMatching(/^1\. Get the app \(keeps your spot fresh\): /),
+      simulated,
+    ]);
+    expect(String(texts.at(-1))).not.toContain("/w/connect/");
+    expect(await sim.workerSetup(meToken(lines[3]))).toMatchObject({
       payouts: { set_up: false, live: false, setup_url: null },
     });
-    expect(String(texts.at(-1))).toMatch(/^Get the Eyes app so tasks find you: /);
     await sim.handleWorkerReply({ phone, intent: "help", text: "HELP" });
-    expect(String(last("text"))).toContain(`STOP to opt out. ${simulated} More: `);
+    expect(String(last("text")).split("\n")[1]).toBe(simulated);
 
     const verified = await capture();
     expect(verified.result).toMatchObject({ status: "verified", message: `Verified. ${simulated}` });
@@ -1402,11 +1393,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
       for (const { w, task_id } of [verified, old]) {
         await service.handleWorkerReply({ phone: w.phone, intent: "help", text: "HELP" });
         expect(String(outbox.findLast((m) => m.to === w.phone)?.payload)).toMatch(
-          /^Eyes texts you paid tasks to check public places nearby\. .* Your setup: /,
+          /^Eyes texts you paid photo tasks near you\.\nYour setup: /,
         );
         await service.handleWorkerReply({ phone: w.phone, intent: "unknown", text: "hello?" });
-        expect(outbox.findLast((m) => m.to === w.phone)?.payload).toBe(
-          "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
+        expect(outbox.findLast((m) => m.to === w.phone)?.payload).toMatch(
+          /^Didn't catch that\. Reply YES to take a task or STOP to pause\. Your setup: https:\/\/w\.eyes\.test\/me#c=\S+$/,
         );
         expect(await tickets(task_id)).toEqual([]);
       }

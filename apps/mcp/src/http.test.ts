@@ -299,13 +299,16 @@ describe("node adapter on a real socket", () => {
     await fetch(`${base}/some/${token}/deeper`);
     await fetch(`${base}/llms.txt`);
     await fetch(`${base}/v1/tasks/${TASK_ID}`);
+    await fetch(`${base}/s/AbCd1234`);
 
     const lines = log.mock.calls.map((call) => String(call[0]));
     expect(lines[0]).toMatch(/^GET <other> 404 \d+ms$/);
     expect(lines[1]).toMatch(/^GET \/llms\.txt \d{3} \d+ms$/);
     expect(lines[2]).toMatch(/^GET \/v1\/tasks\/<task_id> 401 \d+ms$/);
+    expect(lines[3]).toMatch(/^GET \/s\/<id> 404 \d+ms$/);
     expect(lines.join("\n")).not.toContain(token);
     expect(lines.join("\n")).not.toContain(TASK_ID);
+    expect(lines.join("\n")).not.toContain("AbCd1234");
   });
 
   const secret = signToken(config.link_secret, "offer-secret");

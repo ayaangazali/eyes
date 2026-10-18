@@ -97,4 +97,21 @@ describe.skipIf(!url)("migration v1 invariants", () => {
       }),
     ).rejects.toBe(rollback);
   });
+
+  it("returns a short link until it expires, behind RLS, and rejects a malformed id", async () => {
+    const id = crypto.randomUUID().replaceAll("-", "").slice(0, 8);
+    const target = "https://w.eyes.test/here.html?t=x#c=abc";
+    const expires = "2026-10-17T20:00:00.000Z";
+    const [added] =
+      await sql`select * from eyes_add_short_link(${id}, ${target}, null::uuid, ${expires}::timestamptz)`;
+    expect(added).toMatchObject({ id, target, worker_id: null });
+    const lookup = (at: string) => sql`select id, target from eyes_short_link(${id}, ${at}::timestamptz)`;
+    expect(await lookup("2026-10-17T19:59:59.000Z")).toEqual([{ id, target }]);
+    expect(await lookup(expires)).toEqual([]);
+    await expect(
+      sql`select * from eyes_add_short_link('bad-id!', ${target}, null::uuid, ${expires}::timestamptz)`,
+    ).rejects.toThrow(/check constraint/);
+    const [rls] = await sql`select relrowsecurity from pg_class where oid = 'short_links'::regclass`;
+    expect(rls).toEqual({ relrowsecurity: true });
+  });
 });

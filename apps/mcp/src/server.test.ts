@@ -1431,6 +1431,68 @@ describe("page headers", () => {
   });
 });
 
+describe("short links", () => {
+  function shortServer(rows: { target: string }[]) {
+    const calls: { fn: string; args: Record<string, unknown> }[] = [];
+    const providers = fakeProviders();
+    const events = createEventLog();
+    const server = createServer({
+      service: {} as EyesService,
+      providers,
+      config: AppConfig.parse({
+        public_api_url: "http://api.eyes.test",
+        worker_web_url: "http://worker.eyes.test",
+        link_secret: SECRET,
+      }),
+      env: {},
+      rpc: (async (fn: string, args: Record<string, unknown>) => {
+        calls.push({ fn, args });
+        return rows;
+      }) as Rpc,
+      events,
+    });
+    const get = (path: string) => server.fetch(new Request(`http://api.eyes.test${path}`));
+    return { get, calls, events, now: providers.clock.now().toISOString() };
+  }
+  const expectPageHeaders = (res: Response) => {
+    for (const [name, value] of Object.entries(PAGE_HEADERS)) expect(res.headers.get(name), name).toBe(value);
+  };
+
+  it("redirects a live id to its target with the fragment, and logs the route without the id", async () => {
+    const target = "http://worker.eyes.test/here.html?t=abc#c=abc";
+    const { get, calls, events, now } = shortServer([{ target }]);
+    const res = await get("/s/AbCd1234");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe(target);
+    expectPageHeaders(res);
+    expect(calls).toEqual([{ fn: "eyes_short_link", args: { p_id: "AbCd1234", p_now: now } }]);
+    expect(events.recent()[0]?.summary).toMatch(/^GET \/s\/:id 302 \d+ ms$/);
+    expect(JSON.stringify(events.recent())).not.toContain("AbCd1234");
+  });
+
+  it("answers an unknown or expired id with a 404 page that says how to get fresh links", async () => {
+    const { get } = shortServer([]);
+    const res = await get("/s/AbCd1234");
+    expect(res.status).toBe(404);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    expectPageHeaders(res);
+    const body = await res.text();
+    expect(body).toContain("<h1>This link has expired</h1>");
+    expect(body).toContain("Text HELP to the Eyes number for fresh links.");
+  });
+
+  it.each(["AbCd123", "AbCd12345", "AbCd-123", "AbCd%2012"])(
+    "answers the same 404 page to the malformed id %s without reading the database",
+    async (id) => {
+      const { get, calls } = shortServer([{ target: "http://worker.eyes.test/x" }]);
+      const res = await get(`/s/${id}`);
+      expect(res.status).toBe(404);
+      expect(await res.text()).toContain("This link has expired");
+      expect(calls).toEqual([]);
+    },
+  );
+});
+
 describe("agent docs", () => {
   const LINK = '</llms.txt>; rel="describedby", </openapi.json>; rel="service-desc"';
   let docsDir = "";

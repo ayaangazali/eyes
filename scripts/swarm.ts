@@ -218,7 +218,7 @@ async function run(url: string, agentCount: number, perAgent: number) {
     await service.joinWorker(w);
     await service.handleWorkerReply({ phone: w.phone, intent: "start", text: "START" });
     const text = String(outbox.findLast((m) => m.to === w.phone && m.kind === "text")?.payload);
-    // START ends with the setup link (ADR-028), so the token stops at the next space.
+    // The START text has one link per line, so the token stops at the line end.
     await service.workerConnectUrl(/\/w\/connect\/(\S+)/.exec(text)?.[1] ?? "");
   }
   const agents: Agent[] = [];

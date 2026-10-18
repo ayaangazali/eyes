@@ -128,6 +128,22 @@ const INTENTS: Record<string, ReplyIntent> = {
   link: "task",
 };
 
+// Optimal string alignment distance: insert, delete, substitute and adjacent swap each cost 1.
+function osa(a: string, b: string): number {
+  const w = b.length + 1;
+  const d = Array.from({ length: (a.length + 1) * w }, (_, k) => Math.floor(k / w) + (k % w));
+  const at = (i: number, j: number) => d[i * w + j] as number;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++)
+      d[i * w + j] = Math.min(
+        at(i - 1, j) + 1,
+        at(i, j - 1) + 1,
+        at(i - 1, j - 1) + (a[i - 1] === b[j - 1] ? 0 : 1),
+        i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1] ? at(i - 2, j - 2) + 1 : Infinity,
+      );
+  return at(a.length, b.length);
+}
+
 export function parseReplyIntent(text: string): ReplyIntent {
   const tokens =
     text
@@ -139,7 +155,18 @@ export function parseReplyIntent(text: string): ReplyIntent {
   if (words.length === 0) return asked ? "help" : "unknown";
   const lookup = (phrase: string) => (Object.hasOwn(INTENTS, phrase) ? INTENTS[phrase] : undefined);
   const [first, ...rest] = words.map(lookup);
-  const intent = (rest.every((i) => i === first) && first) || lookup(words.join(" ")) || "unknown";
+  const word = words.join(" ");
+  let intent: ReplyIntent = (rest.every((i) => i === first) && first) || lookup(word) || "unknown";
+  // Typo tolerance for a lone word: 4+ letters within one edit, 3 letters only by an adjacent swap.
+  if (intent === "unknown" && words.length === 1 && word.length >= 3) {
+    const near = new Set(
+      Object.entries(INTENTS)
+        .filter(([k]) => !k.includes(" ") && osa(word, k) === 1)
+        .filter(([k]) => word.length > 3 || [...k].sort().join("") === [...word].sort().join(""))
+        .map(([, i]) => i),
+    );
+    if (near.size === 1) intent = [...near][0] as ReplyIntent;
+  }
   return asked && intent !== "stop" && intent !== "help" ? "unknown" : intent;
 }
 
