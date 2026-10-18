@@ -1,5 +1,7 @@
 # Connect Eyes to an MCP client
 
+For the public-directory package, see [ChatGPT marketplace packaging and review blockers](connect/chatgpt-marketplace.md). It uses the dedicated MCP host and does not modify existing connectors.
+
 | URL | Use it for |
 | --- | --- |
 | `https://api.eyes.pictures/mcp` | **Existing MCP endpoint.** Supported unchanged; the dedicated host below is ready for connector migration. |
