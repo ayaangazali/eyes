@@ -1,0 +1,39 @@
+---
+import sprite from "@eyes/ui/icons.svg?raw";
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  ogTitle?: string;
+  description?: string;
+  wide?: boolean;
+  /** Internal pages (design references): keep them out of search results. */
+  noindex?: boolean;
+}
+
+const { title, ogTitle, description, wide = false, noindex = false } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#212121" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    {noindex && <meta name="robots" content="noindex" />}
+    <title>{title}</title>
+    {ogTitle && <meta property="og:title" content={ogTitle} />}
+    {description && <meta property="og:description" content={description} />}
+  </head>
+  <body class="ui">
+    <Fragment set:html={sprite} />
+    <header class="site-bar">
+      <a class="wordmark" href="https://eyes.pictures"><span class="wordmark__mark" aria-hidden="true"></span>Eyes</a>
+      <slot name="bar" />
+    </header>
+    <main class:list={["page", { "page--wide": wide }]}>
+      <slot />
+    </main>
+  </body>
+</html>

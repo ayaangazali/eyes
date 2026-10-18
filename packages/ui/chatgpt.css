@@ -1,0 +1,26 @@
+/*
+ * Load after tokens.css inside a ChatGPT app widget that uses @openai/apps-sdk-ui. Points Eyes tokens
+ * at the host's live variables, so the widget follows ChatGPT's theme exactly. Do not load it next
+ * to tailwind.css: that file defines the same names from Eyes tokens, which would make a cycle.
+ */
+:root,
+[data-theme] {
+  --eyes-text: var(--color-text);
+  --eyes-text-secondary: var(--color-text-secondary);
+  --eyes-text-tertiary: var(--color-text-tertiary);
+  --eyes-surface: var(--color-surface);
+  --eyes-surface-secondary: var(--color-surface-secondary);
+  --eyes-surface-tertiary: var(--color-surface-tertiary);
+  --eyes-border: var(--color-border);
+  --eyes-border-subtle: var(--color-border-subtle);
+  --eyes-border-strong: var(--color-border-strong);
+  --eyes-ring: var(--color-ring);
+  --eyes-success-bg: var(--color-background-success-soft);
+  --eyes-success-text: var(--color-text-success-soft);
+  --eyes-warning-bg: var(--color-background-warning-soft);
+  --eyes-warning-text: var(--color-text-warning-soft);
+  --eyes-danger-bg: var(--color-background-danger-soft);
+  --eyes-danger-text: var(--color-text-danger-soft);
+  --eyes-font: var(--font-sans);
+  --eyes-font-mono: var(--font-mono);
+}

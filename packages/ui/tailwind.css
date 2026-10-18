@@ -1,0 +1,34 @@
+/*
+ * Tailwind 4 entry for apps that use Eyes UI: tokens, components, and theme names so utilities like
+ * bg-surface, text-secondary, rounded-2xl and bg-accent resolve to Eyes tokens. Names follow
+ * @openai/apps-sdk-ui so the same class strings read the same inside a ChatGPT widget.
+ *
+ * Use: @import "tailwindcss"; @import "@eyes/ui/tailwind.css";
+ */
+@import "./tokens.css";
+@import "./components.css" layer(components);
+
+@theme inline {
+  --font-sans: var(--eyes-font);
+  --font-mono: var(--eyes-font-mono);
+
+  --color-default: var(--eyes-text);
+  --color-secondary: var(--eyes-text-secondary);
+  --color-tertiary: var(--eyes-text-tertiary);
+  --color-surface: var(--eyes-surface);
+  --color-surface-secondary: var(--eyes-surface-secondary);
+  --color-surface-tertiary: var(--eyes-surface-tertiary);
+  --color-subtle: var(--eyes-border-subtle);
+  --color-strong: var(--eyes-border-strong);
+  --color-accent: var(--eyes-accent);
+  --color-on-accent: var(--eyes-on-accent);
+  --color-success: var(--eyes-success-text);
+  --color-warning: var(--eyes-warning-text);
+  --color-danger: var(--eyes-danger-text);
+
+  --radius-sm: var(--eyes-radius-sm);
+  --radius-md: var(--eyes-radius-md);
+  --radius-lg: var(--eyes-radius-lg);
+  --radius-xl: var(--eyes-radius-xl);
+  --radius-2xl: var(--eyes-radius-2xl);
+}

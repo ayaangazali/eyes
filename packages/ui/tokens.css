@@ -1,0 +1,156 @@
+/*
+ * Eyes UI tokens.
+ *
+ * Built to sit inside ChatGPT apps: system fonts, the ChatGPT (@openai/apps-sdk-ui) neutral palette,
+ * and one brand accent used only on primary buttons, badges and the viewfinder frame. The values
+ * below copy the apps-sdk-ui light and dark palettes. Inside a ChatGPT widget, also load chatgpt.css
+ * so the live host theme wins. Tokens never read host names here: our own Tailwind theme defines
+ * those names too (tailwind.css), and reading them back would make a variable cycle.
+ *
+ * Theme: [data-theme="dark"|"light"] on any ancestor, otherwise the OS preference.
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --eyes-fb-text: #0d0d0d;
+  --eyes-fb-text-secondary: #5d5d5d;
+  --eyes-fb-text-tertiary: #8f8f8f;
+  --eyes-fb-surface: #ffffff;
+  --eyes-fb-surface-secondary: #f9f9f9;
+  --eyes-fb-surface-tertiary: #f3f3f3;
+  --eyes-fb-border: rgb(13 13 13 / 10%);
+  --eyes-fb-border-subtle: rgb(13 13 13 / 5%);
+  --eyes-fb-border-strong: rgb(13 13 13 / 15%);
+  --eyes-fb-ring: #0169cc;
+  --eyes-fb-success-bg: #d9f4e4;
+  --eyes-fb-success-text: #008635;
+  --eyes-fb-warning-bg: #ffe7d9;
+  --eyes-fb-warning-text: #923b0f;
+  --eyes-fb-danger-bg: #ffd9d9;
+  --eyes-fb-danger-text: #ba2623;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --eyes-fb-text: #ffffff;
+  --eyes-fb-text-secondary: #afafaf;
+  --eyes-fb-text-tertiary: #8f8f8f;
+  --eyes-fb-surface: #212121;
+  --eyes-fb-surface-secondary: #181818;
+  --eyes-fb-surface-tertiary: #131313;
+  --eyes-fb-border: rgb(255 255 255 / 12%);
+  --eyes-fb-border-subtle: rgb(255 255 255 / 6%);
+  --eyes-fb-border-strong: rgb(255 255 255 / 20%);
+  --eyes-fb-ring: #0285ff;
+  --eyes-fb-success-bg: rgb(4 184 76 / 16%);
+  --eyes-fb-success-text: #04b84c;
+  --eyes-fb-warning-bg: rgb(251 106 34 / 16%);
+  --eyes-fb-warning-text: #fb6a22;
+  --eyes-fb-danger-bg: rgb(250 66 62 / 16%);
+  --eyes-fb-danger-text: #fa423e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --eyes-fb-text: #ffffff;
+    --eyes-fb-text-secondary: #afafaf;
+    --eyes-fb-text-tertiary: #8f8f8f;
+    --eyes-fb-surface: #212121;
+    --eyes-fb-surface-secondary: #181818;
+    --eyes-fb-surface-tertiary: #131313;
+    --eyes-fb-border: rgb(255 255 255 / 12%);
+    --eyes-fb-border-subtle: rgb(255 255 255 / 6%);
+    --eyes-fb-border-strong: rgb(255 255 255 / 20%);
+    --eyes-fb-ring: #0285ff;
+    --eyes-fb-success-bg: rgb(4 184 76 / 16%);
+    --eyes-fb-success-text: #04b84c;
+    --eyes-fb-warning-bg: rgb(251 106 34 / 16%);
+    --eyes-fb-warning-text: #fb6a22;
+    --eyes-fb-danger-bg: rgb(250 66 62 / 16%);
+    --eyes-fb-danger-text: #fa423e;
+  }
+}
+
+/* Re-declared on every [data-theme] subtree so a dark panel inside a light page resolves its own values. */
+:root,
+[data-theme] {
+  /* Color: system neutrals */
+  --eyes-text: var(--eyes-fb-text);
+  --eyes-text-secondary: var(--eyes-fb-text-secondary);
+  --eyes-text-tertiary: var(--eyes-fb-text-tertiary);
+  --eyes-surface: var(--eyes-fb-surface);
+  --eyes-surface-secondary: var(--eyes-fb-surface-secondary);
+  --eyes-surface-tertiary: var(--eyes-fb-surface-tertiary);
+  --eyes-border: var(--eyes-fb-border);
+  --eyes-border-subtle: var(--eyes-fb-border-subtle);
+  --eyes-border-strong: var(--eyes-fb-border-strong);
+  --eyes-ring: var(--eyes-fb-ring);
+  --eyes-success-bg: var(--eyes-fb-success-bg);
+  --eyes-success-text: var(--eyes-fb-success-text);
+  --eyes-warning-bg: var(--eyes-fb-warning-bg);
+  --eyes-warning-text: var(--eyes-fb-warning-text);
+  --eyes-danger-bg: var(--eyes-fb-danger-bg);
+  --eyes-danger-text: var(--eyes-fb-danger-text);
+
+  /* Color: the one brand accent, "Viewfinder", the yellow of a camera's focus box.
+     Only on primary buttons, accent badges and viewfinder brackets. Never as text on a light surface. */
+  --eyes-accent: #ffd60a;
+  --eyes-accent-hover: #f2c800;
+  --eyes-accent-pressed: #e0b900;
+  --eyes-on-accent: #0d0d0d;
+  --eyes-accent-soft: rgb(255 214 10 / 24%);
+
+  /* Type: platform system fonts only (ChatGPT rule: no custom fonts) */
+  --eyes-font:
+    ui-sans-serif, -apple-system, system-ui, "Segoe UI", "Noto Sans", "Helvetica", "Arial", sans-serif;
+  --eyes-font-mono: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  --eyes-text-xs: 0.75rem;
+  --eyes-text-sm: 0.875rem;
+  --eyes-text-md: 1rem;
+  --eyes-text-lg: 1.125rem;
+  --eyes-heading-sm: 1.125rem;
+  --eyes-heading-md: 1.25rem;
+  --eyes-heading-lg: 1.5rem;
+  --eyes-heading-xl: 2rem;
+  --eyes-leading-body: 1.5;
+  --eyes-leading-heading: 1.25;
+  --eyes-weight-normal: 400;
+  --eyes-weight-medium: 500;
+  --eyes-weight-semibold: 600;
+
+  /* Space: 4 px grid, same base as apps-sdk-ui --spacing */
+  --eyes-space-1: 0.25rem;
+  --eyes-space-2: 0.5rem;
+  --eyes-space-3: 0.75rem;
+  --eyes-space-4: 1rem;
+  --eyes-space-5: 1.25rem;
+  --eyes-space-6: 1.5rem;
+  --eyes-space-8: 2rem;
+  --eyes-space-10: 2.5rem;
+  --eyes-tap: 2.75rem;
+  --eyes-measure: 34rem;
+
+  /* Shape: system corner rounds */
+  --eyes-radius-sm: 0.375rem;
+  --eyes-radius-md: 0.5rem;
+  --eyes-radius-lg: 0.625rem;
+  --eyes-radius-xl: 0.75rem;
+  --eyes-radius-2xl: 1rem;
+  --eyes-radius-full: 9999px;
+
+  /* Depth: hairlines first, one soft shadow for floating things */
+  --eyes-hairline: 0 0 0 1px var(--eyes-border);
+  --eyes-shadow-float: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
+
+  /* Motion: only in answer to an action */
+  --eyes-ease: cubic-bezier(0.2, 0, 0, 1);
+  --eyes-duration: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --eyes-duration: 0ms;
+  }
+}

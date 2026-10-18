@@ -3,10 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build"
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview"
   },
   "devDependencies": {
     "@eyes/core": "workspace:*",
-    "vite": "8.3.4"
+    "@eyes/ui": "workspace:*",
+    "@tailwindcss/vite": "4.3.3",
+    "astro": "7.3.1",
+    "tailwindcss": "4.3.3"
   }
 }

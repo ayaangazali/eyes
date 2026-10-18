@@ -1,0 +1,189 @@
+---
+import Icon from "../../components/Icon.astro";
+import Layout from "../../layouts/Layout.astro";
+
+// Wikimedia Commons references, people-free on purpose: Eyes never shows faces. Copies are served from
+// public/design/<task type>.jpg (640 px wide); hotlinking Commons left the tiles empty on the live site.
+const references = [
+  [
+    "San_Francisco_Ferry_Building_(cropped).jpg",
+    "is_open",
+    "The place as a worker sees it on arrival: one landmark, mid-day light, nothing staged.",
+  ],
+  [
+    "SSF BART SamTrans eastern bus stop sign and schedule.JPG",
+    "price_check",
+    "Posted notices are content. Signs, schedules and price boards get read, not decorated.",
+  ],
+  [
+    "UPS Store COVID-19 Policies.jpg",
+    "photo_of_place",
+    "Door signage: the honest, slightly messy texture of real storefronts.",
+  ],
+  [
+    "DSCF1116 Fresh root vegetables piled at a bustling market stall with fruits and produce blurred in the colorful background.jpg",
+    "in_stock",
+    "Shelves and stalls: color comes from the world in the photo, never from the UI.",
+  ],
+  [
+    "Aerial view of an empty car parking lot.jpg",
+    "crowd_level",
+    "Counting things, not people. Crowds read as density, never as faces or plates.",
+  ],
+] as const;
+const palette = [
+  ["Ink", "#0d0d0d", "Text. The host's own black."],
+  ["Paper", "#ffffff", "Surface in light mode."],
+  ["Fog", "#f3f3f3", "Quiet fills: secondary buttons, badges."],
+  ["Graphite", "#5d5d5d", "Secondary text and icons."],
+  ["Viewfinder", "#ffd60a", "The one accent: primary action, live badge, brackets."],
+  ["Verified", "#008635", "Passed checks only."],
+];
+---
+
+<Layout title="Eyes mood board" wide noindex>
+  <section>
+    <h1 class="hero-title">A camera that agents borrow</h1>
+    <p class="lede">
+      Eyes lets an AI agent see a street for a few dollars. The UI should feel like the moment a phone camera locks
+      focus: quiet chrome, one yellow frame, and a plain answer with its proof. It has to sit inside ChatGPT, so the
+      host owns type and neutrals; Eyes owns the viewfinder.
+    </p>
+  </section>
+
+  <ul class="ui-meta" aria-label="Keywords">
+    {
+      ["Viewfinder", "Street level", "Proof over polish", "Plain words", "Thumb reach", "No faces"].map((k) => (
+        <li class="ui-badge">{k}</li>
+      ))
+    }
+  </ul>
+
+  <section>
+    <h2 class="ui-h2">References</h2>
+    <div class="board">
+      {
+        references.map(([file, type, why]) => (
+          <figure class="board__item">
+            <div class="ui-viewfinder ui-viewfinder--compact">
+              <img src={`/design/${type}.jpg`} alt="" loading="lazy" data-source={file} />
+              <span class="ui-viewfinder__caption ui-badge ui-badge--accent">{type}</span>
+            </div>
+            <figcaption class="ui-field__hint">{why}</figcaption>
+          </figure>
+        ))
+      }
+    </div>
+    <p class="ui-field__hint">Photos: Wikimedia Commons, linked from their file pages.</p>
+  </section>
+
+  <section>
+    <h2 class="ui-h2">Color</h2>
+    <div class="palette">
+      {
+        palette.map(([name, hex, use]) => (
+          <div class="palette__chip">
+            <span class="palette__swatch" style={`background: ${hex}`} />
+            <strong>{name}</strong>
+            <span class="ui-text-sm ui-text-secondary ui-num">{hex}</span>
+            <span class="ui-text-sm ui-text-secondary">{use}</span>
+          </div>
+        ))
+      }
+    </div>
+  </section>
+
+  <section>
+    <h2 class="ui-h2">Type</h2>
+    <div class="ui-card">
+      <p class="specimen">Is oat milk in stock?</p>
+      <p class="ui-card__answer">Yes, two cartons left</p>
+      <ul class="ui-meta">
+        <li><Icon name="cash" /><strong>$3.00</strong></li>
+        <li><Icon name="clock" /><strong>4:59</strong> left</li>
+        <li><Icon name="pin" /><strong>38 m</strong> away</li>
+      </ul>
+      <p class="ui-field__hint">
+        System fonts only (SF Pro on iPhone), as ChatGPT requires. Personality comes from size and weight: a big,
+        tight question, a semibold answer, tabular numbers for money, time and distance.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2 class="ui-h2">Voice</h2>
+    <dl class="ui-kv voice">
+      <dt>Say</dt><dd>Take one photo at the place.</dd>
+      <dt>Not</dt><dd>Capture visual verification of the location.</dd>
+      <dt>Say</dt><dd>Another worker already claimed this task.</dd>
+      <dt>Not</dt><dd>Oops! Something went wrong.</dd>
+      <dt>Say</dt><dd>Nothing was charged.</dd>
+      <dt>Not</dt><dd>Your transaction could not be processed.</dd>
+    </dl>
+  </section>
+
+  <section>
+    <h2 class="ui-h2">Rules that keep it ChatGPT-native</h2>
+    <ul class="ui-checks">
+      {
+        [
+          "System fonts and ChatGPT's neutrals; inside a widget, chatgpt.css maps Eyes tokens to @openai/apps-sdk-ui.",
+          "Accent only on primary buttons, accent badges and viewfinder brackets. Never as text color.",
+          "Cards carry at most two actions, no tabs, no nested scrolling.",
+          "Outline, monochrome icons. No logo inside the widget: ChatGPT adds it.",
+          "No gradients or patterns as decoration. Photos keep a fixed 4:3 frame.",
+          "Contrast at WCAG AA in light and dark. Tap targets at least 44 px.",
+        ].map((rule) => (
+          <li class="ui-check ui-check--pass">
+            <span class="ui-check__mark">
+              <Icon name="check" />
+            </span>
+            <span>{rule}</span>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+
+  <a class="ui-button ui-button--primary" href="catalog.html">Open the component catalog</a>
+</Layout>
+
+<style>
+  .board {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr));
+    gap: var(--eyes-space-4);
+  }
+  .board__item {
+    display: grid;
+    gap: var(--eyes-space-2);
+    margin: 0;
+  }
+  .palette {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: var(--eyes-space-4);
+  }
+  .palette__chip {
+    display: grid;
+    gap: var(--eyes-space-1);
+  }
+  .palette__swatch {
+    height: 4.5rem;
+    border-radius: var(--eyes-radius-xl);
+    box-shadow: var(--eyes-hairline);
+  }
+  .specimen {
+    margin: 0;
+    font-size: clamp(2rem, 7vw, 3rem);
+    font-weight: var(--eyes-weight-semibold);
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+  }
+  .voice dt {
+    font-weight: var(--eyes-weight-medium);
+  }
+  .voice dd {
+    text-align: left;
+  }
+</style>

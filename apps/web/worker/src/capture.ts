@@ -166,7 +166,7 @@ function usePhoto(file: File, at: string) {
   preview.hidden = false;
   video.hidden = true;
   shutter.textContent = "Retake photo";
-  shutter.className = "secondary";
+  shutter.className = "ui-button ui-button--block";
   locate();
 }
 
@@ -182,8 +182,13 @@ function showResult({ status, message, verification: v }: CaptureResult) {
   $("checks").replaceChildren(
     ...checks.map(([label, ok]) => {
       const li = document.createElement("li");
-      li.className = ok ? "ok" : "fail";
-      li.textContent = `${label}: ${ok ? "passed" : "failed"}`;
+      li.className = `ui-check ui-check--${ok ? "pass" : "fail"}`;
+      li.innerHTML = `<span class="ui-check__mark"><svg class="ui-icon" aria-hidden="true"><use href="#i-${ok ? "check" : "x"}"></use></svg></span>`;
+      li.append(
+        Object.assign(document.createElement("span"), {
+          textContent: `${label}: ${ok ? "passed" : "failed"}`,
+        }),
+      );
       return li;
     }),
   );
@@ -199,7 +204,7 @@ shutter.addEventListener("click", () => {
     video.hidden = false;
     $("preview").hidden = true;
     shutter.textContent = "Take photo";
-    shutter.className = "";
+    shutter.className = "ui-button ui-button--primary ui-button--block";
     return ready();
   }
   const at = new Date().toISOString();
@@ -254,6 +259,10 @@ form.addEventListener("submit", async (event) => {
   }
 });
 
+// Agents that ask by coordinates get a "lat,lng" place label; people see it rounded to 3 decimals
+// (about 100 m). Same rule as placeName in @eyes/core, which this browser bundle cannot import.
+const COORDS = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+
 async function main() {
   if (!token)
     throw new Problem("This task link is incomplete.", "Open the full link from the newest Eyes text.");
@@ -262,12 +271,13 @@ async function main() {
   $("bounty").textContent = LIVE_PAYOUTS
     ? `$${offer.bounty_usd.toFixed(2)} for this task`
     : "Test task, no real pay";
+  const coords = COORDS.exec(offer.place_label);
   $("place").replaceChildren(
     Object.assign(document.createElement("a"), {
       href: `https://www.google.com/maps/search/?api=1&query=${offer.lat},${offer.lng}`,
       target: "_blank",
       rel: "noopener",
-      textContent: `${offer.place_label} (map)`,
+      textContent: `${coords ? `Near ${Number(coords[1]).toFixed(3)}, ${Number(coords[2]).toFixed(3)}` : offer.place_label} (map)`,
     }),
   );
   const lost = !offer.claimed_by_you && CLOSED[offer.status] === ALREADY_SENT;

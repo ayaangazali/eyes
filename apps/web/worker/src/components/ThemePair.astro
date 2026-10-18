@@ -1,0 +1,50 @@
+---
+// Renders the slot twice, light and dark, so every element in the catalog is reviewed in both themes.
+interface Props {
+  title: string;
+  note?: string;
+}
+
+const { title, note } = Astro.props;
+const html = await Astro.slots.render("default");
+---
+
+<section class="pair">
+  <header class="pair__head">
+    <h3 class="ui-h3">{title}</h3>
+    {note && <p class="ui-field__hint">{note}</p>}
+  </header>
+  <div class="pair__grid">
+    <div data-theme="light" class="ui pair__panel"><Fragment set:html={html} /></div>
+    <div data-theme="dark" class="ui pair__panel"><Fragment set:html={html} /></div>
+  </div>
+</section>
+
+<style>
+  .pair {
+    display: grid;
+    gap: var(--eyes-space-3);
+  }
+  .pair__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+    gap: var(--eyes-space-3);
+  }
+  .pair__panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--eyes-space-3);
+    padding: var(--eyes-space-5);
+    border-radius: var(--eyes-radius-2xl);
+    box-shadow: var(--eyes-hairline);
+  }
+  .pair__panel > :global(.ui-card),
+  .pair__panel > :global(.ui-form),
+  .pair__panel > :global(.ui-capture),
+  .pair__panel > :global(.ui-carousel),
+  .pair__panel > :global(.ui-viewfinder),
+  .pair__panel > :global(.full) {
+    flex: 1 1 100%;
+  }
+</style>
