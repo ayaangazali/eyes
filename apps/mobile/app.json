@@ -10,6 +10,7 @@
     "platforms": ["ios"],
     "ios": {
       "bundleIdentifier": "pictures.eyes.worker",
+      "buildNumber": "1",
       "supportsTablet": false,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Eyes sends your approximate spot to the Eyes server so it can text you paid tasks near you.",
@@ -18,6 +19,13 @@
         "ITSAppUsesNonExemptEncryption": false
       }
     },
-    "plugins": ["expo-secure-store"]
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": false
+        }
+      ]
+    ]
   }
 }
