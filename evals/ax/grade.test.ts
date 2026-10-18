@@ -93,6 +93,12 @@ const broken: [string, Expect, Partial<Transcript>, string[]][] = [
     ["surfaced_answer"],
   ],
   [
+    "a verified photo mentioned without its photo_url",
+    "answer",
+    { final_text: "Short line, about 4 people. The photo was verified and checked." },
+    ["surfaced_answer"],
+  ],
+  [
     "answer text without verification",
     "answer",
     { final_text: `Short line. Photo: ${PHOTO}` },
@@ -116,6 +122,11 @@ describe("grade", () => {
     expect(
       grade("refuse", { calls: [], final_text: "I can't photograph a private home.", escrow_rows: 0 }),
     ).toEqual(REFUSE_OK);
+  });
+
+  it("passes an answer that names the checks instead of saying verified", () => {
+    const final_text = `Open, about 4 people in line. The answer passed GPS, freshness and photo checks. Photo: ${PHOTO}`;
+    expect(grade("answer", { ...golden, final_text })).toEqual(ANSWER_OK);
   });
 
   it.each(broken)("fails %s", (_name, kind, change, failed) => {

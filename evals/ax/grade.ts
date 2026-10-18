@@ -38,7 +38,7 @@ export function grade(expect: Expect, t: Transcript): Record<string, boolean> {
     surfaced_answer:
       typeof answer?.photo_url === "string" &&
       t.final_text.includes(answer.photo_url) &&
-      /verif/i.test(t.final_text),
+      /verif|check/i.test(t.final_text),
     single_escrow: t.escrow_rows === 1,
   };
 }
