@@ -1205,17 +1205,17 @@ describe("ops dashboard", () => {
         link_secret: SECRET,
       }),
       env: { EYES_OPS_KEY: OPS_KEY },
-      events: { log: (e) => logged.push(e) } as EventLog,
+      events: { log: (e) => void logged.push(e), recent: () => [], flush: async () => {} } satisfies EventLog,
     });
     const smoke = { "user-agent": `${SMOKE_UA}1 (deliberate probes)` };
     const missing = await server.fetch(new Request("http://eyes.test/nope"));
-    const denied = await server.fetch(new Request("http://eyes.test/ops/tickets"));
-    const probe = await server.fetch(new Request("http://eyes.test/ops/tickets", { headers: smoke }));
+    const denied = await server.fetch(new Request("http://eyes.test/v1/balance"));
+    const probe = await server.fetch(new Request("http://eyes.test/v1/balance", { headers: smoke }));
     expect([missing.status, denied.status, probe.status]).toEqual([404, 401, 401]);
     expect(logged.map(({ level, summary }) => [level, summary.replace(/\d+ ms/, "ms")])).toEqual([
       ["info", "GET /nope 404 ms"],
-      ["warn", "GET /ops/tickets 401 ms"],
-      ["info", "GET /ops/tickets 401 ms (smoke probe)"],
+      ["warn", "GET /v1/balance 401 ms"],
+      ["info", "GET /v1/balance 401 ms (smoke probe)"],
     ]);
   });
 });

@@ -355,6 +355,9 @@ export function createServer(
     const status = c.res.status;
     const ms = Math.round(performance.now() - started);
     const webhook = /^\/webhooks\/(\w+)/.exec(path)?.[1];
+    // smoke:live sends unsigned webhooks and bad OAuth on purpose; 404s are scanners. Neither is our fault,
+    // so they log as info (still searchable by status) and never count as warnings. 5xx always stays an error.
+    const probe = c.req.header("user-agent")?.startsWith(SMOKE_UA) ?? false;
     log({
       kind: webhook ? "webhook" : "http",
       level: status >= 500 ? "error" : status >= 400 && status !== 404 && !probe ? "warn" : "info",
@@ -367,6 +370,7 @@ export function createServer(
         path,
         status,
         ms,
+        ...(probe && { probe: true }),
         ...(webhook && { provider: webhook }),
         // Location posts: a coarse device hint to tell a worker's devices apart (no IP, no coordinates).
         ...(/^\/(w|v1\/worker)\/location$/.test(path) && {
@@ -379,7 +383,6 @@ export function createServer(
   server.app.onError((err, c) => {
     const e = toEyesError(err);
     return c.json(e.toBody(), e.status as ContentfulStatusCode);
-        ...(probe && { probe: true }),
   });
 
   server.use("*", async (c, next) => {

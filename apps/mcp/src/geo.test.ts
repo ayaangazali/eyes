@@ -24,7 +24,7 @@ describe("createNominatimGeo", () => {
   });
 
   it("maps the first Nominatim hit, caches it, and returns null when nothing matches", async () => {
-    const fetch = vi.fn(async (url: string) =>
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) =>
       Response.json(
         url.includes("Nowhere") || url.includes("95.5")
           ? []
