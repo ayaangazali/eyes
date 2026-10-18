@@ -1918,15 +1918,7 @@ describe("ops dashboard", () => {
 });
 
 describe("ChatGPT and Claude widget", () => {
-  const WIDGET_TOOLS = [
-    "quote_task",
-    "ask_eyes",
-    "confirm_ask",
-    "await_answer",
-    "get_task",
-    "show_task",
-    "get_balance",
-  ];
+  const WIDGET_TOOLS = ["quote_task", "ask_eyes", "await_answer", "get_task", "show_task", "get_balance"];
 
   it("binds every card tool to the current resource in both MCP Apps and ChatGPT metadata", async () => {
     const client = await connect(setup().fetch);

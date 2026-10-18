@@ -620,7 +620,8 @@ Next: only if status is "dispatched", call await_answer with the returned task_i
       outputSchema: AskEyesToolOutput,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
       _meta: {
-        ...widgetToolMeta("Texting nearby workers", "Task posted"),
+        "openai/toolInvocation/invoking": "Texting nearby workers",
+        "openai/toolInvocation/invoked": "Task posted",
         "openai/visibility": "private",
       },
     },
