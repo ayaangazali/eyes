@@ -1,6 +1,6 @@
 # Eyes
 
-Eyes lets an AI agent pay a nearby human a few dollars to check something in a public place right now and get back a verified answer with a live photo.
+Eyes lets an AI agent ask a nearby human to check a public place and return an answer with a live photo. Eyes checks location, capture freshness and narrow photo-moderation rules; those checks do not guarantee the answer is correct. Current payments use test credits, not real money.
 
 ## Supported tasks
 

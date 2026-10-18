@@ -15,7 +15,7 @@ Current production: the MCP/API application runs on **Manufact Cloud**, server `
 
 Cloudflare's `eyes-api` Worker forwards `mcp.eyes.pictures`, `api.eyes.pictures` and `internal.eyes.pictures` to the same Manufact `ORIGIN`. The optional Manufact gateway is a separate proxy, not the application host. Landing and worker pages remain on Cloudflare.
 
-### Dedicated MCP domain staging
+### Dedicated MCP domain: live
 
 `https://mcp.eyes.pictures/mcp` is **live, with ChatGPT and Claude configured there**. The current registry has 13 tools, including `show_task`, `accept_answer`, `report_classifier` and `get_classifier_report`. The shared card resource is `ui://eyes/card.html`; the legacy React-view build is removed. Not every third-party connector has migrated; existing API-host and gateway configurations remain supported.
 
@@ -51,7 +51,7 @@ Server secrets belong in the Manufact environment, not in committed files. Keep 
 
 Earlier hosting verification (before the current 13-tool registry): protected-resource metadata and authentication challenge matched the public host; the Cloudflare edge forwarded to Manufact with its container inactive. Ops sign-in, MCP initialization, the then-current 10 tools, free quote and widget domains passed. The dated evidence is historical, not a current full-client visual result.
 
-Historical hosting note: the API ran on Cloudflare Containers before this cutover. The 2026-10-18 Cloudflare rollout measurement was about two minutes; that is not a Manufact deployment timing or verification result. The legacy container path remains in `apps/edge/api`, but is not the current server host.
+Historical hosting note: Cloudflare Containers was a former API host. Its dated rollout measurements and procedures are retained only as history, not as a supported recovery path for the current Manufact-hosted application.
 
 Ops and ClickHouse settings (any host):
    Ops dashboard: `https://internal.eyes.pictures` (its own public host, forwarded by `eyes-api` to the same Manufact server). The server derives it from `EYES_PUBLIC_API_URL` by swapping `api.` for `internal.`; set `EYES_OPS_URL` to use another name. On that host the root is the dashboard and nothing else of the API answers; on the API host `/ops*` answers 301 to it; on loopback `/ops` still works for local runs. It sits behind the operator allowlist (`ops_allowlist`; migration 015 seeds only placeholders, so add real operators at `/allowlist`, signing in the first time with `EYES_OPS_KEY`). An operator signs in at `/login` with a code sent by text (Inkbox) or email (Primitive); the session cookie lasts 12 h. Optional break-glass: `EYES_OPS_KEY` (32+ random chars, `openssl rand -hex 32`); opening `https://internal.eyes.pictures/<EYES_OPS_KEY>` signs the browser in without a code. Shorter than 32 characters, the server refuses to start. Never post that URL publicly, in a screenshot, an issue or a shared chat; to revoke it set a new key and restart.

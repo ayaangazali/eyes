@@ -43,10 +43,6 @@ The actual MCP/API server is hosted on **Manufact Cloud**, server `eyes-prod`, a
 
 All MCP endpoints reach the same server and the same 13 tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `accept_answer`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`. `show_task` shares `ui://eyes/card.html` with the other cards; the legacy React-view build was removed. The optional [Manufact gateway](https://docs.manufact.com/dashboard/connect-existing-server) remains a proxy in front of `api.eyes.pictures`, separate from the server host. Every bearer client sends its own Eyes API key.
 
-<a id="dedicated-mcp-domain-prepared-not-active"></a>
-
-<a id="dedicated-mcp-domain-ready-for-connector-migration"></a>
-
 ## Dedicated MCP domain: live
 
 `https://mcp.eyes.pictures/mcp` is live, with ChatGPT and Claude configured there. Matching OAuth and card metadata are verified. Existing third-party connectors at `https://api.eyes.pictures/mcp` remain supported; not every client has migrated. Follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18; this is not a general ChatGPT or Claude limitation. See [STATUS](../STATUS.md).
@@ -60,7 +56,7 @@ Verified dedicated-host values:
 | Card origins | ChatGPT `openai/widgetDomain`: `https://mcp.eyes.pictures`; Claude `_meta.ui.domain`: `87d4a8d03df273ec472729285f051938.claudemcpcontent.com` (first 32 hex characters of SHA-256 of the exact new connector URL). |
 | REST, uploads and webhooks | Stay at `https://api.eyes.pictures`; existing API keys and optional gateway configuration stay unchanged. Existing `api.eyes.pictures/mcp` connectors retain their API-host OAuth issuer and card origins. |
 
-For a new connector, use the dedicated host in the web steps above. Only when an owner chooses to migrate another existing connector, change its MCP URL to `https://mcp.eyes.pictures/mcp` and reconnect through OAuth. Leave REST URLs unchanged. See [DEPLOY.md](DEPLOY.md#dedicated-mcp-domain-staging) for dated verification evidence.
+For a new connector, use the dedicated host in the web steps above. Only when an owner chooses to migrate another existing connector, change its MCP URL to `https://mcp.eyes.pictures/mcp` and reconnect through OAuth. Leave REST URLs unchanged. See [DEPLOY.md](DEPLOY.md#dedicated-mcp-domain-live) for dated verification evidence.
 
 ## 1. Get an Eyes API key
 
