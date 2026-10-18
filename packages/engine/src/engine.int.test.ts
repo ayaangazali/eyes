@@ -302,6 +302,38 @@ describe.skipIf(!url)("engine on Postgres", () => {
     );
   });
 
+  it("APP adds a second line with the TestFlight link when EYES_TESTFLIGHT_URL is set", async () => {
+    const link = "https://testflight.apple.com/join/TESTLINK1";
+    const withLink = createEyesService({
+      ...deps,
+      config: AppConfig.parse({ ...deps.config, testflight_url: link }),
+    });
+    const { phone } = await worker(somewhere());
+    await withLink.handleWorkerReply({ phone, intent: "app", text: "APP" });
+    const lines = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toMatch(
+      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
+    );
+    expect(lines[1]).toBe(`Don't have the app? ${link}`);
+  });
+
+  it("START puts the TestFlight install link before the app link when EYES_TESTFLIGHT_URL is set", async () => {
+    const link = "https://testflight.apple.com/join/TESTLINK1";
+    const withLink = createEyesService({
+      ...deps,
+      config: AppConfig.parse({ ...deps.config, testflight_url: link }),
+    });
+    const { phone } = await worker(somewhere());
+    await withLink.handleWorkerReply({ phone, intent: "start", text: "START" });
+    const lines = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
+    expect(lines).toHaveLength(2);
+    expect(lines[0]).toBe(`Install the Eyes iPhone app first: ${link}`);
+    expect(lines[1]).toMatch(
+      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
+    );
+  });
+
   it("returns outputs that parse against the frozen contract schemas on every service call", async () => {
     const at = somewhere();
     const signup = SignupOutput.parse(await service.signupAgent({ name: "contract-agent" }));
