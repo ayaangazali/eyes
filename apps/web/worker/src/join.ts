@@ -30,7 +30,8 @@ $("locate").addEventListener("click", () => {
   navigator.geolocation.getCurrentPosition(
     ({ coords }) => {
       spot = { lat: coords.latitude, lng: coords.longitude };
-      $("where").textContent = `Location set (within ${Math.round(coords.accuracy)} m).`;
+      $("locate").textContent = "✓ Location set";
+      $("where").textContent = `Accurate to ${Math.round(coords.accuracy)} m. Tap again to update it.`;
     },
     (err) => {
       $("where").textContent = "";

@@ -740,6 +740,10 @@ describe("parseReplyIntent", () => {
     ["download", "install"],
     ["TestFlight", "install"],
     ["install?", "unknown"],
+    ["TASK", "task"],
+    ["task", "task"],
+    ["Link", "task"],
+    ["task?", "unknown"],
     ["here?", "unknown"],
   ])("%j -> %s", (text, intent) => {
     expect(parseReplyIntent(text)).toBe(intent);

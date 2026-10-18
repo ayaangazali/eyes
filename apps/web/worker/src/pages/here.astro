@@ -1,6 +1,9 @@
 ---
+import { smsHref } from "../api.ts";
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
+
+const hereSms = smsHref("HERE");
 ---
 
 <Layout
@@ -12,13 +15,21 @@ import Layout from "../layouts/Layout.astro";
   <h1 class="ui-h1">Update my spot</h1>
   <p class="ui-text-secondary">Eyes offers you tasks near your latest spot. We keep only that one spot and delete it when you text STOP.</p>
 
-  <button type="button" id="update" class="ui-button ui-button--primary ui-button--block">
-    <Icon name="locate" /> Update my spot
-  </button>
-  <p id="done" class="ui-notice" role="status" hidden></p>
-  <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+  <section id="ready">
+    <button type="button" id="update" class="ui-button ui-button--primary ui-button--block">
+      <Icon name="locate" /> Update my spot
+    </button>
+    <p id="done" class="ui-notice" role="status" hidden></p>
+    <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+    <p class="ui-field__hint">Link expired? Text HERE to the Eyes number for a new one.</p>
+  </section>
 
-  <p class="ui-field__hint">Link expired? Text HERE to the Eyes number for a new one.</p>
+  <section id="missing" hidden>
+    <p class="ui-notice">
+      <Icon name="message" /> This link has no code.{!hereSms && " Text HERE to the Eyes number for a new link."}
+    </p>
+    {hereSms && <a class="ui-button ui-button--primary ui-button--block" href={hereSms}>Text HERE for a new link</a>}
+  </section>
 </Layout>
 
 <script>
@@ -26,7 +37,13 @@ import Layout from "../layouts/Layout.astro";
   import { wireHere } from "../here.ts";
 
   wireHere(
-    { button: $<HTMLButtonElement>("update"), done: $("done"), error: $("error") },
+    {
+      button: $<HTMLButtonElement>("update"),
+      done: $("done"),
+      error: $("error"),
+      ready: $("ready"),
+      missing: $("missing"),
+    },
     {
       token: new URLSearchParams(location.search).get("t") ?? "",
       geolocation: navigator.geolocation,

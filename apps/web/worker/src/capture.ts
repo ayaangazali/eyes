@@ -1,5 +1,5 @@
 import type { CaptureResult, OfferView, TaskStatus, TaskType } from "@eyes/core";
-import { $, call, LIVE_PAYOUTS, LOCATION_HELP, Problem, showError } from "./api.ts";
+import { $, call, LIVE_PAYOUTS, LOCATION_HELP, Problem, showError, smsHref } from "./api.ts";
 
 const ALREADY_SENT = "A photo was already sent for this task. Nothing else to do.";
 const CLOSED: Record<TaskStatus, string> = {
@@ -301,4 +301,7 @@ async function main() {
 main().catch((err) => {
   $("question").textContent = "We could not open this task";
   showError(error, err);
+  // TASK texts back the link for the worker's open task, or says there is none.
+  const taskText = smsHref("TASK");
+  if (taskText) Object.assign($<HTMLAnchorElement>("newlink"), { href: taskText, hidden: false });
 });

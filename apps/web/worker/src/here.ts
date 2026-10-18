@@ -1,6 +1,12 @@
 import { LOCATION_HELP, Problem } from "./api.ts";
 
-export type HereElements = { button: HTMLButtonElement; done: HTMLElement; error: HTMLElement };
+export type HereElements = {
+  button: HTMLButtonElement;
+  done: HTMLElement;
+  error: HTMLElement;
+  ready: HTMLElement;
+  missing: HTMLElement;
+};
 
 export type HereDeps = {
   token: string;
@@ -31,14 +37,17 @@ export function serverProblem(err: unknown): unknown {
 }
 
 export function wireHere(els: HereElements, deps: HereDeps): void {
+  // Without a code the update cannot work, so the page shows only the way to get a new link.
+  if (!deps.token) {
+    els.ready.hidden = true;
+    els.missing.hidden = false;
+    return;
+  }
   els.button.addEventListener("click", async () => {
     els.button.disabled = true;
     els.done.hidden = true;
     els.error.hidden = true;
     try {
-      if (!deps.token) {
-        throw new Problem("This link is missing its code.", "Text HERE to the Eyes number for a new link.");
-      }
       if (!deps.geolocation) throw new Problem("This browser cannot share your location.", LOCATION_HELP);
       const pos = await currentPosition(deps.geolocation).catch((err: GeolocationPositionError) => {
         throw locationProblem(err);

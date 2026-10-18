@@ -143,7 +143,7 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
 const REPLY_TEXT: Record<"no" | "released" | "help" | "unknown", string> = {
   no: "No problem, we will text you the next task nearby.",
   released: "Got it, the task is released. Thanks.",
-  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out.",
+  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, TASK for your task link, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out.",
   unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
 const SIMULATED_PAY = "This is a test server and payouts are simulated, so no real money is paid.";
@@ -1044,8 +1044,22 @@ export function createEyesService(deps: EngineDeps): EyesService {
             phone,
             config.testflight_url
               ? `Get the Eyes iPhone app: 1) Install TestFlight and Eyes here: ${config.testflight_url} 2) Then text APP to connect it.`
-              : "The Eyes app isn't available yet. Text HERE to share your spot from the browser.",
+              : "The Eyes app is in Apple's review. Text HERE to share your spot meanwhile.",
           ),
+        // ADR-027: the live capture link again. Newest claim first; a claim past its deadline
+        // stays 'claimed' until the sweep expires it, so the deadline is checked here.
+        task: async () => {
+          const earnings = await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: worker.id });
+          const claimed = earnings?.tasks.find((t) => t.status === "claimed");
+          const found = claimed && (await maybe<Detail>("eyes_task_detail", { p_task_id: claimed.task_id }));
+          const open = found && new Date(found.task.deadline_at) > now() ? found.task : null;
+          await messaging.sendText(
+            phone,
+            open
+              ? `Eyes: here is the link for your task: ${captureUrl(open, worker.id)}`
+              : "You have no open task right now. We'll text you when one is near.",
+          );
+        },
         shortcut: async () => {
           const code = await mintLocationCode(worker.id);
           await messaging.sendText(

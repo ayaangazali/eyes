@@ -6,24 +6,39 @@ test("/app hands the fragment code to the app and clears it from the address bar
   const requests: string[] = [];
   page.on("request", (r) => requests.push(r.url()));
   await page.goto(`/app.html#c=${code}`, { waitUntil: "commit" });
-  const open = page.getByRole("link", { name: "Open in the Eyes app" });
+  const open = page.getByRole("link", { name: "Install / open Eyes app" });
   await expect(open).toBeVisible();
   await expect(open).toHaveAttribute("href", `eyes://connect#c=${code}`);
-  if (process.env.VITE_TESTFLIGHT_URL) {
-    await expect(page.getByRole("link", { name: "Install it with TestFlight" })).toHaveAttribute(
-      "href",
-      process.env.VITE_TESTFLIGHT_URL,
-    );
-  } else {
-    await expect(page.getByText("Ask the Eyes team for an invite")).toBeVisible();
-  }
   expect(new URL(page.url()).hash).toBe("");
   expect(requests.filter((u) => u.includes(code) && !u.startsWith("eyes:"))).toEqual([]);
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");
 });
 
-test("/app without a code says to text APP", async ({ page }) => {
+test("/app sends a tap with no app to TestFlight, or to the text-HERE step without TestFlight", async ({
+  page,
+}) => {
+  const testflight = process.env.VITE_TESTFLIGHT_URL;
+  if (testflight) await page.route(testflight, (r) => r.fulfill({ body: "TestFlight" }));
+  await page.goto(`/app.html#c=${code}`);
+  await page.getByRole("link", { name: "Install / open Eyes app" }).click();
+  if (testflight) {
+    await page.waitForURL(testflight);
+  } else {
+    await expect(page.getByText("The Eyes app is in Apple's review.")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Text HERE to Eyes" })).toHaveAttribute(
+      "href",
+      "sms:+14155550100?&body=HERE",
+    );
+    await expect(page.getByRole("link", { name: "Install / open Eyes app" })).toBeHidden();
+  }
+});
+
+test("/app without a code offers a text APP button", async ({ page }) => {
   await page.goto("/app.html");
-  await expect(page.getByText("Text APP to the Eyes number")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Open in the Eyes app" })).toBeHidden();
+  await expect(page.getByText("This link has no code.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Text APP for a new link" })).toHaveAttribute(
+    "href",
+    "sms:+14155550100?&body=APP",
+  );
+  await expect(page.getByRole("link", { name: "Install / open Eyes app" })).toBeHidden();
 });

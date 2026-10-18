@@ -6,6 +6,7 @@ declare global {
     readonly VITE_INKBOX_NUMBER?: string;
     readonly VITE_INKBOX_CONNECT?: string;
     readonly VITE_LIVE_PAYOUTS?: string;
+    readonly VITE_TESTFLIGHT_URL?: string;
   }
   interface ImportMeta {
     readonly env: ImportMetaEnv;
@@ -46,6 +47,10 @@ export class Problem extends Error {
 }
 
 export const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
+
+/** `sms:` link to the Eyes number with the body filled in; null when the build has no number. */
+export const smsHref = (body: string, number = import.meta.env.VITE_INKBOX_NUMBER) =>
+  number ? `sms:${number}?&body=${encodeURIComponent(body)}` : null;
 
 export async function call<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${import.meta.env.VITE_EYES_API_URL ?? ""}${path}`, init).catch(() => {

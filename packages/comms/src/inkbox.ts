@@ -124,6 +124,8 @@ const INTENTS: Record<string, ReplyIntent> = {
   install: "install",
   download: "install",
   testflight: "install",
+  task: "task",
+  link: "task",
 };
 
 export function parseReplyIntent(text: string): ReplyIntent {

@@ -154,6 +154,14 @@ describe("capture page", () => {
     expect(byId("error").hidden).toBe(false);
   });
 
+  it("offers a prefilled TASK text when the link fails and the build has the Eyes number", async () => {
+    vi.stubEnv("VITE_INKBOX_NUMBER", "+14155550100");
+    await load({ search: "" });
+    await vi.waitFor(() => expect(byId("newlink").hidden).toBe(false));
+    expect((byId("newlink") as El & { href?: string }).href).toBe("sms:+14155550100?&body=TASK");
+    vi.unstubAllEnvs();
+  });
+
   it("closes the task once its deadline has passed", async () => {
     await load({ offer: makeOffer({ deadline_at: new Date(Date.now() - 1_000).toISOString() }) });
     await vi.waitFor(() => expect(byId("closed").hidden).toBe(false));

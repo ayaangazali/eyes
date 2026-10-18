@@ -848,15 +848,30 @@ describe("routes", () => {
     expect(res.status).toBe(200);
     const page = await res.text();
     expect(page).toContain("Texting: live");
+    expect(page).toContain("Email: simulated");
     expect(page).toContain("Payments: simulated");
-    expect(page).toContain("Database: InsForge");
+    expect(page).toContain("Photos: simulated");
+    expect(page).toContain("Photo moderation: simulated");
+    expect(page).toContain("Database: live");
+    expect(page).toContain("money ledger (InsForge)");
     expect(page).toContain("<code>0123456789ab</code>");
+    const rows =
+      page
+        .split('<ul class="rows">')[1]
+        ?.split("</ul>")[0]
+        ?.match(/<li>.*?<\/li>/g) ?? [];
+    expect(rows).toHaveLength(9);
+    for (const row of rows)
+      expect(row).toMatch(/^<li><span class="dot (live|simulated|neutral)" aria-hidden="true"><\/span><b>/);
+    expect(rows[0]).toContain('class="dot live"');
+    expect(rows[1]).toContain('class="dot simulated"');
     const bare = await (
       await setup({}, { DATABASE_URL: "postgres://x" }).fetch("http://eyes.test/status")
     ).text();
     expect(bare).toContain("Texting: simulated");
-    expect(bare).toContain("Database: Postgres");
-    expect(bare).toContain("Deployed commit: not recorded");
+    expect(bare).toContain("money ledger (Postgres)");
+    expect(bare).not.toContain("Deployed commit");
+    expect(bare).not.toContain("not recorded");
   });
 
   it("says on /status and the home page what is simulated and whether the safety classifier is on", async () => {
@@ -894,9 +909,9 @@ describe("routes", () => {
       expect(texting, path).not.toContain("Place lookup is simulated");
       expect(texting, path).not.toContain("Ferry Building");
     }
-    expect(await page({}, "/status")).toContain("Safety review: rules only");
+    expect(await page({}, "/status")).toContain("Safety check: rules only");
     expect(await page({ ANTHROPIC_API_KEY: secret }, "/status")).toContain(
-      "Safety review: rules and AI classifier",
+      "Safety check: rules and AI classifier",
     );
     expect(await page({}, "/")).toContain("Safety review is rules only here");
     expect(await page({ ANTHROPIC_API_KEY: secret }, "/")).toContain(

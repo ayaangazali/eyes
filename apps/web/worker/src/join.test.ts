@@ -183,7 +183,8 @@ describe("join form", () => {
   it("reads the GPS fix and reports its accuracy in whole metres", async () => {
     gpsOk(12.4);
     await fire("locate", "click");
-    expect(byId("where").textContent).toBe("Location set (within 12 m).");
+    expect(byId("locate").textContent).toBe("✓ Location set");
+    expect(byId("where").textContent).toBe("Accurate to 12 m. Tap again to update it.");
   });
 
   it("explains the permission path when location is denied", async () => {

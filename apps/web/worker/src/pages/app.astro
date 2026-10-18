@@ -1,8 +1,10 @@
 ---
+import { smsHref } from "../api.ts";
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
 
-const testflightUrl: string | undefined = import.meta.env.VITE_TESTFLIGHT_URL || undefined;
+const appSms = smsHref("APP");
+const hereSms = smsHref("HERE");
 ---
 
 <Layout
@@ -16,16 +18,25 @@ const testflightUrl: string | undefined = import.meta.env.VITE_TESTFLIGHT_URL ||
     The app tells Eyes roughly where you are, so paid tasks near you find you. One tap connects it to your number.
   </p>
 
-  <div id="ready" hidden>
+  <section id="ready" hidden>
     <a id="open" class="ui-button ui-button--primary ui-button--block" href="eyes://connect">
-      <Icon name="expand" /> Open in the Eyes app
+      <Icon name="expand" /> Install / open Eyes app
     </a>
-    <p class="ui-field__hint" style="margin-top:.75rem">Don't have the app yet? {testflightUrl ? <a href={testflightUrl}>Install it with TestFlight</a> : "Ask the Eyes team for an invite (TestFlight coming)."}</p>
-  </div>
+  </section>
 
-  <p id="missing" class="ui-notice" hidden>
-    <Icon name="message" /> This link has no code. Text APP to the Eyes number for a new link.
-  </p>
+  <section id="review" hidden>
+    <p class="ui-notice">
+      <Icon name="message" /> The Eyes app is in Apple's review. Text HERE to share your spot meanwhile.
+    </p>
+    {hereSms && <a class="ui-button ui-button--primary ui-button--block" href={hereSms}>Text HERE to Eyes</a>}
+  </section>
+
+  <section id="missing" hidden>
+    <p class="ui-notice">
+      <Icon name="message" /> This link has no code.{!appSms && " Text APP to the Eyes number for a new link."}
+    </p>
+    {appSms && <a class="ui-button ui-button--primary ui-button--block" href={appSms}>Text APP for a new link</a>}
+  </section>
 </Layout>
 
 <script>
@@ -38,17 +49,27 @@ const testflightUrl: string | undefined = import.meta.env.VITE_TESTFLIGHT_URL ||
     search: location.search,
     replaceUrl: (url) => history.replaceState(null, "", url),
     reveal: (id) => {
-      (document.getElementById(id) as HTMLElement).hidden = false;
+      for (const section of document.querySelectorAll<HTMLElement>("main > section")) {
+        section.hidden = section.id !== id;
+      }
     },
     setHref: (id, href) => {
       (document.getElementById(id) as HTMLAnchorElement).href = href;
     },
     onLoad: (fn) => addEventListener("load", fn),
+    onTap: (fn) =>
+      document.getElementById("open")?.addEventListener("click", (e) => {
+        e.preventDefault();
+        fn();
+      }),
     later: (fn, ms) => {
       setTimeout(fn, ms);
     },
     navigate: (url) => {
       location.href = url;
     },
+    doc: document,
+    win: window,
+    testflightUrl: import.meta.env.VITE_TESTFLIGHT_URL,
   });
 </script>

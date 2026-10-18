@@ -319,6 +319,11 @@ textarea.ui-input {
   font-size: var(--eyes-text-sm);
 }
 
+/* No icon: plain block, so text nodes set by script (message, <br>, fix) stay in one column. */
+.ui-notice:not(:has(> .ui-icon)) {
+  display: block;
+}
+
 .ui-notice > .ui-icon {
   margin-top: 0.125rem;
   color: var(--eyes-text-secondary);
@@ -660,7 +665,12 @@ textarea.ui-input {
 .ui-form__fineprint {
   margin: 0;
   color: var(--eyes-text-secondary);
-  font-size: var(--eyes-text-xs);
+  font-size: 0.8125rem; /* 13px floor for legal text */
+}
+
+/* Inline padding grows the tap area to 44px without changing the line box. */
+.ui-form__fineprint .ui-link {
+  padding-block: calc((var(--eyes-tap) - 1em) / 2);
 }
 
 /* Capture: the worker's camera screen. Viewfinder, shutter, answer, send. The send bar sticks

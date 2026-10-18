@@ -271,7 +271,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const help = String(outbox.findLast((m) => m.to === phone)?.payload);
     const [text, url] = help.split(" Your earnings: ");
     expect(text).toBe(
-      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out. More: https://w.eyes.test",
+      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, TASK for your task link, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out. More: https://w.eyes.test",
     );
     expect(url).toMatch(/^https:\/\/api\.eyes\.test\/w\/earnings\/[\w-]+\.[\w-]+$/);
     expect(await service.workerEarnings(earningsToken(url))).toEqual({
@@ -282,11 +282,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(help.length).toBeLessThanOrEqual(1600);
   });
 
-  it("INSTALL says the app isn't available yet while no TestFlight link is set", async () => {
+  it("INSTALL says the app is in Apple's review while no TestFlight link is set", async () => {
     const { phone } = await worker(somewhere());
     await service.handleWorkerReply({ phone, intent: "install", text: "INSTALL" });
     expect(String(outbox.findLast((m) => m.to === phone)?.payload)).toBe(
-      "The Eyes app isn't available yet. Text HERE to share your spot from the browser.",
+      "The Eyes app is in Apple's review. Text HERE to share your spot meanwhile.",
     );
   });
 
@@ -1267,6 +1267,39 @@ describe.skipIf(!url)("engine on Postgres", () => {
       status: "verified",
       answer: { answer_text: "short" },
     });
+  });
+
+  it("TASK texts the live capture link for the worker's open claim, and the no-task text when none is open, submitted or expired", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const w = await worker(north(at, 50));
+    const none = "You have no open task right now. We'll text you when one is near.";
+    const task = async () => {
+      await service.handleWorkerReply({ phone: w.phone, intent: "task", text: "TASK" });
+      return outbox.findLast((m) => m.to === w.phone)?.payload;
+    };
+    const claimLink = async () => {
+      await reply(w.phone);
+      return String(
+        outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link")?.payload.capture_url,
+      );
+    };
+
+    expect(await task()).toBe(none);
+
+    await ask(a, at);
+    const link = await claimLink();
+    expect(await task()).toBe(`Eyes: here is the link for your task: ${link}`);
+    await capture(new URL(link).searchParams.get("t") ?? "", at);
+    expect(await task()).toBe(none);
+
+    const { task_id } = await ask(a, at);
+    const next = await claimLink();
+    expect(next).not.toBe(link);
+    expect(await task()).toBe(`Eyes: here is the link for your task: ${next}`);
+    const past = new Date(providers.clock.now().getTime() - 60_000);
+    await sql`update tasks set deadline_at = ${past} where id = ${task_id}`;
+    expect(await task()).toBe(none);
   });
 
   it("a released task is offered again to idle workers it was offered to, never the busy or the releaser, and their YES claims it", async () => {

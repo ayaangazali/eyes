@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { call, LOCATION_HELP, Problem, showError } from "./api.ts";
+import { call, LOCATION_HELP, Problem, showError, smsHref } from "./api.ts";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -169,5 +169,16 @@ describe("showError()", () => {
     const [strong, , fix] = el.replaceChildren.mock.calls[0] ?? [];
     expect(strong).toEqual({ tag: "strong", textContent: "Error: boom" });
     expect(fix).toBe("Reload the page and try again.");
+  });
+});
+
+describe("smsHref()", () => {
+  it("builds an sms: link to the given number with the body encoded", () => {
+    expect(smsHref("HELP me", "+14155550100")).toBe("sms:+14155550100?&body=HELP%20me");
+  });
+
+  it("returns null when the build has no Eyes number", () => {
+    vi.stubEnv("VITE_INKBOX_NUMBER", "");
+    expect(smsHref("APP")).toBeNull();
   });
 });

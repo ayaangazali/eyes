@@ -25,9 +25,11 @@ function harness(o: Partial<HereDeps> = {}) {
   const button = { disabled: false, addEventListener: vi.fn() };
   const done = { hidden: true, textContent: "" };
   const error = { hidden: true, textContent: "" };
+  const ready = { hidden: false };
+  const missing = { hidden: true };
   const send = o.send ? vi.fn(o.send) : vi.fn(async (_path: string, _init: RequestInit) => ({}) as unknown);
   const report = o.report ? vi.fn(o.report) : vi.fn((_el: HTMLElement, _err: unknown) => {});
-  wireHere({ button, done, error } as unknown as HereElements, {
+  wireHere({ button, done, error, ready, missing } as unknown as HereElements, {
     token: o.token ?? "tok",
     geolocation: "geolocation" in o ? o.geolocation : okGeo(),
     send,
@@ -35,7 +37,7 @@ function harness(o: Partial<HereDeps> = {}) {
   });
   const listener = button.addEventListener.mock.calls[0]?.[1] as () => Promise<void>;
   const click = () => listener();
-  return { button, done, error, send, report, click };
+  return { button, done, error, ready, missing, send, report, click };
 }
 
 describe("currentPosition", () => {
@@ -100,9 +102,11 @@ describe("serverProblem", () => {
 });
 
 describe("wireHere", () => {
-  it("registers one click handler on the button", () => {
-    const { button } = harness();
+  it("registers one click handler on the button and keeps the update step showing", () => {
+    const { button, ready, missing } = harness();
     expect(button.addEventListener).toHaveBeenCalledWith("click", expect.any(Function));
+    expect(ready.hidden).toBe(false);
+    expect(missing.hidden).toBe(true);
   });
 
   it("sends the fix, shows the spot, and re-enables the button", async () => {
@@ -137,15 +141,11 @@ describe("wireHere", () => {
     expect(error.hidden).toBe(true);
   });
 
-  it("tells the user the link has no code, and sends nothing", async () => {
-    const { button, error, send, report, click } = harness({ token: "" });
-    await click();
-    expect(send).not.toHaveBeenCalled();
-    expect(report).toHaveBeenCalledWith(
-      error,
-      expect.objectContaining({ message: "This link is missing its code." }),
-    );
-    expect(button.disabled).toBe(false);
+  it("shows only the text-HERE step when the link has no code", () => {
+    const { button, ready, missing } = harness({ token: "" });
+    expect(ready.hidden).toBe(true);
+    expect(missing.hidden).toBe(false);
+    expect(button.addEventListener).not.toHaveBeenCalled();
   });
 
   it("says this browser cannot share location when geolocation is missing", async () => {

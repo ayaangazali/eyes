@@ -19,6 +19,7 @@ import Layout from "../layouts/Layout.astro";
 
   <p id="closed" class="ui-notice" role="status" hidden></p>
   <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+  <a id="newlink" class="ui-button ui-button--primary ui-button--block" hidden>Text TASK for a new link</a>
   <button type="button" id="relocate" class="ui-button ui-button--block" hidden>Try location again</button>
 
   <form id="capture" class="ui-capture" hidden>
@@ -84,7 +85,10 @@ import Layout from "../layouts/Layout.astro";
   <p class="ui-field__hint">Questions? Reply HELP to the Eyes text.</p>
 </Layout>
 <style>
-  .task-deadline:has(> #deadline[hidden]) {
+  /* Rows stay out of view until the task loads, so the error state shows no empty clock or pin. */
+  .task-deadline:has(> #deadline[hidden]),
+  .ui-meta > li:has(> span:empty),
+  .ui-place:has(> #place:empty) {
     display: none;
   }
 </style>

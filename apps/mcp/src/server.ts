@@ -137,10 +137,10 @@ type Ticket = {
 };
 const PROVIDER_LINES = {
   messaging: ["Texting", "Task texts to workers' phones and their YES replies (Inkbox)."],
-  email: ["Agent email", "Questions agents email in and the threaded answers (Primitive)."],
+  email: ["Email", "Questions agents email in and the threaded answers (Primitive)."],
   payments: ["Payments", "Agent top-ups and payouts to workers (Stripe)."],
-  storage: ["Photo storage", "Where answer photos are kept (InsForge)."],
-  vision: ["Photo checks", "The AI check that a photo is safe to share (Cloudflare clef, or Claude)."],
+  storage: ["Photos", "Where answer photos are kept (InsForge storage)."],
+  vision: ["Photo moderation", "The AI check that a photo is safe to share (Cloudflare clef, or Claude)."],
   geo: ["Place lookup", "Turning place names into map points (OpenStreetMap)."],
 } as const;
 const SIMULATED = {
@@ -154,9 +154,13 @@ const SIMULATED = {
     .join(", ")}.`,
 } as const;
 
-const layout = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) => html`<!doctype html>
+const layout = (
+  title: string,
+  body: HtmlEscapedString | Promise<HtmlEscapedString>,
+  css = "",
+) => html`<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>${title}</title><style>${raw(PAGE_CSS)}</style></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>${title}</title><style>${raw(PAGE_CSS + css)}</style></head>
 <body class="ui">${raw(PAGE_HEADER)}
 <main class="page">${body}</main>
 </body>
@@ -197,6 +201,16 @@ ${simulatedNotice(live)}
 <p class="muted"><a href="/status">Service status</a></p>`,
   );
 
+// Status rows: the dot is decoration (aria-hidden); the bold text always states the state too.
+const STATUS_CSS =
+  ".dot{display:inline-block;width:.5rem;height:.5rem;margin:0 .5rem .1rem 0;border-radius:50%;background:var(--eyes-text-tertiary)}.dot.live{background:var(--eyes-success-text)}.dot.simulated{background:var(--eyes-warning-text)}";
+const statusRow = (
+  tone: "live" | "simulated" | "neutral",
+  title: string | HtmlEscapedString | Promise<HtmlEscapedString>,
+  detail?: string,
+) =>
+  html`<li><span class="dot ${tone}" aria-hidden="true"></span><b>${title}</b>${detail ? html`<br><span class="muted">${detail}</span>` : ""}</li>`;
+
 const statusPage = (live: Live, classifier: boolean, db: string, commit: string | undefined) =>
   layout(
     "Eyes status",
@@ -206,13 +220,18 @@ ${simulatedNotice(live)}
 <ul class="rows">
 ${Object.entries(PROVIDER_LINES).map(([name, [label, meaning]]) => {
   const on = live[name as keyof typeof live];
-  return html`<li><b class="state${on ? " live" : ""}">${label}: ${on ? "live" : "simulated"}</b><br><span class="muted">${meaning}</span></li>`;
+  return statusRow(on ? "live" : "simulated", `${label}: ${on ? "live" : "simulated"}`, meaning);
 })}
-<li><b class="state${classifier ? " live" : ""}">Safety review: ${classifier ? "rules and AI classifier" : "rules only"}</b><br><span class="muted">Checks every task before any money moves: the safety rules, then the AI classifier (Cloudflare clef, or Claude) when it is on.</span></li>
-<li><b>Database: ${db === "postgres" ? "Postgres" : "InsForge"}</b><br><span class="muted">Tasks, balances and the money ledger.</span></li>
-<li><b>Deployed commit: ${commit ? html`<code>${commit.slice(0, 12)}</code>` : "not recorded"}</b></li>
+${statusRow(
+  classifier ? "live" : "neutral",
+  `Safety check: ${classifier ? "rules and AI classifier" : "rules only"}`,
+  "Checks every task before any money moves: the safety rules, then the AI classifier (Cloudflare clef, or Claude) when it is on.",
+)}
+${statusRow("live", "Database: live", `Tasks, balances and the money ledger (${db === "postgres" ? "Postgres" : "InsForge"}).`)}
+${commit ? statusRow("neutral", html`Deployed commit: <code>${commit.slice(0, 12)}</code>`) : ""}
 </ul>
 <p class="muted">For machines: <a href="/healthz">/healthz</a></p>`,
+    STATUS_CSS,
   );
 
 function clientKey(forwardedFor: string | undefined) {
