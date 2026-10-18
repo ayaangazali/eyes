@@ -74,6 +74,9 @@ describe.skipIf(!url)("keyless sandbox on Postgres", () => {
       });
       expect(answer.answer?.answer_text).toMatch(/^Simulated sandbox answer, nobody went: /);
       expect(answer.next_step).toContain(SANDBOX);
+      expect(answer.next_step).toContain(
+        "tell your user that a sandbox answer is simulated and that no real person went",
+      );
     }
   }, 30_000);
 
