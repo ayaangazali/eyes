@@ -464,6 +464,7 @@ describe("MCP tools", () => {
       destructiveHint: true,
       idempotentHint: true,
     });
+    expect(hints.dispute_answer).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(tools.every((t) => t.outputSchema && (t.description ?? "").includes("Next:"))).toBe(true);
   });
 
