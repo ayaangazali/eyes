@@ -28,7 +28,7 @@ Agents can read the internet but cannot see the street. Eyes is an MCP server th
 - **[Safety](docs/features/safety.md):** rules, then an AI check; homes, people, cars, faces refused.
 - **[Owner controls](docs/features/owner-controls.md):** spend caps, allowed task types, key rotation.
 - **[Worker location](docs/features/worker-location.md):** HERE links, a Shortcut or the iPhone app.
-- **[Ops dashboard](docs/features/ops-dashboard.md):** `/ops`: tasks, money, reviews, tickets, live map.
+- **[Ops dashboard](docs/features/ops-dashboard.md):** internal.eyes.pictures: tasks, money, reviews, tickets, live map.
 
 ## Quick start
 
@@ -77,7 +77,7 @@ sequenceDiagram
 
 - [`apps/mcp/`](apps/mcp/): API server: MCP tools, REST, webhooks, OAuth, `/status`.
 - [`apps/edge/`](apps/edge/): Cloudflare Workers: API front, cron, uptime monitor.
-- [`apps/web/`](apps/web/): landing site, worker app and the `/ops` dashboard.
+- [`apps/web/`](apps/web/): landing site, worker app and the ops dashboard (internal.eyes.pictures).
 - [`apps/mobile/`](apps/mobile/): Expo iPhone app that sends background location.
 - [`packages/`](packages/): core, engine, db, comms, payments, safety, verify, ui.
 - [`cli/`](cli/): the `eyes` CLI and generated agent docs (`llms-full.txt`, OpenAPI).

@@ -30,9 +30,9 @@ main { padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-10); }
 .count:empty { display: none; }
 .count { padding: 0 0.4rem; border-radius: 999px; background: var(--eyes-surface-tertiary); font-size: var(--eyes-text-xs); font-variant-numeric: tabular-nums; }
 .count.hot { background: var(--eyes-danger-bg); color: var(--eyes-danger-text); }
-/* A list tab uses the whole viewport; only its list scrolls. */
-.fill { height: calc(100dvh - var(--chrome, 7rem) - var(--eyes-space-4) - var(--eyes-space-6)); min-height: 22rem; display: flex; flex-direction: column; gap: var(--eyes-space-3); }
-.grow { flex: 1; min-height: 0; overflow: auto; }
+/* One scroller: the page. Lists grow; their filter bars stick under the tabs. Only the map and dialogs clip. */
+.fill { display: flex; flex-direction: column; gap: var(--eyes-space-3); }
+.grow { flex: 1; }
 #banner { margin-bottom: var(--eyes-space-4); }
 .ui-card__title { font-size: var(--eyes-text-md); }
 .sub { color: var(--eyes-text-secondary); font-size: var(--eyes-text-xs); font-weight: var(--eyes-weight-normal); }
@@ -44,11 +44,11 @@ main { padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-10); }
 .flow span { font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); font-variant-numeric: tabular-nums; }
 .flow span + span::before { content: "→ "; color: var(--eyes-text-tertiary); }
 .stat.hot { background: var(--eyes-danger-bg); } .stat.hot b, .stat.hot span { color: var(--eyes-danger-text); }
-.stat.live { box-shadow: inset 3px 0 0 var(--eyes-accent); }
+/* Live counts get an accent dot after the number, not an edge stripe (it read as a broken bracket). */
+.stat.live b::after { content: ""; display: inline-block; width: 0.5rem; height: 0.5rem; margin-left: var(--eyes-space-2); border-radius: 50%; background: var(--eyes-accent); vertical-align: middle; }
 .rows { display: grid; align-content: start; margin: 0; padding: 0; list-style: none; }
 .rows > li { padding: var(--eyes-space-3) 0; border-bottom: 1px solid var(--eyes-border-subtle); display: grid; gap: var(--eyes-space-1); }
 .rows > li:last-child { border-bottom: 0; }
-.scroll { max-height: 34rem; overflow: auto; margin-right: calc(-1 * var(--eyes-space-2)); padding-right: var(--eyes-space-2); }
 .task-head { display: flex; gap: var(--eyes-space-2); align-items: baseline; justify-content: space-between; }
 .q { margin: 0; font-weight: var(--eyes-weight-medium); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .muted { color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
@@ -112,6 +112,51 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .checklist { display: grid; gap: var(--eyes-space-1); margin: 0; padding: 0; list-style: none; }
 .checklist .ok { color: var(--eyes-text-success, green); }
 .checklist .bad { color: var(--eyes-text-danger, crimson); }
+/* Shared list table (ops-view/table.ts). */
+.tbl { display: grid; gap: var(--eyes-space-2); }
+.tbl-bar { position: sticky; top: var(--chrome, 6.5rem); z-index: 5; display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; margin: 0 calc(-1 * var(--eyes-space-4)); padding: var(--eyes-space-2) var(--eyes-space-4); background: var(--eyes-surface); box-shadow: 0 1px 0 var(--eyes-border-subtle); }
+.tbl-bar .ui-input { width: auto; min-height: 2.25rem; padding: 0 var(--eyes-space-3); font-size: var(--eyes-text-sm); }
+.tbl-bar .tbl-search { flex: 1 1 16rem; min-width: 10rem; }
+.tbl-range { display: inline-flex; align-items: center; gap: var(--eyes-space-1); }
+.tbl-range__label { font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); }
+.tbl-bar .tbl-range input[type="number"] { width: 6rem; }
+.tbl-count { margin-left: auto; font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl-table { width: 100%; border-collapse: collapse; font-size: var(--eyes-text-sm); }
+.tbl-table[hidden], .tbl-empty[hidden] { display: none; }
+.tbl-table th { padding: 0; text-align: left; font-size: var(--eyes-text-xs); font-weight: var(--eyes-weight-medium); color: var(--eyes-text-secondary); border-bottom: 1px solid var(--eyes-border); white-space: nowrap; }
+.tbl-sort { all: unset; box-sizing: border-box; display: block; width: 100%; padding: var(--eyes-space-2); cursor: pointer; border-radius: var(--eyes-radius-sm); }
+.tbl-sort:hover { color: var(--eyes-text); }
+.tbl-sort:focus-visible { outline: 2px solid var(--eyes-accent); outline-offset: -2px; }
+th[aria-sort="ascending"] .tbl-sort, th[aria-sort="descending"] .tbl-sort { color: var(--eyes-text); }
+th[aria-sort="ascending"] .tbl-sort::after { content: " ↑"; }
+th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
+.tbl-table td { padding: var(--eyes-space-2); border-bottom: 1px solid var(--eyes-border-subtle); vertical-align: top; color: var(--eyes-text-secondary); }
+.tbl-table td:first-child { color: var(--eyes-text); }
+.tbl-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tbl-table tr.open { cursor: pointer; }
+.tbl-table tr.open:hover, .tbl-table tr.open:focus-visible { background: var(--eyes-surface-secondary); outline: none; }
+.tbl-table tr.open:focus-visible td:first-child { box-shadow: inset 2px 0 0 var(--eyes-accent); }
+.tbl-table .q { font-weight: var(--eyes-weight-medium); }
+.tbl-empty { margin: var(--eyes-space-4) 0; }
+.tbl-toggle { display: none; }
+@media (max-width: 640px) {
+  .tbl-bar { margin: 0 calc(-1 * var(--eyes-space-4)); }
+  .tbl-bar .tbl-search { flex: 1 1 0; }
+  .tbl-toggle { display: inline-flex; }
+  .tbl:not(.tbl--open) :is(.tbl-filter, .tbl-range, .tbl-clear) { display: none; }
+  .tbl-range { flex-basis: 100%; }
+  .tbl-range .ui-input { flex: 1; }
+  .tbl-count { flex-basis: 100%; margin-left: 0; }
+  .tbl-table, .tbl-table tbody, .tbl-table tr, .tbl-table td { display: block; }
+  .tbl-table thead tr { display: flex; flex-wrap: wrap; gap: var(--eyes-space-1); }
+  .tbl-table th { border: 0; }
+  .tbl-sort { padding: var(--eyes-space-1) var(--eyes-space-2); background: var(--eyes-surface-secondary); border-radius: 999px; }
+  .tbl-table tr { padding: var(--eyes-space-3) 0; border-bottom: 1px solid var(--eyes-border-subtle); }
+  .tbl-table td { padding: 0; border: 0; text-align: left; }
+  .tbl-table td + td { display: inline-block; margin: var(--eyes-space-1) var(--eyes-space-3) 0 0; }
+  .tbl-table td.num { text-align: left; }
+  .tbl-table td + td:not(:empty)::before { content: attr(data-label) " "; color: var(--eyes-text-tertiary); font-size: var(--eyes-text-xs); }
+}
 </style>
 </head>
 <body class="ui">
@@ -164,7 +209,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
   <div id="p-review" class="panel" role="tabpanel" aria-labelledby="tab-review" hidden>
     <section class="ui-card c12 fill">
       <header class="ui-card__header"><h2 class="ui-card__title">Needs a decision</h2><span id="queue-count" class="ui-badge"></span></header>
-      <ul id="queue" class="rows grow"></ul>
+      <div id="queue"></div>
     </section>
   </div>
 

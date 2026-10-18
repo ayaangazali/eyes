@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { setImmediate as tick } from "node:timers/promises";
 import { Window } from "happy-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { boot, type Leaflet, type OpsFeed, type OpsWindow, type Ticket } from "./page.ts";
+import { boot, type Leaflet, type OpsFeed, type OpsWindow, type Task, type Ticket } from "./page.ts";
 
 const BODY = /<body[^>]*>([\s\S]*)<\/body>/
   .exec(readFileSync(new URL("../ops.html", import.meta.url), "utf8"))?.[1]
@@ -144,12 +144,21 @@ afterEach(async () => {
   for (const w of windows.splice(0)) await w.happyDOM.close();
 });
 
-async function setup(routes: Record<string, Route> = {}, opts: { hash?: string; L?: Leaflet } = {}) {
-  const happy = new Window({ url: `https://api.eyes.test/ops${opts.hash ?? ""}` });
+async function setup(
+  routes: Record<string, Route> = {},
+  opts: { hash?: string; L?: Leaflet; root?: boolean } = {},
+) {
+  // root: served at the root of the ops host (internal.eyes.pictures); else under /ops on loopback.
+  const happy = new Window({
+    url: opts.root
+      ? `https://internal.eyes.test/${opts.hash ?? ""}`
+      : `https://api.eyes.test/ops${opts.hash ?? ""}`,
+  });
   windows.push(happy);
   const win = happy as unknown as OpsWindow;
   win.document.body.innerHTML = BODY;
   const requests: { method: string; path: string; body?: unknown }[] = [];
+  const raw: string[] = [];
   const all: Record<string, Route> = {
     "GET /ops/feed": () => ok(feed()),
     "GET /ops/tickets": () => ok({ tickets: [] }),
@@ -159,6 +168,8 @@ async function setup(routes: Record<string, Route> = {}, opts: { hash?: string; 
   };
   win.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "https://api.eyes.test");
+    raw.push(url.pathname);
+    if (opts.root) url.pathname = `/ops${url.pathname}`;
     const method = init?.method ?? "GET";
     requests.push({
       method,
@@ -194,7 +205,7 @@ async function setup(routes: Record<string, Route> = {}, opts: { hash?: string; 
     await settle();
     await settle();
   };
-  return { win, happy, doc, $, text, requests, timers, cleared, assign, click, button, change, settle };
+  return { win, happy, doc, $, text, requests, raw, timers, cleared, assign, click, button, change, settle };
 }
 
 describe("ops page boot", () => {
@@ -246,7 +257,16 @@ describe("ops page boot", () => {
     expect($("queue-count").className).toBe("ui-badge ui-badge--danger");
     expect(text("n-review")).toBe("1");
     expect($("n-review").classList.contains("hot")).toBe(true);
-    const row = $("queue").querySelector("li") as HTMLElement;
+    const decision = $("queue").querySelector("tbody tr") as HTMLElement;
+    expect(decision.getAttribute("aria-label")).toBe(
+      "Review: Is the line at Blue Bottle longer than 5 people?",
+    );
+    expect([...decision.querySelectorAll("td")].map((td) => td.textContent).slice(0, 3)).toEqual([
+      "Is the line at Blue Bottle longer than 5 people?",
+      "Near 37.761, -122.386",
+      "$5.00",
+    ]);
+    const row = $("task-list").querySelector("li") as HTMLElement;
     expect(row.className).toBe("open");
     expect(row.getAttribute("aria-label")).toBe("Review: Is the line at Blue Bottle longer than 5 people?");
     expect(row.textContent).toContain("Near 37.761, -122.386");
@@ -380,7 +400,7 @@ describe("ops page boot", () => {
     expect(text("escrowed")).toBe("$0.00");
     expect(text("queue-count")).toBe("0");
     expect($("queue-count").className).toBe("ui-badge ui-badge--success");
-    expect(text("queue")).toMatch(/^Nothing needs a decision/);
+    expect($("queue").querySelector(".tbl-empty")?.textContent).toMatch(/^Nothing needs a decision/);
     expect(text("n-review")).toBe("");
     expect(text("task-list")).toBe("No tasks yet.");
     expect(text("worker-stats")).toBe("0opted in0available now0signed up");
@@ -501,7 +521,7 @@ describe("ops review panel", () => {
       [`POST /ops/tasks/${HELD}/resolve`]: () => ok({ status: "verified" }),
     });
     const { $, click, button, requests, timers } = page;
-    await click($("queue").querySelector("li") as HTMLElement);
+    await click($("queue").querySelector("tbody tr") as HTMLElement);
     const review = $<HTMLDialogElement>("review-panel");
     expect(review.open).toBe(true);
     expect(review.querySelector("h2")?.textContent).toBe(detail.question);
@@ -539,8 +559,9 @@ describe("ops review panel", () => {
       "Done: verified. It leaves the queue on the next refresh.",
     );
     expect(release.textContent).toBe("Release (pay the worker)");
+    // Decided: every action stays disabled, the clicked one included.
     expect([...review.querySelectorAll<HTMLButtonElement>(".actions button")].every((b) => b.disabled)).toBe(
-      false,
+      true,
     );
   });
 
@@ -551,7 +572,7 @@ describe("ops review panel", () => {
       [`POST /ops/tasks/${HELD}/resolve`]: () => reply(),
     });
     const { $, click, button, requests } = page;
-    const row = $("queue").querySelector("li") as HTMLElement;
+    const row = $("queue").querySelector("tbody tr") as HTMLElement;
     row.dispatchEvent(new page.happy.KeyboardEvent("keydown", { key: "Enter" }) as unknown as Event);
     await page.settle();
     await page.settle();
@@ -578,7 +599,7 @@ describe("ops review panel", () => {
     const disabled = [...review.querySelectorAll<HTMLButtonElement>(".actions button")].map(
       (b) => b.disabled,
     );
-    expect(disabled).toEqual([true, false]);
+    expect(disabled).toEqual([true, true]);
     await click(button(review, "Close"));
     expect(review.open).toBe(false);
   });
@@ -598,7 +619,7 @@ describe("ops review panel", () => {
       });
     const page = await setup({ [`GET /ops/tasks/${HELD}`]: () => task() });
     const { $ } = page;
-    const row = $("queue").querySelector("li") as HTMLElement;
+    const row = $("queue").querySelector("tbody tr") as HTMLElement;
     const key = async (k: string) => {
       row.dispatchEvent(new page.happy.KeyboardEvent("keydown", { key: k }) as unknown as Event);
       await page.settle();
@@ -685,11 +706,11 @@ describe("ops support tickets", () => {
       dispute({ id: 14, dispute_status: null, message: null }),
     ]);
     const { text, $, li } = page;
-    // A dispute with no dispute_status is not counted open and gets no buttons, but its badge says "open".
-    expect(text("tickets-count")).toBe("3 open");
+    // A dispute with no dispute_status yet counts as open, with its buttons, as its badge says.
+    expect(text("tickets-count")).toBe("4 open");
     expect($("tickets-count").className).toBe("ui-badge ui-badge--danger");
-    expect(text("n-support")).toBe("3");
-    expect($("tickets-list").children).toHaveLength(3);
+    expect(text("n-support")).toBe("4");
+    expect($("tickets-list").children).toHaveLength(4);
     await page.change("t-status", "");
     const labels = (id: number) => [...li(id).querySelectorAll("button")].map((b) => b.textContent);
     expect(labels(7)).toEqual(["Release", "Refund", "Resolve with note"]);
@@ -723,7 +744,7 @@ describe("ops support tickets", () => {
     expect(badges(13)).toEqual(["dispute", "rejected"]);
     expect(li(13).textContent).not.toContain("Worker banned.");
     expect(badges(14)).toEqual(["dispute", "open"]);
-    expect(labels(14)).toEqual([]);
+    expect(labels(14)).toEqual(["Confirm fraud: ban + refund", "Reject"]);
   });
 
   it("needs a note, then sends the action and reloads the tickets", async () => {
@@ -758,7 +779,11 @@ describe("ops support tickets", () => {
       ok({ agent_refund_cents: 600, reversal: "owed", reversal_owed_cents: 450 });
     const page = await withTickets([dispute(), helpTicket()], () => reply());
     const { li, click, button, requests } = page;
+    let round = 0;
     const run = async (id: number, label: string, armed: string) => {
+      // A decided button stays disabled, so each round reloads a changed list and gets a fresh row.
+      round++;
+      page.setList([dispute({ note: `round ${round}` }), helpTicket({ note: `round ${round}` })]);
       const row = li(id);
       (row.querySelector("textarea") as HTMLTextAreaElement).value = "checked the photo";
       await click(button(row, label));
@@ -915,5 +940,133 @@ describe("ops event log and tabs", () => {
     page.doc.querySelector(".bar")?.remove();
     page.win.dispatchEvent(new page.happy.Event("resize") as unknown as Event);
     expect(style.getPropertyValue("--bar-h")).toBe("0px");
+  });
+});
+
+describe("ops page on its own host", () => {
+  it("fetches, links and signs out without the /ops prefix", async () => {
+    const page = await setup(
+      { "POST /ops/logout": () => new Response(null, { status: 204 }) },
+      { root: true },
+    );
+    expect(page.raw.slice(0, 4)).toEqual(["/feed", "/tickets", "/events", "/series"]);
+    expect(page.doc.querySelector('a[href="/live"]')?.textContent).toBe("Live map");
+    expect(page.doc.querySelector('a[href="/allowlist"]')).toBeTruthy();
+    await page.click(page.$("logout"));
+    expect(page.assign).toHaveBeenCalledWith("/login");
+  });
+
+  it("keeps the /ops prefix on loopback", async () => {
+    const page = await setup();
+    expect(page.doc.querySelector('a[href="/ops/live"]')).toBeTruthy();
+  });
+});
+
+describe("ops review table", () => {
+  const two = () => {
+    const base = feed();
+    const [held] = base.ops.queue as [Task];
+    const disputed = {
+      ...held,
+      id: TASK_ID,
+      status: "disputed",
+      question: "Is the gate open?",
+      bounty_cents: 900,
+      created_at: "2026-10-17T13:00:00Z",
+    };
+    return feed({ queue: [held, disputed] });
+  };
+
+  it("restores search, sort and filters from the hash and writes changes back", async () => {
+    const page = await setup(
+      { "GET /ops/feed": () => ok(two()) },
+      { hash: "#review?sort=-bounty&status=disputed" },
+    );
+    const { $, win, timers } = page;
+    const rows = () =>
+      [...$("queue").querySelectorAll("tbody tr")].map((tr) => tr.querySelector("td")?.textContent);
+    expect(rows()).toEqual(["Is the gate open?"]);
+    expect($("queue").querySelector("th[aria-sort=descending]")?.textContent).toBe("Bounty");
+    const select = $("queue").querySelector("select") as HTMLSelectElement;
+    select.value = "";
+    select.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    expect(rows()).toEqual(["Is the gate open?", "Is the line at Blue Bottle longer than 5 people?"]);
+    expect(win.location.hash).toBe("#review?sort=-bounty");
+    const search = $("queue").querySelector("input[type=search]") as HTMLInputElement;
+    search.value = "blue bottle";
+    search.dispatchEvent(new page.happy.Event("input") as unknown as Event);
+    timers.at(-1)?.fn();
+    expect(win.location.hash).toBe("#review?q=blue+bottle&sort=-bounty");
+    expect(rows()).toEqual(["Is the line at Blue Bottle longer than 5 people?"]);
+    const age = $("queue").querySelectorAll("tbody td")[5]?.textContent;
+    expect(age).toMatch(/^(now|\d+[mhd])$/);
+  });
+
+  it("filters by created day and bounty, sorts by age, and opens rows from the recent tasks list too", async () => {
+    const page = await setup({
+      "GET /ops/feed": () => ok(two()),
+      [`GET /ops/tasks/${HELD}`]: () => ok({ ...feed().tasks[0], fee_cents: 100 }),
+    });
+    const { $, timers, cleared } = page;
+    const rows = () =>
+      [...$("queue").querySelectorAll("tbody tr")].map((tr) => tr.querySelector("td")?.textContent);
+    const set = (input: Element | undefined, value: string) => {
+      (input as HTMLInputElement).value = value;
+      input?.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    };
+    const [from, to, min, max] = [...$("queue").querySelectorAll(".tbl-range input")];
+    set(from, "2026-10-17");
+    set(to, "2026-10-17");
+    expect(rows()).toHaveLength(2);
+    set(min, "6");
+    expect(rows()).toEqual(["Is the gate open?"]);
+    set(max, "8");
+    expect(rows()).toEqual([]);
+    set(min, "");
+    set(max, "");
+    set(from, "");
+    set(to, "");
+    const age = [...$("queue").querySelectorAll("th button")].find(
+      (b) => b.textContent === "Age",
+    ) as HTMLElement;
+    age.click();
+    expect(rows()).toEqual(["Is the line at Blue Bottle longer than 5 people?", "Is the gate open?"]);
+    const search = $("queue").querySelector("input[type=search]") as HTMLInputElement;
+    search.dispatchEvent(new page.happy.Event("input") as unknown as Event);
+    search.dispatchEvent(new page.happy.Event("input") as unknown as Event);
+    expect(cleared).toContain(timers.length - 1);
+
+    const item = $("task-list").querySelector("li.open") as HTMLElement;
+    item.dispatchEvent(new page.happy.KeyboardEvent("keydown", { key: "x" }) as unknown as Event);
+    expect(page.requests.some((r) => r.path.startsWith("/ops/tasks/"))).toBe(false);
+    item.dispatchEvent(
+      new page.happy.KeyboardEvent("keydown", { key: " ", cancelable: true }) as unknown as Event,
+    );
+    await page.settle();
+    await page.settle();
+    expect($<HTMLDialogElement>("review-panel").open).toBe(true);
+    $<HTMLDialogElement>("review-panel").close();
+    await page.click(item);
+    expect($<HTMLDialogElement>("review-panel").open).toBe(true);
+  });
+
+  it("remembers a tab's table state when you leave and come back", async () => {
+    const page = await setup({ "GET /ops/feed": () => ok(two()) }, { hash: "#review?q=gate" });
+    const { win, happy, $ } = page;
+    const key = (k: string) =>
+      $("tabs").dispatchEvent(
+        new happy.KeyboardEvent("keydown", { key: k, cancelable: true }) as unknown as Event,
+      );
+    $("tab-review").focus();
+    key("ArrowRight");
+    expect(win.location.hash).toBe("#support");
+    key("ArrowLeft");
+    expect(win.location.hash).toBe("#review?q=gate");
+    win.location.hash = "#overview";
+    win.dispatchEvent(new happy.HashChangeEvent("hashchange") as unknown as Event);
+    win.location.hash = "#review";
+    win.dispatchEvent(new happy.HashChangeEvent("hashchange") as unknown as Event);
+    expect(win.location.hash).toBe("#review?q=gate");
+    expect($("queue").querySelectorAll("tbody tr")).toHaveLength(1);
   });
 });

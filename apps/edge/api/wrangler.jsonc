@@ -2,7 +2,11 @@
   "name": "eyes-api",
   "main": "worker.js",
   "compatibility_date": "2026-10-01",
-  "routes": [{ "pattern": "api.eyes.pictures", "custom_domain": true }],
+  // internal.eyes.pictures is the ops dashboard, served by the same container (the server routes by host).
+  "routes": [
+    { "pattern": "api.eyes.pictures", "custom_domain": true },
+    { "pattern": "internal.eyes.pictures", "custom_domain": true }
+  ],
   "workers_dev": true,
   // One server instance: in-memory timers and rate limits assume a single process.
   "containers": [

@@ -16,6 +16,8 @@ import { createServer } from "./server.ts";
 
 const url = process.env.DATABASE_URL;
 const ORIGIN = "https://api.eyes.test";
+// The dashboard's own host: `/x` there is `/ops/x`.
+const OPS = "https://internal.eyes.test";
 const OPS_KEY = `ops-${randomUUID()}`;
 const ALLOW: SafetyVerdict = { allowed: true, category: null, reason: null, fix: null, layer: null };
 // The photo check fails, so the answer waits in needs_review for an operator.
@@ -52,7 +54,8 @@ describe.skipIf(!url)("ops review panel on Postgres", () => {
   });
   const events = createEventLog();
   const server = createServer({ service, providers, config, env: { EYES_OPS_KEY: OPS_KEY }, rpc, events });
-  const call = (path: string, init: RequestInit = {}) => server.fetch(new Request(`${ORIGIN}${path}`, init));
+  const call = (path: string, init: RequestInit = {}) =>
+    server.fetch(new Request(`${OPS}${path.replace(/^\/ops(?=\/|$)/, "")}`, init));
 
   beforeAll(() => migrate(url ?? ""));
   afterAll(() => sql.end());
@@ -96,7 +99,7 @@ describe.skipIf(!url)("ops review panel on Postgres", () => {
     const resolve = (outcome: string, headers: Record<string, string>) =>
       call(`/ops/tasks/${task_id}/resolve`, {
         method: "POST",
-        headers: { origin: ORIGIN, "content-type": "application/json", ...headers },
+        headers: { origin: OPS, "content-type": "application/json", ...headers },
         body: JSON.stringify({ outcome }),
       });
 

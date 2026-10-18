@@ -2,6 +2,7 @@
 // (types stripped, imports dropped) after format.ts into ops.html and calls boot(window).
 import {
   after,
+  ago,
   checkReason,
   cut,
   eventQuery,
@@ -22,6 +23,7 @@ import {
   uptime,
   usd,
 } from "./format.ts";
+import { createTable, hashFor, parseHash, stateFrom, type TableOptions, type TableState } from "./table.ts";
 
 type Checked = {
   gps_ok?: boolean | null;
@@ -127,7 +129,11 @@ type Kid = Node | string | null | false;
 
 export function boot(win: OpsWindow) {
   const { document, location, history } = win;
-  const fetch = win.fetch.bind(win);
+  // The dashboard lives at the root of its own host; loopback (tests, local runs) keeps it under /ops.
+  const base = location.pathname.startsWith("/ops") ? "/ops" : "";
+  const fetch = (path: string, init?: RequestInit) => win.fetch(`${base}${path}`, init);
+  for (const a of document.querySelectorAll<HTMLAnchorElement>('a[href^="/ops/"]'))
+    a.setAttribute("href", `${base}${a.getAttribute("href")?.slice(4)}`);
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
   const value = (id: string) => $<HTMLInputElement>(id).value;
   const json = <T>(res: Response) => res.json().catch(() => ({})) as Promise<T>;
@@ -255,7 +261,7 @@ export function boot(win: OpsWindow) {
     const close = h("button", "ui-button ui-button--ghost ui-button--sm", "Close");
     close.type = "button";
     close.addEventListener("click", () => review.close());
-    const res = await fetch(`/ops/tasks/${id}`, { cache: "no-store" });
+    const res = await fetch(`/tasks/${id}`, { cache: "no-store" });
     const t = await json<TaskDetail>(res);
     if (!res.ok) {
       review.replaceChildren(
@@ -268,7 +274,7 @@ export function boot(win: OpsWindow) {
     const open = t.status === "needs_review" || t.status === "disputed";
     const { note, out } = noteAndStatus("Note (optional), saved with the decision");
     const decide = (outcome: string) => async () => {
-      const r = await fetch(`/ops/tasks/${t.id}/resolve`, {
+      const r = await fetch(`/tasks/${t.id}/resolve`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ outcome, note: note.value.trim() || undefined }),
@@ -276,12 +282,13 @@ export function boot(win: OpsWindow) {
       const body = await json<Reply>(r);
       if (!r.ok) {
         out.textContent = `Failed: ${body.message || body.error || r.status}`;
-        return;
+        return false;
       }
       out.textContent = body.already_resolved
         ? `Already ${body.status}; no money moved.`
         : `Done: ${body.status}. It leaves the queue on the next refresh.`;
       for (const b of review.querySelectorAll<HTMLButtonElement>(".actions button")) b.disabled = true;
+      return true;
     };
     const checklist: [string, boolean | null | undefined][] = [
       ["At the place (GPS)", t.gps_ok],
@@ -460,15 +467,7 @@ export function boot(win: OpsWindow) {
 
     $("queue-count").textContent = String(o.queue.length);
     $("queue-count").className = `ui-badge${o.queue.length ? " ui-badge--danger" : " ui-badge--success"}`;
-    $("queue").replaceChildren(
-      ...(o.queue.length
-        ? o.queue.map(taskRow)
-        : [
-            empty(
-              "Nothing needs a decision. Tasks in needs_review or disputed show here; click one to release or refund it.",
-            ),
-          ]),
-    );
+    review.setRows(o.queue);
     count("n-review", o.queue.length, true);
 
     last = feed;
@@ -573,7 +572,8 @@ export function boot(win: OpsWindow) {
   }
 
   // Two clicks: the first arms the button for 5 s and says what will happen, the second does it.
-  function confirmButton(label: string, armed: string, tone: string, act: () => Promise<void>) {
+  // A decided action stays disabled; a failed one can be tried again.
+  function confirmButton(label: string, armed: string, tone: string, act: () => Promise<boolean>) {
     const b = h("button", `ui-button ui-button--sm ui-button--${tone}`, label);
     b.type = "button";
     let timer = 0;
@@ -590,11 +590,14 @@ export function boot(win: OpsWindow) {
       win.clearTimeout(timer);
       b.disabled = true;
       b.textContent = "Working";
-      await act().finally(() => {
-        b.disabled = false;
+      let done = false;
+      try {
+        done = await act();
+      } finally {
+        b.disabled = done;
         delete b.dataset.armed;
         b.textContent = label;
-      });
+      }
     });
     return b;
   }
@@ -606,9 +609,9 @@ export function boot(win: OpsWindow) {
         t.kind === "dispute"
           ? "Write a note first; it is kept with the decision."
           : "Write a note first; it is texted to the worker.";
-      return;
+      return false;
     }
-    const res = await fetch(`/ops/tickets/${t.id}/${action}`, {
+    const res = await fetch(`/tickets/${t.id}/${action}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(
@@ -618,7 +621,7 @@ export function boot(win: OpsWindow) {
     const body = await json<Reply>(res);
     if (!res.ok) {
       out.textContent = `Failed: ${body.message || body.error || res.status}`;
-      return;
+      return false;
     }
     out.textContent = body.already_resolved
       ? `Already ${body.dispute_status || "resolved"}; no money moved.`
@@ -626,6 +629,7 @@ export function boot(win: OpsWindow) {
         ? `Done: agent refunded ${usd(body.agent_refund_cents as number)}, transfer ${body.reversal === "owed" ? `reversal owed ${usd(body.reversal_owed_cents as number)}` : body.reversal}, worker banned.`
         : `Done: ticket #${t.id} ${action.replace("_", " ")}.`;
     await loadTickets();
+    return true;
   }
 
   function ticketRow(t: Ticket) {
@@ -728,7 +732,7 @@ export function boot(win: OpsWindow) {
   let ticketPages = 1;
   const TICKETS_PER_PAGE = 50;
   async function loadTickets() {
-    const res = await fetch("/ops/tickets", { cache: "no-store" });
+    const res = await fetch("/tickets", { cache: "no-store" });
     if (!res.ok) return;
     const text = await res.text();
     if (text === ticketsText) return;
@@ -781,7 +785,7 @@ export function boot(win: OpsWindow) {
       { q: value("f-q"), kind: value("f-kind"), level: value("f-level"), task_id: value("f-task") },
       older ? oldest : null,
     );
-    const res = await fetch(`/ops/events?${query}`, { cache: "no-store" });
+    const res = await fetch(`/events?${query}`, { cache: "no-store" });
     if (!res.ok) return;
     const { source, events } = (await res.json()) as { source: string; events: OpsEvent[] };
     oldest = events.length ? (events.at(-1)?.id ?? null) : oldest;
@@ -825,7 +829,7 @@ export function boot(win: OpsWindow) {
 
   let seriesText = "";
   async function loadSeries() {
-    const res = await fetch("/ops/series", { cache: "no-store" });
+    const res = await fetch("/series", { cache: "no-store" });
     if (!res.ok) return;
     const text = await res.text();
     if (text === seriesText) return;
@@ -877,8 +881,8 @@ export function boot(win: OpsWindow) {
   async function poll() {
     const state = $("state");
     try {
-      const res = await fetch("/ops/feed", { cache: "no-store" });
-      if (res.status === 401) return location.assign("/ops/login");
+      const res = await fetch("/feed", { cache: "no-store" });
+      if (res.status === 401) return location.assign(`${base}/login`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       render(await res.json());
       await Promise.all([
@@ -897,8 +901,8 @@ export function boot(win: OpsWindow) {
     win.setTimeout(poll, POLL_MS);
   }
   $("logout").addEventListener("click", async () => {
-    await fetch("/ops/logout", { method: "POST" }).catch(() => {});
-    location.assign("/ops/login");
+    await fetch("/logout", { method: "POST" }).catch(() => {});
+    location.assign(`${base}/login`);
   });
   for (const id of ["f-q", "f-kind", "f-level", "f-task"])
     $(id).addEventListener("change", () => loadEvents(false));
@@ -922,8 +926,105 @@ export function boot(win: OpsWindow) {
     renderTickets();
   });
 
+  const later = (fn: () => void, ms: number) => {
+    const id = win.setTimeout(fn, ms);
+    return () => win.clearTimeout(id);
+  };
+  // Each tab's table keeps its state in the hash while it is shown, and in memory when it is not.
+  const remembered: Record<string, TableState> = {};
+  const restore: Record<string, (params: URLSearchParams) => void> = {};
+  const tableFor = <T>(tab: string, options: Omit<TableOptions<T>, "onChange" | "later">) => {
+    const table = createTable<T>(document, {
+      ...options,
+      later,
+      onChange: (state) => {
+        remembered[tab] = state;
+        history.replaceState(null, "", hashFor(tab, state));
+      },
+    });
+    restore[tab] = (params) => {
+      const state = params.size ? stateFrom(params, options.filters) : remembered[tab];
+      if (!state) return;
+      remembered[tab] = state;
+      table.setState(state);
+      history.replaceState(null, "", hashFor(tab, state));
+    };
+    return table;
+  };
+  const checkText = (t: Checked) =>
+    t.gps_ok == null
+      ? ""
+      : [
+          [t.gps_ok, "GPS"],
+          [t.fresh_ok, "fresh"],
+          [t.vision_ok, "safe photo"],
+        ]
+          .map(([ok, label]) => `${ok ? "✓" : "✗"} ${label}`)
+          .join(" ");
+  const review = tableFor<Task>("review", {
+    name: "decisions",
+    empty:
+      "Nothing needs a decision. Tasks in needs_review or disputed show here; click one to release or refund it.",
+    label: (t) => `Review: ${cut(t.question, 80)}`,
+    open: (t) => openReview(t.id),
+    columns: [
+      {
+        key: "question",
+        label: "Question",
+        text: (t) => cut(t.question, 160),
+        cell: (t) => h("p", "q", cut(t.question, 160)),
+      },
+      { key: "place", label: "Place", text: (t) => cut(nearLabel(t.place_label), 70) },
+      {
+        key: "bounty",
+        label: "Bounty",
+        num: true,
+        desc: true,
+        text: (t) => usd(t.bounty_cents),
+        sort: (t) => t.bounty_cents ?? 0,
+      },
+      { key: "checks", label: "Checks", text: checkText, cell: (t) => checks(t) ?? "" },
+      {
+        key: "status",
+        label: "Status",
+        text: (t) => t.status.replace("_", " "),
+        cell: (t) => badge(t.status.replace("_", " "), STATUS_TONE[t.status]),
+      },
+      {
+        key: "age",
+        label: "Age",
+        num: true,
+        desc: true,
+        text: (t) => ago(t.created_at, Date.now()),
+        sort: (t) => -Date.parse(t.created_at),
+      },
+    ],
+    filters: [
+      {
+        kind: "select",
+        key: "status",
+        label: "Statuses",
+        options: [
+          ["needs_review", "needs review"],
+          ["disputed", "disputed"],
+        ],
+        value: (t) => t.status,
+      },
+      {
+        kind: "range",
+        key: "created",
+        label: "Created",
+        unit: "date",
+        value: (t) => Date.parse(t.created_at),
+      },
+      { kind: "range", key: "bounty", label: "Bounty", unit: "usd", value: (t) => t.bounty_cents ?? null },
+    ],
+  });
+  $("queue").replaceChildren(review.el);
+
   function showTab() {
     const name = tabFor(location.hash);
+    restore[name]?.(parseHash(location.hash).params);
     for (const t of TABS) {
       $(`tab-${t}`).setAttribute("aria-selected", String(t === name));
       $(`tab-${t}`).tabIndex = t === name ? 0 : -1;
@@ -942,7 +1043,7 @@ export function boot(win: OpsWindow) {
     if (!t) return;
     e.preventDefault();
     $(`tab-${t}`).focus();
-    history.replaceState(null, "", `#${t}`);
+    history.replaceState(null, "", remembered[t] ? hashFor(t, remembered[t]) : `#${t}`);
     showTab();
   });
   win.addEventListener("hashchange", showTab);

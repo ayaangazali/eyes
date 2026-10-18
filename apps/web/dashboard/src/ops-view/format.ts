@@ -51,6 +51,15 @@ export const nearLabel = (label: string | null | undefined) => {
 export const checkReason = (r: string) => (/answers? the question/i.test(r) ? `Old check: ${r}` : r);
 export const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
 
+/** Age as "now", "5m", "3h" or "2d". */
+export function ago(iso: string, now: number) {
+  const s = Math.max(0, Math.round((now - Date.parse(iso)) / 1000));
+  if (s < 60) return "now";
+  if (s < 3600) return `${Math.floor(s / 60)}m`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h`;
+  return `${Math.floor(s / 86400)}d`;
+}
+
 export function uptime(s: number) {
   if (s < 3600) return `up ${Math.floor(s / 60)}m`;
   if (s < 86400) return `up ${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
@@ -58,7 +67,11 @@ export function uptime(s: number) {
 }
 
 // Tabs: the URL hash picks one (#review, #support, ...) so reloads and links keep it.
-export const tabFor = (hash: string) => (TABS.includes(hash.slice(1)) ? hash.slice(1) : "overview");
+// A tab's hash may carry its table state after a "?": #review?sort=-age.
+export function tabFor(hash: string) {
+  const tab = hash.slice(1).split("?")[0] ?? "";
+  return TABS.includes(tab) ? tab : "overview";
+}
 // Arrow keys, Home and End move between tabs; null when the key or focus is not a tab move.
 export function nextTab(focusedId: string, key: string) {
   const i = TABS.indexOf(focusedId.replace("tab-", ""));
@@ -80,8 +93,9 @@ export type TicketFields = {
   task_id?: string | null;
   place_label?: string | null;
 };
+// A dispute with no dispute_status yet counts as open, like its badge says.
 export const ticketOpen = (t: TicketFields) =>
-  t.kind === "dispute" ? t.dispute_status === "open" : t.status === "open";
+  t.kind === "dispute" ? (t.dispute_status ?? "open") === "open" : t.status === "open";
 export function filterTickets<T extends TicketFields>(tickets: T[], query: string, status: string) {
   const q = query.trim().toLowerCase();
   return tickets.filter(

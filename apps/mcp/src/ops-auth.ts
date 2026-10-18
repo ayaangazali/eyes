@@ -7,6 +7,7 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
+import type { OpsSite } from "./ops-host.ts";
 
 export type { OpsEvent };
 export type Operator = { id: string; label: string };
@@ -94,49 +95,49 @@ const page = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString
 const alert = (error?: string) =>
   error ? html`<p class="ui-notice ui-notice--danger" role="alert">${error}</p>` : "";
 
-const loginPage = (identifier?: string, error?: string) =>
+const loginPage = (base: string, identifier?: string, error?: string) =>
   page(
     "Eyes ops sign-in",
     html`<h1 class="ui-h2">Eyes ops sign-in</h1>
 ${alert(error)}
 ${
   identifier === undefined
-    ? html`<form class="ui-form" method="post" action="/ops/login/code">
+    ? html`<form class="ui-form" method="post" action="${base}/login/code">
 <label class="ui-field"><span class="ui-field__label">Phone or email</span>
 <input class="ui-input" name="identifier" autocomplete="username" required autofocus></label>
 <button class="ui-button ui-button--primary ui-button--block">Send code</button>
 </form>`
     : html`<p class="ui-field__hint">${SENT}</p>
-<form class="ui-form" method="post" action="/ops/login/verify">
+<form class="ui-form" method="post" action="${base}/login/verify">
 <input type="hidden" name="identifier" value="${identifier}">
 <label class="ui-field"><span class="ui-field__label">6-digit code</span>
 <input class="ui-input" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required autofocus></label>
 <button class="ui-button ui-button--primary ui-button--block">Sign in</button>
 </form>
-<p class="ui-field__hint"><a class="ui-link" href="/ops/login">Use another phone or email</a></p>`
+<p class="ui-field__hint"><a class="ui-link" href="${base}/login">Use another phone or email</a></p>`
 }`,
   );
 
-const allowlistPage = (entries: Entry[], op: Operator, error?: string) =>
+const allowlistPage = (base: string, entries: Entry[], op: Operator, error?: string) =>
   page(
     "Eyes ops allowlist",
     html`<h1 class="ui-h2">Who can sign in to ops</h1>
-<p class="ui-field__hint">Signed in as ${op.label}. <a class="ui-link" href="/ops">Back to the dashboard</a></p>
+<p class="ui-field__hint">Signed in as ${op.label}. <a class="ui-link" href="${base || "/"}">Back to the dashboard</a></p>
 ${alert(error)}
 <ul class="rows">
 ${entries.map(
   (e) => html`<li><span><strong>${mask(e.value)}</strong> <span class="ui-badge">${e.kind}</span><br>
 <span class="ui-field__hint">added by ${mask(e.added_by)} on ${e.added_at.slice(0, 10)}</span></span>
-<form method="post" action="/ops/allowlist/remove"><input type="hidden" name="id" value="${e.id}">
+<form method="post" action="${base}/allowlist/remove"><input type="hidden" name="id" value="${e.id}">
 <button class="ui-button ui-button--sm ui-button--ghost"${e.id === op.id ? raw(" disabled") : ""}>Remove</button></form></li>`,
 )}
 </ul>
-<form class="ui-form" method="post" action="/ops/allowlist">
+<form class="ui-form" method="post" action="${base}/allowlist">
 <label class="ui-field"><span class="ui-field__label">Add a phone or email</span>
 <input class="ui-input" name="identifier" required placeholder="+14155550123 or name@example.com"></label>
 <button class="ui-button ui-button--primary">Add</button>
 </form>
-<form method="post" action="/ops/logout"><button class="ui-button ui-button--sm ui-button--ghost">Sign out</button></form>`,
+<form method="post" action="${base}/logout"><button class="ui-button ui-button--sm ui-button--ghost">Sign out</button></form>`,
   );
 
 export function opsAuth(deps: {
@@ -145,9 +146,11 @@ export function opsAuth(deps: {
   config: AppConfig;
   env: Record<string, string | undefined>;
   log: (e: OpsEvent) => void;
+  /** Where this request reached ops: the path prefix ("" on the ops host, "/ops" on loopback) and the origin its posts must come from. */
+  site: (c: Context) => OpsSite;
 }) {
-  const { rpc, providers, config, env, log } = deps;
-  const origin = new URL(config.public_api_url).origin;
+  const { rpc, providers, config, env, log, site } = deps;
+  const base = (c: Context) => site(c).base;
   const now = () => providers.clock.now().getTime();
   const allowlist = () => rpc<Entry>("eyes_ops_allowlist", {});
   const codeHash = (identifier: string, code: string) =>
@@ -192,11 +195,11 @@ export function opsAuth(deps: {
     const message = `Too many sign-in tries. Wait ${Math.ceil(retry_after_s / 60)} minutes and try again.`;
     return json
       ? c.json({ error: "rate_limited", message, retry_after_s }, 429, HEADERS)
-      : c.html(loginPage(undefined, message), 429, HEADERS);
+      : c.html(loginPage(base(c), undefined, message), 429, HEADERS);
   };
 
   const sameOrigin: MiddlewareHandler = async (c, next) =>
-    c.req.header("origin") === origin ? next() : c.json({ error: "forbidden" }, 403);
+    c.req.header("origin") === site(c).origin ? next() : c.json({ error: "forbidden" }, 403);
 
   const operator: MiddlewareHandler<OpsEnv> = async (c, next) => {
     const payload = verifyToken(config.link_secret, getCookie(c, COOKIE) ?? "", providers.clock.now());
@@ -209,7 +212,7 @@ export function opsAuth(deps: {
     }
     if (!op) {
       return c.req.method === "GET" && wantsHtml(c)
-        ? c.redirect("/ops/login", 303)
+        ? c.redirect(`${base(c)}/login`, 303)
         : c.json({ error: "unauthorized" }, 401);
     }
     c.set("operator", op);
@@ -218,7 +221,7 @@ export function opsAuth(deps: {
 
   const routes = new Hono<OpsEnv>();
 
-  routes.get("/ops/login", (c) => c.html(loginPage(), 200, HEADERS));
+  routes.get("/ops/login", (c) => c.html(loginPage(base(c)), 200, HEADERS));
 
   routes.post("/ops/login/code", sameOrigin, async (c) => {
     const { json, body } = await readBody(c);
@@ -249,7 +252,9 @@ export function opsAuth(deps: {
         ),
       );
     }
-    return json ? c.json({ ok: true, message: SENT }, 200, HEADERS) : c.html(loginPage(typed), 200, HEADERS);
+    return json
+      ? c.json({ ok: true, message: SENT }, 200, HEADERS)
+      : c.html(loginPage(base(c), typed), 200, HEADERS);
   });
 
   routes.post("/ops/login/verify", sameOrigin, async (c) => {
@@ -277,27 +282,28 @@ export function opsAuth(deps: {
     if (outcome !== "ok" || !row) {
       return json
         ? c.json({ error: "invalid_code", message: WRONG }, 401, HEADERS)
-        : c.html(loginPage(typed, WRONG), 401, HEADERS);
+        : c.html(loginPage(base(c), typed, WRONG), 401, HEADERS);
     }
     await rpc("eyes_ops_code_delete", { p_identifier: row.identifier });
     startSession(c, row.identifier);
-    return json ? c.json({ ok: true, redirect: "/ops" }, 200, HEADERS) : c.redirect("/ops", 303);
+    const home = base(c) || "/";
+    return json ? c.json({ ok: true, redirect: home }, 200, HEADERS) : c.redirect(home, 303);
   });
 
   routes.post("/ops/logout", sameOrigin, (c) => {
     deleteCookie(c, COOKIE, { path: "/", secure: true });
-    return wantsHtml(c) ? c.redirect("/ops/login", 303) : c.json({ ok: true }, 200, HEADERS);
+    return wantsHtml(c) ? c.redirect(`${base(c)}/login`, 303) : c.json({ ok: true }, 200, HEADERS);
   });
 
   const allowlistError = async (c: Context<OpsEnv>, json: boolean, message: string) =>
     json
       ? c.json({ error: "invalid_input", message }, 400, HEADERS)
-      : c.html(allowlistPage(await allowlist(), c.get("operator"), message), 400, HEADERS);
+      : c.html(allowlistPage(base(c), await allowlist(), c.get("operator"), message), 400, HEADERS);
 
   routes.get("/ops/allowlist", operator, async (c) => {
     const entries = await allowlist();
     return wantsHtml(c)
-      ? c.html(allowlistPage(entries, c.get("operator")), 200, HEADERS)
+      ? c.html(allowlistPage(base(c), entries, c.get("operator")), 200, HEADERS)
       : c.json({ entries: entries.map(view) }, 200, HEADERS);
   });
 
@@ -318,7 +324,7 @@ export function opsAuth(deps: {
       p_added_by: by,
     });
     auth("allowlist add", { entry: mask(who.value), by });
-    if (!json) return c.redirect("/ops/allowlist", 303);
+    if (!json) return c.redirect(`${base(c)}/allowlist`, 303);
     return c.json({ entry: entry && view(entry) }, 200, HEADERS);
   });
 
@@ -339,7 +345,7 @@ export function opsAuth(deps: {
     if (problem || !entry) return allowlistError(c, json, problem ?? "");
     await rpc("eyes_ops_allowlist_remove", { p_id: entry.id });
     auth("allowlist remove", { entry: mask(entry.value), by: op.label });
-    return json ? c.json({ ok: true }, 200, HEADERS) : c.redirect("/ops/allowlist", 303);
+    return json ? c.json({ ok: true }, 200, HEADERS) : c.redirect(`${base(c)}/allowlist`, 303);
   });
 
   // After the static /ops/* routes; 32+ chars so it never shadows /ops/live, /ops/feed and the like.
@@ -348,7 +354,7 @@ export function opsAuth(deps: {
     if (!key || !timingSafeEqual(sha256(key), sha256(c.req.param("key")))) return c.notFound();
     auth("break-glass login", { identifier: BREAK_GLASS }, "warn");
     startSession(c, BREAK_GLASS);
-    return c.redirect("/ops", 303);
+    return c.redirect(base(c) || "/", 303);
   });
 
   return { routes, operator, sameOrigin };

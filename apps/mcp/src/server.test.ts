@@ -1162,7 +1162,7 @@ describe("ops dashboard", () => {
   type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
   async function signIn(fetch: Fetch) {
-    const res = await fetch(`http://eyes.test/ops/${OPS_KEY}`);
+    const res = await fetch(`http://localhost/ops/${OPS_KEY}`);
     expect(res.status).toBe(303);
     expect(res.headers.get("location")).toBe("/ops");
     const cookie = res.headers.get("set-cookie") ?? "";
@@ -1175,12 +1175,12 @@ describe("ops dashboard", () => {
   it("sends browsers without a session to the sign-in page and answers feeds 401, without reading anything", async () => {
     const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
     for (const path of PAGES) {
-      const res = await fetch(`http://eyes.test${path}`, { headers: { accept: "text/html" } });
+      const res = await fetch(`http://localhost${path}`, { headers: { accept: "text/html" } });
       expect(res.status).toBe(303);
       expect(res.headers.get("location")).toBe("/ops/login");
     }
     for (const path of [...PAGES, ...FEEDS]) {
-      const res = await fetch(`http://eyes.test${path}`, { headers: { cookie: "__Host-eyes_ops=forged" } });
+      const res = await fetch(`http://localhost${path}`, { headers: { cookie: "__Host-eyes_ops=forged" } });
       expect(res.status).toBe(401);
     }
     expect(rpcCalls).toEqual([]);
@@ -1189,21 +1189,21 @@ describe("ops dashboard", () => {
   it("answers a wrong or unset break-glass key exactly like an unknown route", async () => {
     const { fetch } = setup({}, { EYES_OPS_KEY: OPS_KEY });
     for (const key of [OPS_KEY.slice(0, -1), `${OPS_KEY}0`, OPS_KEY.toUpperCase()]) {
-      const res = await fetch(`http://eyes.test/ops/${key}`);
+      const res = await fetch(`http://localhost/ops/${key}`);
       expect(res.status).toBe(404);
       expect(res.headers.get("set-cookie")).toBeNull();
     }
     const unset = setup({}, { EYES_OPS_KEY: "" });
-    expect((await unset.fetch(`http://eyes.test/ops/${OPS_KEY}`)).status).toBe(404);
+    expect((await unset.fetch(`http://localhost/ops/${OPS_KEY}`)).status).toBe(404);
   });
 
   it("signs in with the break-glass key and then serves the ops page, the live map and the feed, uncached, with a CSP that allows only each page's own script, and worker positions rounded to 3 decimals", async () => {
     const { fetch, rpcCalls } = setup({}, { EYES_OPS_KEY: OPS_KEY });
     const cookie = await signIn(fetch);
     const headers = { cookie };
-    const ops = await fetch("http://eyes.test/ops", { headers });
-    const live = await fetch("http://eyes.test/ops/live", { headers });
-    const feed = await fetch("http://eyes.test/ops/feed", { headers });
+    const ops = await fetch("http://localhost/ops", { headers });
+    const live = await fetch("http://localhost/ops/live", { headers });
+    const feed = await fetch("http://localhost/ops/feed", { headers });
 
     expect(feed.status).toBe(200);
     expect(await feed.json()).toMatchObject({
@@ -1258,7 +1258,7 @@ describe("ops dashboard", () => {
       events,
     });
     const fetch: Fetch = (url, init) => server.fetch(new Request(url, init));
-    const res = await fetch("http://eyes.test/ops/feed", { headers: { cookie: await signIn(fetch) } });
+    const res = await fetch("http://localhost/ops/feed", { headers: { cookie: await signIn(fetch) } });
     quiet.mockRestore();
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -1658,13 +1658,13 @@ describe("ops data routes", () => {
     });
     const fetch = (url: string, init?: RequestInit) => server.fetch(new Request(url, init));
     const cookie = async () => {
-      const signin = await fetch(`http://eyes.test/ops/${OPS_KEY}`);
+      const signin = await fetch(`http://localhost/ops/${OPS_KEY}`);
       return (signin.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
     };
     const get = async (path: string) =>
-      fetch(`http://eyes.test${path}`, { headers: { cookie: await cookie() } });
+      fetch(`http://localhost${path}`, { headers: { cookie: await cookie() } });
     const post = async (path: string, body: unknown) =>
-      fetch(`http://eyes.test${path}`, {
+      fetch(`http://localhost${path}`, {
         method: "POST",
         headers: {
           cookie: await cookie(),

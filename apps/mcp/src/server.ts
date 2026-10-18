@@ -54,6 +54,7 @@ import { z } from "zod";
 import { deviceProfile, parseDeviceAttributes } from "./device-profile.ts";
 import { oauthRoutes } from "./oauth.ts";
 import { type Operator, opsAuth } from "./ops-auth.ts";
+import { opsHost, opsOriginFor } from "./ops-host.ts";
 import { WIDGET_HTML, WIDGET_MIME, WIDGET_URI, widgetResourceMeta, widgetToolMeta } from "./widget.ts";
 
 type Env = Record<string, string | undefined>;
@@ -374,6 +375,14 @@ export function createServer(
     instructions: INSTRUCTIONS,
     logging: { enabled: false },
   });
+
+  // Before everything else: the ops host maps `/x` to `/ops/x`; other hosts redirect `/ops*` there.
+  const opsSite = opsHost(
+    new URL(config.public_api_url).origin,
+    opsOriginFor(config.public_api_url, env.EYES_OPS_URL),
+    async (req) => server.app.fetch(req),
+  );
+  server.app.use("*", opsSite.route);
 
   // Every request, without the query string and with token-looking path segments masked. The ops
   // page's own polling is skipped so the log is not mostly the dashboard reading itself.
@@ -878,7 +887,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
 
   const { rpc } = deps;
   if (rpc) {
-    const ops = opsAuth({ rpc, providers: deps.providers, config, env, log });
+    const ops = opsAuth({ rpc, providers: deps.providers, config, env, log, site: opsSite.site });
     const clef = Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN);
     const claude = Boolean(env.ANTHROPIC_API_KEY);
     const health = {

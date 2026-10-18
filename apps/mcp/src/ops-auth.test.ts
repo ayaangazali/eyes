@@ -5,6 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { createServer } from "./server.ts";
 
 const ORIGIN = "http://api.eyes.test";
+// The dashboard's own host: `/x` there is `/ops/x` on loopback.
+const OPS = "http://internal.eyes.test";
 const PHONE = "+15555550100";
 const EMAIL = "ops@example.com";
 const TASK_ID = "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b";
@@ -92,12 +94,13 @@ function setup(values = [PHONE, EMAIL], env: Record<string, string> = { EYES_OPS
     rpc,
     events,
   });
-  const fetch = (path: string, init?: RequestInit) => server.fetch(new Request(`${ORIGIN}${path}`, init));
+  const fetch = (path: string, init?: RequestInit) =>
+    server.fetch(new Request(`${OPS}${path.replace(/^\/ops(?=\/|$)/, "") || "/"}`, init));
   const post = (path: string, body: unknown, headers: Record<string, string> = {}) =>
     fetch(path, {
       method: "POST",
       headers: {
-        origin: ORIGIN,
+        origin: OPS,
         "content-type": "application/json",
         "cf-connecting-ip": "203.0.113.9",
         ...headers,
@@ -373,7 +376,7 @@ describe("ops sign-in and allowlist from a browser form", () => {
     fetch(path, {
       method: "POST",
       headers: {
-        origin: ORIGIN,
+        origin: OPS,
         accept: "text/html",
         "content-type": "application/x-www-form-urlencoded",
         "cf-connecting-ip": "203.0.113.9",
@@ -386,12 +389,12 @@ describe("ops sign-in and allowlist from a browser form", () => {
     const { fetch, codeFor, allowlist } = setup();
     const login = await fetch("/ops/login");
     expect(login.status).toBe(200);
-    expect(await login.text()).toContain('action="/ops/login/code"');
+    expect(await login.text()).toContain('action="/login/code"');
 
     const sent = await form(fetch, "/ops/login/code", { identifier: PHONE });
     expect(sent.status).toBe(200);
     const sentPage = await sent.text();
-    expect(sentPage).toContain('action="/ops/login/verify"');
+    expect(sentPage).toContain('action="/login/verify"');
     expect(sentPage).toContain(`value="${PHONE}"`);
 
     const code = codeFor(PHONE);
@@ -404,7 +407,7 @@ describe("ops sign-in and allowlist from a browser form", () => {
 
     const ok = await form(fetch, "/ops/login/verify", { identifier: PHONE, code });
     expect(ok.status).toBe(303);
-    expect(ok.headers.get("location")).toBe("/ops");
+    expect(ok.headers.get("location")).toBe("/");
     const cookie = (ok.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
 
     const page = await fetch("/ops/allowlist", { headers: { cookie, accept: "text/html" } });
@@ -418,16 +421,16 @@ describe("ops sign-in and allowlist from a browser form", () => {
     expect(bad.status).toBe(400);
     expect(await bad.text()).toContain("Enter a phone number with its country code");
     const added = await form(fetch, "/ops/allowlist", { identifier: "+14155550123" }, { cookie });
-    expect([added.status, added.headers.get("location")]).toEqual([303, "/ops/allowlist"]);
+    expect([added.status, added.headers.get("location")]).toEqual([303, "/allowlist"]);
     const gone = await form(fetch, "/ops/allowlist/remove", { id: "missing" }, { cookie });
     expect(gone.status).toBe(400);
     expect(await gone.text()).toContain("No allowlist entry with this id.");
     const removed = await form(fetch, "/ops/allowlist/remove", { id: "entry-2" }, { cookie });
-    expect([removed.status, removed.headers.get("location")]).toEqual([303, "/ops/allowlist"]);
+    expect([removed.status, removed.headers.get("location")]).toEqual([303, "/allowlist"]);
     expect(allowlist.map((e) => e.value)).toEqual([PHONE, EMAIL]);
 
     const out = await form(fetch, "/ops/logout", {}, { cookie });
-    expect([out.status, out.headers.get("location")]).toEqual([303, "/ops/login"]);
+    expect([out.status, out.headers.get("location")]).toEqual([303, "/login"]);
     expect(out.headers.get("set-cookie")).toContain("__Host-eyes_ops=;");
   });
 
@@ -447,14 +450,14 @@ describe("ops sign-in and allowlist from a browser form", () => {
     const broken = await fetch("/ops/login/code", {
       method: "POST",
       headers: {
-        origin: ORIGIN,
+        origin: OPS,
         "content-type": "multipart/form-data",
         "x-forwarded-for": "10.0.0.1, 198.51.100.4",
       },
       body: "--x\r\nnot a form",
     });
     expect(broken.status).toBe(200);
-    expect(await broken.text()).toContain('action="/ops/login/verify"');
+    expect(await broken.text()).toContain('action="/login/verify"');
     expect(await (await post("/ops/login/code", { identifier: 15555550100 })).json()).toMatchObject({
       ok: true,
     });
@@ -468,7 +471,7 @@ describe("ops sign-in and allowlist from a browser form", () => {
     const send = (headers: Args) =>
       fetch("/ops/login/code", {
         method: "POST",
-        headers: { origin: ORIGIN, "content-type": "application/json", ...headers },
+        headers: { origin: OPS, "content-type": "application/json", ...headers },
         body: JSON.stringify({ identifier: "+14155550123" }),
       });
     for (let i = 0; i < 10; i++) await send({ "x-forwarded-for": `10.0.0.${i}, 198.51.100.4` });
@@ -478,9 +481,9 @@ describe("ops sign-in and allowlist from a browser form", () => {
 
   it("reads a bodiless or non-object JSON post as empty, and answers a session-less HTML post 401", async () => {
     const { fetch, post } = setup();
-    const bare = await fetch("/ops/login/code", { method: "POST", headers: { origin: ORIGIN } });
+    const bare = await fetch("/ops/login/code", { method: "POST", headers: { origin: OPS } });
     expect(bare.status).toBe(200);
-    expect(await bare.text()).toContain('action="/ops/login/verify"');
+    expect(await bare.text()).toContain('action="/login/verify"');
     expect(await (await post("/ops/login/code", null)).json()).toMatchObject({ ok: true });
     const denied = await form(fetch, "/ops/allowlist", { identifier: "+14155550123" });
     expect(denied.status).toBe(401);

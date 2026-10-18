@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   after,
+  ago,
   checkReason,
   cut,
   eventQuery,
@@ -61,7 +62,17 @@ describe("ops-view format", () => {
     expect(uptime(2 * 86400 + 7 * 3600)).toBe("up 2d 7h");
   });
 
+  it("shows ages in the largest whole unit", () => {
+    const now = Date.parse("2026-10-17T12:00:00Z");
+    expect(ago("2026-10-17T11:59:30Z", now)).toBe("now");
+    expect(ago("2026-10-17T12:00:30Z", now)).toBe("now");
+    expect(ago("2026-10-17T11:15:00Z", now)).toBe("45m");
+    expect(ago("2026-10-17T03:00:00Z", now)).toBe("9h");
+    expect(ago("2026-10-14T12:00:00Z", now)).toBe("3d");
+  });
+
   it("picks the tab from the hash, overview by default", () => {
+    expect(tabFor("#review?q=blue&sort=-age")).toBe("review");
     expect(tabFor("#money")).toBe("money");
     expect(tabFor("#nope")).toBe("overview");
     expect(tabFor("")).toBe("overview");
@@ -80,6 +91,7 @@ describe("ops-view format", () => {
   it("treats disputes as open by dispute status, other tickets by status", () => {
     expect(ticketOpen({ id: 1, kind: "dispute", dispute_status: "open", status: "resolved" })).toBe(true);
     expect(ticketOpen({ id: 1, kind: "dispute", dispute_status: "upheld", status: "open" })).toBe(false);
+    expect(ticketOpen({ id: 1, kind: "dispute", dispute_status: null, status: "resolved" })).toBe(true);
     expect(ticketOpen({ id: 1, kind: "help", status: "open" })).toBe(true);
   });
 
