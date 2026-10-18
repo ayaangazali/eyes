@@ -27,6 +27,7 @@
 }
 
 .ui [hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: [hidden] must beat the display rules of .ui components */
   display: none !important;
 }
 
