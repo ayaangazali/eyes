@@ -101,6 +101,7 @@ const helpTicket = (over: Partial<Ticket> = {}): Ticket => ({
 const SERIES = {
   source: "clickhouse",
   dropped: 3,
+  minutes: ["2026-10-17 11:58:00", "2026-10-17 11:59:00", "2026-10-17 12:00:00"],
   requests: [10, 0, 20],
   errors: [1, 0, 0],
   p95_ms: [120, 80, 300],
@@ -233,7 +234,12 @@ describe("ops page boot", () => {
       { L },
     );
     const { $, text, requests, timers } = page;
-    expect(requests.map((r) => r.path)).toEqual(["/ops/feed", "/ops/tickets", "/ops/events", "/ops/series"]);
+    expect(requests.map((r) => r.path)).toEqual([
+      "/ops/feed",
+      "/ops/tickets",
+      "/ops/events?limit=100",
+      "/ops/series",
+    ]);
     expect(text("state")).toBe("Live");
     expect($("state").className).toBe("ui-badge ui-badge--success");
     expect(text("updated")).toMatch(/^updated .+, every 10 s$/);
@@ -317,19 +323,25 @@ describe("ops page boot", () => {
 
     expect(
       [...$("errors").children].map((li) => li.textContent?.replace(/Oct.*?(AM|PM)?(?=boom|slow)/, "")),
-    ).toEqual(["errorboom", "warnslow"]);
+    ).toEqual(["Errorboom", "Warningslow"]);
     expect(text("n-logs")).toBe("2");
     expect($("n-logs").classList.contains("hot")).toBe(true);
 
-    expect(text("events-source")).toBe("searchable, newest first");
-    const events = [...$("events").children];
-    expect(events.map((tr) => tr.querySelector(".ui-badge")?.className)).toEqual([
-      "ui-badge",
-      "ui-badge ui-badge--danger",
-      "ui-badge ui-badge--warning",
+    expect(text("events-source")).toBe("Newest first");
+    const rows = [...$("events").querySelectorAll("tbody tr")];
+    expect(rows.map((tr) => tr.querySelector(".ev-level")?.className)).toEqual([
+      "ev-level ev-level--info",
+      "ev-level ev-level--error",
+      "ev-level ev-level--warn",
     ]);
-    expect(events[0]?.querySelector("button")?.textContent).toBe("22222222");
-    expect($("older").hidden).toBe(true);
+    expect(rows.map((tr) => tr.querySelector(".ev-source svg")?.getAttribute("aria-label"))).toEqual([
+      "sms",
+      "Web request",
+      "Web request",
+    ]);
+    expect(rows[1]?.getAttribute("aria-label")).toBe("Error, Web request: 500");
+    expect($("events").querySelector(".tbl-count")?.textContent).toBe("3 events loaded");
+    expect($("events").querySelector(".tbl-end")?.textContent).toBe("End of events");
 
     expect(text("series-source")).toBe("ClickHouse, 3 events dropped while it was down");
     const charts = [...$("charts").children];
@@ -357,6 +369,10 @@ describe("ops page boot", () => {
       "chart",
       "chart bad",
     ]);
+    // The tooltip names the bucket's local time.
+    const plot = charts[0]?.querySelector(".chart__plot") as HTMLElement;
+    plot.dispatchEvent(new page.happy.FocusEvent("focus") as unknown as Event);
+    expect(plot.querySelector(".chart__tip")?.textContent).toMatch(/\d{1,2}:\d{2}/);
   });
 
   it("renders the empty and degraded states", async () => {
@@ -419,9 +435,9 @@ describe("ops page boot", () => {
     expect(text("ledger")).toBe("No ledger rows yet.");
     expect(text("n-logs")).toBe("1");
     expect($("n-logs").classList.contains("hot")).toBe(false);
-    expect(text("events-source")).toBe("database unreachable: showing this process's memory only");
-    expect(text("events")).toBe("No events match.");
-    expect($("older").hidden).toBe(true);
+    expect(text("events-source")).toBe("Database unreachable: this process's memory only");
+    expect($("events").querySelector(".tbl-empty")?.textContent).toBe("No events match.");
+    expect($("events").querySelector(".tbl-end")?.textContent).toBe("");
     expect(text("series-source")).toBe("Postgres and this process's last 500 events (ClickHouse off)");
     expect([...$("charts").children].map((c) => c.querySelector("h3")?.textContent)).toEqual([
       "Requests per minute",
@@ -451,30 +467,21 @@ describe("ops page boot", () => {
     expect($("ledger").children).toHaveLength(3);
   });
 
-  it("re-polls, skips unchanged tickets and series, and keeps the first event page unless paged back", async () => {
+  it("re-polls, skips unchanged tickets and series, and asks only for newer events", async () => {
     const page = await setup({
-      "GET /ops/events": () =>
-        ok({
-          source: "db",
-          events: Array.from({ length: 201 }, (_, i) => ({
-            id: 1000 - i,
-            at: "2026-10-17T12:00:00Z",
-            kind: "http",
-            level: "info",
-            summary: `e${i}`,
-          })),
-        }),
+      "GET /ops/events": () => ok({ source: "database", events: [], newest_cursor: null, next_cursor: null }),
     });
-    const { requests, timers, $ } = page;
-    expect($("older").hidden).toBe(false);
+    const { requests, timers } = page;
     requests.length = 0;
     timers.at(-1)?.fn();
     await page.settle();
     await page.settle();
-    expect(requests.map((r) => r.path)).toEqual(["/ops/feed", "/ops/tickets", "/ops/series"]);
-    await page.click($("older"));
-    expect(requests.at(-1)?.path).toBe("/ops/events?before=800");
-    expect($("events").children).toHaveLength(402);
+    expect(requests.map((r) => r.path)).toEqual([
+      "/ops/feed",
+      "/ops/tickets",
+      "/ops/events?limit=100",
+      "/ops/series",
+    ]);
   });
 
   it("shows feed failures and sends a 401 to the login page", async () => {
@@ -854,45 +861,194 @@ describe("ops support tickets", () => {
 });
 
 describe("ops event log and tabs", () => {
-  it("sends filters, debounces search typing and filters by a clicked task id", async () => {
-    const page = await setup({
-      "GET /ops/events": () =>
-        ok({
-          source: "db",
-          events: [
-            { at: "2026-10-17T12:00:00Z", kind: "sms", level: "info", summary: "sent", task_id: HELD },
-          ],
-        }),
-    });
-    const { change, requests, timers, cleared, $, win } = page;
-    await change("f-kind", "payout");
-    expect(requests.at(-1)?.path).toBe("/ops/events?kind=payout");
-    await change("f-level", "error");
-    expect(requests.at(-1)?.path).toBe("/ops/events?kind=payout&level=error");
-    await change("f-q", " boom", "input");
-    expect(timers.at(-1)?.ms).toBe(300);
-    const first = win.qTimer;
-    await change("f-q", " boom ", "input");
-    expect(cleared).toContain(first);
-    timers.at(-1)?.fn();
-    await page.settle();
-    expect(requests.at(-1)?.path).toBe("/ops/events?q=boom&kind=payout&level=error");
-    await page.click($("events").querySelector("button") as HTMLElement);
-    expect($<HTMLInputElement>("f-task").value).toBe(HELD);
-    expect(requests.at(-1)?.path).toBe(`/ops/events?q=boom&kind=payout&level=error&task_id=${HELD}`);
-    await page.click($("older"));
-    expect(requests.at(-1)?.path).toBe(`/ops/events?q=boom&kind=payout&level=error&task_id=${HELD}`);
+  const ev = (id: number, extra: object = {}) => ({
+    id,
+    at: `2026-10-17T12:00:${String(id % 60).padStart(2, "0")}Z`,
+    kind: "http",
+    level: "info",
+    summary: `e${id}`,
+    ...extra,
   });
 
-  it("keeps the paging cursor when a page comes back empty", async () => {
-    let events = [{ id: 40, at: "2026-10-17T12:00:00Z", kind: "http", level: "info", summary: "x" }];
-    const page = await setup({ "GET /ops/events": () => ok({ source: "db", events }) });
-    events = [];
-    await page.click(page.$("older"));
-    expect(page.requests.at(-1)?.path).toBe("/ops/events?before=40");
-    await page.click(page.$("older"));
-    expect(page.requests.at(-1)?.path).toBe("/ops/events?before=40");
-    expect(page.$("events").children).toHaveLength(1);
+  it("sends filters to the server, debounces search, and filters by a task from an event's details", async () => {
+    const page = await setup(
+      {
+        "GET /ops/events": () =>
+          ok({
+            source: "database",
+            events: [ev(5, { task_id: HELD, data: { ms: 40 } })],
+            next_cursor: null,
+            newest_cursor: "n5",
+          }),
+      },
+      { hash: "#logs" },
+    );
+    const { requests, timers, $, win } = page;
+    const bar = $("events").querySelector(".tbl-bar") as HTMLElement;
+    const [kind, level] = [...bar.querySelectorAll("select")];
+    const set = async (el: Element | null | undefined, value: string, type = "change") => {
+      (el as HTMLInputElement).value = value;
+      el?.dispatchEvent(new page.happy.Event(type) as unknown as Event);
+      await page.settle();
+      await page.settle();
+    };
+    await set(kind, "payout");
+    expect(requests.at(-1)?.path).toBe("/ops/events?kind=payout&limit=100");
+    expect(win.location.hash).toBe("#logs?kind=payout");
+    await set(level, "error");
+    expect(requests.at(-1)?.path).toBe("/ops/events?kind=payout&level=error&limit=100");
+    await set(bar.querySelector("input[type=search]"), " boom", "input");
+    expect(timers.at(-1)?.ms).toBe(200);
+    timers.at(-1)?.fn();
+    await page.settle();
+    await page.settle();
+    expect(requests.at(-1)?.path).toBe("/ops/events?q=boom&kind=payout&level=error&limit=100");
+
+    const row = $("events").querySelector("tbody tr") as HTMLElement;
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    row.click();
+    const detail = $("events").querySelector(".tbl-detail") as HTMLElement;
+    expect(detail.querySelector(".ev-detail__data")?.textContent).toBe('{\n  "ms": 40\n}');
+    await page.click(detail.querySelector("button") as HTMLElement);
+    expect(requests.at(-1)?.path).toBe(
+      `/ops/events?q=boom&kind=payout&level=error&task_id=${HELD}&limit=100`,
+    );
+    expect(win.location.hash).toBe(`#logs?q=boom&kind=payout&level=error&task=${HELD}`);
+    ($("events").querySelector("tbody tr") as HTMLElement).click();
+    expect($("events").querySelector(".tbl-detail")).toBeNull();
+  });
+
+  it("sorts the loaded events by any column without asking the server again", async () => {
+    const page = await setup(
+      {
+        "GET /ops/events": () =>
+          ok({
+            source: "database",
+            events: [ev(3, { level: "warn", kind: "text" }), ev(1, { level: "error" }), ev(2)],
+            next_cursor: null,
+            newest_cursor: "n",
+          }),
+      },
+      { hash: "#logs" },
+    );
+    const { $, requests } = page;
+    const before = requests.length;
+    const sortBy = (label: string) =>
+      (
+        [...$("events").querySelectorAll("th button")].find((b) => b.textContent === label) as HTMLElement
+      ).click();
+    const ids = () => [...$("events").querySelectorAll(".ev-sum")].map((s) => s.textContent);
+    sortBy("Time");
+    expect(ids()).toEqual(["e3", "e2", "e1"]);
+    sortBy("Level");
+    expect(ids()).toEqual(["e1", "e2", "e3"]);
+    sortBy("Source");
+    expect(ids()[0]).toBe("e3");
+    sortBy("Event");
+    expect(ids()).toEqual(["e1", "e2", "e3"]);
+    expect(requests.length).toBe(before);
+  });
+
+  it("loads older pages by cursor, without duplicates, and shows the end of the log", async () => {
+    const pages: Record<string, unknown> = {
+      first: { source: "database", events: [ev(9), ev(8)], next_cursor: "c8", newest_cursor: "n9" },
+      c8: { source: "database", events: [ev(8), ev(7)], next_cursor: null, newest_cursor: "n8" },
+    };
+    let fail = false;
+    const page = await setup({
+      "GET /ops/events": (_init, url) =>
+        fail ? new Response("", { status: 500 }) : ok(pages[url.searchParams.get("cursor") ?? "first"]),
+    });
+    const { $, requests } = page;
+    const ids = () => [...$("events").querySelectorAll("tbody tr .ev-sum")].map((s) => s.textContent);
+    const more = $("events").querySelector(".tbl-foot button") as HTMLButtonElement;
+    expect(ids()).toEqual(["e9", "e8"]);
+    expect(more.hidden).toBe(false);
+    fail = true;
+    await page.click(more);
+    expect(more.hidden).toBe(false);
+    fail = false;
+    await page.click(more);
+    expect(requests.at(-1)?.path).toBe("/ops/events?limit=100&cursor=c8");
+    expect(ids()).toEqual(["e9", "e8", "e7"]);
+    expect(more.hidden).toBe(true);
+    expect($("events").querySelector(".tbl-end")?.textContent).toBe("End of events");
+    const before = requests.length;
+    await page.click(more);
+    expect(requests.length).toBe(before);
+  });
+
+  it("holds new live events behind a pill until clicked, then puts them on top", async () => {
+    let reply: unknown = { source: "database", events: [ev(5)], next_cursor: null, newest_cursor: "n5" };
+    const page = await setup({ "GET /ops/events": () => ok(reply) });
+    const { $, timers, requests } = page;
+    const ids = () => [...$("events").querySelectorAll("tbody tr .ev-sum")].map((s) => s.textContent);
+    const pill = $<HTMLButtonElement>("new-events");
+    expect(pill.hidden).toBe(true);
+    const tick = async () => {
+      timers.at(-1)?.fn();
+      await page.settle();
+      await page.settle();
+    };
+    reply = { source: "database", events: [ev(7), ev(6)], next_cursor: null, newest_cursor: "n7" };
+    await tick();
+    expect(requests.at(-2)?.path).toBe("/ops/events?since=n5");
+    expect([pill.hidden, pill.textContent]).toEqual([false, "2 new events"]);
+    expect(ids()).toEqual(["e5"]);
+    reply = { source: "database", events: [ev(7), ev(5)], next_cursor: null, newest_cursor: null };
+    await tick();
+    expect(requests.at(-2)?.path).toBe("/ops/events?since=n7");
+    expect(pill.textContent).toBe("2 new events");
+    reply = { source: "database", events: [ev(8)], next_cursor: null, newest_cursor: "n8" };
+    await tick();
+    expect(pill.textContent).toBe("3 new events");
+    pill.click();
+    expect(ids()).toEqual(["e8", "e7", "e6", "e5"]);
+    expect(pill.hidden).toBe(true);
+    reply = { source: "database", events: [ev(9)], next_cursor: null, newest_cursor: "n9" };
+    await tick();
+    expect(pill.textContent).toBe("1 new event");
+  });
+
+  it("drops a stale response when the filters change while it loads, and ignores failed polls", async () => {
+    let first = true;
+    // Promise.withResolvers is not in this repo's es2023 lib.
+    let release: (res: Response) => void = () => {};
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const page = await setup({
+      "GET /ops/events": (_init, url) => {
+        if (url.searchParams.get("since")) return new Response("", { status: 500 });
+        if (url.searchParams.get("level") === "warn" && first) {
+          first = false;
+          return held;
+        }
+        return ok({
+          source: "database",
+          events: [ev(url.searchParams.get("level") ? 2 : 1)],
+          next_cursor: null,
+          newest_cursor: "n",
+        });
+      },
+    });
+    const { $, timers } = page;
+    const level = $("events").querySelector(".tbl-bar select:nth-of-type(2)") as HTMLSelectElement;
+    level.value = "warn";
+    level.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    level.value = "error";
+    level.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    await page.settle();
+    await page.settle();
+    release(ok({ source: "database", events: [ev(3)], next_cursor: null, newest_cursor: "n" }));
+    await page.settle();
+    await page.settle();
+    expect([...$("events").querySelectorAll(".ev-sum")].map((s) => s.textContent)).toEqual(["e2"]);
+    timers.at(-1)?.fn();
+    await page.settle();
+    await page.settle();
+    expect([...$("events").querySelectorAll(".ev-sum")].map((s) => s.textContent)).toEqual(["e2"]);
+    expect($<HTMLButtonElement>("new-events").hidden).toBe(true);
   });
 
   it("shows the tab from the hash and moves with the keyboard", async () => {
@@ -920,7 +1076,7 @@ describe("ops event log and tabs", () => {
     key("ArrowRight");
     expect(selected()).toEqual(["tab-overview"]);
     expect(key("Enter")).toBe(true);
-    $("f-q").focus();
+    $("logout").focus();
     expect(key("ArrowRight")).toBe(true);
     expect(selected()).toEqual(["tab-overview"]);
 

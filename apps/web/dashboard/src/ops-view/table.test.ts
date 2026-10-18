@@ -249,3 +249,141 @@ describe("createTable", () => {
     expect(table.state()).toEqual(state({ sort: "-name" }));
   });
 });
+
+describe("createTable, server-paged", () => {
+  const windows: Window[] = [];
+  afterEach(async () => {
+    for (const w of windows.splice(0)) await w.happyDOM.close();
+  });
+
+  function remote(
+    opts: { observer?: boolean; total?: number | null; window?: { rows: number; height: number } } = {},
+  ) {
+    const happy = new Window();
+    windows.push(happy);
+    const view = happy as unknown as Window & typeof globalThis;
+    const seen: { fire: (hit: boolean) => void }[] = [];
+    if (opts.observer) {
+      (view as unknown as { IntersectionObserver: unknown }).IntersectionObserver = class {
+        cb: (entries: { isIntersecting: boolean }[]) => void;
+        constructor(cb: (entries: { isIntersecting: boolean }[]) => void) {
+          this.cb = cb;
+        }
+        observe() {
+          seen.push({ fire: (hit) => this.cb([{ isIntersecting: hit }]) });
+        }
+      };
+    } else (view as unknown as { IntersectionObserver?: unknown }).IntersectionObserver = undefined;
+    const doc = happy.document as unknown as Document;
+    let more = 0;
+    const table = createTable<Row>(doc, {
+      name: "rows",
+      columns: COLUMNS,
+      filters: [...FILTERS, { kind: "text", key: "who", label: "Who", value: (r) => r.name }],
+      empty: "No rows.",
+      onChange: () => {},
+      later: (fn) => {
+        fn();
+        return () => {};
+      },
+      remote: {
+        noun: "rows",
+        more: () => more++,
+        total: opts.total === undefined ? undefined : () => opts.total ?? null,
+      },
+      key: (r) => String(r.id),
+      detail: (r) => {
+        const p = doc.createElement("p");
+        p.textContent = `detail ${r.id}`;
+        return p;
+      },
+      window: opts.window,
+    });
+    doc.body.append(table.el);
+    return { table, doc, happy, seen, more: () => more };
+  }
+
+  it("leaves filtering to the server, counts what is loaded, and pages from the footer", () => {
+    const { table, seen, more } = remote({ observer: true, total: 9 });
+    table.setRows(ROWS);
+    table.setState({ q: "zzz", sort: "-cents", f: { status: "closed", who: "nobody" } });
+    expect([...table.el.querySelectorAll("tbody tr")].map((tr) => tr.textContent?.slice(0, 5))).toEqual([
+      "Dolor",
+      "Blue ",
+      "blue ",
+    ]);
+    expect(table.el.querySelector(".tbl-count")?.textContent).toBe("3 of 9 rows loaded");
+    const button = table.el.querySelector(".tbl-foot button") as HTMLButtonElement;
+    expect(button.hidden).toBe(true);
+    table.setEnd("more");
+    expect(button.hidden).toBe(false);
+    button.click();
+    seen[0]?.fire(false);
+    seen[0]?.fire(true);
+    expect(more()).toBe(2);
+    table.setEnd("loading");
+    expect(table.el.querySelector(".tbl-end")?.textContent).toBe("Loading…");
+    seen[0]?.fire(true);
+    button.click();
+    expect(more()).toBe(2);
+    table.setEnd("end");
+    expect(table.el.querySelector(".tbl-end")?.textContent).toBe("End of rows");
+    table.setRows([]);
+    expect(table.el.querySelector(".tbl-end")?.textContent).toBe("");
+  });
+
+  it("works without an IntersectionObserver and without a total", () => {
+    const { table, more } = remote();
+    table.setRows(ROWS);
+    expect(table.el.querySelector(".tbl-count")?.textContent).toBe("3 rows loaded");
+    table.setEnd("more");
+    (table.el.querySelector(".tbl-foot button") as HTMLButtonElement).click();
+    expect(more()).toBe(1);
+    const text = table.el.querySelector("input.tbl-filter") as HTMLInputElement;
+    expect(text.getAttribute("aria-label")).toBe("Who");
+    text.value = " gate ";
+    emit(text, "change");
+    expect(table.state().f.who).toBe("gate");
+  });
+
+  it("toggles details under a row by click and key, keeping them across redraws", () => {
+    const { table, happy } = remote();
+    table.setRows(ROWS);
+    const row = () => table.el.querySelector("tbody tr") as HTMLElement;
+    row().click();
+    expect(row().getAttribute("aria-expanded")).toBe("true");
+    expect(table.el.querySelector(".tbl-detail td")?.textContent).toBe("detail 1");
+    expect((table.el.querySelector(".tbl-detail td") as HTMLTableCellElement).colSpan).toBe(3);
+    table.setRows([...ROWS]);
+    expect(table.el.querySelector(".tbl-detail")).toBeTruthy();
+    row().dispatchEvent(
+      new happy.KeyboardEvent("keydown", { key: "Enter", cancelable: true }) as unknown as Event,
+    );
+    expect(table.el.querySelector(".tbl-detail")).toBeNull();
+  });
+
+  it("windows long lists: spacers stand in for rows outside the viewport", () => {
+    const { table, happy } = remote({ window: { rows: 4, height: 10 } });
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...ROWS[0], id: i }) as Row);
+    let top = 0;
+    const tableEl = table.el.querySelector("table") as HTMLElement;
+    tableEl.getBoundingClientRect = () => ({ top }) as DOMRect;
+    table.setRows(many);
+    const shape = () =>
+      [...table.el.querySelectorAll("tbody tr")].map((tr) =>
+        tr.className === "tbl-spacer"
+          ? `gap ${(tr.firstChild as HTMLElement).style.height}`
+          : tr.textContent?.slice(-3),
+      );
+    expect(shape()).toEqual(["300", "300", "300", "300", "gap 80px"]);
+    top = -60;
+    happy.dispatchEvent(new happy.Event("scroll"));
+    expect(shape()).toEqual(["gap 50px", "300", "300", "300", "300", "gap 30px"]);
+    top = -65;
+    happy.dispatchEvent(new happy.Event("scroll"));
+    expect(shape()[0]).toBe("gap 50px");
+    top = -500;
+    happy.dispatchEvent(new happy.Event("scroll"));
+    expect(shape()).toEqual(["gap 80px", "300", "300", "300", "300"]);
+  });
+});

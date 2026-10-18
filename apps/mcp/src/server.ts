@@ -38,7 +38,6 @@ import {
   type EventLog,
   type Feed,
   fallbackRows,
-  type LoggedEvent,
   OPS_PAGE,
   readClickHouseSeries,
   readFeed,
@@ -56,6 +55,7 @@ import { deviceProfile, parseDeviceAttributes } from "./device-profile.ts";
 import { oauthRoutes } from "./oauth.ts";
 import { type Operator, opsAuth } from "./ops-auth.ts";
 import { opsHost, opsOriginFor } from "./ops-host.ts";
+import { opsLists } from "./ops-lists.ts";
 import { WIDGET_HTML, WIDGET_MIME, WIDGET_URI, widgetResourceMeta, widgetToolMeta } from "./widget.ts";
 
 type Env = Record<string, string | undefined>;
@@ -112,7 +112,6 @@ function opsHeaders(page: string) {
 const OPS_FEED_LIMIT = 500;
 const OPS_RECENT = 50;
 export const SMOKE_UA = "eyes-smoke/";
-const OPS_EVENTS = 200;
 const TicketAction = z.object({
   ticket_id: z.coerce.number().int().positive(),
   outcome: z.enum(["release", "refund", "close"]),
@@ -130,14 +129,6 @@ const TaskResolve = z.object({
 });
 // What resolveTask leaves behind: a second click finds one of these and moves no money.
 const RESOLVED = ["verified", "paid", "refunded"];
-type Ticket = {
-  worker_id: string;
-  lat: number;
-  lng: number;
-  submission_lat: number | null;
-  submission_lng: number | null;
-  [key: string]: unknown;
-};
 const PROVIDER_LINES = {
   messaging: ["Texting", "Task texts to workers' phones and their YES replies (Inkbox)."],
   email: ["Email", "Questions agents email in and the threaded answers (Primitive)."],
@@ -995,49 +986,8 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
         FEED_HEADERS,
       );
     });
-    server.app.get("/ops/events", ops.operator, async (c) => {
-      const q = c.req.query();
-      const filter = {
-        kind: q.kind || null,
-        level: q.level || null,
-        q: q.q?.trim() || null,
-        task_id: q.task_id && UUID.test(q.task_id) ? q.task_id : null,
-      };
-      const before = /^\d+$/.test(q.before ?? "") ? Number(q.before) : null;
-      try {
-        const events = await rpc<LoggedEvent & { id: number }>("eyes_events", {
-          p_limit: OPS_EVENTS,
-          p_kind: filter.kind,
-          p_level: filter.level,
-          p_q: filter.q,
-          p_task_id: filter.task_id,
-          p_before: before,
-        });
-        return c.json({ source: "database", events }, 200, FEED_HEADERS);
-      } catch (err) {
-        console.error("ops events: database read failed:", err instanceof Error ? err.message : err);
-        const needle = filter.q?.toLowerCase();
-        const events = (deps.events?.recent() ?? []).filter(
-          (e) =>
-            (!filter.kind || e.kind === filter.kind) &&
-            (!filter.level || e.level === filter.level) &&
-            (!filter.task_id || e.task_id === filter.task_id) &&
-            (!needle || `${e.summary} ${JSON.stringify(e.data)}`.toLowerCase().includes(needle)),
-        );
-        return c.json({ source: "memory", events: events.slice(0, OPS_EVENTS) }, 200, FEED_HEADERS);
-      }
-    });
-    server.app.get("/ops/tickets", ops.operator, async (c) => {
-      const rows = await rpc<Ticket>("eyes_tickets", { p_limit: OPS_RECENT });
-      const tickets = rows.map(({ submission_lat, submission_lng, worker_id: _, ...t }) => ({
-        ...t,
-        distance_m:
-          submission_lat == null || submission_lng == null
-            ? null
-            : Math.round(distanceMeters(t, { lat: submission_lat, lng: submission_lng })),
-      }));
-      return c.json({ tickets }, 200, FEED_HEADERS);
-    });
+    // Paged lists: /ops/events, /ops/tickets, /ops/tasks, /ops/ledger (keyset cursor, server-side filters).
+    server.app.route("/", opsLists({ rpc, events: deps.events, operator: ops.operator }));
     server.app.get("/ops/tasks/:id", ops.operator, async (c) => {
       const id = c.req.param("id");
       const [row] = UUID.test(id)
