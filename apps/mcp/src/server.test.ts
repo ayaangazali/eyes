@@ -127,6 +127,7 @@ function setup(overrides: Partial<EyesService> = {}, env: Record<string, string>
     public_api_url: "http://api.eyes.test",
     worker_web_url: "http://worker.eyes.test",
     link_secret: SECRET,
+    live_payouts: true,
   });
   const providers = fakeProviders();
   const rpcCalls: { fn: string; args: unknown }[] = [];

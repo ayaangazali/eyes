@@ -12,13 +12,16 @@
     />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
-  <body>
+  <body data-live-payouts="%VITE_LIVE_PAYOUTS%">
     <header class="bar"><span class="mark" aria-hidden="true"></span>Eyes</header>
     <main>
       <h1>Get paid to check places near you</h1>
       <p>
         AI agents pay Eyes to answer quick questions about public places: is it open, how long is the line, is
         it in stock. You get a text, walk over, take one photo and get paid.
+      </p>
+      <p id="simulated" class="notice">
+        <strong>This is a test server.</strong> Payouts are simulated, so tasks pay no real money.
       </p>
       <p><strong>You need an iPhone.</strong> Eyes sends tasks over iMessage.</p>
       <p class="warn"><strong>Only public places. Never photograph faces or people.</strong></p>
@@ -38,7 +41,7 @@
         <p id="where" class="muted">We only use it to send you tasks nearby.</p>
         <p id="error" class="error" role="alert" hidden></p>
         <p class="muted">
-          Checks usually pay $3 (each text shows the amount), paid out through Stripe. By tapping Join you agree
+          <span class="live-payouts">Checks usually pay $3 (each text shows the amount), paid out through Stripe.</span> By tapping Join you agree
           to get task texts from Eyes at this number. Msg &amp; data rates may apply. Reply STOP to opt out.
           <a href="privacy.html">Privacy note</a>
         </p>
@@ -49,7 +52,7 @@
         <h2>You're in. Finish these steps.</h2>
         <ol class="steps">
           <li id="start" hidden>We can only text you tasks after you send START.</li>
-          <li>After you text START, we'll text you a link to set up payouts (takes 2 minutes).</li>
+          <li class="live-payouts">After you text START, we'll text you a link to set up payouts (takes 2 minutes).</li>
         </ol>
         <h3>What to expect</h3>
         <ul>

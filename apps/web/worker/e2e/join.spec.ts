@@ -25,12 +25,16 @@ async function fill(page: Page, name: string, phone: string, locate = true) {
   await page.getByRole("button", { name: "Join" }).click();
 }
 
-test("join posts a normalized phone and location, then shows the connect, START and payout steps", async ({
+test("join posts a normalized phone and location, then shows the connect and START steps, saying payouts are simulated", async ({
   page,
 }) => {
   const posts = await mockJoin(page, { json: joined });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Worker sign-up opens soon" })).toBeHidden();
+  await expect(
+    page.getByText("This is a test server. Payouts are simulated, so tasks pay no real money."),
+  ).toBeVisible();
+  await expect(page.getByText("paid out through Stripe")).toBeHidden();
   await fill(page, "Ada Lovelace", "(415) 555-0123");
 
   const texts = page.locator("#start a");
@@ -40,7 +44,7 @@ test("join posts a normalized phone and location, then shows the connect, START 
   ]);
   await expect(texts.first()).toHaveAttribute("href", "sms:+14155550199?&body=connect%20%40eyes-test");
   await expect(texts.last()).toHaveAttribute("href", "sms:+14155550199?&body=START");
-  await expect(page.getByText("we'll text you a link to set up payouts")).toBeVisible();
+  await expect(page.getByText("we'll text you a link to set up payouts")).toBeHidden();
   await expect(page.getByRole("link", { name: /payouts/i })).toHaveCount(0);
   await expect(page.getByText("Reply YES to claim a task")).toBeVisible();
   expect(posts).toEqual([{ name: "Ada Lovelace", phone: "+14155550123", lat: 37.78246, lng: -122.40776 }]);
@@ -56,7 +60,22 @@ test("a build without an Inkbox number says sign-up opens soon and asks for noth
   await expect(page.getByText("You need an iPhone.")).toBeVisible();
   await expect(page.getByLabel("Mobile number")).toBeHidden();
   await expect(page.getByRole("button", { name: "Join" })).toBeHidden();
+  await expect(page.getByText("Payouts are simulated")).toBeHidden();
+  for (const live of ["paid out through Stripe", "we'll text you a link to set up payouts"]) {
+    await expect(page.getByText(live)).not.toHaveCSS("display", "none");
+  }
   expect(offsite).toEqual([]);
+});
+
+test("the payout notice is right in the static page, before any script runs", async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByText("Payouts are simulated, so tasks pay no real money.")).toBeVisible();
+  await page.goto("http://127.0.0.1:4174/");
+  await expect(page.getByText("You need an iPhone.")).toBeVisible();
+  await expect(page.getByText("Payouts are simulated")).toBeHidden();
+  await context.close();
 });
 
 test("phone formats normalize to E.164 and the build-time number is the START fallback", async ({ page }) => {

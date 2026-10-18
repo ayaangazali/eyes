@@ -128,6 +128,7 @@ export const AppConfig = z.object({
   test_mode: z.boolean().default(true),
   email_domain: z.string().min(3).nullable().default(null),
   email_delivery: z.boolean().default(false),
+  live_payouts: z.boolean().default(false),
 });
 export type AppConfig = z.output<typeof AppConfig>;
 

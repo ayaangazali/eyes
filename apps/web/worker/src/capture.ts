@@ -1,5 +1,5 @@
 import type { CaptureResult, OfferView, TaskStatus, TaskType } from "@eyes/core";
-import { $, call, LOCATION_HELP, Problem, showError } from "./api.ts";
+import { $, call, LIVE_PAYOUTS, LOCATION_HELP, Problem, showError } from "./api.ts";
 
 const ALREADY_SENT = "A photo was already sent for this task. Nothing else to do.";
 const CLOSED: Record<TaskStatus, string> = {
@@ -14,8 +14,8 @@ const CLOSED: Record<TaskStatus, string> = {
   refunded: "This task was cancelled. Watch for the next task text.",
 };
 const OUTCOME: Partial<Record<TaskStatus, string>> = {
-  paid: "Verified and paid",
-  verified: "Verified, payout pending",
+  paid: LIVE_PAYOUTS ? "Verified and paid" : "Verified",
+  verified: LIVE_PAYOUTS ? "Verified, payout pending" : "Verified",
   needs_review: "Sent, needs a quick review",
 };
 const YES_NO: TaskType[] = ["is_open", "in_stock"];
@@ -259,7 +259,9 @@ async function main() {
     throw new Problem("This task link is incomplete.", "Open the full link from the newest Eyes text.");
   offer = await call<OfferView>(`/w/offers/${encodeURIComponent(token)}`);
   $("question").textContent = offer.question;
-  $("bounty").textContent = `$${offer.bounty_usd.toFixed(2)} for this task`;
+  $("bounty").textContent = LIVE_PAYOUTS
+    ? `$${offer.bounty_usd.toFixed(2)} for this task`
+    : "Test task, no real pay";
   $("place").replaceChildren(
     Object.assign(document.createElement("a"), {
       href: `https://www.google.com/maps/search/?api=1&query=${offer.lat},${offer.lng}`,

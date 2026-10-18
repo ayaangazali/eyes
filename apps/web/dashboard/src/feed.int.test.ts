@@ -64,6 +64,7 @@ describe.skipIf(!url)("eyes_dashboard_feed on Postgres", () => {
       public_api_url: "https://api.eyes.test",
       worker_web_url: "https://w.eyes.test",
       link_secret: "test-link-secret-0123456789",
+      live_payouts: true,
     }),
   });
 

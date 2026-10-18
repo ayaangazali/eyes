@@ -5,6 +5,7 @@ declare global {
     readonly VITE_EYES_API_URL?: string;
     readonly VITE_INKBOX_NUMBER?: string;
     readonly VITE_INKBOX_CONNECT?: string;
+    readonly VITE_LIVE_PAYOUTS?: string;
   }
   interface ImportMeta {
     readonly env: ImportMetaEnv;
@@ -26,6 +27,8 @@ const WORDS: Partial<Record<ErrorCode, [string, string]>> = {
     "Eyes cannot text tasks yet, so we are not taking sign-ups.",
   ],
 };
+
+export const LIVE_PAYOUTS = import.meta.env.VITE_LIVE_PAYOUTS === "true";
 
 export const LOCATION_HELP =
   "On iPhone, tap aA in the address bar > Website Settings > Location > Allow, or turn on Settings > Privacy & Security > Location Services > Safari Websites. Then tap Try location again.";

@@ -37,7 +37,7 @@ export default defineConfig({
             "pnpm --filter @eyes/web-worker exec vite build --outDir dist/golden && pnpm --filter @eyes/web-worker exec vite preview --outDir dist/golden --host 127.0.0.1 --port 4174 --strictPort",
           url: "http://127.0.0.1:4174",
           reuseExistingServer: !process.env.CI,
-          env: { VITE_EYES_API_URL: "http://127.0.0.1:3399" },
+          env: { VITE_EYES_API_URL: "http://127.0.0.1:3399", VITE_LIVE_PAYOUTS: "true" },
         },
       ]
     : [],

@@ -60,7 +60,8 @@ function placeText(label: string): string {
 }
 
 export function offerText(offer: OfferMessage): string {
-  return `Eyes: ${dollars(offer.bounty_cents)} to ${TASK_PHRASES[offer.task_type]} at ${placeText(offer.place_label)} (${miles(offer.distance_m)}) by ${localTime(offer.deadline_at)}. Reply YES to claim, STOP to opt out.`;
+  const pay = offer.live_payouts ? `Eyes: ${dollars(offer.bounty_cents)} to` : "Eyes test ($0):";
+  return `${pay} ${TASK_PHRASES[offer.task_type]} at ${placeText(offer.place_label)} (${miles(offer.distance_m)}) by ${localTime(offer.deadline_at)}. Reply YES to claim, STOP to opt out.`;
 }
 
 export function captureLinkText(msg: Parameters<Messaging["sendCaptureLink"]>[1]): string {
@@ -72,7 +73,10 @@ export function alreadyClaimedText(msg: Parameters<Messaging["sendAlreadyClaimed
 }
 
 export function paidText(msg: Parameters<Messaging["sendPaid"]>[1]): string {
-  return `Eyes: you've been paid ${dollars(msg.amount_cents)} for the task at ${placeText(msg.place_label)}. Thank you! Your earnings: ${msg.earnings_url}`;
+  const place = placeText(msg.place_label);
+  return msg.live_payouts
+    ? `Eyes: you've been paid ${dollars(msg.amount_cents)} for the task at ${place}. Thank you! Your earnings: ${msg.earnings_url}`
+    : `Eyes: your answer for the task at ${place} was accepted. No money was sent because payouts are simulated on this test server. Your earnings: ${msg.earnings_url}`;
 }
 
 const INTENTS: Record<string, ReplyIntent> = {
@@ -153,7 +157,8 @@ export function createInkboxMessaging(env: Env): Messaging {
     sendOffer: (to, offer) => send(to, offerText(offer)),
     sendCaptureLink: (to, msg) => send(to, captureLinkText(msg), `capture:${msg.task_id}:${to}`),
     sendAlreadyClaimed: (to, msg) => send(to, alreadyClaimedText(msg)),
-    sendPaid: (to, msg) => send(to, paidText(msg), `paid:${msg.task_id}:${to}`),
+    sendPaid: (to, msg) =>
+      send(to, paidText(msg), `${msg.live_payouts ? "paid" : "accepted"}:${msg.task_id}:${to}`),
     sendText: (to, body) => send(to, body),
   };
 }
