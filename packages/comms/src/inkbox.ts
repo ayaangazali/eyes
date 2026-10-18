@@ -112,6 +112,12 @@ const INTENTS: Record<string, ReplyIntent> = {
   unstop: "start",
   help: "help",
   info: "help",
+  here: "here",
+  location: "here",
+  "i m here": "here",
+  "im here": "here",
+  "i am here": "here",
+  shortcut: "shortcut",
 };
 
 export function parseReplyIntent(text: string): ReplyIntent {
@@ -208,7 +214,10 @@ type Received = {
 
 const str = (v: unknown) => (typeof v === "string" ? v : "");
 
-function inboundReply(body: string): { id: string; phone: string; text: string } | null {
+// Inkbox delivers an Apple "Share My Location" as content "\ufffd" (or empty) with no media.
+function inboundReply(
+  body: string,
+): { id: string; phone: string; text: string; locationShare?: boolean } | null {
   let evt: Received | null;
   try {
     evt = JSON.parse(body) as Received | null;
@@ -221,10 +230,13 @@ function inboundReply(body: string): { id: string; phone: string; text: string }
     return { id: str(evt?.id) || str(sms.id), phone: str(sms.remote_phone_number), text: str(sms.text) };
   }
   if (imessage && !imessage.is_group) {
+    const text = str(imessage.content);
+    const media = imessage.media;
     return {
       id: str(evt?.id) || str(imessage.id),
       phone: str(imessage.remote_number),
-      text: str(imessage.content),
+      text,
+      locationShare: text === "\ufffd" || (text === "" && !(Array.isArray(media) ? media.length : media)),
     };
   }
   return null;
@@ -243,7 +255,7 @@ export function inkboxRoutes(deps: RouteDeps, env: Env): Hono {
       return c.text("ignored");
     }
     try {
-      const intent = parseReplyIntent(reply.text);
+      const intent = reply.locationShare ? "location_share" : parseReplyIntent(reply.text);
       await deps.service.handleWorkerReply({ phone: reply.phone, intent, text: reply.text });
     } catch (err) {
       const kind =

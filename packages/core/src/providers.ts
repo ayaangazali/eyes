@@ -33,7 +33,17 @@ export interface Messaging {
   sendText(to: string, body: string): Promise<SentMessage>;
 }
 
-export const REPLY_INTENTS = ["yes", "no", "stop", "start", "help", "unknown"] as const;
+export const REPLY_INTENTS = [
+  "yes",
+  "no",
+  "stop",
+  "start",
+  "help",
+  "here",
+  "shortcut",
+  "location_share",
+  "unknown",
+] as const;
 export type ReplyIntent = (typeof REPLY_INTENTS)[number];
 
 export type EmailAttachment = { filename: string; content_type: string; url: string };

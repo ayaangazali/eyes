@@ -185,6 +185,24 @@ describe("inkbox webhook", () => {
     expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+15555550123", intent, text: content });
   });
 
+  it.each([
+    ["\ufffd", null, "location_share"],
+    ["", null, "location_share"],
+    ["", [], "location_share"],
+    ["", [{ url: "https://inkbox.test/photo.jpg" }], "unknown"],
+    ["\ufffd here", null, "here"],
+  ])(
+    "maps an iMessage %j with media %j (how Inkbox delivers Apple location shares) to %s",
+    async (content, media, intent) => {
+      const { post, handleWorkerReply } = setup();
+      const evt = imessageReceived(content);
+      evt.data.message.media = media as never;
+      const body = JSON.stringify(evt);
+      await post(body, signedHeaders(body));
+      expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+15555550123", intent, text: content });
+    },
+  );
+
   it("rejects an imessage.received with a bad signature exactly like a text event", async () => {
     const { post, handleWorkerReply } = setup();
     const body = JSON.stringify(imessageReceived("YES"));
@@ -677,6 +695,13 @@ describe("parseReplyIntent", () => {
     ["toString", "unknown"],
     ["__proto__", "unknown"],
     ["hasOwnProperty valueOf", "unknown"],
+    ["HERE", "here"],
+    ["Location", "here"],
+    ["I'M HERE", "here"],
+    ["i’m here!", "here"],
+    ["im here", "here"],
+    ["SHORTCUT", "shortcut"],
+    ["here?", "unknown"],
   ])("%j -> %s", (text, intent) => {
     expect(parseReplyIntent(text)).toBe(intent);
   });
