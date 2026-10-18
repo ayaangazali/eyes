@@ -239,20 +239,25 @@ describe("ops page boot", () => {
     expect(text("updated")).toMatch(/^updated .+, every 10 s$/);
     expect(timers.at(-1)?.ms).toBe(10000);
 
-    expect(text("uptime")).toBe("up 2h 0m");
-    expect(text("providers")).toBe("smslivepaymentsfake");
-    expect($("providers").querySelectorAll(".ui-badge--success")).toHaveLength(1);
-    expect(text("health")).toBe(
-      "Databasehosted PostgresSafety classifierrules onlyCommitabcdef0123Nodev26.7.0",
+    expect(text("uptime")).toBe("2h 0m");
+    expect($("health").querySelector(".svc")?.textContent).toContain("1 of 2 services live");
+    expect($("health").querySelector(".meta")?.textContent).toBe(
+      "DatabaseHosted PostgresSafety checkrules onlyNodev26.7.0Commitabcdef0123",
     );
     expect($("banner").hidden).toBe(true);
     expect(text("operator")).toBe("signed in: break-glass");
     expect(text("tasks-total")).toMatch(/^7\+ created since .+ yesterday$/);
-    const stats = [...$("statuses").children].map((s) => `${s.className}:${s.textContent}`);
-    expect(stats).toEqual(["stat live:2dispatched", "stat hot:1needs review", "stat:4paid", "stat:0expired"]);
+    expect([...$("statuses").querySelectorAll(".funnel b")].map((b) => b.textContent)).toEqual([
+      "2",
+      "0",
+      "0",
+      "0",
+      "4",
+    ]);
+    expect($("statuses").querySelector(".attention")?.textContent).toBe("1 needs review");
 
     expect(text("escrowed")).toBe("$12.34");
-    expect(text("money-kv")).toContain("Top-ups$100.00");
+    expect(text("money-kv")).toContain("InTop-ups$100.00");
     expect(text("queue-count")).toBe("1");
     expect($("queue-count").className).toBe("ui-badge ui-badge--danger");
     expect(text("n-review")).toBe("1");
@@ -329,12 +334,20 @@ describe("ops page boot", () => {
     expect(text("series-source")).toBe("ClickHouse, 3 events dropped while it was down");
     const charts = [...$("charts").children];
     expect(charts.map((c) => c.querySelector("h3")?.textContent)).toEqual([
-      "Requests / min20 now, 30 in 2 h",
-      "Error rate (5xx)3.3% over 2 h",
-      "p95 latency300 ms max over 2 h",
-      "Tasks / hour: needs_review1 in 24 h",
-      "Tasks / hour: paid5 in 24 h",
-      "Payouts / hour3 ok, 1 failed in 24 h",
+      "Requests per minute",
+      "Server errors",
+      "Response time, slowest 5%",
+      "Needs review per hour",
+      "Paid per hour",
+      "Payouts per hour",
+    ]);
+    expect(charts.map((c) => c.querySelector(".chart__now")?.textContent)).toEqual([
+      "20",
+      "0.0%",
+      "300 ms",
+      "0",
+      "3",
+      "2",
     ]);
     expect(charts.map((c) => c.className)).toEqual([
       "chart",
@@ -344,10 +357,6 @@ describe("ops page boot", () => {
       "chart",
       "chart bad",
     ]);
-    const svg = charts[0]?.querySelector("svg") as SVGElement;
-    expect(svg.getAttribute("aria-label")).toBe("Requests / min: 20 now, 30 in 2 h");
-    expect(svg.querySelector("polyline")?.getAttribute("points")).toBe("0,16 50,30 100,2");
-    expect(svg.querySelector("polygon")?.getAttribute("points")).toBe("0,30 0,16 50,30 100,2 100,30");
   });
 
   it("renders the empty and degraded states", async () => {
@@ -389,8 +398,8 @@ describe("ops page boot", () => {
       "GET /ops/events": () => ok({ source: "memory", events: [] }),
     });
     const { $, text } = page;
-    expect(text("uptime")).toBe("up 1d 1h");
-    expect(text("health")).toBe("DatabasefailingSafety classifierclefCommitunknownNodev26");
+    expect(text("uptime")).toBe("1d 1h");
+    expect(text("health")).toBe("No services reportedDatabasefailingSafety checkclefNodev26");
     expect($("banner").hidden).toBe(false);
     expect(text("banner")).toBe(
       "Database read failed: connect ECONNREFUSED. Health and errors below are still live.",
@@ -415,11 +424,11 @@ describe("ops page boot", () => {
     expect($("older").hidden).toBe(true);
     expect(text("series-source")).toBe("Postgres and this process's last 500 events (ClickHouse off)");
     expect([...$("charts").children].map((c) => c.querySelector("h3")?.textContent)).toEqual([
-      "Requests / min0 now, 0 in 2 h",
-      "Error rate (5xx)0.0% over 2 h",
-      "p95 latency0 ms max over 2 h",
-      "Tasks / hournone in 24 h",
-      "Payouts / hour0 ok, 0 failed in 24 h",
+      "Requests per minute",
+      "Server errors",
+      "Response time, slowest 5%",
+      "Tasks per hour",
+      "Payouts per hour",
     ]);
     expect(text("tickets-list")).toBe(
       "No tickets. A worker opens one by texting HELP after an answer is held for review.",

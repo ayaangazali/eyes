@@ -11,7 +11,7 @@ export const UI_CSS = ["tokens.css", "components.css"]
 // The ops page script lives in ops-view/*.ts (unit-tested). The page CSP allows one hashed inline script,
 // so the modules are inlined here: types stripped, imports and `export` dropped, wrapped in one IIFE.
 export function opsScript() {
-  const code = ["format.ts", "table.ts", "page.ts"]
+  const code = ["format.ts", "table.ts", "overview.ts", "page.ts"]
     .map((file) => stripTypeScriptTypes(readFileSync(new URL(`./ops-view/${file}`, import.meta.url), "utf8")))
     .join("\n")
     .replace(/^import [^;]*;/gm, "")
@@ -20,7 +20,11 @@ export function opsScript() {
 }
 export const OPS_PAGE = readFileSync(new URL("./ops.html", import.meta.url), "utf8")
   .replace("/* @eyes/ui */", () => UI_CSS)
-  .replace("/* @eyes/ops-view */", () => opsScript());
+  .replace("/* @eyes/ops-view */", () => opsScript())
+  // The outline icons the page references with <use href="#i-…">.
+  .replace("<!-- @eyes/icons -->", () =>
+    readFileSync(new URL("../../../../packages/ui/icons.svg", import.meta.url), "utf8"),
+  );
 export {
   buildSeries,
   type ClickHouseSink,

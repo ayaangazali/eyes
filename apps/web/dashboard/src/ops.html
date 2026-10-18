@@ -84,12 +84,65 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .ui-button--danger { background: var(--eyes-danger-bg); color: var(--eyes-danger-text); border-color: transparent; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; }
 .msg { margin: 0; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-secondary); white-space: pre-wrap; font-size: var(--eyes-text-sm); }
-.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--eyes-space-4); }
-.chart h3 { margin: 0; font-size: var(--eyes-text-sm); font-weight: 500; color: var(--eyes-text-secondary); display: flex; justify-content: space-between; gap: var(--eyes-space-2); }
-.chart svg { display: block; width: 100%; height: 3rem; margin-top: var(--eyes-space-1); }
-.chart .area { fill: var(--eyes-accent, #3b82f6); opacity: .18; }
-.chart .line { fill: none; stroke: var(--eyes-accent, #3b82f6); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.chart.bad .area { fill: var(--eyes-danger, #dc2626); } .chart.bad .line { stroke: var(--eyes-danger, #dc2626); }
+/* Overview: the three top cards share one type scale and padding, stretch to one height, and fill it. */
+.overview > .ov { display: flex; flex-direction: column; gap: var(--eyes-space-3); }
+.ov__body { display: flex; flex-direction: column; gap: var(--eyes-space-3); flex: 1; }
+.ui-icon { width: 1.125rem; height: 1.125rem; flex: none; }
+.svc { display: flex; flex-wrap: wrap; align-items: center; gap: var(--eyes-space-2) var(--eyes-space-3); margin: 0; font-weight: var(--eyes-weight-medium); }
+.svc__icons { display: inline-flex; gap: var(--eyes-space-1); }
+.svc__icons .is-live { color: var(--eyes-success-text); }
+.svc__icons .is-off { color: var(--eyes-warning-text); }
+.svc-off { display: grid; gap: var(--eyes-space-1); margin: 0; padding: 0; list-style: none; font-size: var(--eyes-text-sm); color: var(--eyes-warning-text); }
+.svc-off li { display: flex; gap: var(--eyes-space-2); align-items: center; }
+.meta { display: grid; grid-template-columns: auto 1fr; gap: var(--eyes-space-1) var(--eyes-space-3); margin: auto 0 0; font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); }
+.meta dt { color: var(--eyes-text-tertiary); }
+.meta dd { margin: 0; }
+.funnel { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--eyes-space-3); min-height: 8rem; margin: 0; padding: 0; list-style: none; }
+.funnel__step { display: grid; grid-template-rows: 1fr auto auto; gap: 2px; min-width: 0; }
+.funnel__track { display: flex; align-items: flex-end; min-height: 2.5rem; border-bottom: 1px solid var(--eyes-border); }
+.funnel__bar { width: 100%; min-height: 2px; border-radius: var(--eyes-radius-sm) var(--eyes-radius-sm) 0 0; background: var(--eyes-surface-tertiary); }
+.funnel__step.is-live .funnel__bar { background: var(--eyes-accent); }
+.funnel__step:not(.is-live):not(.is-zero) .funnel__bar { background: var(--eyes-success-bg); box-shadow: inset 0 2px 0 var(--eyes-success-text); }
+.funnel__step b { margin-top: var(--eyes-space-1); font-size: var(--eyes-heading-md); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.funnel__label { font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); overflow-wrap: anywhere; }
+.funnel__step.is-zero b { color: var(--eyes-text-tertiary); }
+.attention { display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); margin: 0; }
+.attention__link { display: inline-flex; align-items: center; gap: var(--eyes-space-1); padding: var(--eyes-space-1) var(--eyes-space-3); border-radius: 999px; background: var(--eyes-danger-bg); color: var(--eyes-danger-text); font-size: var(--eyes-text-sm); font-weight: var(--eyes-weight-medium); text-decoration: none; }
+.attention__link:hover { text-decoration: underline; }
+.attention__link:focus-visible { outline: 2px solid var(--eyes-accent); outline-offset: 2px; }
+.attention.is-clear { align-items: center; gap: var(--eyes-space-1); font-size: var(--eyes-text-sm); color: var(--eyes-success-text); }
+.ended { margin: auto 0 0; font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); }
+.lead { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--eyes-space-2); margin: 0; }
+.money { width: 100%; border-collapse: collapse; font-size: var(--eyes-text-sm); }
+.money tbody + tbody { border-top: 1px solid var(--eyes-border-subtle); }
+.money th { width: 3rem; padding: 3px var(--eyes-space-2) 3px 0; text-align: left; vertical-align: top; font-size: var(--eyes-text-xs); font-weight: var(--eyes-weight-medium); color: var(--eyes-text-tertiary); }
+.money td { padding: 3px 0; color: var(--eyes-text-secondary); }
+.money td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--eyes-text); font-weight: var(--eyes-weight-medium); }
+.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--eyes-space-6) var(--eyes-space-5); }
+.chart { display: grid; gap: 2px; align-content: start; }
+.chart h3 { margin: 0; font-size: var(--eyes-text-sm); font-weight: var(--eyes-weight-medium); color: var(--eyes-text-secondary); }
+.chart__now { margin: 0; font-size: var(--eyes-heading-md); font-weight: var(--eyes-weight-semibold); font-variant-numeric: tabular-nums; line-height: 1.2; }
+.chart__note { margin: 0; font-size: var(--eyes-text-xs); color: var(--eyes-text-tertiary); }
+.chart__plot { position: relative; height: 4.5rem; margin: var(--eyes-space-2) 2.75rem 0 0; border-bottom: 1px solid var(--eyes-border); outline: none; cursor: crosshair; }
+.chart__plot:focus-visible { box-shadow: 0 0 0 2px var(--eyes-accent); border-radius: 2px; }
+.chart svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart .area { fill: var(--eyes-accent); opacity: .16; }
+/* Pure accent yellow is too faint as a line on white; mix in the text color so it reads in both themes. */
+.chart .line { fill: none; stroke: color-mix(in srgb, var(--eyes-accent) 65%, var(--eyes-text)); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.chart.bad .area { fill: var(--eyes-danger-text); } .chart.bad .line { stroke: var(--eyes-danger-text); }
+.chart__axis { position: absolute; left: calc(100% + var(--eyes-space-2)); font-size: 0.6875rem; line-height: 1; color: var(--eyes-text-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chart__axis--max { top: 0; } .chart__axis--min { bottom: 0; }
+.chart__dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: color-mix(in srgb, var(--eyes-accent) 65%, var(--eyes-text)); box-shadow: 0 0 0 2px var(--eyes-surface); }
+.chart.bad .chart__dot { background: var(--eyes-danger-text); }
+.chart__cursor { position: absolute; top: 0 !important; bottom: 0; width: 1px; background: var(--eyes-border-strong); pointer-events: none; }
+.chart__tip { position: absolute; transform: translate(-50%, calc(-100% - 8px)); padding: 2px var(--eyes-space-2); border-radius: var(--eyes-radius-sm); background: var(--eyes-text); color: var(--eyes-surface); font-size: var(--eyes-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; z-index: 2; }
+.chart__dot[hidden], .chart__cursor[hidden], .chart__tip[hidden] { display: none; }
+@media (max-width: 640px) {
+  .funnel { gap: var(--eyes-space-2); }
+  .funnel__step b { font-size: var(--eyes-heading-sm); }
+  .funnel__label { font-size: 0.6875rem; overflow-wrap: normal; }
+  .charts { grid-template-columns: 1fr; }
+}
 .bar { flex-wrap: wrap; row-gap: var(--eyes-space-2); }
 .bar .brand { color: var(--eyes-text); font-size: var(--eyes-heading-sm); text-decoration: none; white-space: nowrap; }
 .bar a, #updated { white-space: nowrap; }
@@ -160,6 +213,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 </style>
 </head>
 <body class="ui">
+<!-- @eyes/icons -->
 <header class="bar">
   <a class="brand" href="https://eyes.pictures"><span class="mark" aria-hidden="true"></span>Eyes ops</a>
   <span id="state" class="ui-badge">Connecting</span>
@@ -182,26 +236,30 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 <main>
   <p id="banner" class="ui-notice ui-notice--danger" hidden></p>
 
-  <div id="p-overview" class="panel" role="tabpanel" aria-labelledby="tab-overview">
-    <section class="ui-card c3">
-      <header class="ui-card__header"><h2 class="ui-card__title">Health</h2><span id="uptime" class="ui-badge"></span></header>
-      <ul id="providers" class="ui-status"></ul>
-      <dl id="health" class="ui-kv"></dl>
+  <div id="p-overview" class="panel overview" role="tabpanel" aria-labelledby="tab-overview">
+    <section class="ui-card c3 ov">
+      <header class="ui-card__header"><h2 class="ui-card__title">Health</h2></header>
+      <div class="ov__body">
+        <p class="lead"><span id="uptime" class="big"></span> <span class="sub">since the last restart</span></p>
+        <div id="health" class="ov__body"></div>
+      </div>
     </section>
 
-    <section class="ui-card c5">
+    <section class="ui-card c5 ov">
       <header class="ui-card__header"><h2 class="ui-card__title">Tasks, last 24 h</h2><span id="tasks-total" class="sub"></span></header>
-      <div id="statuses" class="stats"></div>
+      <div id="statuses" class="ov__body"></div>
     </section>
 
-    <section class="ui-card c4">
-      <header class="ui-card__header"><h2 class="ui-card__title">Money</h2><span class="sub">24 h, except escrow held</span></header>
-      <div><div id="escrowed" class="big"></div><div class="muted">held in escrow now</div></div>
-      <dl id="money-kv" class="ui-kv"></dl>
+    <section class="ui-card c4 ov">
+      <header class="ui-card__header"><h2 class="ui-card__title">Money, last 24 h</h2></header>
+      <div class="ov__body">
+        <p class="lead"><span id="escrowed" class="big"></span> <span class="sub">held in escrow now</span></p>
+        <table id="money-kv" class="money"></table>
+      </div>
     </section>
 
     <section class="ui-card c12">
-      <header class="ui-card__header"><h2 class="ui-card__title">Trends</h2><span id="series-source" class="sub"></span></header>
+      <header class="ui-card__header"><h2 class="ui-card__title">Trends</h2><span id="series-source" class="tiny"></span></header>
       <div id="charts" class="charts"></div>
     </section>
   </div>

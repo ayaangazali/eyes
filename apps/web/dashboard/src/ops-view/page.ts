@@ -8,7 +8,6 @@ import {
   eventQuery,
   filterTickets,
   LEDGER_LABEL,
-  LIVE,
   nearLabel,
   nextTab,
   POLL_MS,
@@ -23,6 +22,14 @@ import {
   uptime,
   usd,
 } from "./format.ts";
+import {
+  chartCard,
+  renderFunnel,
+  renderHealth,
+  renderMoney,
+  type SeriesData,
+  seriesCharts,
+} from "./overview.ts";
 import { createTable, hashFor, parseHash, stateFrom, type TableOptions, type TableState } from "./table.ts";
 
 type Checked = {
@@ -99,16 +106,7 @@ export type OpsFeed = {
   };
 };
 type OpsEvent = { id?: number; at: string; kind: string; level: string; summary: string; task_id?: string };
-type Series = {
-  source: string;
-  dropped?: number;
-  requests: number[];
-  errors: number[];
-  p95_ms: number[];
-  hours: unknown[];
-  tasks: Record<string, number[]>;
-  payouts: { ok: number[]; failed: number[] };
-};
+type Series = SeriesData & { source: string; dropped?: number };
 type Reply = { message?: string; error?: string; [key: string]: unknown };
 
 type Layer = { addTo(target: unknown): Layer; clearLayers(): void };
@@ -146,8 +144,6 @@ export function boot(win: OpsWindow) {
   }
   const badge = (text: string, tone?: string) =>
     h("span", `ui-badge${tone ? ` ui-badge--${tone}` : ""}`, text);
-  const kv = (dl: HTMLElement, pairs: [string, Kid][]) =>
-    dl.replaceChildren(...pairs.flatMap(([k, v]) => [h("dt", null, k), h("dd", null, v)]));
   const empty = (text: string) => h("li", "muted", text);
   const count = (id: string, n: number, hot: boolean) => {
     $(id).textContent = n ? String(n) : "";
@@ -408,30 +404,8 @@ export function boot(win: OpsWindow) {
   function render(feed: OpsFeed) {
     const o = feed.ops;
     const hl = o.health;
-    $("uptime").textContent = uptime(hl.uptime_s);
-    $("providers").replaceChildren(
-      ...Object.entries(hl.providers).map(([name, mode]) =>
-        h(
-          "li",
-          null,
-          h("span", "ui-status__name", name),
-          badge(mode, mode === "live" ? "success" : "warning"),
-        ),
-      ),
-    );
-    kv($("health"), [
-      [
-        "Database",
-        hl.db_error
-          ? badge("failing", "danger")
-          : hl.db === "insforge"
-            ? "hosted Postgres"
-            : "local Postgres",
-      ],
-      ["Safety classifier", hl.classifier],
-      ["Commit", hl.commit ? h("code", null, hl.commit.slice(0, 10)) : "unknown"],
-      ["Node", hl.node],
-    ]);
+    $("uptime").textContent = uptime(hl.uptime_s).replace(/^up /, "");
+    renderHealth(document, $("health"), hl);
     const banner = $("banner");
     banner.hidden = !hl.db_error;
     banner.textContent = hl.db_error
@@ -442,28 +416,11 @@ export function boot(win: OpsWindow) {
     $("operator").textContent = o.operator ? `signed in: ${o.operator}` : "";
     $("tasks-total").textContent =
       `${total}${o.partial.tasks ? "+" : ""} created since ${time(o.since)} yesterday`;
-    $("statuses").replaceChildren(
-      ...Object.entries(o.statuses).map(([s, n]) => {
-        const hot = (s === "needs_review" || s === "disputed") && n > 0;
-        return h(
-          "div",
-          `stat${hot ? " hot" : ""}${LIVE.includes(s) && n > 0 ? " live" : ""}`,
-          h("b", null, String(n)),
-          h("span", null, s.replace("_", " ")),
-        );
-      }),
-    );
+    renderFunnel(document, $("statuses"), o.statuses);
 
     const m = o.money_24h;
     $("escrowed").textContent = usd(feed.totals.escrowed_cents);
-    kv($("money-kv"), [
-      ["Escrowed", usd(m.escrow)],
-      ["Released to workers", usd(m.release)],
-      ["Refunded to agents", usd(m.refund)],
-      ["Fees", usd(m.fee)],
-      ["Paid out (Stripe)", usd(m.payout)],
-      ["Top-ups", usd(m.topup)],
-    ]);
+    renderMoney(document, $("money-kv"), m);
 
     $("queue-count").textContent = String(o.queue.length);
     $("queue-count").className = `ui-badge${o.queue.length ? " ui-badge--danger" : " ui-badge--success"}`;
@@ -802,31 +759,7 @@ export function boot(win: OpsWindow) {
     $("older").hidden = source === "memory" || events.length < 200;
   }
 
-  // One SVG area chart: values scaled to the panel, no axes. The title carries the latest value and the max.
-  function chart(title: string, values: number[], note: string, bad?: boolean) {
-    const max = Math.max(1, ...values);
-    const n = Math.max(1, values.length - 1);
-    const pts = values.map((v, i) => `${(i / n) * 100},${30 - (v / max) * 28}`).join(" ");
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 100 30");
-    svg.setAttribute("preserveAspectRatio", "none");
-    svg.setAttribute("role", "img");
-    svg.setAttribute("aria-label", `${title}: ${note}`);
-    const area = document.createElementNS(svg.namespaceURI, "polygon");
-    area.setAttribute("class", "area");
-    area.setAttribute("points", `0,30 ${pts} 100,30`);
-    const line = document.createElementNS(svg.namespaceURI, "polyline");
-    line.setAttribute("class", "line");
-    line.setAttribute("points", pts);
-    svg.append(area, line);
-    return h(
-      "div",
-      `chart${bad ? " bad" : ""}`,
-      h("h3", null, h("span", null, title), h("span", "sub", note)),
-      svg,
-    );
-  }
-
+  const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   let seriesText = "";
   async function loadSeries() {
     const res = await fetch("/series", { cache: "no-store" });
@@ -839,43 +772,7 @@ export function boot(win: OpsWindow) {
       s.source === "clickhouse"
         ? `ClickHouse${s.dropped ? `, ${s.dropped} events dropped while it was down` : ""}`
         : "Postgres and this process's last 500 events (ClickHouse off)";
-    const errorRate = s.requests.map((r, i) => (r ? ((s.errors[i] ?? 0) / r) * 100 : 0));
-    const reqs = sum(s.requests);
-    const errs = sum(s.errors);
-    const statuses = Object.keys(s.tasks);
-    $("charts").replaceChildren(
-      chart("Requests / min", s.requests, `${s.requests.at(-1) ?? 0} now, ${reqs} in 2 h`),
-      chart(
-        "Error rate (5xx)",
-        errorRate,
-        `${reqs ? ((errs / reqs) * 100).toFixed(1) : "0.0"}% over 2 h`,
-        errs > 0,
-      ),
-      chart("p95 latency", s.p95_ms, `${Math.max(0, ...s.p95_ms)} ms max over 2 h`),
-      ...(statuses.length
-        ? statuses.map((st) => {
-            const counts = s.tasks[st] as number[];
-            return chart(
-              `Tasks / hour: ${st}`,
-              counts,
-              `${sum(counts)} in 24 h`,
-              ["needs_review", "disputed"].includes(st),
-            );
-          })
-        : [
-            chart(
-              "Tasks / hour",
-              s.hours.map(() => 0),
-              "none in 24 h",
-            ),
-          ]),
-      chart(
-        "Payouts / hour",
-        s.payouts.ok,
-        `${sum(s.payouts.ok)} ok, ${sum(s.payouts.failed)} failed in 24 h`,
-        sum(s.payouts.failed) > 0,
-      ),
-    );
+    $("charts").replaceChildren(...seriesCharts(s).map((spec) => chartCard(document, spec, clock)));
   }
 
   async function poll() {
