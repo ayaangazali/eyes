@@ -41,7 +41,8 @@ export function opsHost(
     if (seen === host) {
       if (legacy) return c.redirect(bare, 301);
       // Shared static files (the header font) keep their path.
-      if (!url.pathname.startsWith("/fonts/"))
+      // Fonts and the favicon are the API's own routes, shared by every host.
+      if (!/^\/(fonts\/|favicon\.(svg|ico)$)/.test(url.pathname))
         url.pathname = url.pathname === "/" ? "/ops" : `/ops${url.pathname}`;
       const req = new Request(url, c.req.raw);
       req.headers.set(HOP, token);

@@ -50,25 +50,46 @@ export const SERVICES: Record<string, [string, string]> = {
   email: ["Email", "i-mail"],
   payments: ["Payments", "i-cash"],
   storage: ["Photos", "i-camera"],
-  vision: ["Photo moderation", "i-shield"],
+  vision: ["Safety check", "i-shield"],
   geo: ["Place lookup", "i-pin"],
 };
 const service = (name: string) => SERVICES[name] ?? [name, "i-info"];
+/** Who does the work when a service is live (main.ts); the photo check is clef when configured. */
+const providerOf = (name: string, hl: Health) =>
+  name === "vision"
+    ? hl.classifier.startsWith("clef")
+      ? "clef"
+      : "Claude"
+    : ((
+        {
+          messaging: "Inkbox",
+          email: "Primitive",
+          payments: "Stripe",
+          storage: "InsForge",
+          geo: "Nominatim",
+        } as Record<string, string>
+      )[name] ?? name);
 
 export function renderHealth(doc: Document, root: HTMLElement, hl: Health) {
   const all = Object.entries(hl.providers);
   const off = all.filter(([, mode]) => mode !== "live");
-  const icons = all.map(([name, mode]) => {
+  // Icon and name for each service; hover or focus tells the provider and state.
+  const items = all.map(([name, mode]) => {
     const [label, id] = service(name);
-    const svg = icon(doc, id, `${label}: ${mode === "live" ? "live" : "simulated"}`);
-    svg.classList.add(mode === "live" ? "is-live" : "is-off");
-    return svg;
+    const live = mode === "live";
+    const tip = `${label}: ${live ? `${providerOf(name, hl)}, live` : "simulated"}`;
+    const li = node(doc, "li", `svc__item ${live ? "is-live" : "is-off"}`, icon(doc, id), label);
+    if (!live) li.append(node(doc, "span", "svc__state", " · off"));
+    li.tabIndex = 0;
+    li.setAttribute("aria-label", tip);
+    li.dataset.tip = tip;
+    return li;
   });
+  const grid = all.length ? node(doc, "ul", "svc__grid", ...items) : null;
   const summary = node(
     doc,
     "p",
     `svc${off.length ? " svc--off" : ""}`,
-    node(doc, "span", "svc__icons", ...icons),
     !all.length
       ? "No services reported"
       : off.length
@@ -112,7 +133,7 @@ export function renderHealth(doc: Document, root: HTMLElement, hl: Health) {
     "meta",
     ...meta.flatMap(([k, v]) => [node(doc, "dt", null, k), node(doc, "dd", null, v)]),
   );
-  root.replaceChildren(...[summary, problems, dl].filter((x) => x != null));
+  root.replaceChildren(...[summary, grid, problems, dl].filter((x) => x != null));
 }
 
 /** "needs_review" → "Needs review". */
@@ -121,58 +142,37 @@ export const statusLabel = (status: string) => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 export const FUNNEL = ["dispatched", "claimed", "submitted", "verified", "paid"];
-const ATTENTION = ["needs_review", "disputed"];
+/** After the funnel: the states that need a decision, then how the rest ended. */
+const AFTER = ["needs_review", "disputed", "expired", "refunded"];
+const TINT: Record<string, string> = { needs_review: " is-danger", disputed: " is-warn" };
 
-/** The task funnel, the attention states as links into Review, and how the rest ended. */
+/** One column per task state; each opens the Tasks tab filtered to it. Attention columns tint when > 0. */
 export function renderFunnel(doc: Document, root: HTMLElement, statuses: Record<string, number>) {
-  // Bars scaled to the busiest step: where tasks are piling up shows at a glance.
-  const top = Math.max(1, ...FUNNEL.map((s) => statuses[s] ?? 0));
+  // Bars scaled to the busiest state: where tasks are piling up shows at a glance.
+  const all = [...FUNNEL, ...AFTER];
+  const top = Math.max(1, ...all.map((s) => statuses[s] ?? 0));
   const steps = node(
     doc,
     "ol",
     "funnel",
-    ...FUNNEL.map((s) => {
+    ...all.map((s) => {
       const n = statuses[s] ?? 0;
       const bar = node(doc, "span", "funnel__bar");
       bar.style.height = `${(n / top) * 100}%`;
-      return node(
+      const link = node(
         doc,
-        "li",
-        `funnel__step${n ? "" : " is-zero"}${LIVE.includes(s) && n ? " is-live" : ""}`,
+        "a",
+        `funnel__step${n ? "" : " is-zero"}${LIVE.includes(s) && n ? " is-live" : ""}${n ? (TINT[s] ?? "") : ""}${s === AFTER[0] ? " is-first-after" : ""}`,
         node(doc, "span", "funnel__track", bar),
         node(doc, "b", null, String(n)),
         node(doc, "span", "funnel__label", statusLabel(s)),
       );
+      link.href = `#tasks?status=${s}`;
+      link.setAttribute("aria-label", `${statusLabel(s)}: ${n}. Show in Tasks`);
+      return node(doc, "li", null, link);
     }),
   );
-  const hot = ATTENTION.filter((s) => (statuses[s] ?? 0) > 0);
-  const attention = hot.length
-    ? node(
-        doc,
-        "p",
-        "attention",
-        ...hot.map((s) => {
-          const n = statuses[s] as number;
-          const a = node(
-            doc,
-            "a",
-            "attention__link",
-            icon(doc, "i-alert"),
-            s === "disputed" ? `${n} disputed` : `${n} ${n === 1 ? "needs" : "need"} review`,
-          );
-          a.href = `#review?status=${s}`;
-          return a;
-        }),
-      )
-    : node(doc, "p", "attention is-clear", icon(doc, "i-check"), "Nothing needs a decision");
-  const ended = Object.entries(statuses)
-    .filter(([s, n]) => n > 0 && !FUNNEL.includes(s) && !ATTENTION.includes(s))
-    .map(([s, n]) => `${n} ${statusLabel(s).toLowerCase()}`);
-  root.replaceChildren(
-    ...[steps, attention, ended.length ? node(doc, "p", "ended", `Ended: ${ended.join(", ")}`) : null].filter(
-      (x) => x != null,
-    ),
-  );
+  root.replaceChildren(steps);
 }
 
 export const MONEY: [string, [string, string][]][] = [
@@ -345,7 +345,7 @@ export function seriesCharts(s: SeriesData): ChartSpec[] {
           values: counts,
           times: s.hours,
           note: `${sum(counts)} in 24 h`,
-          bad: ATTENTION.includes(st) && sum(counts) > 0,
+          bad: st in TINT && sum(counts) > 0,
         };
       })
     : [{ label: "Tasks per hour", values: s.hours.map(() => 0), times: s.hours, note: "None in 24 h" }];

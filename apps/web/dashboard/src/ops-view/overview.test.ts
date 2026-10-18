@@ -33,21 +33,63 @@ const HEALTH = {
 };
 
 describe("overview health", () => {
-  it("sums services in one line with labelled icons and gives only the simulated ones a line", () => {
+  it("shows each service as icon and name with a provider tooltip, and gives only the simulated ones a line", () => {
     const { doc, root } = dom();
     renderHealth(doc, root, HEALTH);
-    expect(root.querySelector(".svc")?.textContent).toContain("3 of 4 services live");
+    expect(root.querySelector(".svc")?.textContent).toBe("3 of 4 services live");
     expect(root.querySelector(".svc")?.classList.contains("svc--off")).toBe(true);
-    const labels = [...root.querySelectorAll(".svc__icons svg")].map((s) => s.getAttribute("aria-label"));
-    expect(labels).toEqual(["Texting: live", "Email: live", "Payments: simulated", "carrier: live"]);
-    expect(root.querySelector(".svc__icons svg title")?.textContent).toBe("Texting: live");
-    expect(root.querySelector(".svc__icons use")?.getAttribute("href")).toBe("#i-message");
+    const items = [...root.querySelectorAll(".svc__grid li")] as HTMLElement[];
+    expect(items.map((li) => li.textContent)).toEqual(["Texting", "Email", "Payments · off", "carrier"]);
+    expect(items.map((li) => li.getAttribute("aria-label"))).toEqual([
+      "Texting: Inkbox, live",
+      "Email: Primitive, live",
+      "Payments: simulated",
+      "carrier: carrier, live",
+    ]);
+    expect(
+      items.map((li) => [li.className, li.tabIndex, li.dataset.tip === li.getAttribute("aria-label")]),
+    ).toEqual([
+      ["svc__item is-live", 0, true],
+      ["svc__item is-live", 0, true],
+      ["svc__item is-off", 0, true],
+      ["svc__item is-live", 0, true],
+    ]);
+    expect(items[0]?.querySelector("use")?.getAttribute("href")).toBe("#i-message");
     expect([...root.querySelectorAll(".svc-off li")].map((li) => li.textContent)).toEqual([
       "Payments is simulated: nothing real is sent or charged.",
     ]);
     expect(root.querySelector(".meta")?.textContent).toBe(
       "DatabaseLocal PostgresSafety checkrules onlyNodev26",
     );
+  });
+
+  it("names every provider, the photo check by its classifier", () => {
+    const { doc, root } = dom();
+    const providers = {
+      messaging: "live",
+      email: "live",
+      payments: "live",
+      storage: "live",
+      vision: "live",
+      geo: "live",
+    };
+    renderHealth(doc, root, { ...HEALTH, providers, classifier: "clef, Claude when unsure" });
+    const tips = () => [...root.querySelectorAll(".svc__grid li")].map((li) => li.getAttribute("aria-label"));
+    expect(tips()).toEqual([
+      "Texting: Inkbox, live",
+      "Email: Primitive, live",
+      "Payments: Stripe, live",
+      "Photos: InsForge, live",
+      "Safety check: clef, live",
+      "Place lookup: Nominatim, live",
+    ]);
+    renderHealth(doc, root, { ...HEALTH, providers: { vision: "live" }, classifier: "Claude" });
+    expect(tips()).toEqual(["Safety check: Claude, live"]);
+    renderHealth(doc, root, { ...HEALTH, providers: {} });
+    expect([root.querySelector(".svc")?.textContent, root.querySelector(".svc__grid")]).toEqual([
+      "No services reported",
+      null,
+    ]);
   });
 
   it("says all live, shows a failing database and the commit when known", () => {
@@ -59,7 +101,7 @@ describe("overview health", () => {
       db_error: "down",
       commit: "0123456789abcdef",
     });
-    expect(root.querySelector(".svc")?.textContent).toBe("Place lookup: liveAll 1 services live");
+    expect(root.querySelector(".svc")?.textContent).toBe("All 1 services live");
     expect(root.querySelector(".svc-off")).toBeNull();
     expect(root.querySelector(".meta .ui-badge--danger")?.textContent).toBe("failing");
     expect(root.querySelector(".meta code")?.textContent).toBe("0123456789");
@@ -72,7 +114,7 @@ describe("overview health", () => {
 });
 
 describe("overview funnel", () => {
-  it("scales bars to the busiest step, links attention states to Review, and lists how the rest ended", () => {
+  it("draws one column per state, scaled to the busiest, each linking to Tasks filtered to it", () => {
     const { doc, root } = dom();
     renderFunnel(doc, root, {
       dispatched: 2,
@@ -81,15 +123,18 @@ describe("overview funnel", () => {
       disputed: 1,
       expired: 1,
       refunded: 0,
-      odd: 2,
     });
-    const steps = [...root.querySelectorAll(".funnel__step")] as HTMLElement[];
+    const steps = [...root.querySelectorAll(".funnel__step")] as HTMLAnchorElement[];
     expect(steps.map((s) => s.className)).toEqual([
       "funnel__step is-live",
       "funnel__step is-zero",
       "funnel__step is-zero",
       "funnel__step is-zero",
       "funnel__step",
+      "funnel__step is-danger is-first-after",
+      "funnel__step is-warn",
+      "funnel__step",
+      "funnel__step is-zero",
     ]);
     expect(steps.map((s) => (s.querySelector(".funnel__bar") as HTMLElement).style.height)).toEqual([
       "50%",
@@ -97,24 +142,24 @@ describe("overview funnel", () => {
       "0%",
       "0%",
       "100%",
+      "75%",
+      "25%",
+      "25%",
+      "0%",
     ]);
-    expect(steps.map((s) => s.querySelector(".funnel__label")?.textContent)).toEqual(FUNNEL.map(statusLabel));
-    const links = [...root.querySelectorAll("a")] as HTMLAnchorElement[];
-    expect(links.map((a) => [a.textContent, a.getAttribute("href")])).toEqual([
-      ["3 need review", "#review?status=needs_review"],
-      ["1 disputed", "#review?status=disputed"],
-    ]);
-    expect(root.querySelector(".ended")?.textContent).toBe("Ended: 1 expired, 2 odd");
+    const states = [...FUNNEL, "needs_review", "disputed", "expired", "refunded"];
+    expect(steps.map((s) => s.querySelector(".funnel__label")?.textContent)).toEqual(states.map(statusLabel));
+    expect(steps.map((s) => s.getAttribute("href"))).toEqual(states.map((s) => `#tasks?status=${s}`));
+    expect(steps[5]?.getAttribute("aria-label")).toBe("Needs review: 3. Show in Tasks");
+    expect(root.querySelector(".attention, .ended")).toBeNull();
   });
 
-  it("says nothing needs a decision, with no ended line when nothing ended", () => {
+  it("tints nothing when nothing needs a decision", () => {
     const { doc, root } = dom();
     renderFunnel(doc, root, {});
-    expect(root.querySelector(".attention")?.textContent).toBe("Nothing needs a decision");
-    expect(root.querySelector(".ended")).toBeNull();
+    expect(root.querySelectorAll(".funnel__step")).toHaveLength(9);
+    expect(root.querySelector(".is-danger, .is-warn")).toBeNull();
     expect((root.querySelector(".funnel__bar") as HTMLElement).style.height).toBe("0%");
-    renderFunnel(doc, root, { needs_review: 1 });
-    expect(root.querySelector(".attention")?.textContent).toBe("1 needs review");
   });
 });
 

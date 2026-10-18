@@ -33,7 +33,7 @@ const HEADERS = {
   "Cache-Control": "no-store",
   "Referrer-Policy": "same-origin",
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
 };
 const STYLE = `${PAGE_CSS}
 /* The header wordmark starts where the card starts. */
@@ -88,7 +88,7 @@ const page = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>${title}</title>
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <style>${raw(STYLE)}</style>
 </head>
 <body class="ui">${raw(PAGE_HEADER)}<div class="wrap"><main class="ui-card">${body}</main></div></body>

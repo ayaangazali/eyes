@@ -112,6 +112,43 @@ function filterTickets                        (tickets     , query        , stat
   );
 }
 
+/** Date presets for the server-paged lists; "Custom" is the from/to day inputs next to it. */
+const WHEN                     = [
+  ["today", "Today"],
+  ["yesterday", "Yesterday"],
+  ["7d", "Last 7 days"],
+];
+/**
+ * The date filters as query params for the API: the browser's time zone (so search `q` matches dates
+ * as shown) and a [from, to) window from a preset (`when`) or the custom days (`date_min`, `date_max`,
+ * both inclusive), in local days.
+ */
+function datedQuery(f                        , q        , now      )                     {
+  const day = (offset        , base = now) =>
+    new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset);
+  const local = (text        ) => {
+    const [y, m, d] = text.split("-").map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  };
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  let from              = null;
+  let to              = null;
+  if (f.when === "today") [from, to] = [day(0), day(1)];
+  else if (f.when === "yesterday") [from, to] = [day(-1), day(0)];
+  else if (f.when === "7d") [from, to] = [day(-6), day(1)];
+  else {
+    from = f.date_min ? local(f.date_min) : null;
+    const last = f.date_max ? local(f.date_max) : null;
+    to = last && day(1, last);
+  }
+  return [
+    // The zone matters only to a search or a window; without one the URL stays short.
+    ["tz", q.trim() || from || to ? tz : ""],
+    ["from", from?.toISOString() ?? ""],
+    ["to", to?.toISOString() ?? ""],
+  ];
+}
+
 // Event log filters as query params; `before` pages back from the oldest row shown.
 function eventQuery(fields                        , before               ) {
   const p = new URLSearchParams();
@@ -141,6 +178,8 @@ function eventQuery(fields                        , before               ) {
                        
                                                                                                            
                                                                             
+                                                           
+                                                 
                                                                                                           
                                                                                 
 
@@ -194,6 +233,7 @@ function applyTable   (rows     , columns             , filters             , st
     return filters.every((f) => {
       // A server-paged table has no `value`: the server filtered already.
       if (f.kind === "select") return !state.f[f.key] || !f.value || f.value(row) === state.f[f.key];
+      if (f.kind === "check") return true;
       if (f.kind === "text")
         return !state.f[f.key] || !f.value || f.value(row).includes(state.f[f.key]          );
       const min = state.f[`${f.key}_min`];
@@ -247,8 +287,6 @@ function nextSort   (current        , column           ) {
                                                                                                           
                             
                            
-                                                                                            
-                                            
   
 
 function createTable   (doc          , opts                 ) {
@@ -310,6 +348,18 @@ function createTable   (doc          , opts                 ) {
       );
       inputs.set(f.key, input);
       bar.append(input);
+      continue;
+    }
+    if (f.kind === "check") {
+      const box = el("label", "tbl-check");
+      const input = el("input");
+      input.type = "checkbox";
+      input.addEventListener("change", () =>
+        update({ ...state, f: { ...state.f, [f.key]: input.checked ? "1" : "" } }),
+      );
+      box.append(input, f.label);
+      inputs.set(f.key, input);
+      bar.append(box);
       continue;
     }
     const group = el("span", "tbl-range");
@@ -381,27 +431,6 @@ function createTable   (doc          , opts                 ) {
 
   const expanded = new Set        ();
   const keyOf = opts.key ?? ((row   ) => String(rows.indexOf(row)));
-  let first = 0;
-  const win = opts.window;
-  // Measured from the rows on screen once there are some; the estimate until then.
-  let rowHeight = win?.height ?? 0;
-  // Each drawn row's real height, so a spacer replacing rows is exactly as tall as they were.
-  const heights = new Map                ();
-  if (win) {
-    // Re-render only when the viewport moves a quarter window away from what is drawn.
-    doc.defaultView?.addEventListener(
-      "scroll",
-      () => {
-        if (Math.abs(startFor() - first) >= win.rows / 4) draw();
-      },
-      { passive: true },
-    );
-  }
-  function startFor() {
-    if (!win) return 0;
-    const top = table.getBoundingClientRect().top;
-    return Math.max(0, Math.floor(-top / rowHeight) - Math.floor(win.rows / 4));
-  }
 
   function update(next            ) {
     state = next;
@@ -411,7 +440,9 @@ function createTable   (doc          , opts                 ) {
 
   function draw() {
     if (doc.activeElement !== search) search.value = state.q;
-    for (const [key, input] of inputs) input.value = state.f[key] ?? "";
+    for (const [key, input] of inputs)
+      if (input.type === "checkbox") (input                    ).checked = state.f[key] === "1";
+      else input.value = state.f[key] ?? "";
     ths.forEach((th, i) => {
       const key = columns[i]?.key;
       th.setAttribute(
@@ -432,30 +463,9 @@ function createTable   (doc          , opts                 ) {
     const active = Object.values(state.f).filter(Boolean).length;
     toggle.textContent = active ? `Filters (${active})` : "Filters";
     clear.disabled = !filtered;
-    const drawn = [...tbody.children].filter(
-      (tr) => !tr.matches(".tbl-spacer, .tbl-detail"),
-    )                 ;
-    // Fractional heights: rounding 200 rows to whole pixels would drift the page by tens of pixels.
-    const sizes = drawn.map((tr) => tr.getBoundingClientRect().height);
-    drawn.forEach((tr, i) => {
-      if (sizes[i]) heights.set(tr.dataset.key ?? "", sizes[i]          );
-    });
-    const measured = sizes.reduce((sum, h) => sum + h, 0) / (drawn.length || 1);
-    if (measured > 0) rowHeight = measured;
-    first = win && shown.length > win.rows ? Math.min(startFor(), shown.length - win.rows) : 0;
-    const last = win ? Math.min(shown.length, first + win.rows) : shown.length;
-    const spacer = (rowsIn     ) => {
-      const tr = el("tr", "tbl-spacer");
-      tr.setAttribute("aria-hidden", "true");
-      const td = el("td");
-      td.colSpan = columns.length;
-      td.style.height = `${rowsIn.reduce((sum, row) => sum + (heights.get(keyOf(row)) ?? rowHeight), 0)}px`;
-      tr.append(td);
-      return tr;
-    };
+    // Every loaded row is drawn: a few hundred plain rows are cheap, and windowing them left gaps.
     tbody.replaceChildren(
-      ...(first ? [spacer(shown.slice(0, first))] : []),
-      ...shown.slice(first, last).flatMap((row) => {
+      ...shown.flatMap((row) => {
         const tr = el("tr");
         for (const c of columns) {
           const td = el("td", c.num ? "num" : undefined);
@@ -495,14 +505,18 @@ function createTable   (doc          , opts                 ) {
         more.append(td);
         return [tr, more];
       }),
-      ...(last < shown.length ? [spacer(shown.slice(last))] : []),
     );
     moreButton.hidden = end !== "more";
     endText.textContent =
       end === "loading" ? "Loading…" : end === "end" && rows.length ? `End of ${remote?.noun}` : "";
     table.hidden = shown.length === 0;
     empty.hidden = shown.length > 0;
-    empty.textContent = rows.length ? "Nothing matches these filters." : opts.empty;
+    // A search that finds nothing says so in its own words, not with the empty-list text.
+    empty.textContent = state.q.trim()
+      ? `No rows match "${state.q.trim()}"`
+      : rows.length
+        ? "Nothing matches these filters."
+        : opts.empty;
   }
 
   draw();
@@ -578,25 +592,46 @@ const SERVICES                                   = {
   email: ["Email", "i-mail"],
   payments: ["Payments", "i-cash"],
   storage: ["Photos", "i-camera"],
-  vision: ["Photo moderation", "i-shield"],
+  vision: ["Safety check", "i-shield"],
   geo: ["Place lookup", "i-pin"],
 };
 const service = (name        ) => SERVICES[name] ?? [name, "i-info"];
+/** Who does the work when a service is live (main.ts); the photo check is clef when configured. */
+const providerOf = (name        , hl        ) =>
+  name === "vision"
+    ? hl.classifier.startsWith("clef")
+      ? "clef"
+      : "Claude"
+    : ((
+        {
+          messaging: "Inkbox",
+          email: "Primitive",
+          payments: "Stripe",
+          storage: "InsForge",
+          geo: "Nominatim",
+        }                          
+      )[name] ?? name);
 
 function renderHealth(doc          , root             , hl        ) {
   const all = Object.entries(hl.providers);
   const off = all.filter(([, mode]) => mode !== "live");
-  const icons = all.map(([name, mode]) => {
+  // Icon and name for each service; hover or focus tells the provider and state.
+  const items = all.map(([name, mode]) => {
     const [label, id] = service(name);
-    const svg = icon(doc, id, `${label}: ${mode === "live" ? "live" : "simulated"}`);
-    svg.classList.add(mode === "live" ? "is-live" : "is-off");
-    return svg;
+    const live = mode === "live";
+    const tip = `${label}: ${live ? `${providerOf(name, hl)}, live` : "simulated"}`;
+    const li = node(doc, "li", `svc__item ${live ? "is-live" : "is-off"}`, icon(doc, id), label);
+    if (!live) li.append(node(doc, "span", "svc__state", " · off"));
+    li.tabIndex = 0;
+    li.setAttribute("aria-label", tip);
+    li.dataset.tip = tip;
+    return li;
   });
+  const grid = all.length ? node(doc, "ul", "svc__grid", ...items) : null;
   const summary = node(
     doc,
     "p",
     `svc${off.length ? " svc--off" : ""}`,
-    node(doc, "span", "svc__icons", ...icons),
     !all.length
       ? "No services reported"
       : off.length
@@ -640,7 +675,7 @@ function renderHealth(doc          , root             , hl        ) {
     "meta",
     ...meta.flatMap(([k, v]) => [node(doc, "dt", null, k), node(doc, "dd", null, v)]),
   );
-  root.replaceChildren(...[summary, problems, dl].filter((x) => x != null));
+  root.replaceChildren(...[summary, grid, problems, dl].filter((x) => x != null));
 }
 
 /** "needs_review" → "Needs review". */
@@ -649,58 +684,37 @@ const statusLabel = (status        ) => {
   return words.charAt(0).toUpperCase() + words.slice(1);
 };
 const FUNNEL = ["dispatched", "claimed", "submitted", "verified", "paid"];
-const ATTENTION = ["needs_review", "disputed"];
+/** After the funnel: the states that need a decision, then how the rest ended. */
+const AFTER = ["needs_review", "disputed", "expired", "refunded"];
+const TINT                         = { needs_review: " is-danger", disputed: " is-warn" };
 
-/** The task funnel, the attention states as links into Review, and how the rest ended. */
+/** One column per task state; each opens the Tasks tab filtered to it. Attention columns tint when > 0. */
 function renderFunnel(doc          , root             , statuses                        ) {
-  // Bars scaled to the busiest step: where tasks are piling up shows at a glance.
-  const top = Math.max(1, ...FUNNEL.map((s) => statuses[s] ?? 0));
+  // Bars scaled to the busiest state: where tasks are piling up shows at a glance.
+  const all = [...FUNNEL, ...AFTER];
+  const top = Math.max(1, ...all.map((s) => statuses[s] ?? 0));
   const steps = node(
     doc,
     "ol",
     "funnel",
-    ...FUNNEL.map((s) => {
+    ...all.map((s) => {
       const n = statuses[s] ?? 0;
       const bar = node(doc, "span", "funnel__bar");
       bar.style.height = `${(n / top) * 100}%`;
-      return node(
+      const link = node(
         doc,
-        "li",
-        `funnel__step${n ? "" : " is-zero"}${LIVE.includes(s) && n ? " is-live" : ""}`,
+        "a",
+        `funnel__step${n ? "" : " is-zero"}${LIVE.includes(s) && n ? " is-live" : ""}${n ? (TINT[s] ?? "") : ""}${s === AFTER[0] ? " is-first-after" : ""}`,
         node(doc, "span", "funnel__track", bar),
         node(doc, "b", null, String(n)),
         node(doc, "span", "funnel__label", statusLabel(s)),
       );
+      link.href = `#tasks?status=${s}`;
+      link.setAttribute("aria-label", `${statusLabel(s)}: ${n}. Show in Tasks`);
+      return node(doc, "li", null, link);
     }),
   );
-  const hot = ATTENTION.filter((s) => (statuses[s] ?? 0) > 0);
-  const attention = hot.length
-    ? node(
-        doc,
-        "p",
-        "attention",
-        ...hot.map((s) => {
-          const n = statuses[s]          ;
-          const a = node(
-            doc,
-            "a",
-            "attention__link",
-            icon(doc, "i-alert"),
-            s === "disputed" ? `${n} disputed` : `${n} ${n === 1 ? "needs" : "need"} review`,
-          );
-          a.href = `#review?status=${s}`;
-          return a;
-        }),
-      )
-    : node(doc, "p", "attention is-clear", icon(doc, "i-check"), "Nothing needs a decision");
-  const ended = Object.entries(statuses)
-    .filter(([s, n]) => n > 0 && !FUNNEL.includes(s) && !ATTENTION.includes(s))
-    .map(([s, n]) => `${n} ${statusLabel(s).toLowerCase()}`);
-  root.replaceChildren(
-    ...[steps, attention, ended.length ? node(doc, "p", "ended", `Ended: ${ended.join(", ")}`) : null].filter(
-      (x) => x != null,
-    ),
-  );
+  root.replaceChildren(steps);
 }
 
 const MONEY                                 = [
@@ -873,7 +887,7 @@ function seriesCharts(s            )              {
           values: counts,
           times: s.hours,
           note: `${sum(counts)} in 24 h`,
-          bad: ATTENTION.includes(st) && sum(counts) > 0,
+          bad: st in TINT && sum(counts) > 0,
         };
       })
     : [{ label: "Tasks per hour", values: s.hours.map(() => 0), times: s.hours, note: "None in 24 h" }];
@@ -1866,7 +1880,14 @@ function boot(win           ) {
   const eventFilters = () => {
     const st = logs.state();
     return eventQuery(
-      { q: st.q, kind: st.f.kind ?? "", level: st.f.level ?? "", task_id: st.f.task ?? "" },
+      {
+        q: st.q,
+        kind: st.f.kind ?? "",
+        level: st.f.level ?? "",
+        task_id: st.f.task ?? "",
+        monitors: st.f.monitors ?? "",
+        ...Object.fromEntries(datedQuery(st.f, st.q, new Date())),
+      },
       null,
     );
   };
@@ -1980,6 +2001,11 @@ function boot(win           ) {
   // Each tab's table keeps its state in the hash while it is shown, and in memory when it is not.
   const remembered                             = {};
   const restore                                                    = {};
+  // Today, yesterday, the last 7 days, or custom days; the server filters (see datedQuery).
+  const dateFilters =    ()              => [
+    { kind: "select", key: "when", label: "Dates", options: WHEN },
+    { kind: "range", key: "date", label: "From, to", unit: "date", value: () => null },
+  ];
   const tableFor =    (
     tab        ,
     options                                                                                              ,
@@ -2084,7 +2110,6 @@ function boot(win           ) {
     empty: "No events match.",
     remote: { noun: "events", more: () => loadEvents(true) },
     key: eventKey,
-    window: { rows: 200, height: 37 },
     detail: (e) =>
       eventDetail(document, e, (task) => {
         logs.setState({ ...logs.state(), f: { ...logs.state().f, task } });
@@ -2131,9 +2156,13 @@ function boot(win           ) {
         options: Object.entries(LEVELS).map(([k, [label]]) => [k, label]),
       },
       { kind: "text", key: "task", label: "Task id" },
+      ...dateFilters(),
+      // Uptime monitors' /healthz checks, every minute: hidden unless asked for.
+      { kind: "check", key: "monitors", label: "Show health checks" },
     ],
   });
   $("events").replaceChildren(logs.el);
+  logs.el.querySelector(".tbl-bar")?.append($("new-events"));
 
   const support = tableFor        ("support", {
     name: "tickets",
@@ -2217,10 +2246,7 @@ function boot(win           ) {
     field: "tasks",
     query: ()                  => {
       const st             = tasks.state();
-      return params([
-        ["q", st.q],
-        ["status", st.f.status],
-      ]);
+      return params([["q", st.q], ["status", st.f.status], ...datedQuery(st.f, st.q, new Date())]);
     },
     table: () => tasks,
   });
@@ -2282,6 +2308,7 @@ function boot(win           ) {
         label: "Statuses",
         options: Object.keys(STATUS_TONE).map((s) => [s, s.replace("_", " ")]),
       },
+      ...dateFilters(),
     ],
   });
   $("tasks").replaceChildren(tasks.el);
@@ -2292,10 +2319,7 @@ function boot(win           ) {
     field: "ledger",
     query: ()                  => {
       const st             = ledger.state();
-      return params([
-        ["q", st.q],
-        ["type", st.f.type],
-      ]);
+      return params([["q", st.q], ["type", st.f.type], ...datedQuery(st.f, st.q, new Date())]);
     },
     table: () => ledger,
     onBody: (body) => {
@@ -2353,6 +2377,7 @@ function boot(win           ) {
         label: "Types",
         options: Object.entries(LEDGER_LABEL).map(([k, label]) => [k, label]),
       },
+      ...dateFilters(),
     ],
   });
   $("ledger").replaceChildren(ledger.el);

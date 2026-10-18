@@ -110,6 +110,43 @@ export function filterTickets<T extends TicketFields>(tickets: T[], query: strin
   );
 }
 
+/** Date presets for the server-paged lists; "Custom" is the from/to day inputs next to it. */
+export const WHEN: [string, string][] = [
+  ["today", "Today"],
+  ["yesterday", "Yesterday"],
+  ["7d", "Last 7 days"],
+];
+/**
+ * The date filters as query params for the API: the browser's time zone (so search `q` matches dates
+ * as shown) and a [from, to) window from a preset (`when`) or the custom days (`date_min`, `date_max`,
+ * both inclusive), in local days.
+ */
+export function datedQuery(f: Record<string, string>, q: string, now: Date): [string, string][] {
+  const day = (offset: number, base = now) =>
+    new Date(base.getFullYear(), base.getMonth(), base.getDate() + offset);
+  const local = (text: string) => {
+    const [y, m, d] = text.split("-").map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  };
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  let from: Date | null = null;
+  let to: Date | null = null;
+  if (f.when === "today") [from, to] = [day(0), day(1)];
+  else if (f.when === "yesterday") [from, to] = [day(-1), day(0)];
+  else if (f.when === "7d") [from, to] = [day(-6), day(1)];
+  else {
+    from = f.date_min ? local(f.date_min) : null;
+    const last = f.date_max ? local(f.date_max) : null;
+    to = last && day(1, last);
+  }
+  return [
+    // The zone matters only to a search or a window; without one the URL stays short.
+    ["tz", q.trim() || from || to ? tz : ""],
+    ["from", from?.toISOString() ?? ""],
+    ["to", to?.toISOString() ?? ""],
+  ];
+}
+
 // Event log filters as query params; `before` pages back from the oldest row shown.
 export function eventQuery(fields: Record<string, string>, before: number | null) {
   const p = new URLSearchParams();

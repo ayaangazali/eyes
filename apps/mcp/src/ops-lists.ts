@@ -46,6 +46,37 @@ const limitOf = (text: string | undefined, fallback: number, max: number) => {
 };
 const oneOf = (text: string | undefined, allowed: string[]) => (text && allowed.includes(text) ? text : null);
 const search = (text: string | undefined) => text?.trim().slice(0, 200) || null;
+/** The browser's IANA time zone, so dates match as it shows them; anything else falls back to UTC. */
+const zoneOf = (text: string | undefined) => {
+  if (!text || text.length > 64) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: text }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+};
+const instant = (text: string | undefined) =>
+  text && !Number.isNaN(Date.parse(text)) ? new Date(text).toISOString() : null;
+/** Search and date window params shared by the dated lists: `tz`, `from`, `to` (ISO, `to` exclusive). */
+const dated = (q: Record<string, string>) => ({ tz: zoneOf(q.tz), from: instant(q.from), to: instant(q.to) });
+const datedArgs = (f: { tz: string | null; from: string | null; to: string | null }) => ({
+  p_tz: f.tz,
+  p_from: f.from,
+  p_to: f.to,
+});
+/** A date as the ops page's `stamp()` shows it in that zone: "Oct 17, 08:13:45 PM". */
+export const shownAt = (iso: string, tz: string | null) =>
+  new Date(iso).toLocaleString("en-US", {
+    timeZone: tz ?? "UTC",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+/** Uptime checks: tagged by the request log, or a /healthz row logged before the tag existed. */
+const isMonitor = (e: { data?: Record<string, unknown> }) =>
+  e.data?.monitor === true || e.data?.path === "/healthz";
 
 type Row = Record<string, unknown> & { total?: number | string };
 /** Drops the window-function columns and the cursor of the last row when the page is full. */
@@ -89,8 +120,10 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
       level: oneOf(q.level, ["info", "warn", "error"]),
       q: search(q.q),
       task_id: q.task_id && UUID.test(q.task_id) ? q.task_id : null,
+      ...dated(q),
     };
     const limit = limitOf(q.limit, 100, 200);
+    const monitors = q.monitors === "1";
     const before = decodeCursor(q.cursor, filters);
     const after = decodeCursor(q.since, filters);
     if (before === "bad" || after === "bad") return bad(c);
@@ -105,8 +138,11 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
         p_before_id: before ? Number(before.id) : null,
         p_after_at: after?.at ?? null,
         p_after_id: after ? Number(after.id) : null,
+        ...datedArgs(filters),
       });
-      const { rows: events, next_cursor } = page(rows, limit, filters, "at", "id");
+      // Cursors come from the unfiltered rows, so hiding monitors only makes a page shorter.
+      const { rows: all, next_cursor } = page(rows, limit, filters, "at", "id");
+      const events = monitors ? all : all.filter((e) => !isMonitor(e));
       const first = rows[0];
       return c.json(
         {
@@ -127,7 +163,12 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
           (!filters.kind || e.kind === filters.kind) &&
           (!filters.level || e.level === filters.level) &&
           (!filters.task_id || e.task_id === filters.task_id) &&
-          (!needle || `${e.summary} ${JSON.stringify(e.data)}`.toLowerCase().includes(needle)),
+          (monitors || !isMonitor(e)) &&
+          (!filters.from || e.at >= filters.from) &&
+          (!filters.to || e.at < filters.to) &&
+          // What the row shows: the date, the level and source, the summary.
+          (!needle ||
+            `${shownAt(e.at, filters.tz)} ${e.level} ${e.kind} ${e.summary}`.toLowerCase().includes(needle)),
       );
       return c.json(
         {
@@ -166,7 +207,7 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
 
   routes.get("/ops/tasks", operator, async (c) => {
     const q = c.req.query();
-    const filters = { q: search(q.q), status: q.status || null };
+    const filters = { q: search(q.q), status: q.status || null, ...dated(q) };
     const limit = limitOf(q.limit, 50, 200);
     const before = decodeCursor(q.cursor, filters);
     if (before === "bad" || (before && !UUID.test(before.id))) return bad(c);
@@ -176,6 +217,7 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
       p_status: filters.status,
       p_before_at: before?.at ?? null,
       p_before_id: before?.id ?? null,
+      ...datedArgs(filters),
     });
     const { rows: tasks, total, next_cursor } = page(rows, limit, filters, "created_at", "id");
     return c.json({ tasks: tasks.map(withDistance), total, next_cursor }, 200, HEADERS);
@@ -183,7 +225,7 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
 
   routes.get("/ops/ledger", operator, async (c) => {
     const q = c.req.query();
-    const filters = { q: search(q.q), type: q.type || null };
+    const filters = { q: search(q.q), type: q.type || null, ...dated(q) };
     const limit = limitOf(q.limit, 50, 200);
     const before = decodeCursor(q.cursor, filters);
     if (before === "bad" || (before && !UUID.test(before.id))) return bad(c);
@@ -193,6 +235,7 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
       p_type: filters.type,
       p_before_at: before?.at ?? null,
       p_before_id: before?.id ?? null,
+      ...datedArgs(filters),
     });
     const { rows: ledger, total, next_cursor } = page(rows, limit, filters, "created_at", "id");
     return c.json(

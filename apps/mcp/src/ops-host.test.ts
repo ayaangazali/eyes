@@ -104,6 +104,18 @@ describe("ops host routing", () => {
     );
   });
 
+  it("serves the Eyes favicon on the ops host; the .ico asks for the SVG; the login page may load it", async () => {
+    const fetch = setup();
+    const icon = await fetch("internal.eyes.test", "/favicon.svg");
+    expect([icon.status, icon.headers.get("content-type")]).toEqual([200, "image/svg+xml"]);
+    expect(await icon.text()).toContain("<title>Eyes</title>");
+    const ico = await fetch("internal.eyes.test", "/favicon.ico");
+    expect([ico.status, ico.headers.get("location")]).toEqual([302, "/favicon.svg"]);
+    const login = await fetch("internal.eyes.test", "/login");
+    expect(login.headers.get("content-security-policy")).toContain("img-src 'self' data:");
+    expect(await login.text()).toContain('<link rel="icon" type="image/svg+xml" href="/favicon.svg">');
+  });
+
   it("answers nothing else of the API on the ops host", async () => {
     const fetch = setup();
     for (const path of ["/healthz", "/v1/balance", "/llms.txt", "/mcp"]) {

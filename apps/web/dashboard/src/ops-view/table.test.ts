@@ -150,8 +150,8 @@ describe("createTable", () => {
     expect(all("td")[2]?.getAttribute("data-label")).toBe("Bounty");
     expect(q(".tbl-count")?.textContent).toBe("3 shown");
     expect(q<HTMLButtonElement>(".tbl-clear").disabled).toBe(true);
-    table.setState(state({ q: "zzz" }));
-    expect(q("p.tbl-empty")?.textContent).toBe("Nothing matches these filters.");
+    table.setState(state({ q: " zzz " }));
+    expect(q("p.tbl-empty")?.textContent).toBe('No rows match "zzz"');
     expect(q<HTMLParagraphElement>("p.tbl-empty").hidden).toBe(false);
     expect(q(".tbl-count")?.textContent).toBe("0 of 3");
   });
@@ -256,9 +256,7 @@ describe("createTable, server-paged", () => {
     for (const w of windows.splice(0)) await w.happyDOM.close();
   });
 
-  function remote(
-    opts: { observer?: boolean; total?: number | null; window?: { rows: number; height: number } } = {},
-  ) {
+  function remote(opts: { observer?: boolean; total?: number | null } = {}) {
     const happy = new Window();
     windows.push(happy);
     const view = happy as unknown as Window & typeof globalThis;
@@ -297,7 +295,6 @@ describe("createTable, server-paged", () => {
         p.textContent = `detail ${r.id}`;
         return p;
       },
-      window: opts.window,
     });
     doc.body.append(table.el);
     return { table, doc, happy, seen, more: () => more };
@@ -362,45 +359,22 @@ describe("createTable, server-paged", () => {
     expect(table.el.querySelector(".tbl-detail")).toBeNull();
   });
 
-  it("windows long lists: spacers stand in for rows outside the viewport", () => {
-    const { table, happy } = remote({ window: { rows: 4, height: 10 } });
-    const many = Array.from({ length: 12 }, (_, i) => ({ ...ROWS[0], id: i }) as Row);
-    let top = 0;
-    const tableEl = table.el.querySelector("table") as HTMLElement;
-    tableEl.getBoundingClientRect = () => ({ top }) as DOMRect;
+  it("draws all 211 loaded rows from the top: the first row sits right under the header at any scroll", () => {
+    const { table, happy } = remote();
+    const many = Array.from({ length: 211 }, (_, i) => ({ ...ROWS[0], id: i }) as Row);
     table.setRows(many);
-    const shape = () =>
-      [...table.el.querySelectorAll("tbody tr")].map((tr) =>
-        tr.className === "tbl-spacer"
-          ? `gap ${(tr.firstChild as HTMLElement).style.height}`
-          : tr.textContent?.slice(-3),
-      );
-    expect(shape()).toEqual(["300", "300", "300", "300", "gap 80px"]);
-    top = -60;
-    happy.dispatchEvent(new happy.Event("scroll"));
-    expect(shape()).toEqual(["gap 50px", "300", "300", "300", "300", "gap 30px"]);
-    top = -65;
-    happy.dispatchEvent(new happy.Event("scroll"));
-    expect(shape()[0]).toBe("gap 50px");
-    top = -500;
-    happy.dispatchEvent(new happy.Event("scroll"));
-    expect(shape()).toEqual(["gap 80px", "300", "300", "300", "300"]);
-  });
-
-  it("sizes spacers from the measured height of the rows they replace", () => {
-    const { table, happy } = remote({ window: { rows: 4, height: 10 } });
-    const many = Array.from({ length: 12 }, (_, i) => ({ ...ROWS[0], id: i }) as Row);
-    let top = 0;
-    (table.el.querySelector("table") as HTMLElement).getBoundingClientRect = () => ({ top }) as DOMRect;
-    table.setRows(many);
-    // The four drawn rows are really 25 px tall, not the 10 px estimate: the spacer for 8 rows is 200 px.
-    for (const tr of table.el.querySelectorAll("tbody tr:not(.tbl-spacer)"))
-      (tr as HTMLElement).getBoundingClientRect = () => ({ height: 25 }) as DOMRect;
-    top = -250;
-    happy.dispatchEvent(new happy.Event("scroll"));
-    const gaps = [...table.el.querySelectorAll(".tbl-spacer td")].map(
-      (td) => (td as HTMLElement).style.height,
-    );
-    expect(gaps).toEqual(["200px"]);
+    const body = () => [...table.el.querySelectorAll("tbody tr")] as HTMLElement[];
+    const check = () => {
+      expect(table.el.querySelector("thead")?.nextElementSibling?.firstElementChild).toBe(body()[0]);
+      expect(body().map((tr) => tr.dataset.key)).toEqual(many.map((r) => String(r.id)));
+      expect(table.el.querySelector(".tbl-spacer")).toBeNull();
+    };
+    check();
+    // Scrolled to the middle and the bottom, every row is still drawn: nothing to leave a gap.
+    for (const y of [3800, 7600]) {
+      happy.scrollTo(0, y);
+      happy.dispatchEvent(new happy.Event("scroll"));
+      check();
+    }
   });
 });

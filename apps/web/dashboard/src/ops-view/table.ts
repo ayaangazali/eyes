@@ -16,6 +16,8 @@ export type Column<T> = {
 export type Filter<T> =
   | { kind: "select"; key: string; label: string; options: [string, string][]; value?: (row: T) => string }
   | { kind: "text"; key: string; label: string; value?: (row: T) => string }
+  /** A server-side switch: checked sets the key to "1". */
+  | { kind: "check"; key: string; label: string }
   | { kind: "range"; key: string; label: string; unit: "date" | "usd"; value: (row: T) => number | null };
 export type TableState = { q: string; sort: string; f: Record<string, string> };
 
@@ -69,6 +71,7 @@ export function applyTable<T>(rows: T[], columns: Column<T>[], filters: Filter<T
     return filters.every((f) => {
       // A server-paged table has no `value`: the server filtered already.
       if (f.kind === "select") return !state.f[f.key] || !f.value || f.value(row) === state.f[f.key];
+      if (f.kind === "check") return true;
       if (f.kind === "text")
         return !state.f[f.key] || !f.value || f.value(row).includes(state.f[f.key] as string);
       const min = state.f[`${f.key}_min`];
@@ -122,8 +125,6 @@ export type TableOptions<T> = {
   /** Click or Enter on a row shows these details under it (instead of `open`). `key` keeps rows apart. */
   detail?: (row: T) => Node;
   key?: (row: T) => string;
-  /** Render at most `rows` rows around the viewport; each row is about `height` px tall. */
-  window?: { rows: number; height: number };
 };
 
 export function createTable<T>(doc: Document, opts: TableOptions<T>) {
@@ -185,6 +186,18 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
       );
       inputs.set(f.key, input);
       bar.append(input);
+      continue;
+    }
+    if (f.kind === "check") {
+      const box = el("label", "tbl-check");
+      const input = el("input");
+      input.type = "checkbox";
+      input.addEventListener("change", () =>
+        update({ ...state, f: { ...state.f, [f.key]: input.checked ? "1" : "" } }),
+      );
+      box.append(input, f.label);
+      inputs.set(f.key, input);
+      bar.append(box);
       continue;
     }
     const group = el("span", "tbl-range");
@@ -256,27 +269,6 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
 
   const expanded = new Set<string>();
   const keyOf = opts.key ?? ((row: T) => String(rows.indexOf(row)));
-  let first = 0;
-  const win = opts.window;
-  // Measured from the rows on screen once there are some; the estimate until then.
-  let rowHeight = win?.height ?? 0;
-  // Each drawn row's real height, so a spacer replacing rows is exactly as tall as they were.
-  const heights = new Map<string, number>();
-  if (win) {
-    // Re-render only when the viewport moves a quarter window away from what is drawn.
-    doc.defaultView?.addEventListener(
-      "scroll",
-      () => {
-        if (Math.abs(startFor() - first) >= win.rows / 4) draw();
-      },
-      { passive: true },
-    );
-  }
-  function startFor() {
-    if (!win) return 0;
-    const top = table.getBoundingClientRect().top;
-    return Math.max(0, Math.floor(-top / rowHeight) - Math.floor(win.rows / 4));
-  }
 
   function update(next: TableState) {
     state = next;
@@ -286,7 +278,9 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
 
   function draw() {
     if (doc.activeElement !== search) search.value = state.q;
-    for (const [key, input] of inputs) input.value = state.f[key] ?? "";
+    for (const [key, input] of inputs)
+      if (input.type === "checkbox") (input as HTMLInputElement).checked = state.f[key] === "1";
+      else input.value = state.f[key] ?? "";
     ths.forEach((th, i) => {
       const key = columns[i]?.key;
       th.setAttribute(
@@ -307,30 +301,9 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
     const active = Object.values(state.f).filter(Boolean).length;
     toggle.textContent = active ? `Filters (${active})` : "Filters";
     clear.disabled = !filtered;
-    const drawn = [...tbody.children].filter(
-      (tr) => !tr.matches(".tbl-spacer, .tbl-detail"),
-    ) as HTMLElement[];
-    // Fractional heights: rounding 200 rows to whole pixels would drift the page by tens of pixels.
-    const sizes = drawn.map((tr) => tr.getBoundingClientRect().height);
-    drawn.forEach((tr, i) => {
-      if (sizes[i]) heights.set(tr.dataset.key ?? "", sizes[i] as number);
-    });
-    const measured = sizes.reduce((sum, h) => sum + h, 0) / (drawn.length || 1);
-    if (measured > 0) rowHeight = measured;
-    first = win && shown.length > win.rows ? Math.min(startFor(), shown.length - win.rows) : 0;
-    const last = win ? Math.min(shown.length, first + win.rows) : shown.length;
-    const spacer = (rowsIn: T[]) => {
-      const tr = el("tr", "tbl-spacer");
-      tr.setAttribute("aria-hidden", "true");
-      const td = el("td");
-      td.colSpan = columns.length;
-      td.style.height = `${rowsIn.reduce((sum, row) => sum + (heights.get(keyOf(row)) ?? rowHeight), 0)}px`;
-      tr.append(td);
-      return tr;
-    };
+    // Every loaded row is drawn: a few hundred plain rows are cheap, and windowing them left gaps.
     tbody.replaceChildren(
-      ...(first ? [spacer(shown.slice(0, first))] : []),
-      ...shown.slice(first, last).flatMap((row) => {
+      ...shown.flatMap((row) => {
         const tr = el("tr");
         for (const c of columns) {
           const td = el("td", c.num ? "num" : undefined);
@@ -370,14 +343,18 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
         more.append(td);
         return [tr, more];
       }),
-      ...(last < shown.length ? [spacer(shown.slice(last))] : []),
     );
     moreButton.hidden = end !== "more";
     endText.textContent =
       end === "loading" ? "Loading…" : end === "end" && rows.length ? `End of ${remote?.noun}` : "";
     table.hidden = shown.length === 0;
     empty.hidden = shown.length > 0;
-    empty.textContent = rows.length ? "Nothing matches these filters." : opts.empty;
+    // A search that finds nothing says so in its own words, not with the empty-list text.
+    empty.textContent = state.q.trim()
+      ? `No rows match "${state.q.trim()}"`
+      : rows.length
+        ? "Nothing matches these filters."
+        : opts.empty;
   }
 
   draw();

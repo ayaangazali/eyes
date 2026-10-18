@@ -80,6 +80,9 @@ describe("GET /ops/events", () => {
         p_before_id: null,
         p_after_at: null,
         p_after_id: null,
+        p_tz: null,
+        p_from: null,
+        p_to: null,
       },
     });
     const filters = `kind=http&level=warn&q=boom&task_id=${TASK}`;
@@ -106,6 +109,9 @@ describe("GET /ops/events", () => {
       level: null,
       q: null,
       task_id: null,
+      tz: null,
+      from: null,
+      to: null,
     });
     rows = [row(6, "2026-10-17T12:00:03Z")];
     const fresh = await get(`/ops/events?limit=1&since=${since}`);
@@ -125,6 +131,9 @@ describe("GET /ops/events", () => {
       level: null,
       q: null,
       task_id: null,
+      tz: null,
+      from: null,
+      to: null,
     });
     for (const query of [`cursor=${other}`, `since=${other}`, "cursor=zzz"]) {
       const res = await get(`/ops/events?${query}`);
@@ -149,13 +158,36 @@ describe("GET /ops/events", () => {
     };
     expect(await summaries("")).toEqual(["get_task ok", "get_task task_not_found", "offer sent"]);
     expect(await summaries("?kind=call&level=warn")).toEqual(["get_task task_not_found"]);
-    expect(await summaries(`?task_id=${TASK}&q=NEEDLE`)).toEqual(["get_task ok"]);
+    // Search matches what a row shows (summary, level, source, date in the browser's zone), not data.
+    expect(await summaries(`?task_id=${TASK}&q=NEEDLE`)).toEqual([]);
+    expect(await summaries(`?task_id=${TASK}&q=OK`)).toEqual(["get_task ok"]);
+    const today = new Date().toLocaleString("en-US", {
+      timeZone: "Asia/Tokyo",
+      month: "short",
+      day: "numeric",
+    });
+    expect(await summaries(`?q=${encodeURIComponent(today)}&tz=Asia%2FTokyo`)).toHaveLength(3);
+    expect(await summaries(`?from=${new Date(Date.now() + 60_000).toISOString()}`)).toEqual([]);
+    expect(await summaries(`?to=${new Date(Date.now() + 60_000).toISOString()}&from=nope`)).toHaveLength(3);
+    // Uptime checks stay out unless asked for.
+    events.log({ kind: "http", level: "info", summary: "GET /healthz 200 0 ms", data: { path: "/healthz" } });
+    events.log({
+      kind: "http",
+      level: "info",
+      summary: "HEAD / 200 1 ms",
+      data: { path: "/", monitor: true },
+    });
+    expect(await summaries("?kind=http")).toEqual([]);
+    expect(await summaries("?kind=http&monitors=1")).toEqual(["GET /healthz 200 0 ms", "HEAD / 200 1 ms"]);
     expect(await summaries("?limit=1")).toHaveLength(1);
     const since = encodeCursor("2026-10-17T12:00:00Z", 1, {
       kind: null,
       level: null,
       q: null,
       task_id: null,
+      tz: null,
+      from: null,
+      to: null,
     });
     expect(await summaries(`?since=${since}`)).toEqual([]);
     expect(errors).toHaveBeenCalledWith("ops events: database read failed:", "db down");
@@ -216,7 +248,16 @@ describe("GET /ops/tickets, /ops/tasks, /ops/ledger", () => {
     await get(`/ops/tasks?limit=1&status=paid&q=bot&cursor=${first.body.next_cursor}`);
     expect(calls[1]).toEqual({
       fn: "eyes_tasks_page",
-      args: { p_limit: 1, p_q: "bot", p_status: "paid", p_before_at: T.created_at, p_before_id: id },
+      args: {
+        p_tz: null,
+        p_from: null,
+        p_to: null,
+        p_limit: 1,
+        p_q: "bot",
+        p_status: "paid",
+        p_before_at: T.created_at,
+        p_before_id: id,
+      },
     });
     const notUuid = encodeCursor(T.created_at, 7, { q: null, status: null });
     expect((await get(`/ops/tasks?cursor=${notUuid}`)).status).toBe(400);

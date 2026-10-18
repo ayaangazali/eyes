@@ -7,6 +7,7 @@ import {
   ago,
   checkReason,
   cut,
+  datedQuery,
   eventQuery,
   LEDGER_LABEL,
   nearLabel,
@@ -22,6 +23,7 @@ import {
   time,
   uptime,
   usd,
+  WHEN,
 } from "./format.ts";
 import {
   badgeIcon,
@@ -42,7 +44,15 @@ import {
   type SeriesData,
   seriesCharts,
 } from "./overview.ts";
-import { createTable, hashFor, parseHash, stateFrom, type TableOptions, type TableState } from "./table.ts";
+import {
+  createTable,
+  type Filter,
+  hashFor,
+  parseHash,
+  stateFrom,
+  type TableOptions,
+  type TableState,
+} from "./table.ts";
 
 type Checked = {
   gps_ok?: boolean | null;
@@ -698,7 +708,14 @@ export function boot(win: OpsWindow) {
   const eventFilters = () => {
     const st = logs.state();
     return eventQuery(
-      { q: st.q, kind: st.f.kind ?? "", level: st.f.level ?? "", task_id: st.f.task ?? "" },
+      {
+        q: st.q,
+        kind: st.f.kind ?? "",
+        level: st.f.level ?? "",
+        task_id: st.f.task ?? "",
+        monitors: st.f.monitors ?? "",
+        ...Object.fromEntries(datedQuery(st.f, st.q, new Date())),
+      },
       null,
     );
   };
@@ -812,6 +829,11 @@ export function boot(win: OpsWindow) {
   // Each tab's table keeps its state in the hash while it is shown, and in memory when it is not.
   const remembered: Record<string, TableState> = {};
   const restore: Record<string, (params: URLSearchParams) => void> = {};
+  // Today, yesterday, the last 7 days, or custom days; the server filters (see datedQuery).
+  const dateFilters = <T>(): Filter<T>[] => [
+    { kind: "select", key: "when", label: "Dates", options: WHEN },
+    { kind: "range", key: "date", label: "From, to", unit: "date", value: () => null },
+  ];
   const tableFor = <T>(
     tab: string,
     options: Omit<TableOptions<T>, "onChange" | "later"> & { onState?: () => void; initial?: TableState },
@@ -916,7 +938,6 @@ export function boot(win: OpsWindow) {
     empty: "No events match.",
     remote: { noun: "events", more: () => loadEvents(true) },
     key: eventKey,
-    window: { rows: 200, height: 37 },
     detail: (e) =>
       eventDetail(document, e, (task) => {
         logs.setState({ ...logs.state(), f: { ...logs.state().f, task } });
@@ -963,9 +984,13 @@ export function boot(win: OpsWindow) {
         options: Object.entries(LEVELS).map(([k, [label]]) => [k, label]),
       },
       { kind: "text", key: "task", label: "Task id" },
+      ...dateFilters(),
+      // Uptime monitors' /healthz checks, every minute: hidden unless asked for.
+      { kind: "check", key: "monitors", label: "Show health checks" },
     ],
   });
   $("events").replaceChildren(logs.el);
+  logs.el.querySelector(".tbl-bar")?.append($("new-events"));
 
   const support = tableFor<Ticket>("support", {
     name: "tickets",
@@ -1049,10 +1074,7 @@ export function boot(win: OpsWindow) {
     field: "tasks",
     query: (): URLSearchParams => {
       const st: TableState = tasks.state();
-      return params([
-        ["q", st.q],
-        ["status", st.f.status],
-      ]);
+      return params([["q", st.q], ["status", st.f.status], ...datedQuery(st.f, st.q, new Date())]);
     },
     table: () => tasks,
   });
@@ -1114,6 +1136,7 @@ export function boot(win: OpsWindow) {
         label: "Statuses",
         options: Object.keys(STATUS_TONE).map((s) => [s, s.replace("_", " ")]),
       },
+      ...dateFilters(),
     ],
   });
   $("tasks").replaceChildren(tasks.el);
@@ -1124,10 +1147,7 @@ export function boot(win: OpsWindow) {
     field: "ledger",
     query: (): URLSearchParams => {
       const st: TableState = ledger.state();
-      return params([
-        ["q", st.q],
-        ["type", st.f.type],
-      ]);
+      return params([["q", st.q], ["type", st.f.type], ...datedQuery(st.f, st.q, new Date())]);
     },
     table: () => ledger,
     onBody: (body) => {
@@ -1185,6 +1205,7 @@ export function boot(win: OpsWindow) {
         label: "Types",
         options: Object.entries(LEDGER_LABEL).map(([k, label]) => [k, label]),
       },
+      ...dateFilters(),
     ],
   });
   $("ledger").replaceChildren(ledger.el);

@@ -128,6 +128,8 @@ function opsHeaders(page: string) {
 const OPS_FEED_LIMIT = 500;
 const OPS_RECENT = 50;
 export const SMOKE_UA = "eyes-smoke/";
+/** Uptime services' user agents (UptimeRobot, Better Stack, Pingdom, StatusCake, Checkly, Hetrix). */
+const MONITOR_UA = /uptimerobot|betteruptime|better ?stack|pingdom|statuscake|checkly|hetrix/i;
 const TicketAction = z.object({
   ticket_id: z.coerce.number().int().positive(),
   outcome: z.enum(["release", "refund", "close"]),
@@ -164,6 +166,7 @@ const SIMULATED = {
     .join(", ")}.`,
 } as const;
 
+const FAVICON = readFileSync(fileURLToPath(new URL("../../web/worker/public/favicon.svg", import.meta.url)));
 // Instrument Sans for the h1 of these pages (the @font-face in @eyes/ui/page): read once at start.
 const DISPLAY_FONT = readFileSync(
   new URL(
@@ -426,7 +429,10 @@ export function createServer(
     const webhook = /^\/webhooks\/(\w+)/.exec(path)?.[1];
     // smoke:live sends unsigned webhooks and bad OAuth on purpose; 404s are scanners. Neither is our fault,
     // so they log as info (still searchable by status) and never count as warnings. 5xx always stays an error.
-    const probe = c.req.header("user-agent")?.startsWith(SMOKE_UA) ?? false;
+    const ua = c.req.header("user-agent") ?? "";
+    const probe = ua.startsWith(SMOKE_UA);
+    // Uptime monitors hit /healthz every minute; the ops log hides them unless asked (see ops-lists.ts).
+    const monitor = path === "/healthz" || MONITOR_UA.test(ua);
     log({
       kind: webhook ? "webhook" : "http",
       level: status >= 500 ? "error" : status >= 400 && status !== 404 && !probe ? "warn" : "info",
@@ -440,10 +446,11 @@ export function createServer(
         status,
         ms,
         ...(probe && { probe: true }),
+        ...(monitor && { monitor: true }),
         ...(webhook && { provider: webhook }),
         // Location posts: a coarse device hint to tell a worker's devices apart (no IP, no coordinates).
         ...(/^\/(w|v1\/worker)\/location$/.test(path) && {
-          ua: c.req.header("user-agent")?.slice(0, 60) ?? null,
+          ua: ua.slice(0, 60) || null,
         }),
       },
     });
@@ -1000,6 +1007,11 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   server.get("/healthz", (c) => c.json({ ok: true, providers, db }));
   const status = statusPage(live, classifier, db, env.EYES_COMMIT, sandbox);
   server.get("/status", (c) => c.html(status, 200, PAGE_HEADERS));
+  // The Eyes viewfinder (apps/web/worker/public/favicon.svg); browsers asking for .ico get the SVG.
+  server.get("/favicon.svg", (c) =>
+    c.body(FAVICON, 200, { "content-type": "image/svg+xml", "cache-control": "public, max-age=86400" }),
+  );
+  server.get("/favicon.ico", (c) => c.redirect("/favicon.svg", 302));
   server.get("/fonts/instrument-sans.woff2", (c) =>
     c.body(DISPLAY_FONT, 200, {
       "content-type": "font/woff2",

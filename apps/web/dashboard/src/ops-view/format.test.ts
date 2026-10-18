@@ -4,6 +4,7 @@ import {
   ago,
   checkReason,
   cut,
+  datedQuery,
   eventQuery,
   filterTickets,
   nearLabel,
@@ -116,5 +117,55 @@ describe("ops-view format", () => {
     );
     expect(String(eventQuery({ q: "", kind: "sms" }, 42))).toBe("kind=sms&before=42");
     expect(String(eventQuery({}, 0))).toBe("");
+  });
+});
+
+describe("datedQuery", () => {
+  const now = new Date(2026, 9, 18, 15, 30);
+  const at = (d: number) => new Date(2026, 9, d).toISOString();
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  it("turns presets and custom days into a [from, to) window of local days, with the zone", () => {
+    expect(datedQuery({ when: "today" }, "", now)).toEqual([
+      ["tz", tz],
+      ["from", at(18)],
+      ["to", at(19)],
+    ]);
+    expect(datedQuery({ when: "yesterday" }, "", now)).toEqual([
+      ["tz", tz],
+      ["from", at(17)],
+      ["to", at(18)],
+    ]);
+    expect(datedQuery({ when: "7d" }, "", now)).toEqual([
+      ["tz", tz],
+      ["from", at(12)],
+      ["to", at(19)],
+    ]);
+    expect(datedQuery({ date_min: "2026-10-10", date_max: "2026-10-11" }, "", now)).toEqual([
+      ["tz", tz],
+      ["from", at(10)],
+      ["to", at(12)],
+    ]);
+    expect(datedQuery({ date_max: "2026-10-11" }, "", now)).toEqual([
+      ["tz", tz],
+      ["from", ""],
+      ["to", at(12)],
+    ]);
+  });
+  it("sends the zone only with a search or a window, and ignores malformed days", () => {
+    expect(datedQuery({}, "", now)).toEqual([
+      ["tz", ""],
+      ["from", ""],
+      ["to", ""],
+    ]);
+    expect(datedQuery({}, " 18 ", now)).toEqual([
+      ["tz", tz],
+      ["from", ""],
+      ["to", ""],
+    ]);
+    expect(datedQuery({ date_min: "nope", date_max: "2026-13" }, "", now)).toEqual([
+      ["tz", ""],
+      ["from", ""],
+      ["to", ""],
+    ]);
   });
 });

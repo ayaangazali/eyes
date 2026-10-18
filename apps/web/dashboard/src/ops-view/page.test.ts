@@ -268,8 +268,12 @@ describe("ops page boot", () => {
       "0",
       "0",
       "4",
+      "1",
+      "0",
+      "0",
+      "0",
     ]);
-    expect($("statuses").querySelector(".attention")?.textContent).toBe("1 needs review");
+    expect($("statuses").querySelector(".is-danger .funnel__label")?.textContent).toBe("Needs review");
 
     expect(text("escrowed")).toBe("$12.34");
     expect(text("money-kv")).toContain("InTop-ups$100.00");
@@ -1119,6 +1123,27 @@ describe("ops tasks, money and workers tabs", () => {
     expect(page.$("tasks").querySelector(".tbl-end")?.textContent).toBe("");
   });
 
+  it("opens Tasks filtered to the state of the Overview column clicked", async () => {
+    const page = await setup({
+      "GET /ops/tasks": () => ok({ tasks: [], total: 0, next_cursor: null }),
+    });
+    const { $, win, happy, requests } = page;
+    const columns = [...$("statuses").querySelectorAll("a.funnel__step")] as HTMLAnchorElement[];
+    expect(columns).toHaveLength(9);
+    for (const a of columns) {
+      const status = (a.getAttribute("href") ?? "").split("=")[1] as string;
+      a.click();
+      if (win.location.hash !== a.getAttribute("href")) win.location.hash = a.getAttribute("href") as string;
+      win.dispatchEvent(new happy.HashChangeEvent("hashchange") as unknown as Event);
+      await page.settle();
+      await page.settle();
+      expect(win.location.hash).toBe(`#tasks?status=${status}`);
+      expect(($("tasks").querySelector("select") as HTMLSelectElement).value).toBe(status);
+      expect(requests.at(-1)?.path).toBe(`/ops/tasks?status=${status}&limit=50`);
+      expect($("p-tasks").hidden).toBe(false);
+    }
+  });
+
   it("pages the ledger with type and search, with the total for the filters", async () => {
     const page = await setup(
       {
@@ -1232,7 +1257,9 @@ describe("ops event log and tabs", () => {
     timers.at(-1)?.fn();
     await page.settle();
     await page.settle();
-    expect(requests.at(-1)?.path).toBe("/ops/events?q=boom&kind=payout&level=error&limit=100");
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // A search sends the browser's zone, so dates match as shown.
+    expect(requests.at(-1)?.path).toBe(`/ops/events?q=boom&kind=payout&level=error&tz=${tz}&limit=100`);
 
     const row = $("events").querySelector("tbody tr") as HTMLElement;
     expect(row.getAttribute("aria-expanded")).toBe("false");
@@ -1241,11 +1268,38 @@ describe("ops event log and tabs", () => {
     expect(detail.querySelector(".ev-detail__data")?.textContent).toBe('{\n  "ms": 40\n}');
     await page.click(detail.querySelector("button") as HTMLElement);
     expect(requests.at(-1)?.path).toBe(
-      `/ops/events?q=boom&kind=payout&level=error&task_id=${HELD}&limit=100`,
+      `/ops/events?q=boom&kind=payout&level=error&task_id=${HELD}&tz=${tz}&limit=100`,
     );
     expect(win.location.hash).toBe(`#logs?q=boom&kind=payout&level=error&task=${HELD}`);
     ($("events").querySelector("tbody tr") as HTMLElement).click();
     expect($("events").querySelector(".tbl-detail")).toBeNull();
+
+    // Health checks: hidden by default, one checkbox asks the server for them.
+    const checks = bar.querySelector(".tbl-check input") as HTMLInputElement;
+    expect([checks.checked, bar.querySelector(".tbl-check")?.textContent]).toEqual([
+      false,
+      "Show health checks",
+    ]);
+    checks.checked = true;
+    checks.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    await page.settle();
+    await page.settle();
+    expect(requests.at(-1)?.path).toContain("&monitors=1&");
+    expect(win.location.hash).toContain("monitors=1");
+
+    // Dates: "Today" sends local midnight to the next one; custom days send their whole local days.
+    const when = bar.querySelectorAll("select")[2];
+    await set(when, "today");
+    const today = new Date();
+    const midnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const next = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    const sent = new URLSearchParams((requests.at(-1)?.path ?? "").split("?")[1]);
+    expect([sent.get("from"), sent.get("to"), sent.get("tz")]).toEqual([
+      midnight.toISOString(),
+      next.toISOString(),
+      decodeURIComponent(tz),
+    ]);
+    expect(($("events").querySelector(".tbl-empty") as HTMLElement).hidden).toBe(true);
   });
 
   it("sorts the loaded events by any column without asking the server again", async () => {
