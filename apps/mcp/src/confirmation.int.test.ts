@@ -134,6 +134,9 @@ describe.skipIf(!url)("confirmed task intents over HTTP and PostgreSQL", () => {
         "openai/visibility": "private",
         "openai/widgetAccessible": true,
       });
+      expect(confirmation?._meta).not.toHaveProperty("openai/outputTemplate");
+      expect(confirmation?._meta).not.toHaveProperty("ui/resourceUri");
+      expect(confirmation?._meta).not.toHaveProperty(["ui", "resourceUri"]);
       // Listing first makes the real MCP client validate each draft against its advertised output schema.
       const draft = await call(model, "ask_eyes", ask);
       expect(draft).toMatchObject({

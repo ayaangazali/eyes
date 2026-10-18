@@ -174,7 +174,7 @@ Ask the client: "Use Eyes to quote checking whether the Ferry Building in San Fr
 
 Use `https://mcp.eyes.pictures/mcp` for new app connectors; the legacy `https://api.eyes.pictures/mcp` remains supported. Card sandbox origins are derived from the exact connector URL, so use the matching direct host rather than the optional gateway for app cards.
 
-In ChatGPT and Claude, `quote_task`, `ask_eyes`, `confirm_ask`, `await_answer`, `get_task`, `show_task` and `get_balance` share `ui://eyes/confirmation-card.html`. It shows quotes, task status, photos/checks or the balance/top-up link. Other tools reply in text.
+In ChatGPT and Claude, `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task` and `get_balance` share `ui://eyes/confirmation-card.html`. It shows quotes, task status, photos/checks or the balance/top-up link. The existing card calls private `confirm_ask` and renders its result locally; that action has no widget template of its own. Other tools reply in text.
 
 Interactive `ask_eyes` is a read-only draft (`status: "confirmation_required"`). Review the question, place and price in the card, then press **Ask** to confirm. The app-only `confirm_ask` sends that intent; no task, escrow or worker messages occur before confirmation. Retries reuse its key, while **Ask again** requires a new confirmation. The model should use the returned task ID, not dispatch another ask. REST, CLI and non-UI MCP automation remain unchanged.
 
