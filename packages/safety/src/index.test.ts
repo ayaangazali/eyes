@@ -212,3 +212,66 @@ describe("createAssessTask without ANTHROPIC_API_KEY", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe("createAssessTask with clef", () => {
+  const CLEF_ENV = { CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_API_TOKEN: "cf-test" };
+  const clefReply = (allowed: number, top: SafetyCategory = "identifiable_people") =>
+    new Response(
+      JSON.stringify({
+        result: { answers: { verdict: { probabilities: { allowed, [top]: 1 - allowed, other: 0 } } } },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  it("allows when clef is sure, without calling Claude", async () => {
+    fetchMock.mockResolvedValueOnce(clefReply(0.95));
+    const verdict = await createAssessTask({ ...CLEF_ENV, ANTHROPIC_API_KEY: "sk-test" })(benign);
+    expect(verdict).toEqual({ allowed: true, category: null, reason: null, fix: null, layer: "classifier" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/accounts/acct/ai/run/@cf/cloudflare/clef-omni");
+  });
+
+  it("blocks with the most likely category when clef is sure it is unsafe", async () => {
+    fetchMock.mockResolvedValueOnce(clefReply(0.1));
+    expect(await createAssessTask(CLEF_ENV)(facePhoto)).toEqual(block("identifiable_people", "classifier"));
+  });
+
+  it("escalates an unsure task to Claude", async () => {
+    fetchMock
+      .mockResolvedValueOnce(clefReply(0.6))
+      .mockResolvedValueOnce(reply('{"allowed":true,"category":null,"reason":null,"fix":null}'));
+    const verdict = await createAssessTask({ ...CLEF_ENV, ANTHROPIC_API_KEY: "sk-test" })(benign);
+    expect(verdict.allowed).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses an unsure task when Claude is not configured", async () => {
+    fetchMock.mockResolvedValueOnce(clefReply(0.6));
+    expect(await createAssessTask(CLEF_ENV)(benign)).toMatchObject({
+      allowed: false,
+      category: "other",
+      reason: expect.stringContaining("could not decide"),
+    });
+  });
+
+  it("fails closed when clef errors and Claude is not configured", async () => {
+    fetchMock.mockResolvedValueOnce(new Response("down", { status: 503 }));
+    expect(await createAssessTask(CLEF_ENV)(benign)).toEqual(failClosed);
+  });
+
+  it("gives an empty question (quote_task) the rules only, with no classifier call", async () => {
+    const quote = { ...benign, question: "" };
+    expect(await createAssessTask({ ...CLEF_ENV, ANTHROPIC_API_KEY: "sk-test" })(quote)).toMatchObject({
+      allowed: true,
+      layer: "rules",
+    });
+    expect(await createAssessTask(CLEF_ENV)({ ...quote, place_label: "pipe bombs" })).toMatchObject({
+      allowed: false,
+      layer: "rules",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    fetchMock.mockResolvedValueOnce(clefReply(0.95));
+    expect((await createAssessTask(CLEF_ENV)(benign)).allowed).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});

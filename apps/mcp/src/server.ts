@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { isIPv6 } from "node:net";
 import { join } from "node:path";
@@ -11,6 +11,7 @@ import {
   CancelTaskInput,
   CaptureFields,
   DisputeAnswerInput,
+  distanceMeters,
   ERRORS,
   EyesError,
   FAKE_PLACES,
@@ -22,20 +23,38 @@ import {
   SignupInput,
   TOOLS,
   verifyToken,
+  type WorkerLocationInput,
 } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
 import { PAGE_HEADERS, stripeRoutes } from "@eyes/payments";
-import { PAGE as DASHBOARD, readFeed } from "@eyes/web-dashboard";
+import { PAGE_CSS, PAGE_HEADER } from "@eyes/ui/page";
+import {
+  buildSeries,
+  type ClickHouseSink,
+  PAGE as DASHBOARD,
+  type EventLog,
+  type Feed,
+  fallbackRows,
+  type LoggedEvent,
+  OPS_PAGE,
+  readClickHouseSeries,
+  readFeed,
+  redact,
+  summarize,
+} from "@eyes/web-dashboard";
 import type { Context, MiddlewareHandler } from "hono";
 import { cors } from "hono/cors";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import { MCPServer } from "mcp-use";
-import type { z } from "zod";
+import { z } from "zod";
+import { oauthRoutes } from "./oauth.ts";
+import { type Operator, opsAuth } from "./ops-auth.ts";
+import { WIDGET_HTML, WIDGET_MIME, WIDGET_URI, widgetResourceMeta, widgetToolMeta } from "./widget.ts";
 
 type Env = Record<string, string | undefined>;
-type AppEnv = { Variables: { agent: Agent } };
+type AppEnv = { Variables: { agent: Agent; operator: Operator } };
 
 const PROGRESS_INTERVAL_MS = 5000;
 const HOUR_MS = 60 * 60 * 1000;
@@ -53,39 +72,42 @@ const DOCS = {
 };
 const LINK = '</llms.txt>; rel="describedby", </openapi.json>; rel="service-desc"';
 const CLIENT_KEY_CHARS = 64;
-const STYLE = `*{box-sizing:border-box}
-body{margin:0;font:17px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#121820;background:#fafafa}
-header{background:#121820;padding:.75rem max(1rem,calc(50% - 17rem))}
-header a{display:inline-flex;align-items:center;gap:.6rem;color:#eef3f8;font-size:1.25rem;font-weight:750;letter-spacing:-.02em;text-decoration:none}
-.mark{width:1.6rem;height:1rem;border-radius:50%;background:radial-gradient(circle,#121820 0 28%,#ffc24b 30%);box-shadow:0 0 .8rem rgba(255,194,75,.45)}
-main{max-width:36rem;margin:0 auto;padding:1.25rem 1rem 3rem}
-h1{font-size:1.75rem;line-height:1.2;letter-spacing:-.01em;margin:.5rem 0 .75rem}
-h2{font-size:1.1rem;margin:2rem 0 .5rem}
-a{color:inherit;text-decoration-color:#e0a020;text-decoration-thickness:2px;text-underline-offset:.15em}
-.button{display:block;padding:.9rem 1rem;border-radius:.6rem;background:#ffc24b;color:#121820;font-weight:700;text-align:center;text-decoration:none}
-.box{margin-top:1.5rem;padding:.25rem 1rem;border:1px solid #e3e6ea;border-radius:.6rem;background:#fff}
-.box h2{margin-top:.75rem}
-.muted{color:#5b6672}
-code{font:.9em ui-monospace,SFMono-Regular,Menlo,monospace;background:#eef0f3;padding:.1em .3em;border-radius:.25em}
-.links a{margin-right:1rem;line-height:2.5}
-.rows{list-style:none;padding:0}.rows li{padding:.75rem 0;border-bottom:1px solid #e3e6ea}
-.state::before{content:"";display:inline-block;width:.6rem;height:.6rem;margin-right:.5rem;border-radius:50%;background:#7d8a9b}
-.state.live::before{background:#1f9d63}
-.box+.button{margin-top:1.5rem}`;
 const sha256 = (text: string) => createHash("sha256").update(text);
 const coarse = (degrees: number) => Math.round(degrees * 1000) / 1000;
-const DASHBOARD_SCRIPT = sha256(/<script>([\s\S]*?)<\/script>/.exec(DASHBOARD)?.[1] ?? "").digest("base64");
-const OPS_HEADERS = {
-  "Referrer-Policy": "no-referrer",
-  "Cache-Control": "no-store",
-  "Content-Security-Policy": `default-src 'none'; script-src https://unpkg.com 'sha256-${DASHBOARD_SCRIPT}'; style-src https://unpkg.com 'unsafe-inline'; img-src https: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const FEED_HEADERS = { "Referrer-Policy": "no-referrer", "Cache-Control": "no-store" };
+function opsHeaders(page: string) {
+  const script = sha256(/<script>([\s\S]*?)<\/script>/.exec(page)?.[1] ?? "").digest("base64");
+  return {
+    ...FEED_HEADERS,
+    // same-origin: under no-referrer browsers send `Origin: null` on the page's own POSTs, which sameOrigin rejects.
+    "Referrer-Policy": "same-origin",
+    "Content-Security-Policy": `default-src 'none'; script-src https://unpkg.com 'sha256-${script}'; style-src https://unpkg.com 'unsafe-inline'; img-src https: data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+  };
+}
+const OPS_FEED_LIMIT = 500;
+const OPS_RECENT = 50;
+const OPS_EVENTS = 200;
+const TicketAction = z.object({
+  ticket_id: z.coerce.number().int().positive(),
+  outcome: z.enum(["release", "refund", "close"]),
+  task_id: z.uuid(),
+  note: z.string().trim().min(1).max(500),
+});
+type Ticket = {
+  worker_id: string;
+  lat: number;
+  lng: number;
+  submission_lat: number | null;
+  submission_lng: number | null;
+  [key: string]: unknown;
 };
 const PROVIDER_LINES = {
   messaging: ["Texting", "Task texts to workers' phones and their YES replies (Inkbox)."],
   email: ["Agent email", "Questions agents email in and the threaded answers (Primitive)."],
   payments: ["Payments", "Agent top-ups and payouts to workers (Stripe)."],
   storage: ["Photo storage", "Where answer photos are kept (InsForge)."],
-  vision: ["Photo checks", "The AI check that a photo answers the question (Claude)."],
+  vision: ["Photo checks", "The AI check that a photo answers the question (Cloudflare clef, or Claude)."],
   geo: ["Place lookup", "Turning place names into map points (OpenStreetMap)."],
 } as const;
 const SIMULATED = {
@@ -101,9 +123,9 @@ const SIMULATED = {
 
 const layout = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) => html`<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title><style>${raw(STYLE)}</style></head>
-<body><header><a href="/"><span class="mark"></span>Eyes</a></header>
-<main>${body}</main>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>${title}</title><style>${raw(PAGE_CSS)}</style></head>
+<body class="ui">${raw(PAGE_HEADER)}
+<main class="page">${body}</main>
 </body>
 </html>
 `;
@@ -119,19 +141,26 @@ const simulatedNotice = (live: Live) => {
 
 const homePage = (joinUrl: string, live: Live, classifier: boolean) =>
   layout(
-    "Eyes",
-    html`<h1>AI agents pay people nearby about $3 to check public places.</h1>
+    "Eyes API",
+    html`<p class="eyebrow">api.eyes.pictures</p>
+<h1>AI agents pay people nearby about $3 to check public places.</h1>
 <p>Is the cafe open? How long is the line? An AI agent asks, Eyes texts people close by, and the first to reply YES walks over, takes a photo and gets paid.</p>
 ${simulatedNotice(live)}
-<a class="button" href="${joinUrl}">Join to get paid tasks</a>
+<h2>For AI agents</h2>
+<p>Connect over MCP: <code>POST /mcp</code> with <code>Authorization: Bearer &lt;api_key&gt;</code>. No key yet? <code>POST /v1/signup</code>.</p>
+<ul class="docs">
+<li><a href="/llms.txt">llms.txt</a><span>Everything an agent needs, in one file</span></li>
+<li><a href="/openapi.json">openapi.json</a><span>REST routes and schemas</span></li>
+<li><a href="${AGENT_CARD}">agent-card.json</a><span>A2A agent card</span></li>
+<li><a href="/agents.md">agents.md</a><span>How agents should use Eyes</span></li>
+</ul>
+<h2>For people</h2>
+<div class="cta"><a class="button" href="${joinUrl}">Join to get paid tasks</a><a class="button button--quiet" href="https://eyes.pictures">What is Eyes?</a></div>
 <section class="box">
 <h2>Got a text from Eyes?</h2>
 <p>Reply <b>YES</b> to claim the task, or ignore it. Reply <b>STOP</b> to stop all texts from Eyes, and START to get them again.</p>
 </section>
 <p class="muted">Only public places: stores, cafes, parks, transit stops. Never people, homes or cars. ${classifier ? "Every task passes the safety rules and an AI safety classifier before any money moves." : "Safety review is rules only here: the AI safety classifier is off, so only the safety rules check each task."}</p>
-<h2>For AI agents</h2>
-<p>Connect over MCP: <code>POST /mcp</code> with <code>Authorization: Bearer &lt;api_key&gt;</code>. No key yet? <code>POST /v1/signup</code>.</p>
-<p class="links"><a href="/llms.txt">llms.txt</a> <a href="/openapi.json">openapi.json</a> <a href="${AGENT_CARD}">agent-card.json</a> <a href="/agents.md">agents.md</a></p>
 <p class="muted"><a href="/status">Service status</a></p>`,
   );
 
@@ -146,7 +175,7 @@ ${Object.entries(PROVIDER_LINES).map(([name, [label, meaning]]) => {
   const on = live[name as keyof typeof live];
   return html`<li><b class="state${on ? " live" : ""}">${label}: ${on ? "live" : "simulated"}</b><br><span class="muted">${meaning}</span></li>`;
 })}
-<li><b class="state${classifier ? " live" : ""}">Safety review: ${classifier ? "rules and AI classifier" : "rules only"}</b><br><span class="muted">Checks every task before any money moves: the safety rules, then the AI classifier (Claude) when it is on.</span></li>
+<li><b class="state${classifier ? " live" : ""}">Safety review: ${classifier ? "rules and AI classifier" : "rules only"}</b><br><span class="muted">Checks every task before any money moves: the safety rules, then the AI classifier (Cloudflare clef, or Claude) when it is on.</span></li>
 <li><b>Database: ${db === "postgres" ? "Postgres" : "InsForge"}</b><br><span class="muted">Tasks, balances and the money ledger.</span></li>
 <li><b>Deployed commit: ${commit ? html`<code>${commit.slice(0, 12)}</code>` : "not recorded"}</b></li>
 </ul>
@@ -182,7 +211,7 @@ export function liveProviders(env: Env) {
     email: live && Boolean(env.PRIMITIVE_API_KEY),
     payments: live && Boolean(env.STRIPE_SECRET_KEY),
     storage: live && Boolean(env.INSFORGE_BASE_URL && env.INSFORGE_API_KEY),
-    vision: live && Boolean(env.ANTHROPIC_API_KEY),
+    vision: live && Boolean((env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) || env.ANTHROPIC_API_KEY),
     geo: live,
   };
 }
@@ -274,8 +303,16 @@ async function readCapture(c: Context) {
   return { fields, photo: { bytes, content_type } };
 }
 
-export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
+export function createServer(
+  deps: RouteDeps & {
+    env: Env;
+    rpc?: Rpc;
+    events?: EventLog;
+    clickhouse?: Pick<ClickHouseSink, "query" | "dropped">;
+  },
+) {
   const { service, config, env } = deps;
+  const log = deps.events?.log ?? (() => {});
   const server = new MCPServer<never, AppEnv>({
     name: "eyes",
     title: "Eyes",
@@ -283,6 +320,39 @@ export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
     description: "Pay a nearby human a few dollars to check something in the physical world right now.",
     instructions: INSTRUCTIONS,
     logging: { enabled: false },
+  });
+
+  // Every request, without the query string and with token-looking path segments masked. The ops
+  // page's own polling is skipped so the log is not mostly the dashboard reading itself.
+  server.app.use("*", async (c, next) => {
+    const started = performance.now();
+    await next();
+    const path = c.req.path
+      .split("/")
+      .map((s) => (s.length >= 20 && !UUID.test(s) ? ":token" : s))
+      .join("/");
+    if (/^\/ops\/(feed|events)$/.test(path)) return;
+    const status = c.res.status;
+    const ms = Math.round(performance.now() - started);
+    const webhook = /^\/webhooks\/(\w+)/.exec(path)?.[1];
+    log({
+      kind: webhook ? "webhook" : "http",
+      level: status >= 500 ? "error" : status >= 400 ? "warn" : "info",
+      summary: webhook
+        ? `${webhook} ${status < 400 ? "accepted" : status} (${ms} ms)`
+        : `${c.req.method} ${path} ${status} ${ms} ms`,
+      data: {
+        method: c.req.method,
+        path,
+        status,
+        ms,
+        ...(webhook && { provider: webhook }),
+        // Location posts: a coarse device hint to tell a worker's devices apart (no IP, no coordinates).
+        ...(/^\/(w|v1\/worker)\/location$/.test(path) && {
+          ua: c.req.header("user-agent")?.slice(0, 60) ?? null,
+        }),
+      },
+    });
   });
 
   server.app.onError((err, c) => {
@@ -293,6 +363,18 @@ export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
   server.use("*", async (c, next) => {
     await next();
     if (c.res.status !== 404 || !c.res.headers.get("content-type")?.startsWith("text/plain")) return;
+    // Browsers get a page with a way out; API clients keep the JSON error below.
+    if (c.req.header("accept")?.includes("text/html")) {
+      c.res = await c.html(
+        layout(
+          "Page not found",
+          html`<section class="notice-page"><h1>Page not found</h1><p>This address is not part of Eyes. If you followed a link from a text, open the newest one Eyes sent you.</p><a class="button" href="https://eyes.pictures">Go to eyes.pictures</a></section>`,
+        ),
+        404,
+        PAGE_HEADERS,
+      );
+      return;
+    }
     const unknown = new EyesError(
       "invalid_input",
       { path: c.req.path },
@@ -305,10 +387,14 @@ export function createServer(deps: RouteDeps & { env: Env; rpc?: Rpc }) {
   });
 
   const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
-    if (c.req.method === "POST" && c.req.path === "/v1/signup") return next();
+    if (c.req.method === "POST" && (c.req.path === "/v1/signup" || c.req.path === "/v1/worker/location"))
+      return next();
     const key = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1];
     const agent = key ? await service.authenticate(key) : null;
-    if (!agent) return c.json(new EyesError("unauthorized").toBody(), 401);
+    if (!agent)
+      return c.json(new EyesError("unauthorized").toBody(), 401, {
+        "WWW-Authenticate": `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource", config.public_api_url).href}"`,
+      });
     c.set("agent", agent);
     await next();
   };
@@ -328,6 +414,7 @@ Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same loc
       inputSchema: TOOLS.quote_task.input,
       outputSchema: TOOLS.quote_task.output,
       annotations: { readOnlyHint: true, openWorldHint: true },
+      _meta: widgetToolMeta("Checking the place", "Quote ready"),
     },
     (input, ctx) => run(() => service.quoteTask(ctx.get("agent"), input)),
   );
@@ -345,6 +432,7 @@ Next: immediately call await_answer with the returned task_id and keep calling i
       inputSchema: TOOLS.ask_eyes.input,
       outputSchema: TOOLS.ask_eyes.output,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      _meta: widgetToolMeta("Texting nearby workers", "Task posted"),
     },
     (input, ctx) => run(() => service.askEyes(ctx.get("agent"), input)),
   );
@@ -367,6 +455,7 @@ Next: follow next_step in the response.`,
       inputSchema: TOOLS.await_answer.input,
       outputSchema: TOOLS.await_answer.output,
       annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: widgetToolMeta("Waiting for the answer", "Task updated"),
     },
     (input, ctx) =>
       run(async () => {
@@ -399,6 +488,7 @@ Next: to wait for an answer call await_answer instead of polling get_task.`,
       inputSchema: TOOLS.get_task.input,
       outputSchema: TOOLS.get_task.output,
       annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: widgetToolMeta("Looking up the task", "Task loaded"),
     },
     (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
   );
@@ -467,6 +557,7 @@ Next: if balance_usd is less than bounty_usd + 0.50, give your user top_up_url a
       inputSchema: TOOLS.get_balance.input,
       outputSchema: TOOLS.get_balance.output,
       annotations: { readOnlyHint: true, openWorldHint: false },
+      _meta: widgetToolMeta("Checking your balance", "Balance loaded"),
     },
     (_input, ctx) => run(() => service.getBalance(ctx.get("agent"))),
   );
@@ -485,14 +576,43 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     (_input, ctx) => run(() => service.getSpendPolicy(ctx.get("agent"))),
   );
 
+  const publicBase = config.public_api_url.replace(/\/$/, "");
+  server.resource(
+    {
+      name: "eyes-card",
+      uri: WIDGET_URI,
+      title: "Eyes card",
+      mimeType: WIDGET_MIME,
+      _meta: widgetResourceMeta(publicBase, false),
+    },
+    // Same Claude test as mcp-use's own views: the per-request client name (2026 protocol), else the
+    // HTTP user agent. Undetected Claude gets no ui.domain, which renders in the default sandbox.
+    (_uri, ctx) => {
+      const claude = [ctx.client.info().name, ctx.req?.header("user-agent")].some((s) =>
+        /claude/i.test(s ?? ""),
+      );
+      const _meta = widgetResourceMeta(publicBase, claude);
+      return { contents: [{ uri: WIDGET_URI, mimeType: WIDGET_MIME, text: WIDGET_HTML, _meta }] };
+    },
+  );
+  // mcp-use strips `_meta.ui.resourceUri` from tools that have no mcp-use `view` (a React build), so
+  // put the MCP Apps link back on the tools that carry the ChatGPT template.
+  server.use("mcp:tools/list", async (_ctx, next) =>
+    (await next()).map((tool) =>
+      tool._meta?.["openai/outputTemplate"] === WIDGET_URI
+        ? { ...tool, _meta: { ...tool._meta, ui: { resourceUri: WIDGET_URI }, "ui/resourceUri": WIDGET_URI } }
+        : tool,
+    ),
+  );
+
   const hits = new Map<string, number[]>();
-  const throttle = (c: Context) => {
+  const throttle = (c: Context, path = c.req.path) => {
     const now = deps.providers.clock.now().getTime();
     for (const [key, times] of hits) {
       if ((times.at(-1) ?? 0) > now - HOUR_MS && hits.size < THROTTLE_MAX_KEYS) break;
       hits.delete(key);
     }
-    const key = `${c.req.path} ${clientKey(c.req.header("x-forwarded-for"))}`;
+    const key = `${path} ${clientKey(c.req.header("x-forwarded-for"))}`;
     const recent = (hits.get(key) ?? []).filter((at) => at > now - HOUR_MS);
     if (recent.length >= PUBLIC_CALLS_PER_HOUR) {
       const until = (recent[0] ?? now) + HOUR_MS;
@@ -514,6 +634,20 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     throttle(c);
     return c.json(await service.signupAgent(input));
   });
+  if (env.EYES_OAUTH_SECRET) {
+    if (env.EYES_OAUTH_SECRET.length < 32)
+      throw new Error("EYES_OAUTH_SECRET must be at least 32 characters.");
+    oauthRoutes(server.app, {
+      base: publicBase,
+      secret: env.EYES_OAUTH_SECRET,
+      validKey: async (key) => (await service.authenticate(key)) !== null,
+      signup: async (c, name) => {
+        throttle(c, "/v1/signup");
+        return service.signupAgent({ name: name.length >= 2 ? name : "MCP client" });
+      },
+      layout,
+    });
+  }
   server.post("/v1/quote", async (c) =>
     c.json(await service.quoteTask(c.get("agent"), parse(QuoteTaskInput, await readJson(c)))),
   );
@@ -564,6 +698,15 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     return c.json({ ...joined, inkbox_number: joined.inkbox_number || number });
   });
   server.get("/w/offers/:token", async (c) => c.json(await service.getOffer(c.req.param("token"))));
+  // The installed Shortcut has /v1/worker/location baked in, so that alias stays.
+  for (const path of ["/w/location", "/v1/worker/location"]) {
+    server.post(path, async (c) => {
+      const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1];
+      if (!token) throw new EyesError("unauthorized");
+      await service.updateWorkerLocation(token, (await readJson(c)) as WorkerLocationInput);
+      return c.body(null, 204);
+    });
+  }
   const uploads = new Set<string>();
   server.post("/w/offers/:token/capture", async (c) => {
     const token = c.req.param("token");
@@ -605,7 +748,9 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     }
   };
   const live = liveProviders(env);
-  const classifier = Boolean(env.ANTHROPIC_API_KEY);
+  const classifier = Boolean(
+    (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) || env.ANTHROPIC_API_KEY,
+  );
   const home = homePage(config.worker_web_url, live, classifier);
   server.get("/", (c) => c.html(home, 200, { link: LINK, ...PAGE_HEADERS }));
   for (const [path, contentType] of Object.entries(DOCS)) {
@@ -627,28 +772,150 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   }
 
   const db = env.DATABASE_URL ? "postgres" : "insforge";
-  server.get("/healthz", (c) => {
-    const providers = Object.fromEntries(
-      Object.entries(live).map(([name, on]) => [name, on ? "live" : "fake"]),
-    );
-    return c.json({ ok: true, providers, db });
-  });
+  const providers = Object.fromEntries(
+    Object.entries(live).map(([name, on]) => [name, on ? "live" : "fake"]),
+  );
+  server.get("/healthz", (c) => c.json({ ok: true, providers, db }));
   const status = statusPage(live, classifier, db, env.EYES_COMMIT);
   server.get("/status", (c) => c.html(status, 200, PAGE_HEADERS));
 
   const { rpc } = deps;
-  if (env.EYES_OPS_KEY && rpc) {
-    const opsKey = sha256(env.EYES_OPS_KEY).digest();
-    const operator = (key: string) => timingSafeEqual(opsKey, sha256(key).digest());
-    server.get("/ops/:key", (c) =>
-      operator(c.req.param("key")) ? c.html(DASHBOARD, 200, OPS_HEADERS) : c.notFound(),
-    );
-    server.get("/ops/:key/feed", async (c) => {
-      if (!operator(c.req.param("key"))) return c.notFound();
-      const { workers, ...feed } = (await readFeed(rpc)) as { workers: { lat: number; lng: number }[] };
-      const coarseWorkers = workers.map((w) => ({ ...w, lat: coarse(w.lat), lng: coarse(w.lng) }));
-      return c.json({ ...feed, workers: coarseWorkers }, 200, OPS_HEADERS);
+  if (rpc) {
+    const ops = opsAuth({ rpc, providers: deps.providers, config, env, log });
+    const clef = Boolean(env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN);
+    const claude = Boolean(env.ANTHROPIC_API_KEY);
+    const health = {
+      providers,
+      db,
+      classifier:
+        clef && claude ? "clef, Claude when unsure" : clef ? "clef" : claude ? "Claude" : "rules only",
+      commit: env.EYES_COMMIT || null,
+      node: process.version,
+    };
+    for (const [path, page] of [
+      ["/ops", OPS_PAGE],
+      ["/ops/live", DASHBOARD],
+    ] as const) {
+      const headers = opsHeaders(page);
+      server.app.get(path, ops.operator, (c) => c.html(page, 200, headers));
+    }
+    server.app.get("/ops/feed", ops.operator, async (c) => {
+      const now = deps.providers.clock.now();
+      let feed: Feed = { tasks: [], ledger: [], workers: [], totals: {} };
+      let dbError: string | null = null;
+      try {
+        feed = (await readFeed(rpc, OPS_FEED_LIMIT)) as Feed;
+      } catch (err) {
+        dbError = err instanceof Error ? err.message : String(err);
+        console.error("ops feed: database read failed:", dbError);
+      }
+      const workers = feed.workers.map((w) => ({ ...w, lat: coarse(w.lat), lng: coarse(w.lng) }));
+      return c.json(
+        {
+          ...feed,
+          tasks: feed.tasks.slice(0, OPS_RECENT),
+          ledger: feed.ledger.slice(0, OPS_RECENT),
+          workers,
+          ops: {
+            now: now.toISOString(),
+            operator: c.get("operator").label,
+            health: {
+              ...health,
+              uptime_s: Math.round(process.uptime()),
+              db_error: dbError && redact(dbError),
+            },
+            ...summarize(feed, OPS_FEED_LIMIT, now),
+            errors: (deps.events?.recent() ?? []).filter((e) => e.kind === "log").slice(0, 50),
+          },
+        },
+        200,
+        FEED_HEADERS,
+      );
     });
+    // Time-series panels: ClickHouse when configured and reachable, else Postgres feed + memory ring.
+    server.app.get("/ops/series", ops.operator, async (c) => {
+      const now = deps.providers.clock.now();
+      const ch = deps.clickhouse;
+      if (ch) {
+        try {
+          const series = buildSeries(await readClickHouseSeries(ch), now, "clickhouse");
+          return c.json({ ...series, dropped: ch.dropped() }, 200, FEED_HEADERS);
+        } catch (err) {
+          console.error("ops series: clickhouse read failed:", err instanceof Error ? err.message : err);
+        }
+      }
+      const feed = ((await readFeed(rpc, OPS_FEED_LIMIT).catch(() => null)) as Feed | null) ?? {
+        tasks: [],
+        ledger: [],
+      };
+      const rows = fallbackRows(deps.events?.recent() ?? [], feed);
+      return c.json(
+        { ...buildSeries(rows, now, "postgres"), dropped: ch?.dropped() ?? 0 },
+        200,
+        FEED_HEADERS,
+      );
+    });
+    server.app.get("/ops/events", ops.operator, async (c) => {
+      const q = c.req.query();
+      const filter = {
+        kind: q.kind || null,
+        level: q.level || null,
+        q: q.q?.trim() || null,
+        task_id: q.task_id && UUID.test(q.task_id) ? q.task_id : null,
+      };
+      const before = /^\d+$/.test(q.before ?? "") ? Number(q.before) : null;
+      try {
+        const events = await rpc<LoggedEvent & { id: number }>("eyes_events", {
+          p_limit: OPS_EVENTS,
+          p_kind: filter.kind,
+          p_level: filter.level,
+          p_q: filter.q,
+          p_task_id: filter.task_id,
+          p_before: before,
+        });
+        return c.json({ source: "database", events }, 200, FEED_HEADERS);
+      } catch (err) {
+        console.error("ops events: database read failed:", err instanceof Error ? err.message : err);
+        const needle = filter.q?.toLowerCase();
+        const events = (deps.events?.recent() ?? []).filter(
+          (e) =>
+            (!filter.kind || e.kind === filter.kind) &&
+            (!filter.level || e.level === filter.level) &&
+            (!filter.task_id || e.task_id === filter.task_id) &&
+            (!needle || `${e.summary} ${JSON.stringify(e.data)}`.toLowerCase().includes(needle)),
+        );
+        return c.json({ source: "memory", events: events.slice(0, OPS_EVENTS) }, 200, FEED_HEADERS);
+      }
+    });
+    server.app.get("/ops/tickets", ops.operator, async (c) => {
+      const rows = await rpc<Ticket>("eyes_tickets", { p_limit: OPS_RECENT });
+      const tickets = rows.map(({ submission_lat, submission_lng, worker_id: _, ...t }) => ({
+        ...t,
+        distance_m:
+          submission_lat == null || submission_lng == null
+            ? null
+            : Math.round(distanceMeters(t, { lat: submission_lat, lng: submission_lng })),
+      }));
+      return c.json({ tickets }, 200, FEED_HEADERS);
+    });
+    server.app.post("/ops/tickets/:id/:action", ops.sameOrigin, ops.operator, async (c) => {
+      const { id, action } = c.req.param();
+      const body = parse(TicketAction, { ...(await readJson(c)), ticket_id: id, outcome: action });
+      if (body.outcome !== "close") await service.resolveTask(body.task_id, body.outcome, body.note);
+      const resolved = await service.resolveTicket({
+        ticket_id: body.ticket_id,
+        outcome: body.outcome,
+        note: body.note,
+      });
+      log({
+        kind: "ops",
+        task_id: body.task_id,
+        summary: `ticket #${body.ticket_id} ${body.outcome} by ${c.get("operator").label}`,
+        data: { ticket_id: body.ticket_id, outcome: body.outcome, operator: c.get("operator").label },
+      });
+      return c.json(resolved, 200, FEED_HEADERS);
+    });
+    server.app.route("/", ops.routes);
   }
 
   return server;

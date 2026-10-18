@@ -31,10 +31,10 @@ function boot(env: Record<string, string>) {
 }
 
 describe("main.ts", () => {
-  it("refuses to start in live mode without ANTHROPIC_API_KEY", async () => {
+  it("refuses to start in live mode without a classifier key", async () => {
     const run = await boot({});
     expect(run.code).toBe(1);
-    expect(run.stderr).toContain("EYES_PROVIDERS=live needs ANTHROPIC_API_KEY");
+    expect(run.stderr).toContain("EYES_PROVIDERS=live needs CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN");
     expect(run.stdout).not.toContain("listening");
   });
 
