@@ -364,6 +364,287 @@ it("allows the widget to call the real acceptance tool", () => {
   expect(WIDGET_CALLABLE).toContain("accept_answer");
 });
 
+describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
+  const context = {
+    question: 'Is the "north" entrance <still> open?',
+    location: { lat: 37.7956, lng: -122.3933, label: "Ferry Building north entrance" },
+    task_type: "is_open",
+    bounty_usd: 4.25,
+  };
+  const answered = { ...TASK, status: "paid", answer: ANSWER };
+  const disputed = { task_id: "t1", status: "disputed", retry_context: context };
+  const quote = { ...QUOTE, suggested_bounty_usd: 2 };
+  function setup(handler: (name: string, args: Record<string, unknown>) => Result | Promise<Result>) {
+    const invoke = vi.fn(handler);
+    const w =
+      bridge === "ChatGPT"
+        ? boot({ openai: { callTool: invoke } })
+        : boot({
+            host: (m) => invoke(String(m.params?.name), m.params?.arguments as Record<string, unknown>),
+          });
+    const question = () => w.root.querySelector('[data-field="question"]') as HTMLInputElement;
+    const dispute = async () => {
+      (w.root.querySelector('[data-field="reason"]') as HTMLInputElement).value = "Wrong entrance";
+      w.button("dispute").click();
+      await w.settle();
+    };
+    return { ...w, invoke, question, dispute };
+  }
+
+  it("clicks original ask, dispute, free quote, then explicitly asks with exact context and a fresh key", async () => {
+    let asks = 0;
+    const w = setup((name) => ({
+      structuredContent:
+        name === "ask_eyes"
+          ? { ...TASK, task_id: ++asks === 1 ? "t1" : "t2" }
+          : name === "dispute_answer"
+            ? disputed
+            : quote,
+    }));
+    w.show({ ...QUOTE, suggested_bounty_usd: context.bounty_usd }, context);
+    w.button("ask").click();
+    await w.settle();
+    const originalKey = w.invoke.mock.calls[0]?.[1].idempotency_key;
+    w.show(answered, {
+      question: "Wrong question",
+      location: "Wrong place",
+      task_type: "line_length",
+      idempotency_key: originalKey,
+    });
+    await w.dispute();
+    expect(w.invoke).toHaveBeenLastCalledWith("dispute_answer", { task_id: "t1", reason: "Wrong entrance" });
+    expect(w.root.textContent).toContain("Dispute submitted.");
+    expect(w.root.textContent).toContain("Ten people");
+    expect(w.button("again").textContent).toBe("Ask again");
+    expect(w.button("dispute")).toBeNull();
+    expect(w.button("accept")).toBeNull();
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["ask_eyes", "dispute_answer"]);
+
+    w.button("again").click();
+    expect(w.button("again").disabled).toBe(true);
+    w.button("again").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenLastCalledWith("quote_task", {
+      location: context.location,
+      task_type: context.task_type,
+    });
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["ask_eyes", "dispute_answer", "quote_task"]);
+    expect(w.question().value).toBe(context.question);
+    expect(w.question().readOnly).toBe(true);
+    expect(w.root.textContent).toContain("Suggested bounty $2.00");
+    expect(w.root.textContent).toContain("The quote is free.");
+    expect(w.root.textContent).toContain("2 workers nearby");
+    expect(w.button("ask").textContent).toBe("Ask for $4.25 + $0.50 fee");
+    w.button("ask").click();
+    w.button("ask").click();
+    await w.settle();
+    const newArgs = w.invoke.mock.calls[3]?.[1];
+    expect(newArgs).toEqual({ ...context, idempotency_key: "key-2" });
+    expect(newArgs?.idempotency_key).not.toBe(originalKey);
+    expect(asks).toBe(2);
+    expect(w.root.textContent).toContain("Finding a worker");
+    expect(w.root.textContent).not.toContain("Dispute submitted.");
+    if (bridge === "ChatGPT") expect(w.sent.some((m) => m.method === "tools/call")).toBe(false);
+  });
+
+  it.each([
+    { ...quote, workers_nearby: 0 },
+    { ...quote, allowed: false, reason_if_not: "Spend limit reached." },
+  ])("does not ask when the fresh quote is unavailable: %j", async (unavailable) => {
+    let quotes = 0;
+    const w = setup((name) => ({
+      structuredContent: name === "dispute_answer" ? disputed : ++quotes === 1 ? unavailable : quote,
+    }));
+    w.show(answered);
+    await w.dispute();
+    w.button("again").click();
+    await w.settle();
+    expect(w.button("ask")).toBeNull();
+    expect(w.question().value).toBe(context.question);
+    expect(w.root.textContent).toContain(unavailable.allowed ? "No one nearby" : "Spend limit reached.");
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["dispute_answer", "quote_task"]);
+    w.button("requote").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenLastCalledWith("quote_task", {
+      location: context.location,
+      task_type: context.task_type,
+    });
+    expect(w.button("ask")).not.toBeNull();
+    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(0);
+  });
+
+  it.each([
+    null,
+    {},
+    { ...context, location: { label: "Missing coordinates" } },
+    { ...context, task_type: "unknown" },
+    { ...context, bounty_usd: undefined },
+  ])("shows useful availability without guessing missing retry context: %j", async (retry_context) => {
+    const w = setup(() => ({ structuredContent: { ...answered, ...disputed } }));
+    w.show({ ...answered, ...disputed, retry_context }, { ...context, idempotency_key: "do-not-reuse" });
+    expect(w.button("again")).toBeNull();
+    expect(w.root.textContent).toContain("original request details are missing");
+    expect(w.invoke).not.toHaveBeenCalled();
+    w.button("refresh").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenCalledExactlyOnceWith("get_task", { task_id: "t1" });
+    expect(w.button("again")).not.toBeNull();
+  });
+
+  it("uses context from get_task when dispute returns only confirmation, including after prior acceptance", async () => {
+    const w = setup((name) => ({
+      structuredContent: name === "dispute_answer" ? { task_id: "t1", status: "disputed" } : quote,
+    }));
+    w.show({ ...answered, retry_context: context, accepted_at: "2026-10-18T12:00:00Z" });
+    expect(w.root.querySelector("[data-accepted]")?.textContent).toBe("Accepted");
+    await w.dispute();
+    w.button("again").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenLastCalledWith("quote_task", {
+      location: context.location,
+      task_type: context.task_type,
+    });
+    expect(w.question().value).toBe(context.question);
+  });
+
+  it("keeps dispute and quote network failures recoverable without sending an ask", async () => {
+    let attempts = 0;
+    const w = setup((name) =>
+      ++attempts === 1 || attempts === 3
+        ? { isError: true, structuredContent: { message: "Network unavailable. Retry." } }
+        : { structuredContent: name === "dispute_answer" ? disputed : quote },
+    );
+    w.show(answered);
+    await w.dispute();
+    expect(w.button("again")).toBeNull();
+    expect(w.button("dispute").disabled).toBe(false);
+    expect(w.root.querySelector('[role="alert"]')?.textContent).toBe("Network unavailable. Retry.");
+    await w.dispute();
+    w.button("again").click();
+    await w.settle();
+    expect(w.root.textContent).toContain("Dispute submitted.");
+    expect(w.button("again").disabled).toBe(false);
+    w.button("again").click();
+    await w.settle();
+    expect(w.question().value).toBe(context.question);
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual([
+      "dispute_answer",
+      "dispute_answer",
+      "quote_task",
+      "quote_task",
+    ]);
+  });
+
+  it.each(["dispute_answer", "quote_task"])(
+    "does not treat an incomplete %s result as confirmation",
+    async (tool) => {
+      const w = setup((name) => ({ structuredContent: name === tool ? {} : disputed }));
+      w.show(answered);
+      await w.dispute();
+      if (tool === "quote_task") {
+        w.button("again").click();
+        await w.settle();
+        expect(w.button("again").disabled).toBe(false);
+      } else expect(w.button("again")).toBeNull();
+      expect(w.root.querySelector('[role="alert"]')?.textContent).toContain(
+        tool === "quote_task" ? "quote was incomplete" : "Dispute was not confirmed",
+      );
+      expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(0);
+    },
+  );
+
+  it("retains the new ask key and exact arguments across a network failure and a fresh availability check", async () => {
+    let asks = 0;
+    const w = setup((name) =>
+      name === "ask_eyes"
+        ? ++asks === 1
+          ? { isError: true, structuredContent: { message: "Connection lost." } }
+          : { structuredContent: { ...TASK, task_id: "t2" } }
+        : { structuredContent: name === "dispute_answer" ? disputed : quote },
+    );
+    w.show(answered);
+    await w.dispute();
+    w.button("again").click();
+    await w.settle();
+    w.button("ask").click();
+    await w.settle();
+    expect(w.root.querySelector('[role="alert"]')?.textContent).toBe("Connection lost.");
+    expect(w.button("ask").disabled).toBe(false);
+    const first = w.invoke.mock.calls[2]?.[1];
+    w.button("requote").click();
+    await w.settle();
+    w.button("ask").click();
+    await w.settle();
+    expect(w.invoke.mock.calls[4]?.[1]).toEqual(first);
+    expect(first).toEqual({ ...context, idempotency_key: "key-1" });
+    expect(w.root.textContent).toContain("Finding a worker");
+  });
+
+  it("preserves Report manual approval for the new ask without sending before approval", async () => {
+    const w = setup((name, args) => {
+      if (name === "dispute_answer") return { structuredContent: disputed };
+      if (name === "quote_task") return { structuredContent: quote };
+      if (name === "ask_eyes")
+        return args.classifier_report_id
+          ? { structuredContent: { ...TASK, task_id: "t2" } }
+          : {
+              isError: true,
+              structuredContent: { error: "unsafe_task", layer: "classifier", message: "Review required." },
+            };
+      return {
+        structuredContent: {
+          ticket_id: "report-1",
+          status: name === "report_classifier" ? "open" : "approved",
+        },
+      };
+    });
+    const report = (action: string) =>
+      w.root.querySelector(`[data-report-act="${action}"]`) as HTMLButtonElement;
+    w.show(answered);
+    await w.dispute();
+    w.button("again").click();
+    await w.settle();
+    w.button("ask").click();
+    await w.settle();
+    const newArgs = w.invoke.mock.calls[2]?.[1];
+    report("submit").click();
+    await w.settle();
+    expect(w.root.textContent).toContain("Awaiting manual review.");
+    report("check").click();
+    await w.settle();
+    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+    report("retry").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenLastCalledWith("ask_eyes", { ...newArgs, classifier_report_id: "report-1" });
+    expect(w.root.textContent).toContain("Finding a worker");
+  });
+
+  it("shows no-worker no-charge results if availability changes after explicit confirmation", async () => {
+    const w = setup((name) => ({
+      structuredContent:
+        name === "dispute_answer"
+          ? disputed
+          : name === "quote_task"
+            ? quote
+            : { status: "not_sent", charged_usd: 0 },
+    }));
+    w.show(answered);
+    await w.dispute();
+    w.button("again").click();
+    await w.settle();
+    w.button("ask").click();
+    await w.settle();
+    expect(w.root.textContent).toContain(context.question);
+    expect(w.root.textContent).toContain(context.location.label);
+    expect(w.root.textContent).toContain("Nothing was charged.");
+    expect(w.root.textContent).toContain("$0.00");
+  });
+});
+
+it("allows both widget bridges to call the free quote tool", () => {
+  expect(WIDGET_CALLABLE).toContain("quote_task");
+});
+
 describe.each(["MCP Apps", "ChatGPT"])("%s readable tool errors", (bridge) => {
   const message = "Safety review <unavailable>";
   const fix = 'Retry the same request & keep "public" places.';

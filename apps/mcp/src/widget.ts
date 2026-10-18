@@ -14,6 +14,7 @@ export const WIDGET_MIME = "text/html;profile=mcp-app";
 /** Photos load from InsForge storage; signed URLs redirect to the CDN. */
 /** Tools the card's buttons call; tools/list marks them callable from the widget in both hosts. */
 export const WIDGET_CALLABLE = [
+  "quote_task",
   "ask_eyes",
   "get_task",
   "await_answer",
@@ -72,12 +73,14 @@ body.ui{background:transparent}
 .w .ui-card__actions:has([data-field="reason"]){grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}
 .w .ui-card__actions [data-field="reason"]{grid-column:1/-1;grid-row:1;min-width:0}
 .w .ui-card__actions:has([data-act="accept"],[data-accepted]) [data-act="refresh"]{grid-column:1/-1}
+.w .ui-card__actions[data-retry]{grid-auto-flow:row;grid-template-columns:minmax(0,1fr)}
+.w .ui-card__actions[data-retry] .ui-input{min-width:0}
 .w .row{display:flex;flex-wrap:wrap;gap:.25rem 1rem;align-items:baseline}
 `;
 
 export const WIDGET_SCRIPT = String.raw`
 const root = document.getElementById("root");
-let input = {}, last = null, seq = 0, askKey = null, refusal = null, acceptancePending = false;
+let input = {}, last = null, seq = 0, askKey = null, refusal = null, acceptancePending = false, retry = null;
 const pending = new Map();
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const icon = (n) => '<svg class="ui-icon" aria-hidden="true"><use href="#i-' + n + '"></use></svg>';
@@ -173,8 +176,17 @@ function answerBlock(a, status) {
     '<dl class="ui-kv"><dt>' + icon("cash") + "Cost</dt><dd>" + usd(a.cost_usd) + "</dd></dl>";
 }
 
+function retryContext(t) {
+  const c = t.retry_context, l = c?.location;
+  return c && typeof c.question === "string" && c.question.trim() && Object.hasOwn(TYPES, c.task_type) &&
+    typeof l?.label === "string" && l.label.trim() && Number.isFinite(l.lat) && Number.isFinite(l.lng) &&
+    Number.isFinite(c.bounty_usd) && c.bounty_usd > 0
+    ? { question: c.question, location: l, task_type: c.task_type, bounty_usd: c.bounty_usd } : null;
+}
+
 function quote(q) {
-  const type = TYPES[input.task_type] ?? "";
+  const context = retry?.args ?? input;
+  const type = TYPES[context.task_type] ?? "";
   const nobody = q.allowed && q.workers_nearby === 0;
   const head = '<header class="ui-card__header"><h3 class="ui-card__title">' + esc(q.resolved_location.label) + "</h3>" +
     (!q.allowed ? '<span class="ui-badge ui-badge--danger">' + icon("x") + "Can't ask</span>"
@@ -183,13 +195,18 @@ function quote(q) {
   const meta = '<ul class="ui-meta">' +
     "<li>" + icon("eye") + "<strong>" + q.workers_nearby + "</strong> worker" + (q.workers_nearby === 1 ? "" : "s") + " nearby</li>" +
     (q.est_minutes_to_answer ? "<li>" + icon("clock") + "about <strong>" + Math.round(q.est_minutes_to_answer) + " min</strong></li>" : "") +
-    (q.allowed ? "<li>" + icon("cash") + "<strong>" + usd(q.suggested_bounty_usd) + "</strong> + $0.50 fee</li>" : "") + "</ul>";
+    (q.allowed ? "<li>" + icon("cash") + (retry ? "Suggested bounty " : "") + "<strong>" + usd(q.suggested_bounty_usd) + "</strong> + $0.50 fee</li>" : "") + "</ul>";
   const why = q.allowed ? (nobody ? '<div class="ui-notice">' + icon("info") + "<span>Nobody is nearby right now. Try a busier place or ask later.</span></div>" : "")
     : '<div class="ui-notice ui-notice--danger">' + icon("alert") + "<span>" + esc(q.reason_if_not) + "</span></div>";
-  const act = q.allowed && q.workers_nearby > 0
-    ? '<footer class="ui-card__actions"><input class="ui-input" data-field="question" aria-label="Your question" placeholder="Your question" value="' + esc(input.question) + '">' +
-      '<button class="ui-button ui-button--primary" data-act="ask">Ask for ' + usd(q.suggested_bounty_usd) + "</button></footer>" : "";
-  return '<article class="ui-card">' + head + (type ? '<p class="ui-text-sm ui-text-secondary" style="margin:0">' + type + "</p>" : "") + meta + why + act + "</article>";
+  const canAsk = q.allowed && q.workers_nearby > 0;
+  const price = retry ? retry.args.bounty_usd : q.suggested_bounty_usd;
+  const note = retry ? '<div class="ui-notice">' + icon("info") + "<span>New request with the original bounty: " + usd(price) +
+    " + $0.50 fee. The quote is free. Only Ask sends the request and charges your balance.</span></div>" : "";
+  const act = canAsk || retry
+    ? '<footer class="ui-card__actions"' + (retry ? " data-retry" : "") + '><input class="ui-input" data-field="question" aria-label="Your question" placeholder="Your question" value="' + esc(context.question) + '"' + (retry ? " readonly" : "") + '>' +
+      (canAsk ? '<button class="ui-button ui-button--primary" data-act="ask">Ask for ' + usd(price) + (retry ? " + $0.50 fee" : "") + "</button>" : "") +
+      (retry ? '<button class="ui-button" data-act="requote">Check availability</button>' : "") + "</footer>" : "";
+  return '<article class="ui-card">' + head + (type ? '<p class="ui-text-sm ui-text-secondary" style="margin:0">' + type + "</p>" : "") + meta + why + note + act + "</article>";
 }
 
 function task(t) {
@@ -205,16 +222,20 @@ function task(t) {
     (open && deadline ? "<li>" + icon("clock") + "until <strong>" + time(deadline) + "</strong></li>" : "") + "</ul>";
   const end = status === "expired" ? '<div class="ui-notice">' + icon("clock") + "<span>Nobody answered in time. Your escrow was refunded.</span></div>"
     : status === "refunded" ? '<div class="ui-notice">' + icon("cash") + "<span>Cancelled. Your escrow was refunded.</span></div>"
-    : status === "disputed" ? '<div class="ui-notice ui-notice--warning">' + icon("alert") + "<span>You disputed this answer. A person reviews it.</span></div>" : "";
+    : status === "disputed" ? '<div class="ui-notice ui-notice--warning">' + icon("alert") + "<span>Dispute submitted. A person reviews this answer. No new request has been sent.</span></div>" : "";
+  const context = status === "disputed" ? retryContext(t) : null;
+  const unavailable = status === "disputed" && !context
+    ? '<div class="ui-notice">' + icon("info") + "<span>Ask again is unavailable because the original request details are missing. Refresh to check again.</span></div>" : "";
   return '<article class="ui-card"><header class="ui-card__header"><h3 class="ui-card__title">' + esc(title) + "</h3>" + badge(status) + "</header>" +
     (place ? '<p class="ui-place">' + icon("pin") + '<span class="ui-place__name">' + esc(place) + "</span></p>" : "") +
-    (a ? answerBlock(a, status) : (open ? steps(status) : "") + meta + end) + taskActions(a, status, open, t.accepted_at) + "</article>";
+    (a ? answerBlock(a, status) : (open ? steps(status) : "") + meta) + end + unavailable + taskActions(a, status, open, t.accepted_at, context) + "</article>";
 }
-function taskActions(a, status, open, acceptedAt) {
+function taskActions(a, status, open, acceptedAt, context) {
   const disputable = a && ["verified", "paid", "needs_review"].includes(status);
   const acceptable = a && ["verified", "paid"].includes(status);
   return '<footer class="ui-card__actions">' +
     (open ? '<button class="ui-button ui-button--primary" data-act="wait">Wait for answer</button>' : "") +
+    (context ? '<button class="ui-button ui-button--primary" data-act="again">Ask again</button>' : "") +
     (!acceptable ? '<button class="ui-button" data-act="refresh">Refresh</button>' : "") +
     (status === "dispatched" ? '<button class="ui-button" data-act="cancel">Cancel</button>' : "") +
     (disputable ? '<input class="ui-input" data-field="reason" aria-label="What is wrong" placeholder="What is wrong with the answer?">' : "") +
@@ -235,8 +256,9 @@ function balance(b) {
 }
 
 function notSent(n) {
-  const title = input.question ?? "Your question";
-  const place = typeof input.location === "string" ? input.location : input.location?.label ?? "";
+  const context = retry?.args ?? input;
+  const title = context.question ?? "Your question";
+  const place = typeof context.location === "string" ? context.location : context.location?.label ?? "";
   return '<article class="ui-card"><header class="ui-card__header"><h3 class="ui-card__title">' + esc(title) + "</h3>" +
     '<span class="ui-badge ui-badge--warning">' + icon("pending") + "Not sent</span></header>" +
     (place ? '<p class="ui-place">' + icon("pin") + '<span class="ui-place__name">' + esc(place) + "</span></p>" : "") +
@@ -250,6 +272,7 @@ function render(out) {
     if (last?.task_id !== out.task_id || !out.accepted_at) return;
     out = { ...last, accepted_at: out.accepted_at };
   }
+  if ("task_id" in out) retry = null;
   refusal = null;
   last = out;
   root.innerHTML = "workers_nearby" in out ? quote(out) : "balance_usd" in out ? balance(out)
@@ -258,9 +281,13 @@ function render(out) {
   size();
   if (acceptancePending) setAcceptanceBusy(true);
 }
-const field = (name) => root.querySelector('[data-field="' + name + '"]')?.value.trim() ?? "";
+const field = (name) => name === "question" && retry ? retry.args.question : root.querySelector('[data-field="' + name + '"]')?.value.trim() ?? "";
 const ACTS = {
   ask: (q) => {
+    if (retry) {
+      retry.key ??= crypto.randomUUID();
+      return ["ask_eyes", { ...retry.args, idempotency_key: retry.key }];
+    }
     askKey ??= crypto.randomUUID();
     return ["ask_eyes", { question: field("question"), location: input.location ?? q.resolved_location.label, task_type: input.task_type ?? "other_public", bounty_usd: q.suggested_bounty_usd, idempotency_key: askKey }];
   },
@@ -268,6 +295,8 @@ const ACTS = {
   wait: (t) => ["await_answer", { task_id: t.task_id }, true],
   cancel: (t) => ["cancel_task", { task_id: t.task_id }, true],
   accept: (t) => ["accept_answer", { task_id: t.task_id }],
+  again: (t) => ["quote_task", { location: retryContext(t).location, task_type: retryContext(t).task_type }],
+  requote: () => ["quote_task", { location: retry.args.location, task_type: retry.args.task_type }],
   dispute: (t) => ["dispute_answer", { task_id: t.task_id, reason: field("reason") }, true],
   balance: () => ["get_balance", {}],
 };
@@ -332,6 +361,7 @@ async function act(b) {
   if (acceptancePending || b.disabled) return;
   if (b.dataset.act === "topup") return openLink(last.top_up_url);
   const [name, args, merge] = ACTS[b.dataset.act](last);
+  const original = last;
   const submitted = name === "ask_eyes" ? structuredClone(args) : args;
   const card = root.firstElementChild;
   card.querySelector("[data-error]")?.remove();
@@ -345,7 +375,17 @@ async function act(b) {
         throw new Error("Acceptance was not confirmed. Refresh the task or try again.");
       setAcceptanceBusy(false);
       if (last?.task_id === args.task_id) render(out);
-    } else render(merge ? { ...last, ...out } : out);
+    } else if (name === "quote_task") {
+      if (!out || typeof out.allowed !== "boolean" || !Number.isFinite(out.workers_nearby) ||
+          !Number.isFinite(out.suggested_bounty_usd) || !out.resolved_location)
+        throw new Error("The quote was incomplete. Check availability again; nothing was charged.");
+      if (b.dataset.act === "again") retry = { args: structuredClone(retryContext(original)), key: null };
+      render(out);
+    } else {
+      if (name === "dispute_answer" && (out?.status !== "disputed" || out.task_id !== args.task_id))
+        throw new Error("Dispute was not confirmed. Refresh the task before trying again.");
+      render(merge ? { ...original, ...out } : out);
+    }
   } catch (err) {
     if (name === "accept_answer") setAcceptanceBusy(false);
     b.disabled = false;
