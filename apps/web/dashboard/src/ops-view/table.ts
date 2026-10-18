@@ -14,7 +14,8 @@ export type Column<T> = {
   desc?: boolean;
 };
 export type Filter<T> =
-  | { kind: "select"; key: string; label: string; options: [string, string][]; value: (row: T) => string }
+  | { kind: "select"; key: string; label: string; options: [string, string][]; value?: (row: T) => string }
+  | { kind: "text"; key: string; label: string; value?: (row: T) => string }
   | { kind: "range"; key: string; label: string; unit: "date" | "usd"; value: (row: T) => number | null };
 export type TableState = { q: string; sort: string; f: Record<string, string> };
 
@@ -27,7 +28,7 @@ export function parseHash(hash: string) {
 }
 
 const filterKeys = <T>(filters: Filter<T>[]) =>
-  filters.flatMap((f) => (f.kind === "select" ? [f.key] : [`${f.key}_min`, `${f.key}_max`]));
+  filters.flatMap((f) => (f.kind === "range" ? [`${f.key}_min`, `${f.key}_max`] : [f.key]));
 
 export function stateFrom<T>(params: URLSearchParams, filters: Filter<T>[]): TableState {
   const f: Record<string, string> = {};
@@ -66,7 +67,10 @@ export function applyTable<T>(rows: T[], columns: Column<T>[], filters: Filter<T
       if (!words.every((w) => hay.includes(w))) return false;
     }
     return filters.every((f) => {
-      if (f.kind === "select") return !state.f[f.key] || f.value(row) === state.f[f.key];
+      // A server-paged table has no `value`: the server filtered already.
+      if (f.kind === "select") return !state.f[f.key] || !f.value || f.value(row) === state.f[f.key];
+      if (f.kind === "text")
+        return !state.f[f.key] || !f.value || f.value(row).includes(state.f[f.key] as string);
       const min = state.f[`${f.key}_min`];
       const max = state.f[`${f.key}_max`];
       if (!min && !max) return true;
@@ -110,6 +114,16 @@ export type TableOptions<T> = {
   open?: (row: T) => void;
   onChange: (state: TableState) => void;
   later: (fn: () => void, ms: number) => () => void;
+  /**
+   * Server-paged: the server filters and searches (the caller refetches on change), the table only
+   * sorts what is loaded and shows a footer that loads the next page when it scrolls into view.
+   */
+  remote?: { noun: string; more: () => void; total?: () => number | null };
+  /** Click or Enter on a row shows these details under it (instead of `open`). `key` keeps rows apart. */
+  detail?: (row: T) => Node;
+  key?: (row: T) => string;
+  /** Render at most `rows` rows around the viewport; each row is about `height` px tall. */
+  window?: { rows: number; height: number };
 };
 
 export function createTable<T>(doc: Document, opts: TableOptions<T>) {
@@ -161,6 +175,18 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
       bar.append(select);
       continue;
     }
+    if (f.kind === "text") {
+      const input = el("input", "ui-input tbl-filter");
+      input.type = "search";
+      input.placeholder = f.label;
+      input.setAttribute("aria-label", f.label);
+      input.addEventListener("change", () =>
+        update({ ...state, f: { ...state.f, [f.key]: input.value.trim() } }),
+      );
+      inputs.set(f.key, input);
+      bar.append(input);
+      continue;
+    }
     const group = el("span", "tbl-range");
     group.setAttribute("role", "group");
     group.setAttribute("aria-label", f.label);
@@ -209,7 +235,44 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
   const tbody = el("tbody");
   table.append(thead, tbody);
   const empty = el("p", "tbl-empty muted");
-  root.append(bar, table, empty);
+  // The footer of a server-paged list: a sentinel that loads the next page, a button as fallback.
+  const foot = el("div", "tbl-foot");
+  const moreButton = el("button", "ui-button ui-button--ghost ui-button--sm", "Load more");
+  moreButton.type = "button";
+  const endText = el("span", "tbl-end muted");
+  foot.append(moreButton, endText);
+  let end: "more" | "loading" | "end" = "end";
+  const { remote } = opts;
+  if (remote) {
+    moreButton.addEventListener("click", () => end === "more" && remote.more());
+    const View = doc.defaultView as (Window & typeof globalThis) | null;
+    if (View?.IntersectionObserver) {
+      new View.IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting) && end === "more") remote.more();
+      }).observe(foot);
+    }
+    root.append(bar, table, empty, foot);
+  } else root.append(bar, table, empty);
+
+  const expanded = new Set<string>();
+  const keyOf = opts.key ?? ((row: T) => String(rows.indexOf(row)));
+  let first = 0;
+  const win = opts.window;
+  if (win) {
+    // Re-render only when the viewport moves a quarter window away from what is drawn.
+    doc.defaultView?.addEventListener(
+      "scroll",
+      () => {
+        if (Math.abs(startFor() - first) >= win.rows / 4) draw();
+      },
+      { passive: true },
+    );
+  }
+  function startFor() {
+    if (!win) return 0;
+    const top = table.getBoundingClientRect().top;
+    return Math.max(0, Math.floor(-top / win.height) - Math.floor(win.rows / 4));
+  }
 
   function update(next: TableState) {
     state = next;
@@ -227,14 +290,33 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
         state.sort === key ? "ascending" : state.sort === `-${key}` ? "descending" : "none",
       );
     });
-    const shown = applyTable(rows, columns, filters, state);
+    const shown = remote
+      ? applyTable(rows, columns, [], { ...state, q: "" })
+      : applyTable(rows, columns, filters, state);
     const filtered = Boolean(state.q.trim() || Object.values(state.f).some(Boolean));
-    count.textContent = filtered ? `${shown.length} of ${rows.length}` : `${rows.length} shown`;
+    const total = remote?.total?.();
+    count.textContent = remote
+      ? `${rows.length}${total == null ? "" : ` of ${total}`} ${remote.noun} loaded`
+      : filtered
+        ? `${shown.length} of ${rows.length}`
+        : `${rows.length} shown`;
     const active = Object.values(state.f).filter(Boolean).length;
     toggle.textContent = active ? `Filters (${active})` : "Filters";
     clear.disabled = !filtered;
+    first = win && shown.length > win.rows ? Math.min(startFor(), shown.length - win.rows) : 0;
+    const last = win ? Math.min(shown.length, first + win.rows) : shown.length;
+    const spacer = (n: number) => {
+      const tr = el("tr", "tbl-spacer");
+      tr.setAttribute("aria-hidden", "true");
+      const td = el("td");
+      td.colSpan = columns.length;
+      td.style.height = `${n * (win?.height ?? 0)}px`;
+      tr.append(td);
+      return tr;
+    };
     tbody.replaceChildren(
-      ...shown.map((row) => {
+      ...(first ? [spacer(first)] : []),
+      ...shown.slice(first, last).flatMap((row) => {
         const tr = el("tr");
         for (const c of columns) {
           const td = el("td", c.num ? "num" : undefined);
@@ -242,23 +324,42 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
           td.append(c.cell ? c.cell(row) : c.text(row));
           tr.append(td);
         }
-        const { open, label } = opts;
+        const { detail, label } = opts;
+        const key = keyOf(row);
+        const isOpen = expanded.has(key);
+        const open = detail
+          ? () => {
+              if (!expanded.delete(key)) expanded.add(key);
+              draw();
+            }
+          : opts.open && (() => opts.open?.(row));
         if (open) {
           tr.className = "open";
           tr.tabIndex = 0;
           tr.setAttribute("role", "button");
+          if (detail) tr.setAttribute("aria-expanded", String(isOpen));
           if (label) tr.setAttribute("aria-label", label(row));
-          tr.addEventListener("click", () => open(row));
+          tr.addEventListener("click", open);
           tr.addEventListener("keydown", (e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              open(row);
+              open();
             }
           });
         }
-        return tr;
+        if (!detail || !isOpen) return [tr];
+        const more = el("tr", "tbl-detail");
+        const td = el("td");
+        td.colSpan = columns.length;
+        td.append(detail(row));
+        more.append(td);
+        return [tr, more];
       }),
+      ...(last < shown.length ? [spacer(shown.length - last)] : []),
     );
+    moreButton.hidden = end !== "more";
+    endText.textContent =
+      end === "loading" ? "Loading…" : end === "end" && rows.length ? `End of ${remote?.noun}` : "";
     table.hidden = shown.length === 0;
     empty.hidden = shown.length > 0;
     empty.textContent = rows.length ? "Nothing matches these filters." : opts.empty;
@@ -273,6 +374,10 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
     },
     setState(next: TableState) {
       state = next;
+      draw();
+    },
+    setEnd(next: "more" | "loading" | "end") {
+      end = next;
       draw();
     },
     state: () => state,

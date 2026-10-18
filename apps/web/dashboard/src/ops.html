@@ -72,11 +72,6 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 #banner { grid-column: span 12; }
 .filters { display: grid; grid-template-columns: 2fr 1fr 1fr 1.5fr; gap: var(--eyes-space-2); }
 .filters .ui-input { min-height: 2.25rem; padding: 0 var(--eyes-space-3); font-size: var(--eyes-text-sm); }
-.events { width: 100%; border-collapse: collapse; font-size: var(--eyes-text-xs); }
-.events td { padding: var(--eyes-space-1) var(--eyes-space-2); border-bottom: 1px solid var(--eyes-border-subtle); vertical-align: top; }
-.events td:first-child { white-space: nowrap; color: var(--eyes-text-tertiary); font-variant-numeric: tabular-nums; }
-.events .sum { font-family: var(--eyes-font-mono); word-break: break-word; }
-.events button { all: unset; cursor: pointer; color: var(--eyes-text-secondary); text-decoration: underline; }
 .ticket { display: grid; grid-template-columns: 9rem 1fr; gap: var(--eyes-space-4); }
 .ticket img, .ticket .nophoto { width: 9rem; height: 9rem; object-fit: cover; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); }
 .ticket .nophoto { display: grid; place-items: center; color: var(--eyes-text-tertiary); font-size: var(--eyes-text-xs); }
@@ -210,6 +205,55 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
   .tbl-table td.num { text-align: left; }
   .tbl-table td + td:not(:empty)::before { content: attr(data-label) " "; color: var(--eyes-text-tertiary); font-size: var(--eyes-text-xs); }
 }
+/* Logs: one compact line per event; icons carry level and source (with a title and label). */
+.ev-level, .ev-source { display: inline-flex; color: var(--eyes-text-tertiary); }
+.ev-level--warn { color: var(--eyes-warning-text); }
+.ev-level--error { color: var(--eyes-danger-text); }
+#events .tbl-table td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
+#events .tbl-table td:nth-child(-n + 3) { width: 1%; white-space: nowrap; }
+.ev-sum { display: block; max-width: 0; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); color: var(--eyes-text); }
+.tbl-detail td { padding: 0 var(--eyes-space-2) var(--eyes-space-3) !important; background: var(--eyes-surface-secondary); }
+.ev-detail { display: grid; gap: var(--eyes-space-2); justify-items: start; padding-top: var(--eyes-space-2); }
+.ev-detail__summary { margin: 0; font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); white-space: pre-wrap; word-break: break-word; }
+.ev-detail__data { margin: 0; max-width: 100%; font-size: var(--eyes-text-xs); white-space: pre-wrap; word-break: break-word; color: var(--eyes-text-secondary); }
+.tbl-foot { display: flex; justify-content: center; align-items: center; gap: var(--eyes-space-3); min-height: 2.5rem; }
+.tbl-foot [hidden] { display: none; }
+.tbl-end { font-size: var(--eyes-text-xs); }
+/* New live events wait behind this pill, so the list never shifts under the reader. */
+.new-events { position: sticky; top: calc(var(--chrome, 6.5rem) + var(--eyes-space-2)); z-index: 6; justify-self: center; padding: var(--eyes-space-1) var(--eyes-space-4); border: 0; border-radius: 999px; background: var(--eyes-text); color: var(--eyes-surface); font: inherit; font-size: var(--eyes-text-sm); font-weight: var(--eyes-weight-medium); cursor: pointer; box-shadow: var(--eyes-shadow-md, 0 4px 12px rgb(0 0 0 / 0.15)); }
+.new-events[hidden] { display: none; }
+@media (max-width: 640px) {
+  /* Phones keep the log to one line per event too: icons, time, then the summary, cut. */
+  #events .tbl-table tr:not(.tbl-detail):not(.tbl-spacer) { display: flex; align-items: center; gap: var(--eyes-space-2); padding: 6px 0; }
+  #events .tbl-table td { display: block; margin: 0 !important; padding: 0 !important; width: auto !important; }
+  #events .tbl-table td::before { content: none !important; }
+  #events .tbl-table td:nth-child(2) { font-size: var(--eyes-text-xs); color: var(--eyes-text-tertiary); white-space: nowrap; }
+  #events .tbl-table td:last-child { flex: 1; min-width: 0; }
+}
+
+/* Motion (Emil Kowalski's rules): strong custom ease-out, transform and opacity only, under 300 ms,
+   press feedback on everything pressable, hover gated to fine pointers, nothing on keyboard actions. */
+:root { --ease-out: cubic-bezier(0.23, 1, 0.32, 1); --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1); }
+.ui-button, .tbl-sort, .attention__link, .new-events, .tbl-toggle { transition: transform 160ms var(--ease-out), background-color 150ms ease, color 150ms ease; }
+.ui-button:active:not(:disabled), .tbl-sort:active, .attention__link:active, .new-events:active { transform: scale(0.97); }
+.tbl-table tr.open:hover { background: transparent; }
+@media (hover: hover) and (pointer: fine) {
+  .tbl-table tr.open { transition: background-color 120ms ease; }
+  .tbl-table tr.open:hover { background: var(--eyes-surface-secondary); }
+}
+/* The pill enters from where it sits (slightly above), fades and settles; leaving is instant. */
+.new-events { transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
+@starting-style { .new-events { opacity: 0; transform: translateY(-6px) scale(0.98); } }
+/* Dialogs (review and ticket panels): centered, so they scale from the center; 200 ms in, faster out. */
+#review-panel[open] { animation: none; transition: opacity 200ms var(--ease-out), transform 200ms var(--ease-out); }
+@starting-style { #review-panel[open] { opacity: 0; transform: scale(0.96); } }
+#review-panel::backdrop { transition: opacity 200ms ease; }
+@starting-style { #review-panel[open]::backdrop { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .ui-button, .tbl-sort, .attention__link, .new-events, .tbl-toggle, #review-panel[open] { transition: opacity 150ms ease, background-color 150ms ease; }
+  .ui-button:active:not(:disabled), .tbl-sort:active, .attention__link:active, .new-events:active { transform: none; }
+  @starting-style { .new-events, #review-panel[open] { transform: none; } }
+}
 </style>
 </head>
 <body class="ui">
@@ -329,28 +373,13 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
   <div id="p-logs" class="panel" role="tabpanel" aria-labelledby="tab-logs" hidden>
     <section class="ui-card c12">
       <header class="ui-card__header"><h2 class="ui-card__title">Server errors and warnings</h2><span class="sub">this process, newest first, redacted</span></header>
-      <ul id="errors" class="rows scroll"></ul>
+      <ul id="errors" class="rows"></ul>
     </section>
 
-    <section class="ui-card c12 fill">
+    <section class="ui-card c12">
       <header class="ui-card__header"><h2 class="ui-card__title">Event log</h2><span id="events-source" class="sub"></span></header>
-      <div class="filters">
-        <input id="f-q" class="ui-input" type="search" placeholder="Search summary and details" aria-label="Search events">
-        <select id="f-kind" class="ui-input" aria-label="Event kind">
-          <option value="">All kinds</option>
-          <option>http</option><option>mcp</option><option>call</option><option>task</option><option>ledger</option>
-          <option>text</option><option>email</option><option>reply</option><option>webhook</option><option>safety</option>
-          <option>vision</option><option>payout</option><option>ticket</option><option>ops</option><option>auth</option><option>log</option>
-        </select>
-        <select id="f-level" class="ui-input" aria-label="Event level">
-          <option value="">All levels</option><option>info</option><option>warn</option><option>error</option>
-        </select>
-        <input id="f-task" class="ui-input" placeholder="Task id" aria-label="Task id">
-      </div>
-      <div class="grow">
-        <table class="events"><tbody id="events"></tbody></table>
-        <button id="older" class="ui-button ui-button--ghost ui-button--sm" type="button" hidden>Load older</button>
-      </div>
+      <button id="new-events" class="new-events" type="button" hidden></button>
+      <div id="events"></div>
     </section>
   </div>
 </main>

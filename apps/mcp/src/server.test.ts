@@ -483,6 +483,47 @@ describe("worker device (ad hoc install)", () => {
     expect((await post(callback("not-a-udid"))).status).toBe(400);
     expect(calls).toHaveLength(1);
   });
+
+  it("dispatches a release to the build runner when a token is set; a failed dispatch still redirects", async () => {
+    const sent: [string, RequestInit][] = [];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const post = (env: Record<string, string>) =>
+      setup({ addWorkerDevice: async () => {} }, env).fetch("http://eyes.test/w/device/t1", {
+        method: "POST",
+        body: new Uint8Array(callback(UDID)),
+        redirect: "manual",
+      });
+    try {
+      vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+        sent.push([url, init]);
+        return new Response(null, { status: sent.length === 1 ? 204 : 401 });
+      });
+      expect((await post({})).status).toBe(301);
+      expect(sent).toEqual([]);
+      const env = { EYES_RELEASE_DISPATCH_TOKEN: "ghp_test", EYES_COMMIT: "abc123" };
+      expect((await post(env)).status).toBe(301);
+      await vi.waitFor(() => expect(sent).toHaveLength(1));
+      const [[url, init]] = sent as [[string, RequestInit]];
+      expect(url).toBe("https://api.github.com/repos/i098/eyes-ios-release/dispatches");
+      expect((init.headers as Record<string, string>).authorization).toBe("Bearer ghp_test");
+      expect(JSON.parse(String(init.body))).toEqual({
+        event_type: "device-registered",
+        client_payload: { ref: "abc123" },
+      });
+      expect((await post(env)).status).toBe(301);
+      await vi.waitFor(() =>
+        expect(errors).toHaveBeenCalledWith("release dispatch failed:", "Error: HTTP 401"),
+      );
+      vi.stubGlobal("fetch", async () => Promise.reject(new Error("offline")));
+      expect((await post(env)).status).toBe(301);
+      await vi.waitFor(() =>
+        expect(errors).toHaveBeenCalledWith("release dispatch failed:", "Error: offline"),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      errors.mockRestore();
+    }
+  });
 });
 
 describe("signup and join throttle", () => {
@@ -1952,69 +1993,17 @@ describe("ops data routes", () => {
     errors.mockRestore();
   });
 
-  it("reads the event log from the database with sanitised filters", async () => {
-    const { get, calls } = opsServer(() => [{ id: 1, kind: "call", summary: "x" }]);
-    const res = await get(`/ops/events?kind=call&level=warn&q=%20boom%20&task_id=${TASK_ID}&before=42`);
-    expect(await res.json()).toEqual({ source: "database", events: [{ id: 1, kind: "call", summary: "x" }] });
-    expect(calls.at(-1)).toEqual({
-      fn: "eyes_events",
-      args: { p_limit: 200, p_kind: "call", p_level: "warn", p_q: "boom", p_task_id: TASK_ID, p_before: 42 },
-    });
-    await get("/ops/events?task_id=not-a-uuid&before=4x&q=%20");
-    expect(calls.at(-1)?.args).toMatchObject({
-      p_kind: null,
-      p_level: null,
-      p_q: null,
-      p_task_id: null,
-      p_before: null,
-    });
-  });
-
-  it("filters the in-memory ring when the database read fails", async () => {
-    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { get, events } = opsServer(() => {
-      throw new Error("db down");
-    });
-    events.log({ kind: "call", level: "warn", task_id: TASK_ID, summary: "get_task task_not_found" });
-    events.log({
-      kind: "call",
-      level: "info",
-      task_id: TASK_ID,
-      summary: "get_task ok",
-      data: { Needle: 1 },
-    });
-    events.log({ kind: "text", level: "info", task_id: null, summary: "offer sent" });
-    const summaries = async (query: string) => {
-      const body = await (await get(`/ops/events${query}`)).json();
-      expect(body.source).toBe("memory");
-      return body.events.map((e: { summary: string }) => e.summary).sort();
-    };
-    expect(await summaries("")).toEqual(
-      expect.arrayContaining(["break-glass login", "get_task ok", "get_task task_not_found", "offer sent"]),
-    );
-    expect(await summaries("?kind=call")).toEqual(["get_task ok", "get_task task_not_found"]);
-    expect(await summaries("?kind=call&level=warn")).toEqual(["get_task task_not_found"]);
-    expect(await summaries(`?task_id=${TASK_ID}&q=NEEDLE`)).toEqual(["get_task ok"]);
-    expect(errors).toHaveBeenCalledWith("ops events: database read failed:", "db down");
-    const raw = opsServer(() => Promise.reject("raw"));
-    expect((await (await raw.get("/ops/events")).json()).source).toBe("memory");
-    expect(errors).toHaveBeenCalledWith("ops events: database read failed:", "raw");
-    errors.mockRestore();
-  });
-
-  it("lists tickets without worker ids, with the submission distance when there is one", async () => {
-    const { get, calls } = opsServer(() => [
-      { ...T, ticket_id: 1, worker_id: "w1", submission_lat: 37.78, submission_lng: -122.4 },
-      { ...T, ticket_id: 2, worker_id: "w2", submission_lat: null, submission_lng: -122.4 },
-      { ...T, ticket_id: 3, worker_id: "w3", submission_lat: 37.78, submission_lng: null },
+  it("mounts the paged ops lists behind the operator session", async () => {
+    const { get, calls } = opsServer(() => []);
+    for (const path of ["/ops/events", "/ops/tickets", "/ops/tasks", "/ops/ledger"]) {
+      expect((await get(path)).status, path).toBe(200);
+    }
+    expect(calls.map((c) => c.fn).filter((fn) => fn.endsWith("_page"))).toEqual([
+      "eyes_events_page",
+      "eyes_tickets_page",
+      "eyes_tasks_page",
+      "eyes_ledger_page",
     ]);
-    const { tickets } = await (await get("/ops/tickets")).json();
-    expect(tickets).toEqual([
-      { ...T, ticket_id: 1, distance_m: 0 },
-      { ...T, ticket_id: 2, distance_m: null },
-      { ...T, ticket_id: 3, distance_m: null },
-    ]);
-    expect(calls).toEqual([{ fn: "eyes_tickets", args: { p_limit: 50 } }]);
   });
 
   it("reports Claude as the classifier, a non-Error db failure, and works without an event log", async () => {
@@ -2027,7 +2016,7 @@ describe("ops data routes", () => {
     expect(feed.ops.health).toMatchObject({ classifier: "Claude", db_error: "socket closed" });
     expect(feed.ops.errors).toEqual([]);
     expect(await (await get("/ops/series")).json()).toMatchObject({ source: "postgres" });
-    expect(await (await get("/ops/events?q=x")).json()).toEqual({ source: "memory", events: [] });
+    expect(await (await get("/ops/events?q=x")).json()).toMatchObject({ source: "memory", events: [] });
     errors.mockRestore();
   });
 

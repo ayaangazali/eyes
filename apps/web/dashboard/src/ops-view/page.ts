@@ -23,6 +23,17 @@ import {
   usd,
 } from "./format.ts";
 import {
+  badgeIcon,
+  eventDetail,
+  eventKey,
+  LEVELS,
+  type LogEvent,
+  levelOf,
+  mergeEvents,
+  SOURCES,
+  sourceOf,
+} from "./logs.ts";
+import {
   chartCard,
   renderFunnel,
   renderHealth,
@@ -105,7 +116,6 @@ export type OpsFeed = {
     errors: OpsError[];
   };
 };
-type OpsEvent = { id?: number; at: string; kind: string; level: string; summary: string; task_id?: string };
 type Series = SeriesData & { source: string; dropped?: number };
 type Reply = { message?: string; error?: string; [key: string]: unknown };
 
@@ -454,7 +464,7 @@ export function boot(win: OpsWindow) {
               h(
                 "div",
                 "line",
-                badge(e.level, e.level === "error" ? "danger" : "warning"),
+                badgeIcon(document, levelOf(e.level), `ev-level ev-level--${e.level}`),
                 h("span", "tiny", stamp(e.at)),
               ),
               h("pre", "err", e.summary),
@@ -718,46 +728,85 @@ export function boot(win: OpsWindow) {
     $("t-more").hidden = shown.length <= ticketPages * TICKETS_PER_PAGE;
   }
 
-  let oldest: number | null = null;
-  function eventRow(e: OpsEvent) {
-    const { task_id } = e;
-    const task = task_id ? h("button", null, task_id.slice(0, 8)) : "";
-    if (task_id && typeof task !== "string")
-      task.addEventListener("click", () => {
-        $<HTMLInputElement>("f-task").value = task_id;
-        loadEvents(false);
-      });
-    const tone = e.level === "error" ? "danger" : e.level === "warn" ? "warning" : "";
-    return h(
-      "tr",
+  // Logs: server-paged by cursor, newest first. Live events wait behind a pill instead of moving the list.
+  let events: LogEvent[] = [];
+  let pending: LogEvent[] = [];
+  let cursor: string | null = null;
+  let newest: string | null = null;
+  let generation = 0;
+  let loadingOlder = false;
+  let loadedQuery = "";
+  const eventFilters = () => {
+    const st = logs.state();
+    return eventQuery(
+      { q: st.q, kind: st.f.kind ?? "", level: st.f.level ?? "", task_id: st.f.task ?? "" },
       null,
-      h("td", null, stamp(e.at)),
-      h("td", null, badge(e.kind, tone)),
-      h("td", null, task),
-      h("td", "sum", e.summary),
     );
-  }
+  };
   async function loadEvents(older: boolean) {
-    const query = eventQuery(
-      { q: value("f-q"), kind: value("f-kind"), level: value("f-level"), task_id: value("f-task") },
-      older ? oldest : null,
-    );
+    if (older && (loadingOlder || !cursor)) return;
+    const gen = older ? generation : ++generation;
+    const query = eventFilters();
+    if (!older) loadedQuery = String(query);
+    query.set("limit", "100");
+    if (older) {
+      loadingOlder = true;
+      query.set("cursor", cursor as string);
+      logs.setEnd("loading");
+    }
     const res = await fetch(`/events?${query}`, { cache: "no-store" });
-    if (!res.ok) return;
-    const { source, events } = (await res.json()) as { source: string; events: OpsEvent[] };
-    oldest = events.length ? (events.at(-1)?.id ?? null) : oldest;
+    if (older) loadingOlder = false;
+    if (gen !== generation) return;
+    if (!res.ok) {
+      logs.setEnd(cursor ? "more" : "end");
+      return;
+    }
+    const body = (await res.json()) as {
+      source: string;
+      events: LogEvent[];
+      next_cursor: string | null;
+      newest_cursor: string | null;
+    };
     $("events-source").textContent =
-      source === "memory"
-        ? "database unreachable: showing this process's memory only"
-        : "searchable, newest first";
-    const rows = events.map(eventRow);
-    if (older) $("events").append(...rows);
-    else
-      $("events").replaceChildren(
-        ...(rows.length ? rows : [h("tr", null, h("td", "muted", "No events match."))]),
-      );
-    $("older").hidden = source === "memory" || events.length < 200;
+      body.source === "memory" ? "Database unreachable: this process's memory only" : "Newest first";
+    if (older) events = mergeEvents(events, body.events);
+    else {
+      events = body.events;
+      newest = body.newest_cursor;
+      pending = [];
+      showPending();
+    }
+    cursor = body.next_cursor;
+    logs.setRows(events);
+    logs.setEnd(cursor ? "more" : "end");
   }
+  // Each poll asks only for events newer than the newest one shown.
+  async function pollEvents() {
+    if (!newest) return loadEvents(false);
+    const gen = generation;
+    const query = eventFilters();
+    query.set("since", newest);
+    const res = await fetch(`/events?${query}`, { cache: "no-store" });
+    if (!res.ok || gen !== generation) return;
+    const body = (await res.json()) as { events: LogEvent[]; newest_cursor: string | null };
+    newest = body.newest_cursor ?? newest;
+    pending = mergeEvents(body.events, pending).filter(
+      (e) => !events.some((x) => eventKey(x) === eventKey(e)),
+    );
+    showPending();
+  }
+  function showPending() {
+    const pill = $<HTMLButtonElement>("new-events");
+    pill.hidden = pending.length === 0;
+    pill.textContent = `${pending.length} new event${pending.length === 1 ? "" : "s"}`;
+  }
+  $("new-events").addEventListener("click", () => {
+    events = mergeEvents(pending, events);
+    pending = [];
+    showPending();
+    logs.setRows(events);
+    $("events").scrollIntoView({ block: "start" });
+  });
 
   const clock = (ms: number) => new Date(ms).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   let seriesText = "";
@@ -782,12 +831,7 @@ export function boot(win: OpsWindow) {
       if (res.status === 401) return location.assign(`${base}/login`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       render(await res.json());
-      await Promise.all([
-        loadTickets(),
-        // Refresh the first page on each poll unless the operator paged back.
-        document.querySelectorAll("#events tr").length > 200 ? null : loadEvents(false),
-        loadSeries(),
-      ]);
+      await Promise.all([loadTickets(), pollEvents(), loadSeries()]);
       state.className = "ui-badge ui-badge--success";
       state.textContent = "Live";
       $("updated").textContent = `updated ${new Date().toLocaleTimeString()}, every ${POLL_MS / 1000} s`;
@@ -801,13 +845,6 @@ export function boot(win: OpsWindow) {
     await fetch("/logout", { method: "POST" }).catch(() => {});
     location.assign(`${base}/login`);
   });
-  for (const id of ["f-q", "f-kind", "f-level", "f-task"])
-    $(id).addEventListener("change", () => loadEvents(false));
-  $("f-q").addEventListener("input", () => {
-    win.clearTimeout(win.qTimer);
-    win.qTimer = win.setTimeout(() => loadEvents(false), 300);
-  });
-  $("older").addEventListener("click", () => loadEvents(true));
   $("task-status").addEventListener("change", renderTasks);
   $("ledger-type").addEventListener("change", renderLedger);
   $("t-status").addEventListener("change", () => {
@@ -830,13 +867,18 @@ export function boot(win: OpsWindow) {
   // Each tab's table keeps its state in the hash while it is shown, and in memory when it is not.
   const remembered: Record<string, TableState> = {};
   const restore: Record<string, (params: URLSearchParams) => void> = {};
-  const tableFor = <T>(tab: string, options: Omit<TableOptions<T>, "onChange" | "later">) => {
+  const tableFor = <T>(
+    tab: string,
+    options: Omit<TableOptions<T>, "onChange" | "later"> & { onState?: () => void },
+  ) => {
     const table = createTable<T>(document, {
       ...options,
       later,
       onChange: (state) => {
         remembered[tab] = state;
-        history.replaceState(null, "", hashFor(tab, state));
+        // Only the shown tab owns the hash.
+        if (tabFor(location.hash) === tab) history.replaceState(null, "", hashFor(tab, state));
+        options.onState?.();
       },
     });
     restore[tab] = (params) => {
@@ -845,6 +887,7 @@ export function boot(win: OpsWindow) {
       remembered[tab] = state;
       table.setState(state);
       history.replaceState(null, "", hashFor(tab, state));
+      options.onState?.();
     };
     return table;
   };
@@ -918,6 +961,62 @@ export function boot(win: OpsWindow) {
     ],
   });
   $("queue").replaceChildren(review.el);
+
+  const logs = tableFor<LogEvent>("logs", {
+    name: "events",
+    empty: "No events match.",
+    remote: { noun: "events", more: () => loadEvents(true) },
+    key: eventKey,
+    window: { rows: 200, height: 37 },
+    detail: (e) =>
+      eventDetail(document, e, (task) => {
+        logs.setState({ ...logs.state(), f: { ...logs.state().f, task } });
+        history.replaceState(null, "", hashFor("logs", logs.state()));
+        loadEvents(false);
+      }),
+    label: (e) => `${levelOf(e.level)[0]}, ${sourceOf(e.kind)[0]}: ${cut(e.summary, 80)}`,
+    // Sorting reorders what is loaded; only a filter or search change asks the server again.
+    onState: () => String(eventFilters()) !== loadedQuery && loadEvents(false),
+    columns: [
+      {
+        key: "level",
+        label: "Level",
+        text: (e) => levelOf(e.level)[0],
+        cell: (e) => badgeIcon(document, levelOf(e.level), `ev-level ev-level--${e.level}`),
+      },
+      {
+        key: "at",
+        label: "Time",
+        num: true,
+        desc: true,
+        text: (e) => stamp(e.at),
+        sort: (e) => Date.parse(e.at),
+      },
+      {
+        key: "kind",
+        label: "Source",
+        text: (e) => sourceOf(e.kind)[0],
+        cell: (e) => badgeIcon(document, sourceOf(e.kind), "ev-source"),
+      },
+      { key: "summary", label: "Event", text: (e) => e.summary, cell: (e) => h("span", "ev-sum", e.summary) },
+    ],
+    filters: [
+      {
+        kind: "select",
+        key: "kind",
+        label: "Sources",
+        options: Object.entries(SOURCES).map(([k, [label]]) => [k, label]),
+      },
+      {
+        kind: "select",
+        key: "level",
+        label: "Levels",
+        options: Object.entries(LEVELS).map(([k, [label]]) => [k, label]),
+      },
+      { kind: "text", key: "task", label: "Task id" },
+    ],
+  });
+  $("events").replaceChildren(logs.el);
 
   function showTab() {
     const name = tabFor(location.hash);
