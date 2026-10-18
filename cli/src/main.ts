@@ -189,6 +189,7 @@ async function claimPending(
 ): Promise<PendingAsk> {
   await mkdir(dirname(file), { recursive: true, mode: 0o700 });
   await chmod(dirname(file), 0o700);
+  let missing = 0;
   for (;;) {
     const fresh: PendingAsk = { idempotency_key: crypto.randomUUID(), task_id: null };
     try {
@@ -198,7 +199,18 @@ async function claimPending(
       if ((e as { code?: string }).code !== "EEXIST") throw e;
     }
     const entry = await readPending(file);
-    if (!entry) continue;
+    if (!entry) {
+      // EEXIST on create but ENOENT on read: a dangling symlink, or a file removed mid-race. Retry briefly, then stop.
+      if (++missing > 100) {
+        return fail(
+          `${file} exists but cannot be read.`,
+          `Nothing was sent. Delete ${file} and re-run.`,
+          "config_error",
+        );
+      }
+      await delay(10);
+      continue;
+    }
     if (!entry.task_id || !(await settled(entry.task_id))) return entry;
     const next: PendingAsk = { idempotency_key: nextKey(entry.task_id), task_id: null };
     if (await savePending(file, entry.idempotency_key, next)) return next;
@@ -537,6 +549,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
+/* v8 ignore start -- process entry: wires real stdio, SIGINT, and the config path; runs only when this file is executed directly */
 if (import.meta.main) {
   const stop = new AbortController();
   process.once("SIGINT", () => stop.abort());
@@ -551,3 +564,4 @@ if (import.meta.main) {
     signal: stop.signal,
   });
 }
+/* v8 ignore stop */

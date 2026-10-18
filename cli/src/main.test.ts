@@ -1,5 +1,15 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { expect, it } from "vitest";
@@ -699,4 +709,146 @@ it("--json prints the raw response body for success and for errors", async () =>
   expect(await run(["policy", "--json"], deps)).toBe(0);
   expect(await run(["status", TASK_ID, "--json"], deps)).toBe(1);
   expect(out.map((line) => JSON.parse(line))).toEqual([policy, unauthorized]);
+});
+
+it("help <topic> --json, help <topic>, and plain help all print their shapes", async () => {
+  const { deps, out } = setup([], {});
+  expect(await run(["help", "cancel", "--json"], deps)).toBe(0);
+  expect(JSON.parse(out[0] ?? "")).toMatchObject({ command: "cancel" });
+  expect(await run(["help", "cancel"], deps)).toBe(0);
+  expect(out[1]).toMatch(/^Usage: /);
+  expect(await run(["help"], deps)).toBe(0);
+  expect(out[2]).toMatch(/^Usage:\n/);
+});
+
+it("a config file holding JSON null counts as empty, so env keys still work", async () => {
+  const { deps, calls } = setup([[200, { balance_usd: 1 }]]);
+  mkdirSync(dirname(deps.configPath), { recursive: true });
+  writeFileSync(deps.configPath, "null");
+  expect(await run(["balance"], deps)).toBe(0);
+  expect(calls[0]?.auth).toBe("Bearer eyes_env_key");
+});
+
+it("cancel posts to its route; a malformed task id is rejected before any call", async () => {
+  const { deps, calls, out } = setup([[200, { task_id: TASK_ID, status: "cancelled" }]]);
+  expect(await run(["cancel", TASK_ID, "--json"], deps)).toBe(0);
+  expect(calls).toHaveLength(1);
+  expect(calls[0]).toMatchObject({ method: "POST", url: `https://eyes.test/v1/tasks/${TASK_ID}/cancel` });
+  expect(JSON.parse(out[0] ?? "")).toMatchObject({ status: "cancelled" });
+  expect(await run(["cancel", "not-a-task", "--json"], deps)).toBe(1);
+  expect(calls).toHaveLength(1);
+  expect(JSON.parse(out[1] ?? "")).toMatchObject({ error: "invalid_input" });
+});
+
+it("dispute posts its reason to the dispute route", async () => {
+  const { deps, calls } = setup([[200, { task_id: TASK_ID, status: "disputed" }]]);
+  expect(await run(["dispute", TASK_ID, "--reason", "Photo shows a different line."], deps)).toBe(0);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    url: `https://eyes.test/v1/tasks/${TASK_ID}/dispute`,
+    body: { reason: "Photo shows a different line." },
+  });
+});
+
+it("quote and status send their requests and return 0", async () => {
+  const { deps, calls } = setup([
+    [200, { quote: 3.5 }],
+    [200, { task_id: TASK_ID, status: "verified" }],
+  ]);
+  expect(await run(["quote", "--at", "37.7607,-122.3857", "--type", "line_length"], deps)).toBe(0);
+  expect(calls[0]).toMatchObject({
+    method: "POST",
+    url: "https://eyes.test/v1/quote",
+    body: { location: { lat: 37.7607, lng: -122.3857 }, task_type: "line_length" },
+  });
+  expect(await run(["status", TASK_ID], deps)).toBe(0);
+  expect(calls[1]).toMatchObject({ method: "GET", url: `https://eyes.test/v1/tasks/${TASK_ID}` });
+});
+
+it("ask stops before sending when the pending-asks path is blocked, and says nothing was sent", async () => {
+  const { deps, calls, out } = setup([]);
+  mkdirSync(dirname(deps.configPath), { recursive: true });
+  writeFileSync(join(dirname(deps.configPath), "pending-asks"), "not a directory");
+  expect(await run([...ASK, "--json"], deps)).toBe(1);
+  expect(calls).toHaveLength(0);
+  expect(JSON.parse(out[0] ?? "")).toMatchObject({ error: "config_error" });
+  expect(JSON.parse(out[0] ?? "").fix).toContain("Nothing was sent");
+});
+
+it("await exits 130 with a resume hint when Ctrl-C lands during a retry wait", async () => {
+  const stop = new AbortController();
+  const { deps, err } = setup([[503, SERVER_ERROR]]);
+  deps.signal = stop.signal;
+  deps.sleep = async () => {
+    stop.abort();
+  };
+  expect(await run(["await", TASK_ID], deps)).toBe(130);
+  expect(err.join("\n")).toContain("Error (interrupted): Stopped by Ctrl-C.");
+  expect(err.join("\n")).toContain(`resume with: eyes await ${TASK_ID}`);
+});
+
+it("an unexpected internal error is rethrown, not dressed up as a CLI error", async () => {
+  const { deps } = setup([[200, { balance_usd: 1 }]]);
+  deps.out = () => {
+    throw new Error("stdout closed");
+  };
+  await expect(run(["balance"], deps)).rejects.toThrow("stdout closed");
+});
+
+it("an ask whose pending file is a dangling symlink stops with a fix instead of spinning", async () => {
+  const { deps, calls, err } = setup([new TypeError("offline")]);
+  expect(await run(ASK, deps)).toBe(1);
+  const dir = join(dirname(deps.configPath), "pending-asks");
+  const file = join(dir, readdirSync(dir)[0] ?? "");
+  const before = calls.length;
+  rmSync(file);
+  symlinkSync(join(dir, "nowhere"), file);
+  expect(await run(ASK, deps)).toBe(1);
+  expect(calls.length).toBe(before);
+  expect(err.join("\n")).toContain("exists but cannot be read");
+  expect(err.join("\n")).toContain("Nothing was sent");
+});
+
+it("an ask whose pending file is unreadable stops before sending and says why", async () => {
+  const { deps, calls, err } = setup([new TypeError("offline")]);
+  expect(await run(ASK, deps)).toBe(1);
+  const dir = join(dirname(deps.configPath), "pending-asks");
+  const file = join(dir, readdirSync(dir)[0] ?? "");
+  const before = calls.length;
+  chmodSync(file, 0o000);
+  try {
+    expect(await run(ASK, deps)).toBe(1);
+  } finally {
+    chmodSync(file, 0o600);
+  }
+  expect(calls.length).toBe(before);
+  expect(err.join("\n")).toContain("Could not save");
+  expect(err.join("\n")).toContain("Nothing was sent");
+});
+
+it("an ask that creates the task still reports it when the pending record cannot be updated", async () => {
+  const { deps, out } = setup([]);
+  const dir = join(dirname(deps.configPath), "pending-asks");
+  deps.fetch = async () => {
+    chmodSync(dir, 0o500);
+    return new Response(JSON.stringify(ASKED), { status: 200 });
+  };
+  try {
+    expect(await run([...ASK, "--no-wait", "--json"], deps)).toBe(0);
+  } finally {
+    chmodSync(dir, 0o700);
+  }
+  expect(JSON.parse(out[0] ?? "").task_id).toBe(TASK_ID);
+});
+
+it("a retry wait that rejects on Ctrl-C still stops with exit 130", async () => {
+  const stop = new AbortController();
+  const { deps, err } = setup([[503, SERVER_ERROR]]);
+  deps.signal = stop.signal;
+  deps.sleep = async () => {
+    stop.abort();
+    throw new DOMException("This operation was aborted", "AbortError");
+  };
+  expect(await run(["await", TASK_ID], deps)).toBe(130);
+  expect(err.join("\n")).toContain("Stopped by Ctrl-C.");
 });
