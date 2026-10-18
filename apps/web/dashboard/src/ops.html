@@ -81,6 +81,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .ticket img, .ticket .nophoto { width: 9rem; height: 9rem; object-fit: cover; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); }
 .ticket .nophoto { display: grid; place-items: center; color: var(--eyes-text-tertiary); font-size: var(--eyes-text-xs); }
 .ticket textarea { width: 100%; min-height: 2.5rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); }
+.ui-button--danger { background: var(--eyes-danger-bg); color: var(--eyes-danger-text); border-color: transparent; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; }
 .msg { margin: 0; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-secondary); white-space: pre-wrap; font-size: var(--eyes-text-sm); }
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--eyes-space-4); }
@@ -356,7 +357,8 @@ async function openReview(id) {
     out.textContent = body.already_resolved ? `Already ${body.status}; no money moved.` : `Done: ${body.status}. It leaves the queue on the next refresh.`;
     for (const b of review.querySelectorAll(".actions button")) b.disabled = true;
   };
-  review.replaceChildren(
+  // replaceChildren would print a null as the text "null".
+  review.replaceChildren(...[
     h("div", "task-head", h("h2", "ui-card__title", cut(t.question, 200)), badge(t.status.replace("_", " "), STATUS_TONE[t.status]), close),
     photo,
     t.answer_text || t.answer_bool != null
@@ -380,7 +382,7 @@ async function openReview(id) {
           out)
       : h("p", "muted", `Settled: ${t.status.replace("_", " ")}.`),
     h("span", "tiny", t.id),
-  );
+  ].filter((x) => x != null));
   if (!review.open) review.showModal();
 }
 
@@ -533,29 +535,40 @@ function confirmButton(label, armed, tone, act) {
   return b;
 }
 
+// Dispute actions (confirm_fraud, reject_dispute) take only a note; the others also send the task id.
 async function act(t, action, note, out) {
-  if (!note.value.trim()) { out.textContent = "Write a note first; it is texted to the worker."; return; }
+  if (!note.value.trim()) { out.textContent = t.kind === "dispute" ? "Write a note first; it is kept with the decision." : "Write a note first; it is texted to the worker."; return; }
   const res = await fetch(`/ops/tickets/${t.id}/${action}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ task_id: t.task_id, note: note.value }),
+    body: JSON.stringify(t.kind === "dispute" ? { note: note.value } : { task_id: t.task_id, note: note.value }),
   });
   const body = await res.json().catch(() => ({}));
-  out.textContent = res.ok ? `Done: ticket #${t.id} ${action}.` : `Failed: ${body.message || body.error || res.status}`;
-  if (res.ok) await loadTickets();
+  if (!res.ok) { out.textContent = `Failed: ${body.message || body.error || res.status}`; return; }
+  out.textContent = body.already_resolved ? `Already ${body.dispute_status || "resolved"}; no money moved.`
+    : action === "confirm_fraud"
+      ? `Done: agent refunded ${usd(body.agent_refund_cents)}, transfer ${body.reversal === "owed" ? `reversal owed ${usd(body.reversal_owed_cents)}` : body.reversal}, worker banned.`
+      : `Done: ticket #${t.id} ${action.replace("_", " ")}.`;
+  await loadTickets();
 }
 
+const ticketOpen = (t) => (t.kind === "dispute" ? t.dispute_status === "open" : t.status === "open");
+
 function ticketRow(t) {
-  const open = t.status === "open";
+  const dispute = t.kind === "dispute";
+  const open = ticketOpen(t);
   const photo = t.photo_url ? h("img") : h("div", "nophoto", "No photo");
   if (t.photo_url) { photo.src = t.photo_url; photo.alt = "Worker photo"; photo.referrerPolicy = "no-referrer"; }
   const note = h("textarea", "ui-input");
-  note.placeholder = "Note, texted to the worker";
+  note.placeholder = dispute ? "Note, kept with the decision" : "Note, texted to the worker";
+  note.maxLength = 500;
   const out = h("span", "tiny");
+  out.setAttribute("role", "status");
   const bounty = usd(t.bounty_cents);
+  const state = dispute ? (t.dispute_status || "open") : open ? "open" : "resolved";
   const body = h("div", null,
     h("div", "task-head", h("p", "q", `#${t.id} ${cut(t.question, 160)}`),
-      badge(open ? "open" : "resolved", open ? "danger" : "success")),
+      h("span", "line", dispute ? badge("dispute", "warning") : null, badge(state, open ? "danger" : state === "upheld" ? "warning" : "success"))),
     h("div", "line",
       h("span", null, cut(t.place_label, 70)),
       h("span", null, "bounty ", h("strong", null, bounty)),
@@ -563,15 +576,21 @@ function ticketRow(t) {
       checks(t)),
     t.vision_reason ? h("p", "muted", `Photo safety: ${t.vision_reason}`) : null,
     t.answer_text ? h("p", "muted", `Answer: ${cut(t.answer_text, 300)}`) : null,
-    h("p", "msg", t.message || "(no message)"),
+    h("p", "msg", dispute ? `Agent says: ${t.message || "(no reason)"}` : t.message || "(no message)"),
+    t.reversal_owed_cents ? h("p", "muted", badge(`reversal owed ${usd(t.reversal_owed_cents)}`, "danger"), " the worker already moved the money; collect it by hand.") : null,
+    t.worker_banned ? h("p", "muted", "Worker banned.") : null,
     h("span", "tiny", `task ${t.task_id}, ${t.task_status}, opened ${stamp(t.created_at)}`),
   );
-  if (open) {
+  const held = t.task_status === "needs_review" || t.task_status === "disputed";
+  if (open && dispute) {
     body.append(note, h("div", "actions",
-      t.task_status === "needs_review" || t.task_status === "disputed"
-        ? confirmButton("Release", `Confirm: pay worker ${bounty}`, "primary", () => act(t, "release", note, out)) : null,
-      t.task_status === "needs_review" || t.task_status === "disputed"
-        ? confirmButton("Refund", "Confirm: refund the agent", "ghost", () => act(t, "refund", note, out)) : null,
+      confirmButton("Confirm fraud: ban + refund", "Confirm: refund the agent, reverse the payout, ban the worker", "danger", () => act(t, "confirm_fraud", note, out)),
+      confirmButton("Reject", "Confirm: reject, the worker keeps the pay", "ghost", () => act(t, "reject_dispute", note, out)),
+      out));
+  } else if (open) {
+    body.append(note, h("div", "actions",
+      held ? confirmButton("Release", `Confirm: pay worker ${bounty}`, "primary", () => act(t, "release", note, out)) : null,
+      held ? confirmButton("Refund", "Confirm: refund the agent", "ghost", () => act(t, "refund", note, out)) : null,
       confirmButton("Resolve with note", "Confirm: close, no money moves", "ghost", () => act(t, "close", note, out)),
       out));
   } else {
@@ -591,7 +610,7 @@ async function loadTickets() {
   if (text === ticketsText) return;
   ticketsText = text;
   tickets = JSON.parse(text).tickets;
-  const open = tickets.filter((t) => t.status === "open").length;
+  const open = tickets.filter(ticketOpen).length;
   $("tickets-count").textContent = `${open} open`;
   $("tickets-count").className = `ui-badge ${open ? "ui-badge--danger" : "ui-badge--success"}`;
   count("n-support", open, true);
@@ -601,7 +620,7 @@ async function loadTickets() {
 function renderTickets() {
   const q = $("t-q").value.trim().toLowerCase();
   const s = $("t-status").value;
-  const shown = tickets.filter((t) => (!s || t.status === s)
+  const shown = tickets.filter((t) => (!s || (s === "open") === ticketOpen(t))
     && (!q || [t.id, t.question, t.message, t.task_id, t.place_label].some((v) => String(v ?? "").toLowerCase().includes(q))));
   $("tickets-list").replaceChildren(...(shown.length ? shown.slice(0, ticketPages * TICKETS_PER_PAGE).map(ticketRow)
     : [empty(tickets.length ? "No tickets match." : "No tickets. A worker opens one by texting HELP after an answer is held for review.")]));
