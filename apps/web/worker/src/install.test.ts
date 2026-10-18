@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { Problem } from "./api.ts";
 import {
+  checkInstall,
   DEFAULT_MANIFEST_URL,
   type DeviceStatus,
   deviceStep,
@@ -8,7 +9,9 @@ import {
   type InstallDeps,
   itmsUrl,
   loadSaved,
-  markInstalled,
+  markDone,
+  POLL_MAX_MS,
+  POLL_MS,
   readCode,
   SAVED_KEY,
   startInstall,
@@ -93,9 +96,15 @@ describe("deviceStep", () => {
     expect(deviceStep(s, param)).toBe(step);
   });
 
-  it("moves past Install once the page has seen the Install tap", () => {
-    expect(deviceStep(status({ registered: true, ready: true }), false, true)).toBe("installed");
-    expect(deviceStep(status({ registered: true }), false, true)).toBe("waiting");
+  it("follows the steps marked done; Developer Mode never blocks; the app connecting ends it", () => {
+    const ready = status({ registered: true, ready: true });
+    expect(deviceStep(ready, false, 2)).toBe("open");
+    expect(deviceStep(status({ registered: true }), false, 2)).toBe("open");
+    expect(deviceStep(status(), false, 1)).toBe("waiting");
+    expect(deviceStep(ready, false, 1)).toBe("install");
+    expect(deviceStep(ready, false, 3)).toBe("done");
+    expect(deviceStep({ ...ready, app_connected: true }, false, 0)).toBe("connected");
+    expect(deviceStep(status({ app_connected: true }), false, 3)).toBe("connected");
   });
 });
 
@@ -117,14 +126,15 @@ describe("saved code", () => {
     }
   });
 
-  it("markInstalled flags a saved code; forgetCode removes it", () => {
+  it("markDone only moves forward on a saved code; forgetCode removes it", () => {
     const store = savedStore({ code: CODE, savedAt: NOW });
-    markInstalled(store, NOW);
-    expect(loadSaved(store, NOW)).toEqual({ code: CODE, savedAt: NOW, installed: true });
+    markDone(store, NOW, 2);
+    markDone(store, NOW, 1);
+    expect(loadSaved(store, NOW)).toEqual({ code: CODE, savedAt: NOW, done: 2 });
     forgetCode(store);
     expect(loadSaved(store, NOW)).toBeNull();
     const empty = memStore();
-    markInstalled(empty, NOW);
+    markDone(empty, NOW, 1);
     expect(empty.setItem).not.toHaveBeenCalled();
   });
 });
@@ -169,18 +179,25 @@ describe("startInstall", () => {
     });
   });
 
-  it("starts at Developer Mode after the Install tap, keeping the saved time for the same code", async () => {
-    const store = savedStore({ code: CODE, savedAt: NOW - HOUR, installed: true });
+  it("starts at Open Eyes after the Install tap, keeping the saved time for the same code", async () => {
+    const store = savedStore({ code: CODE, savedAt: NOW - HOUR, done: 2 });
     const d = fakeDeps({ store, send: vi.fn(async () => status({ registered: true, ready: true })) });
-    expect(await startInstall(d)).toBe("installed");
+    expect(await startInstall(d)).toBe("open");
     expect(store.setItem).not.toHaveBeenCalled();
     expect(d.setHref).toHaveBeenCalledWith("open", `eyes://connect#c=${CODE}`);
   });
 
   it("a new code in the link replaces the saved one and starts over", async () => {
-    const store = savedStore({ code: "b".repeat(43), savedAt: NOW - HOUR, installed: true });
+    const store = savedStore({ code: "b".repeat(43), savedAt: NOW - HOUR, done: 2 });
     await startInstall(fakeDeps({ store }));
     expect(loadSaved(store, NOW)).toEqual({ code: CODE, savedAt: NOW });
+  });
+
+  it("shows connected and forgets the code once the app sent a fix", async () => {
+    const d = fakeDeps({ send: vi.fn(async () => status({ ready: true, app_connected: true })) });
+    expect(await startInstall(d)).toBe("connected");
+    expect(d.show).toHaveBeenCalledWith("connected");
+    expect(loadSaved(d.store, NOW)).toBeNull();
   });
 
   it("treats ?registered=1 without a code as registered, without calling the API", async () => {
@@ -220,5 +237,76 @@ describe("startInstall", () => {
     expect(await startInstall(d)).toBe("error");
     expect(d.report).toHaveBeenCalledWith(err);
     expect(d.show).toHaveBeenCalledWith("error");
+  });
+});
+
+describe("polling", () => {
+  // A fake clock: each sleep moves it forward.
+  const poller = (visible = () => true) => {
+    let t = NOW;
+    return {
+      sleep: vi.fn(async (ms: number) => {
+        t += ms;
+      }),
+      visible,
+      clock: () => t,
+    };
+  };
+
+  it("asks every 5 s until the app connects, then stops", async () => {
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce(status({ ready: true }))
+      .mockResolvedValueOnce(status({ ready: true }))
+      .mockResolvedValue(status({ ready: true, app_connected: true }));
+    const poll = poller();
+    const d = fakeDeps({ send, poll });
+    expect(await startInstall(d)).toBe("connected");
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(poll.sleep).toHaveBeenCalledWith(POLL_MS);
+    expect(d.show).toHaveBeenLastCalledWith("connected");
+    expect(loadSaved(d.store, NOW)).toBeNull();
+  });
+
+  it("gives up after 10 minutes, and skips the ask while the page is hidden", async () => {
+    let n = 0;
+    const poll = poller(() => ++n % 2 === 1); // visible every other tick
+    const d = fakeDeps({ poll });
+    expect(await startInstall(d)).toBe("register");
+    expect(poll.sleep).toHaveBeenCalledTimes(POLL_MAX_MS / POLL_MS);
+    expect(d.send).toHaveBeenCalledTimes(1 + POLL_MAX_MS / POLL_MS / 2);
+  });
+
+  it("stops on an error or a finished page, and never starts off an iPhone", async () => {
+    const send = vi.fn().mockResolvedValueOnce(status()).mockRejectedValue(new Error("boom"));
+    expect(await startInstall(fakeDeps({ send, poll: poller() }))).toBe("error");
+    expect(send).toHaveBeenCalledTimes(2);
+    const done = fakeDeps({
+      store: savedStore({ code: CODE, savedAt: NOW, done: 3 }),
+      hash: "",
+      poll: poller(),
+    });
+    expect(await startInstall(done)).toBe("done");
+    expect(done.send).toHaveBeenCalledOnce();
+    const mac = fakeDeps({ userAgent: "Mozilla/5.0 (Macintosh)", poll: poller() });
+    expect(await startInstall(mac)).toBe("not-iphone");
+    expect(mac.poll?.sleep).not.toHaveBeenCalled();
+  });
+});
+
+describe("I already did this", () => {
+  it("advances one step per tap, kept with the code", async () => {
+    const store = savedStore({ code: CODE, savedAt: NOW });
+    const d = fakeDeps({ store, hash: "", send: vi.fn(async () => status()) });
+    expect(await checkInstall(d)).toBe("register");
+    for (const [done, step] of [
+      [1, "waiting"],
+      [2, "open"],
+      [3, "done"],
+    ] as const) {
+      markDone(store, NOW, done);
+      expect(await checkInstall(d)).toBe(step);
+    }
+    expect(loadSaved(store, NOW)?.done).toBe(3);
   });
 });

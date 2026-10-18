@@ -11,7 +11,7 @@ import Layout from "../layouts/Layout.astro";
 >
   <h1 class="ui-h1">Install the Eyes app</h1>
   <p class="ui-text-secondary">
-    Four steps, about 10 minutes. Eyes comes straight from us, not the App Store, so iOS asks a few extra
+    Three steps, about 10 minutes. Eyes comes straight from us, not the App Store, so iOS asks a few extra
     questions. Each step shows exactly what to tap.
   </p>
 
@@ -28,6 +28,14 @@ import Layout from "../layouts/Layout.astro";
   </p>
 
   <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+
+  <p id="connected" class="ui-notice ui-notice--success" role="status" hidden>
+    <Icon name="check" /> Eyes is connected. You can close this page.
+  </p>
+
+  <p id="done" class="ui-notice ui-notice--success" role="status" hidden>
+    <Icon name="check" /> All steps done. You can close this page.
+  </p>
 
   <ol id="steps" class="ui-steps install" hidden>
     <li data-key="register">
@@ -66,6 +74,7 @@ import Layout from "../layouts/Layout.astro";
             Apple lets an app from outside the App Store run only on iPhones registered by device ID.{" "}
             <a class="ui-link" href="privacy.html">How Eyes uses it</a>
           </p>
+          <button type="button" class="ui-link skip" data-skip="1">I already did this</button>
         </div>
       </div>
     </li>
@@ -96,38 +105,7 @@ import Layout from "../layouts/Layout.astro";
               <li>Nothing happens? Go to your Home Screen and look for the Eyes icon: it may still be loading.</li>
             </ul>
           </details>
-        </div>
-      </div>
-    </li>
-
-    <li data-key="installed">
-      <div class="step">
-        <h2 class="ui-h3">Turn on Developer Mode</h2>
-        <div class="step__body">
-          <ol class="screens">
-            <li>
-              Open <b>Eyes</b> from your Home Screen. iOS says <b>Developer Mode Required</b>: tap <b>OK</b>.
-            </li>
-            <li>
-              Open <b>Settings</b> › <b>Privacy &amp; Security</b>. Scroll to the bottom, tap <b>Developer Mode</b>,
-              and switch it on.
-            </li>
-            <li>
-              Tap <b>Restart</b>. After the restart, unlock your iPhone:
-              <figure class="ios" aria-label="iOS dialog">
-                <p>Turn on Developer Mode?</p>
-                <span>Cancel</span><b>Turn On</b>
-              </figure>
-              Tap <b>Turn On</b> and enter your passcode. Then come back to this page in Safari.
-            </li>
-          </ol>
-          <details class="help">
-            <summary>Didn't work?</summary>
-            <ul>
-              <li>No <b>Developer Mode</b> in Privacy &amp; Security? Open Eyes once first, then look again.</li>
-              <li>Missed the Turn On prompt? Settings › Privacy &amp; Security › Developer Mode shows it again.</li>
-            </ul>
-          </details>
+          <button type="button" class="ui-link skip" data-skip="2">I already did this</button>
         </div>
       </div>
     </li>
@@ -155,10 +133,25 @@ import Layout from "../layouts/Layout.astro";
           <details class="help">
             <summary>Didn't work?</summary>
             <ul>
-              <li>Eyes doesn't open? Finish Developer Mode (step 3) first.</li>
               <li>Tapped Don't Allow? In Eyes, tap <b>Open Settings</b>, then Location › <b>Always</b>.</li>
             </ul>
           </details>
+          <details class="help">
+            <summary>If Eyes won't open</summary>
+            <ul>
+              <li>iOS says <b>Developer Mode Required</b>? Tap <b>OK</b>.</li>
+              <li>
+                Open <b>Settings</b> › <b>Privacy &amp; Security</b>. Scroll to the bottom, tap <b>Developer Mode</b>
+                and switch it on. No Developer Mode there? Open Eyes once, then look again.
+              </li>
+              <li>
+                Tap <b>Restart</b>. After the restart, unlock your iPhone, tap <b>Turn On</b> and enter your passcode.
+                Then tap <b>Open Eyes</b> again.
+              </li>
+              <li>Already on? Nothing to do here.</li>
+            </ul>
+          </details>
+          <button type="button" class="ui-link skip" data-skip="3">I already did this</button>
         </div>
       </div>
     </li>
@@ -195,9 +188,17 @@ import Layout from "../layouts/Layout.astro";
   .install > li:not([data-done], [aria-current="step"]) .step__body {
     opacity: 0.6;
   }
-  /* After the restart the worker comes back for step 4, which the page can't see coming: keep it bright. */
-  .install > li[data-key="installed"][aria-current="step"] + li .step__body {
-    opacity: 1;
+  /* A button that reads as a link, with a full-height tap target. */
+  .skip {
+    justify-self: start;
+    padding: calc((var(--eyes-tap) - 1em) / 2) 0;
+    border: 0;
+    background: none;
+    color: var(--eyes-text-secondary);
+    font: inherit;
+    font-size: var(--eyes-text-sm);
+    text-decoration: underline;
+    cursor: pointer;
   }
   .step__body {
     display: grid;
@@ -266,21 +267,18 @@ import Layout from "../layouts/Layout.astro";
 
 <script>
   import { $, call, showError } from "../api.ts";
-  import { forgetCode, type InstallStep, markInstalled, startInstall } from "../install.ts";
+  import { checkInstall, type InstallDeps, type InstallStep, markDone, startInstall } from "../install.ts";
 
-  const ORDER = ["register", "install", "installed", "open"];
-  const NOTICES = ["not-iphone", "missing", "expired", "error"];
+  const ORDER = ["register", "install", "open"];
+  const NOTICES = ["not-iphone", "missing", "expired", "error", "connected", "done"];
 
   function show(step: InstallStep) {
     $("checking").hidden = true;
-    if (NOTICES.includes(step)) {
-      $(step).hidden = false;
-      return;
-    }
+    for (const id of NOTICES) $(id).hidden = id !== step;
+    if (NOTICES.slice(0, 4).includes(step)) return;
     $("steps").hidden = false;
     $("waiting").hidden = step !== "waiting";
-    $("itms").hidden = step !== "install" && step !== "installed";
-    const current = ORDER.indexOf(step === "waiting" ? "install" : step);
+    const current = step === "connected" || step === "done" ? ORDER.length : ORDER.indexOf(step === "waiting" ? "install" : step);
     document.querySelectorAll<HTMLLIElement>("#steps > li").forEach((li, i) => {
       li.toggleAttribute("data-done", i < current);
       if (i === current) li.setAttribute("aria-current", "step");
@@ -288,8 +286,7 @@ import Layout from "../layouts/Layout.astro";
     });
   }
 
-  // The code arrives in the URL fragment; startInstall clears it from the address bar.
-  startInstall({
+  const deps: InstallDeps = {
     hash: location.hash,
     pathname: location.pathname,
     search: location.search,
@@ -306,15 +303,23 @@ import Layout from "../layouts/Layout.astro";
     report: (err) => showError($("error"), err),
     store: localStorage,
     now: Date.now(),
-  });
+    poll: {
+      sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+      visible: () => !document.hidden,
+      clock: Date.now,
+    },
+  };
+  // The code arrives in the URL fragment; startInstall clears it from the address bar.
+  startInstall(deps);
 
   $("itms").addEventListener("click", () => {
-    markInstalled(localStorage, Date.now());
-    show("installed");
+    markDone(localStorage, Date.now(), 2);
+    show("open");
   });
-  // Eyes opening hides this page: the app has the code now, so the page forgets it.
-  $("open").addEventListener("click", () => {
-    const gone = () => document.hidden && forgetCode(localStorage);
-    document.addEventListener("visibilitychange", gone, { once: true });
-  });
+  document.querySelectorAll<HTMLButtonElement>("[data-skip]").forEach((b) =>
+    b.addEventListener("click", () => {
+      markDone(localStorage, Date.now(), Number(b.dataset.skip));
+      checkInstall({ ...deps, now: Date.now() });
+    }),
+  );
 </script>

@@ -1396,9 +1396,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async workerDevice(code) {
-      const workerId = (await maybe<Worker>("eyes_worker_by_location_token", { p_token_hash: sha256(code) }))
-        ?.id;
-      if (!workerId) throw new EyesError("unauthorized", {}, DEVICE_LINK_EXPIRED);
+      const w = await maybe<Worker & { location_source: string | null }>("eyes_worker_by_location_token", {
+        p_token_hash: sha256(code),
+      });
+      if (!w) throw new EyesError("unauthorized", {}, DEVICE_LINK_EXPIRED);
+      const workerId = w.id;
       const devices = await rpc<{ released_at: string | null }>("eyes_worker_devices", {
         p_worker_id: workerId,
       });
@@ -1411,6 +1413,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
         profile_url: `${config.public_api_url}/w/device/profile/${ticket}`,
         registered: devices.length > 0,
         ready: devices.some((d) => d.released_at !== null),
+        // The install page's done signal: the app sent a fix in the last 10 minutes.
+        app_connected:
+          w.location_source === "app" &&
+          w.location_at !== null &&
+          now().getTime() - Date.parse(w.location_at) <= 10 * 60_000,
       };
     },
 

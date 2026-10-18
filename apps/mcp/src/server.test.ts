@@ -521,7 +521,12 @@ describe("worker device (ad hoc install)", () => {
 
   it("POST /w/device passes the bearer code to the service and returns its JSON; 401 without one", async () => {
     const codes: string[] = [];
-    const state = { profile_url: "http://api.eyes.test/w/device/profile/t", registered: false, ready: false };
+    const state = {
+      profile_url: "http://api.eyes.test/w/device/profile/t",
+      registered: false,
+      ready: false,
+      app_connected: false,
+    };
     const { fetch } = setup({
       workerDevice: async (code) => {
         codes.push(code);

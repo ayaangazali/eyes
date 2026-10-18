@@ -363,7 +363,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     await say(w.phone, "app", "APP");
     const appCode = /\/install#c=([\w-]{43})/.exec(lastText(w.phone))?.[1] ?? "";
     const first = await service.workerDevice(appCode);
-    expect(first).toMatchObject({ registered: false, ready: false });
+    expect(first).toMatchObject({ registered: false, ready: false, app_connected: false });
     const ticket = first.profile_url.replace("https://api.eyes.test/w/device/profile/", "");
     expect(ticket).not.toContain(appCode);
     const udid = `00008110-${randomUUID().replaceAll("-", "").slice(0, 16).toUpperCase()}`;
@@ -371,7 +371,16 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     await service.addWorkerDevice(ticket, { udid, product: "iPhone18,1", version: "23G5" });
     expect(await service.workerDevice(appCode)).toMatchObject({ registered: true, ready: false });
     await sql`update worker_devices set apple_registered_at = now(), released_at = now() where udid = ${udid}`;
-    expect(await service.workerDevice(appCode)).toMatchObject({ registered: true, ready: true });
+    expect(await service.workerDevice(appCode)).toMatchObject({
+      registered: true,
+      ready: true,
+      app_connected: false,
+    });
+    // The install page's done signal: a fix from the app in the last 10 minutes.
+    await service.updateWorkerLocation(appCode, { lat: 37.7, lng: -122.4, source: "app" });
+    expect(await service.workerDevice(appCode)).toMatchObject({ app_connected: true });
+    await sql`update workers set location_at = location_at - interval '11 minutes' where id = ${w.id}`;
+    expect(await service.workerDevice(appCode)).toMatchObject({ app_connected: false });
     expect((await sql`select os_version from worker_devices where udid = ${udid}`)[0]?.os_version).toBe(
       "23G5",
     );
