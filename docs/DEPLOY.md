@@ -52,6 +52,12 @@ Ops and ClickHouse settings (any host):
 5. G2: the Stripe dashboard shows the top-up, then the transfer to the worker's connected account; `get_balance` drops by 3.50; "Photograph the house at 123 Oak St" is refused with `unsafe_task`.
 6. Record each result in STATUS.md "Live verification" with the time and what was seen.
 
+## Ad hoc releases (iPhone app)
+- `i098/eyes-ios-release` (public) runs `pnpm adhoc:release` from `ayaangazali/eyes` on a GitHub macOS runner: every 5 minutes a Linux job counts `worker_devices` rows with `released_at` null and starts the build only when there are any. It registers the UDIDs with Apple, builds, uploads `Eyes.ipa` and `manifest.plist` to the `apps` bucket and texts the workers.
+- Secrets there: `RELEASE_ENV` (InsForge, Inkbox, App Store Connect key and issuer ids), `ASC_P8`, `DIST_P12` + `P12_PASSWORD` (Apple Distribution certificate). Rotate `RELEASE_ENV` whenever those `.env` values change.
+- Test without side effects: `gh workflow run release.yml -R i098/eyes-ios-release -f dry_run=true`, or set the repo variable `DRY_RUN=true` so scheduled runs are dry runs too; delete it afterwards (`gh variable delete DRY_RUN -R i098/eyes-ios-release`).
+- Optional: `EYES_RELEASE_DISPATCH_TOKEN` (fine-grained, Contents read and write on that repo only) as an API secret starts a run right after a device registers.
+
 ## Manufact redeploy notes (old host, not in use since T6.11; learned 2026-10-17)
 
 - Merges to GitHub main do not deploy. The server builds from a Manufact-managed mirror (`manufacts/eyes-*`) that `npx mcp-use deploy` uploads to. After a merge: `git pull` on main, then `npx -y mcp-use@2.10.0 deploy --yes --json --dockerfile Dockerfile`.
