@@ -375,10 +375,15 @@ export function generateDocs(llms: string): Record<string, string | Json> {
   };
 }
 
-if (import.meta.main) {
-  const docs = generateDocs(readFileSync(new URL("llms.txt", PUBLIC_DIR), "utf8"));
-  for (const [file, content] of Object.entries(docs)) {
+export function writeDocs(llms: string, dir: URL): void {
+  for (const [file, content] of Object.entries(generateDocs(llms))) {
     const text = typeof content === "string" ? content : `${JSON.stringify(content, null, 2)}\n`;
-    writeFileSync(new URL(file, PUBLIC_DIR), text);
+    writeFileSync(new URL(file, dir), text);
   }
 }
+
+/* v8 ignore start -- process entry: writes the committed public files; runs only when this file is executed directly */
+if (import.meta.main) {
+  writeDocs(readFileSync(new URL("llms.txt", PUBLIC_DIR), "utf8"), PUBLIC_DIR);
+}
+/* v8 ignore stop */
