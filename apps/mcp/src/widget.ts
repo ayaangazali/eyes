@@ -18,6 +18,7 @@ export const WIDGET_CALLABLE = [
   "get_task",
   "await_answer",
   "cancel_task",
+  "accept_answer",
   "dispute_answer",
   "get_balance",
   "report_classifier",
@@ -70,12 +71,13 @@ body.ui{background:transparent}
 .w .big{font-size:2rem;font-weight:600;letter-spacing:-.02em;line-height:1.1}
 .w .ui-card__actions:has([data-field="reason"]){grid-auto-flow:row;grid-template-columns:repeat(2,minmax(0,1fr))}
 .w .ui-card__actions [data-field="reason"]{grid-column:1/-1;grid-row:1;min-width:0}
+.w .ui-card__actions:has([data-act="accept"],[data-accepted]) [data-act="refresh"]{grid-column:1/-1}
 .w .row{display:flex;flex-wrap:wrap;gap:.25rem 1rem;align-items:baseline}
 `;
 
 export const WIDGET_SCRIPT = String.raw`
 const root = document.getElementById("root");
-let input = {}, last = null, seq = 0, askKey = null, refusal = null;
+let input = {}, last = null, seq = 0, askKey = null, refusal = null, acceptancePending = false;
 const pending = new Map();
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const icon = (n) => '<svg class="ui-icon" aria-hidden="true"><use href="#i-' + n + '"></use></svg>';
@@ -206,16 +208,21 @@ function task(t) {
     : status === "disputed" ? '<div class="ui-notice ui-notice--warning">' + icon("alert") + "<span>You disputed this answer. A person reviews it.</span></div>" : "";
   return '<article class="ui-card"><header class="ui-card__header"><h3 class="ui-card__title">' + esc(title) + "</h3>" + badge(status) + "</header>" +
     (place ? '<p class="ui-place">' + icon("pin") + '<span class="ui-place__name">' + esc(place) + "</span></p>" : "") +
-    (a ? answerBlock(a, status) : (open ? steps(status) : "") + meta + end) + taskActions(a, status, open) + "</article>";
+    (a ? answerBlock(a, status) : (open ? steps(status) : "") + meta + end) + taskActions(a, status, open, t.accepted_at) + "</article>";
 }
-function taskActions(a, status, open) {
+function taskActions(a, status, open, acceptedAt) {
   const disputable = a && ["verified", "paid", "needs_review"].includes(status);
+  const acceptable = a && ["verified", "paid"].includes(status);
   return '<footer class="ui-card__actions">' +
     (open ? '<button class="ui-button ui-button--primary" data-act="wait">Wait for answer</button>' : "") +
-    '<button class="ui-button" data-act="refresh">Refresh</button>' +
+    (!acceptable ? '<button class="ui-button" data-act="refresh">Refresh</button>' : "") +
     (status === "dispatched" ? '<button class="ui-button" data-act="cancel">Cancel</button>' : "") +
-    (disputable ? '<input class="ui-input" data-field="reason" aria-label="What is wrong" placeholder="What is wrong with the answer?">' +
-      '<button class="ui-button" data-act="dispute">Dispute</button>' : "") + "</footer>";
+    (disputable ? '<input class="ui-input" data-field="reason" aria-label="What is wrong" placeholder="What is wrong with the answer?">' : "") +
+    (acceptable ? (acceptedAt
+      ? '<button class="ui-button" data-accepted disabled>' + icon("check") + 'Accepted</button>'
+      : '<button class="ui-button ui-button--primary" data-act="accept">Looks good</button>') : "") +
+    (disputable ? '<button class="ui-button" data-act="dispute">Dispute</button>' : "") +
+    (acceptable ? '<button class="ui-button" data-act="refresh">Refresh</button>' : "") + "</footer>";
 }
 
 function balance(b) {
@@ -239,12 +246,17 @@ function notSent(n) {
 
 function render(out) {
   if (!out || typeof out !== "object" || !("workers_nearby" in out || "balance_usd" in out || out.status === "not_sent" || "task_id" in out)) return;
+  if (out.status === "accepted") {
+    if (last?.task_id !== out.task_id || !out.accepted_at) return;
+    out = { ...last, accepted_at: out.accepted_at };
+  }
   refusal = null;
   last = out;
   root.innerHTML = "workers_nearby" in out ? quote(out) : "balance_usd" in out ? balance(out)
     : out.status === "not_sent" ? notSent(out) : "task_id" in out ? task(out) : "";
   for (const b of root.querySelectorAll("[data-act]")) b.onclick = () => act(b);
   size();
+  if (acceptancePending) setAcceptanceBusy(true);
 }
 const field = (name) => root.querySelector('[data-field="' + name + '"]')?.value.trim() ?? "";
 const ACTS = {
@@ -255,6 +267,7 @@ const ACTS = {
   refresh: (t) => ["get_task", { task_id: t.task_id }, true],
   wait: (t) => ["await_answer", { task_id: t.task_id }, true],
   cancel: (t) => ["cancel_task", { task_id: t.task_id }, true],
+  accept: (t) => ["accept_answer", { task_id: t.task_id }],
   dispute: (t) => ["dispute_answer", { task_id: t.task_id, reason: field("reason") }, true],
   balance: () => ["get_balance", {}],
 };
@@ -310,7 +323,13 @@ async function reportAction(action) {
     if (refusal === current) renderReport();
   }
 }
+function setAcceptanceBusy(busy) {
+  acceptancePending = busy;
+  for (const button of root.querySelectorAll("[data-act]")) button.disabled = busy;
+  root.querySelector('[data-act="accept"]')?.setAttribute("aria-busy", String(busy));
+}
 async function act(b) {
+  if (acceptancePending || b.disabled) return;
   if (b.dataset.act === "topup") return openLink(last.top_up_url);
   const [name, args, merge] = ACTS[b.dataset.act](last);
   const submitted = name === "ask_eyes" ? structuredClone(args) : args;
@@ -318,10 +337,17 @@ async function act(b) {
   card.querySelector("[data-error]")?.remove();
   card.querySelector("[data-report]")?.remove();
   b.disabled = true;
+  if (name === "accept_answer") setAcceptanceBusy(true);
   try {
     const out = await call(name, args);
-    render(merge ? { ...last, ...out } : out);
+    if (name === "accept_answer") {
+      if (out?.status !== "accepted" || out.task_id !== args.task_id || !out.accepted_at)
+        throw new Error("Acceptance was not confirmed. Refresh the task or try again.");
+      setAcceptanceBusy(false);
+      if (last?.task_id === args.task_id) render(out);
+    } else render(merge ? { ...last, ...out } : out);
   } catch (err) {
+    if (name === "accept_answer") setAcceptanceBusy(false);
     b.disabled = false;
     const detail = errorDetail(err);
     card.insertAdjacentHTML("beforeend", '<div class="ui-notice ui-notice--danger" data-error role="alert">' + icon("alert") + "<span>" + esc(errorText(detail)) + "</span></div>");

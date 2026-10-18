@@ -1,9 +1,10 @@
 import { Window } from "happy-dom";
 import { describe, expect, it, vi } from "vitest";
-import { WIDGET_HTML, WIDGET_SCRIPT } from "./widget.ts";
+import { WIDGET_CALLABLE, WIDGET_HTML, WIDGET_SCRIPT } from "./widget.ts";
 
 type Msg = { jsonrpc: "2.0"; id?: number; method?: string; params?: Record<string, unknown> };
 type Result = { structuredContent?: unknown; content?: { type: string; text: string }[]; isError?: boolean };
+type HostResult = Result | { error: { message: string } };
 
 const QUOTE = {
   workers_nearby: 2,
@@ -32,7 +33,7 @@ const ANSWER = {
 
 /** Boots the widget script in happy-dom. `openai` stands in for ChatGPT; without it the MCP Apps host answers. */
 function boot(
-  opts: { openai?: Record<string, unknown>; host?: (m: Msg) => Result | { error: { message: string } } } = {},
+  opts: { openai?: Record<string, unknown>; host?: (m: Msg) => HostResult | Promise<HostResult> } = {},
 ) {
   const happy = new Window({ url: "https://card.test/" });
   const win = happy as unknown as globalThis.Window & {
@@ -50,7 +51,9 @@ function boot(
         if (m.method === "ui/initialize")
           return reply({ jsonrpc: "2.0", id: m.id, result: { hostContext: { theme: "dark" } } });
         const r = opts.host?.(m) ?? {};
-        reply({ jsonrpc: "2.0", id: m.id, ...("error" in r ? r : { result: r }) });
+        void Promise.resolve(r).then((result) =>
+          reply({ jsonrpc: "2.0", id: m.id, ...("error" in result ? result : { result }) }),
+        );
       },
     },
   });
@@ -201,6 +204,161 @@ describe("widget call bridge (ChatGPT)", () => {
     w.button("topup").click();
     expect(openExternal).toHaveBeenCalledWith({ href: "https://pay.test/top" });
   });
+});
+
+describe.each(["MCP Apps", "ChatGPT"])("%s answer acceptance", (bridge) => {
+  const taskId = "ab281e88-eebd-41ec-bffc-0df5ca704c9b";
+  const acceptedAt = "2026-10-18T12:00:00.000Z";
+  const accepted = { task_id: taskId, status: "accepted", accepted_at: acceptedAt };
+  const answered = { ...TASK, task_id: taskId, status: "verified", answer: ANSWER, accepted_at: null };
+  function setup(handler: (name: string, args: Record<string, unknown>) => Result | Promise<Result>) {
+    const invoke = vi.fn(handler);
+    const w =
+      bridge === "ChatGPT"
+        ? boot({ openai: { callTool: invoke } })
+        : boot({
+            host: (m) => invoke(String(m.params?.name), m.params?.arguments as Record<string, unknown>),
+          });
+    w.show(answered);
+    return { ...w, invoke };
+  }
+
+  it.each(["verified", "paid"])("accepts an answered %s task once while busy", async (status) => {
+    const pending = Promise.withResolvers<Result>();
+    const w = setup(() => pending.promise);
+    w.show({ ...answered, status });
+    const button = w.button("accept");
+    expect(button.textContent).toBe("Looks good");
+    expect(button.classList.contains("ui-button--primary")).toBe(true);
+    button.click();
+    expect(button.getAttribute("aria-busy")).toBe("true");
+    for (const action of ["accept", "refresh", "dispute"]) {
+      expect(w.button(action).disabled).toBe(true);
+      w.button(action).click();
+    }
+    expect(w.invoke).toHaveBeenCalledExactlyOnceWith("accept_answer", { task_id: taskId });
+    pending.resolve({ content: [{ type: "text", text: JSON.stringify(accepted) }] });
+    await w.settle();
+    expect(w.root.querySelector("[data-accepted]")?.textContent).toBe("Accepted");
+    expect(w.button("accept")).toBeNull();
+    expect(w.root.querySelector(".ui-card__header")?.textContent).toContain("Verified");
+    expect(w.root.querySelector(".ui-card__answer")?.textContent).toBe("Ten people");
+    expect(w.button("refresh").disabled).toBe(false);
+    expect(w.button("dispute").disabled).toBe(false);
+    if (bridge === "ChatGPT") expect(w.sent.some((m) => m.method === "tools/call")).toBe(false);
+  });
+
+  it("preserves the answer and reason after an inline error, then retries", async () => {
+    let attempts = 0;
+    const w = setup(() =>
+      ++attempts === 1
+        ? {
+            isError: true,
+            structuredContent: {
+              error: "task_not_acceptable",
+              message: "Acceptance <unavailable>.",
+              fix: "Try again.",
+            },
+          }
+        : { structuredContent: accepted },
+    );
+    const reason = w.root.querySelector('[data-field="reason"]') as HTMLInputElement;
+    reason.value = "Keep this draft";
+    w.button("accept").click();
+    await w.settle();
+    expect(w.root.querySelector('[data-error][role="alert"]')?.textContent).toBe(
+      "Acceptance <unavailable>. Try again.",
+    );
+    expect(reason.value).toBe("Keep this draft");
+    expect(w.root.querySelector(".ui-card__answer")?.textContent).toBe("Ten people");
+    for (const action of ["accept", "refresh", "dispute"]) expect(w.button(action).disabled).toBe(false);
+    expect(w.button("accept").getAttribute("aria-busy")).toBe("false");
+    w.button("accept").click();
+    await w.settle();
+    expect(w.invoke.mock.calls).toEqual([
+      ["accept_answer", { task_id: taskId }],
+      ["accept_answer", { task_id: taskId }],
+    ]);
+    expect(w.root.querySelector("[data-error]")).toBeNull();
+    expect(w.root.querySelector("[data-accepted]")).not.toBeNull();
+  });
+
+  it("keeps acceptance on refresh and reload without blocking a later dispute", async () => {
+    const persisted = { ...answered, accepted_at: acceptedAt };
+    const w = setup((name) => ({
+      structuredContent: name === "get_task" ? persisted : { task_id: taskId, status: "disputed" },
+    }));
+    w.show(persisted);
+    expect(w.button("accept")).toBeNull();
+    w.button("refresh").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenLastCalledWith("get_task", { task_id: taskId });
+    expect(w.root.querySelector("[data-accepted]")?.textContent).toBe("Accepted");
+    const reloaded = setup(() => ({}));
+    reloaded.show(persisted);
+    expect(reloaded.root.querySelector("[data-accepted]")?.textContent).toBe("Accepted");
+    expect(reloaded.button("accept")).toBeNull();
+    (w.root.querySelector('[data-field="reason"]') as HTMLInputElement).value = "Wrong cafe";
+    w.button("dispute").click();
+    await w.settle();
+    expect(w.invoke.mock.calls).toEqual([
+      ["get_task", { task_id: taskId }],
+      ["dispute_answer", { task_id: taskId, reason: "Wrong cafe" }],
+    ]);
+    expect(w.button("accept")).toBeNull();
+    expect(w.root.querySelector(".ui-card__header")?.textContent).toContain("Disputed");
+  });
+
+  it("merges host acceptance notifications without losing the verified answer", () => {
+    const w = setup(() => ({}));
+    if (bridge === "ChatGPT") {
+      const notification = w.win.document.createEvent("CustomEvent");
+      notification.initCustomEvent("openai:set_globals", false, false, {
+        globals: { toolOutput: accepted },
+      });
+      w.win.dispatchEvent(notification);
+    } else {
+      w.show(accepted);
+    }
+    expect(w.root.querySelector("[data-accepted]")?.textContent).toBe("Accepted");
+    expect(w.root.querySelector(".ui-card__header")?.textContent).toContain("Verified");
+    expect(w.root.querySelector(".ui-card__answer")?.textContent).toBe("Ten people");
+    expect(w.button("dispute")).not.toBeNull();
+    expect(w.invoke).not.toHaveBeenCalled();
+  });
+
+  it("does not claim acceptance from an incomplete result", async () => {
+    const w = setup(() => ({ structuredContent: { task_id: taskId, status: "accepted" } }));
+    w.button("accept").click();
+    await w.settle();
+    expect(w.root.querySelector("[data-accepted]")).toBeNull();
+    expect(w.root.querySelector('[role="alert"]')?.textContent).toBe(
+      "Acceptance was not confirmed. Refresh the task or try again.",
+    );
+    expect(w.button("accept").disabled).toBe(false);
+  });
+
+  it.each([
+    ["dispatched", null],
+    ["claimed", null],
+    ["submitted", ANSWER],
+    ["verified", null],
+    ["paid", null],
+    ["needs_review", ANSWER],
+    ["disputed", ANSWER],
+    ["expired", null],
+    ["refunded", null],
+  ])("hides acceptance for %s with answer %j", (status, answer) => {
+    const w = setup(() => ({}));
+    w.show({ ...answered, status, answer });
+    expect(w.button("accept")).toBeNull();
+    expect(w.root.querySelector("[data-accepted]")).toBeNull();
+    expect(w.invoke).not.toHaveBeenCalled();
+  });
+});
+
+it("allows the widget to call the real acceptance tool", () => {
+  expect(WIDGET_CALLABLE).toContain("accept_answer");
 });
 
 describe.each(["MCP Apps", "ChatGPT"])("%s readable tool errors", (bridge) => {
