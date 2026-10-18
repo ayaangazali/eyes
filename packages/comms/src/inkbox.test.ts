@@ -187,6 +187,7 @@ describe("inkbox webhook", () => {
 
   it.each([
     ["\ufffd", null, "location_share"],
+    ["\ufffc", null, "location_share"],
     ["", null, "location_share"],
     ["", [], "location_share"],
     ["", [{ url: "https://inkbox.test/photo.jpg" }], "unknown"],

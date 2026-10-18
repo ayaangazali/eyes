@@ -15,6 +15,7 @@ import {
   type LatLng,
   type LedgerType,
   OwnerPolicyInput,
+  parseMapLink,
   type ReplyIntent,
   type ResolvedLocation,
   SignupInput,
@@ -986,6 +987,28 @@ export function createEyesService(deps: EngineDeps): EyesService {
           );
         },
         unknown: async () => {
+          const spot = parseMapLink(text);
+          if (spot === "short_link") {
+            return messaging.sendText(
+              phone,
+              `Eyes: short map links can't be read, so tap this to update your spot (the link works for 30 minutes): ${hereUrl(worker.id)}`,
+            );
+          }
+          if (spot) {
+            const outcome = await storeFix(worker.id, { ...spot, source: "map_link" }, null);
+            if (outcome === "stored") {
+              await messaging.sendText(
+                phone,
+                `Spot updated: near ${spot.lat.toFixed(2)}, ${spot.lng.toFixed(2)}.`,
+              );
+            } else if (outcome === "rate_limited") {
+              await messaging.sendText(
+                phone,
+                `Eyes: your spot was updated less than ${config.location_min_interval_s} seconds ago. Send the link again in a minute.`,
+              );
+            }
+            return;
+          }
           const ticket = await maybe<Ticket>("eyes_append_ticket", {
             p_worker_id: worker.id,
             p_message: text,

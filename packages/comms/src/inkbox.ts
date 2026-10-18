@@ -236,7 +236,8 @@ function inboundReply(
       id: str(evt?.id) || str(imessage.id),
       phone: str(imessage.remote_number),
       text,
-      locationShare: text === "\ufffd" || (text === "" && !(Array.isArray(media) ? media.length : media)),
+      locationShare:
+        /^[\ufffc\ufffd]+$/.test(text) || (text === "" && !(Array.isArray(media) ? media.length : media)),
     };
   }
   return null;

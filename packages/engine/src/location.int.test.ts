@@ -65,8 +65,11 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     await service.handleWorkerReply({ phone, intent: "start", text: "START" });
     return { phone, id: String((await row(phone))?.id) };
   }
-  const say = (phone: string, intent: "here" | "shortcut" | "location_share" | "stop" | "start", text = "") =>
-    service.handleWorkerReply({ phone, intent, text });
+  const say = (
+    phone: string,
+    intent: "here" | "shortcut" | "location_share" | "stop" | "start" | "unknown",
+    text = "",
+  ) => service.handleWorkerReply({ phone, intent, text });
   const code = async (err: Promise<unknown>) => ((await err.catch((e) => e)) as EyesError).code;
 
   async function agent() {
@@ -120,6 +123,20 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     const token = hereToken(lastText(w.phone));
     expect(await code(service.updateWorkerLocation(token, { ...fix, lat: 0, lng: 0 }))).toBe("invalid_input");
     expect(await code(service.updateWorkerLocation(token, { ...fix, lat: 95 }))).toBe("invalid_input");
+  });
+
+  it("a texted map link stores the fix as map_link; a short link gets a HERE link instead", async () => {
+    const w = await worker(somewhere());
+    await say(w.phone, "unknown", "Here: https://maps.apple.com/?address=Somewhere&ll=37.761%2C-122.386");
+    expect(lastText(w.phone)).toBe("Spot updated: near 37.76, -122.39.");
+    expect(await row(w.phone)).toMatchObject({ lat: 37.761, lng: -122.386, location_source: "map_link" });
+    await say(w.phone, "unknown", "https://www.google.com/maps/@40.7,-74,15z");
+    expect(lastText(w.phone)).toContain("seconds ago");
+    expect((await row(w.phone))?.lat).toBe(37.761);
+    providers.clock.advance(31_000);
+    await say(w.phone, "unknown", "https://maps.app.goo.gl/AbCdEf123");
+    expect(lastText(w.phone)).toContain("https://w.eyes.test/here.html?t=");
+    expect((await row(w.phone))?.lat).toBe(37.761);
   });
 
   it("SHORTCUT adds a code per device, keeps the 5 newest, and STOP deletes the fix and every code", async () => {
