@@ -117,6 +117,7 @@ function gpsFail(code: number) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
 });
 
 describe("toE164", () => {
@@ -229,6 +230,39 @@ describe("join form", () => {
     expect(byId("start").hidden).toBe(false);
     expect(byId("done").hidden).toBe(false);
     expect(byId("submit").disabled).toBe(false);
+  });
+
+  it("falls back to the configured Inkbox number when the server does not return one", async () => {
+    vi.stubEnv("VITE_INKBOX_NUMBER", "+14155550100");
+    await loadJoin();
+    gpsOk();
+    fetchMock.mockResolvedValue(json({}));
+    await fire("locate", "click");
+    await submitForm("Ada Lovelace", "(415) 555-0123");
+    const [link] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    expect(link).toMatchObject({
+      href: "sms:+14155550100?&body=START",
+      textContent: "Text START to +14155550100",
+    });
+    expect(byId("closed").hidden).toBe(true);
+  });
+
+  it("offers the connect command first, then START, when a connect command is configured", async () => {
+    vi.stubEnv("VITE_INKBOX_CONNECT", "JOIN eyes");
+    await loadJoin();
+    gpsOk();
+    fetchMock.mockResolvedValue(json({ inkbox_number: "+14155550199" }));
+    await fire("locate", "click");
+    await submitForm("Ada Lovelace", "(415) 555-0123");
+    const [first, second] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    expect(first).toMatchObject({
+      href: "sms:+14155550199?&body=JOIN%20eyes",
+      textContent: 'First text "JOIN eyes" to +14155550199',
+    });
+    expect(second).toMatchObject({
+      href: "sms:+14155550199?&body=START",
+      textContent: "Then text START to +14155550199",
+    });
   });
 
   it("shows the rate-limit words and re-enables the button when the join fails", async () => {
