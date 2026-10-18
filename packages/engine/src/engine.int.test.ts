@@ -238,8 +238,9 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(again).toEqual(await service.joinWorker({ name: "Someone Else", phone: newPhone(), ...at }));
     await service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
     expect(await service.joinWorker({ name: "Someone Else", phone, lat: 0, lng: 0 })).toEqual(first);
+    // STOP deleted the location (ADR-024); the repeat join did not write its own.
     expect(await sql`select name, lat from workers where phone = ${phone}`).toEqual([
-      { name: "Real Worker", lat: at.lat },
+      { name: "Real Worker", lat: null },
     ]);
   });
 
@@ -680,7 +681,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const review = await capture();
     expect(review.result).toMatchObject({
       status: "needs_review",
-      message: `Thanks, we got it. Your answer needs a quick manual check (No line in the photo.). ${simulated}`,
+      message: `Thanks, we got it. Your answer needs a quick manual check (No line in the photo.). ${simulated} To request a manual review, reply HELP to the Eyes text.`,
     });
     expect(outbox.some((m) => m.to === phone && JSON.stringify(m.payload).includes("/w/connect/"))).toBe(
       false,
@@ -837,7 +838,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
       providers.clock.advance(1000);
       return asked.task_id;
     };
-    const row = { place_label: expect.any(String), claimed_at: expect.any(String) };
+    const row = {
+      question: expect.any(String),
+      task_type: expect.any(String),
+      place_label: expect.any(String),
+      claimed_at: expect.any(String),
+    };
 
     const first = await work(3);
     const connect = connectToken(w.phone);
@@ -1005,6 +1011,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const link = outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link");
     return {
       a,
+      w,
       task_id: asked.task_id,
       token: new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "",
     };
@@ -1079,6 +1086,80 @@ describe.skipIf(!url)("engine on Postgres", () => {
     } finally {
       remove.mockRestore();
       error.mockRestore();
+    }
+  });
+
+  const tickets = (taskId: string) =>
+    sql`select id::int, status, message, note from tickets where task_id = ${taskId}`;
+
+  it("HELP after a held answer opens a ticket, a free-text reply adds to it, and resolving it texts the worker", async () => {
+    const at = somewhere();
+    providers.vision.setVerdict({ answers_question: false, reason: "No line in the photo." });
+    const { task_id, token, w } = await claimed(at);
+    expect(await capture(token, at)).toMatchObject({
+      status: "needs_review",
+      message:
+        "Thanks, we got it. Your answer needs a quick manual check (No line in the photo.). You will be paid once it is approved. To request a manual review, reply HELP to the Eyes text.",
+    });
+    const last = () => outbox.findLast((m) => m.to === w.phone)?.payload;
+
+    await service.handleWorkerReply({ phone: w.phone, intent: "help", text: "HELP" });
+    const [opened] = await tickets(task_id);
+    const id = Number(opened?.id);
+    expect(opened).toMatchObject({ status: "open", message: "HELP" });
+    expect(last()).toBe(
+      `Eyes: ticket #${id} opened. Someone will check your answer by hand and text you the outcome. Reply here to add details.`,
+    );
+
+    await service.handleWorkerReply({
+      phone: w.phone,
+      intent: "unknown",
+      text: "The line is round the corner",
+    });
+    expect(last()).toBe(`Eyes: added to ticket #${id}. We will text you the outcome.`);
+    expect(await tickets(task_id)).toEqual([
+      { id, status: "open", message: "HELP\nThe line is round the corner", note: null },
+    ]);
+
+    const note = "The line is visible at the left edge.";
+    expect(await service.resolveTicket({ ticket_id: id, outcome: "release", note })).toEqual({
+      ticket_id: id,
+      task_id,
+      status: "resolved",
+    });
+    expect(last()).toBe(
+      `Eyes: ticket #${id} is resolved. Your answer was approved and you are being paid. Note: ${note}`,
+    );
+    expect(await tickets(task_id)).toMatchObject([{ id, status: "resolved", note }]);
+    await expect(service.resolveTicket({ ticket_id: id, outcome: "close", note })).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+  });
+
+  it("HELP without a held answer from the last 48 hours keeps the usual replies and opens no ticket", async () => {
+    const at = somewhere();
+    const verified = await claimed(at);
+    await capture(verified.token, at);
+    providers.vision.setVerdict({ answers_question: false });
+    const oldAt = somewhere();
+    const old = await claimed(oldAt);
+    await capture(old.token, oldAt);
+    const start = providers.clock.now();
+    providers.clock.advance(48 * 60 * 60 * 1000 + 1);
+    try {
+      for (const { w, task_id } of [verified, old]) {
+        await service.handleWorkerReply({ phone: w.phone, intent: "help", text: "HELP" });
+        expect(String(outbox.findLast((m) => m.to === w.phone)?.payload)).toMatch(
+          /^Eyes texts you paid tasks to check public places nearby\. .* Your earnings: /,
+        );
+        await service.handleWorkerReply({ phone: w.phone, intent: "unknown", text: "hello?" });
+        expect(outbox.findLast((m) => m.to === w.phone)?.payload).toBe(
+          "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
+        );
+        expect(await tickets(task_id)).toEqual([]);
+      }
+    } finally {
+      providers.clock.set(start);
     }
   });
 

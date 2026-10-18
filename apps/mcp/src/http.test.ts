@@ -425,15 +425,14 @@ describe("node adapter on a real socket", () => {
     const log = quiet();
 
     const statuses: number[] = [];
-    for (const path of [`/ops/${opsKey}`, `/ops/${opsKey}/feed`, `/ops/${opsKey}0/feed`]) {
-      statuses.push((await fetch(`${base}${path}`)).status);
+    for (const path of [`/ops/${opsKey}`, `/ops/${opsKey}0`]) {
+      statuses.push((await fetch(`${base}${path}`, { redirect: "manual" })).status);
     }
 
-    expect(statuses).toEqual([200, 200, 404]);
+    expect(statuses).toEqual([303, 404]);
     const lines = log.mock.calls.map((call) => String(call[0]));
     expect(lines).toEqual([
-      expect.stringMatching(/^GET <other> 200 \d+ms$/),
-      expect.stringMatching(/^GET <other> 200 \d+ms$/),
+      expect.stringMatching(/^GET <other> 303 \d+ms$/),
       expect.stringMatching(/^GET <other> 404 \d+ms$/),
     ]);
   });

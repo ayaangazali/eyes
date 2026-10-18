@@ -22,10 +22,12 @@ import {
   signToken,
   type Task,
   type TaskStatus,
+  type TaskType,
   TOOLS,
   usdToCents,
   verifyToken,
   type Worker,
+  WorkerLocationInput,
 } from "@eyes/core";
 import { createRpc, type RpcArgs } from "@eyes/db";
 import { z } from "zod";
@@ -60,6 +62,8 @@ type EarningsRow = {
   payouts_set_up: boolean;
   tasks: {
     task_id: string;
+    question: string;
+    task_type: TaskType;
     place_label: string;
     status: TaskStatus;
     bounty_cents: number;
@@ -76,12 +80,28 @@ const CAPTURE_MINUTES = 3;
 const POLL_MS = 1000;
 const WORKER_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 const PAYOUT_BATCH = 25;
+const HERE_LINK_MS = 30 * 60 * 1000;
+const PING_MAX = 5;
+const PING_WAIT_MS = 30_000;
+const PING_IN_INPUT = /Eyes ping ([0-9a-f]{8})/i;
 
 const ResolveInput = z.object({
   task_id: z.uuid(),
   decision: z.enum(["refund", "release"]),
   note: z.string().trim().min(1),
 });
+
+type Ticket = { id: number | string; worker_id: string; task_id: string };
+const ResolveTicketInput = z.object({
+  ticket_id: z.number().int().positive(),
+  outcome: z.enum(["release", "refund", "close"]),
+  note: z.string().trim().min(1),
+});
+const TICKET_OUTCOME: Record<z.output<typeof ResolveTicketInput>["outcome"], string> = {
+  release: "Your answer was approved and you are being paid.",
+  refund: "Your answer was not approved, so this task is not paid.",
+  close: "",
+};
 
 const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
   dispatched:
@@ -180,6 +200,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
     `${config.public_api_url}/w/earnings/${signToken(config.link_secret, `e:${workerId}`, new Date(now().getTime() + WORKER_LINK_MS))}`;
   const captureUrl = (task: Task, workerId: string) =>
     `${config.worker_web_url}/capture.html?t=${signToken(config.link_secret, `o:${task.id}:${workerId}`, new Date(task.deadline_at))}`;
+  const hereUrl = (workerId: string) =>
+    `${config.worker_web_url}/here.html?t=${signToken(config.link_secret, `l:${workerId}`, new Date(now().getTime() + HERE_LINK_MS))}`;
+  const maxAge = `${config.location_max_age_h} hours`;
 
   const newApiKey = () =>
     `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
@@ -187,7 +210,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const ownerUrl = (agentId: string) =>
     `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
 
-  function tokenPayload(token: string, kind: "t" | "c" | "o" | "p" | "e"): string | null {
+  function tokenPayload(token: string, kind: "t" | "c" | "o" | "p" | "e" | "l"): string | null {
     const payload = verifyToken(config.link_secret, token, now());
     return payload?.startsWith(`${kind}:`) ? payload.slice(kind.length + 1) : null;
   }
@@ -196,6 +219,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
     const agentId = tokenPayload(token, "p");
     if (!agentId) throw new EyesError("owner_link_invalid");
     return agentId;
+  }
+
+  // Names the failure for the log. The recipient and the control link stay out: error text can echo them.
+  function describeSendError(err: unknown): string {
+    if (!(err instanceof Error)) return "unknown";
+    const status = "status" in err && err.status !== undefined ? ` status ${String(err.status)}` : "";
+    return `${err.name}${status}: ${err.message.replace(/https?:\/\/\S+|\S+@\S+/g, "<redacted>").slice(0, 200)}`;
   }
 
   async function emailOwner(to: string, agentId: string, subject: string, intro: string): Promise<boolean> {
@@ -213,9 +243,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       });
       return true;
     } catch (err) {
-      console.error(
-        `owner email for agent ${agentId} failed: ${err instanceof Error ? err.name : "unknown"}`,
-      );
+      console.error(`owner email for agent ${agentId} failed: ${describeSendError(err)}`);
       return false;
     }
   }
@@ -233,7 +261,85 @@ export function createEyesService(deps: EngineDeps): EyesService {
       p_lng: place.lng,
       p_radius_m: config.dispatch_radius_m,
       p_limit: limit,
+      p_max_age: maxAge,
+      p_now: nowIso(),
     });
+
+  async function sendOffers(task: Task, workers: Nearby[]): Promise<number> {
+    const sent = await Promise.allSettled(
+      workers.map((w) =>
+        messaging.sendOffer(w.phone, {
+          task_id: task.id,
+          task_type: task.task_type,
+          question: task.question,
+          place_label: task.place_label,
+          bounty_cents: task.bounty_cents,
+          distance_m: Math.round(w.distance_m),
+          deadline_at: iso(task.deadline_at),
+          live_payouts: config.live_payouts,
+        }),
+      ),
+    );
+    logFailedOffers(task.id, sent);
+    return sent.filter((s) => s.status === "fulfilled").length;
+  }
+
+  // Too few fresh workers nearby: text the nearest stale ones a ping. Their Shortcut (Message
+  // automation on "Eyes ping") or a tap on the HERE link sends a fresh fix.
+  async function pingStale(place: LatLng, taskId: string | null): Promise<number> {
+    const stale = await rpc<Nearby>("eyes_ping_candidates", {
+      p_lat: place.lat,
+      p_lng: place.lng,
+      p_radius_m: config.dispatch_radius_m,
+      p_limit: PING_MAX,
+      p_max_age: maxAge,
+      p_now: nowIso(),
+    });
+    if (stale.length === 0) return 0;
+    const pings = stale.map((w) => ({
+      nonce: randomBytes(4).toString("hex"),
+      worker_id: w.worker_id,
+      task_id: taskId,
+    }));
+    await rpc("eyes_record_pings", { p_pings: pings, p_now: nowIso() });
+    const sent = await Promise.allSettled(
+      stale.map((w, i) =>
+        messaging.sendText(
+          w.phone,
+          `Eyes ping ${pings[i]?.nonce}: a paid task may be near you. Tap to update your spot: ${hereUrl(w.worker_id)}`,
+        ),
+      ),
+    );
+    for (const s of sent) if (s.status === "rejected") console.error(`ping failed: ${errorName(s.reason)}`);
+    return sent.filter((s) => s.status === "fulfilled").length;
+  }
+
+  async function offerMore(task: Task) {
+    const more = await rpc<Nearby>("eyes_offer_more", {
+      p_task_id: task.id,
+      p_radius_m: config.dispatch_radius_m,
+      p_limit: config.dispatch_max_workers,
+      p_max_age: maxAge,
+      p_now: nowIso(),
+    });
+    await sendOffers(task, more);
+  }
+
+  type Fix = { lat: number; lng: number; accuracy_m?: number; source: string; captured_at?: string };
+  function storeFix(workerId: string, fix: Fix, pingNonce: string | null) {
+    return one<"stored" | "rate_limited" | "not_found">("eyes_store_location", {
+      p_worker_id: workerId,
+      p_lat: fix.lat,
+      p_lng: fix.lng,
+      p_accuracy_m: fix.accuracy_m ?? null,
+      p_source: fix.source,
+      p_captured_at: fix.captured_at ?? null,
+      p_ping_nonce: pingNonce,
+      p_min_interval_s: config.location_min_interval_s,
+      p_daily_max: config.location_daily_max,
+      p_now: nowIso(),
+    });
+  }
 
   async function detail(agent: Agent, taskId: string): Promise<Detail> {
     const found = await maybe<Detail>("eyes_task_detail", { p_task_id: taskId });
@@ -426,7 +532,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const { location, task_type } = parse(TOOLS.quote_task.input, input);
       const place = await resolve(location);
       const verdict = await deps.assessTask({
-        question: `${task_type.replaceAll("_", " ")} at ${place.label}`,
+        question: "", // no question yet: rules only; ask_eyes runs the classifier on the real one
         task_type,
         place_label: place.label,
       });
@@ -502,6 +608,12 @@ export function createEyesService(deps: EngineDeps): EyesService {
         });
       }
       const workers = await nearby(place, config.dispatch_max_workers);
+      const ping = config.location_ping && workers.length < config.dispatch_max_workers;
+      const pinged = (taskId: string | null) =>
+        pingStale(place, taskId).catch((err) => {
+          console.error(`location pings failed: ${errorName(err)}`);
+          return 0;
+        });
       const posted = await one<Posted>("eyes_post_task", {
         p_agent_id: agent.id,
         p_question: ask.question,
@@ -526,28 +638,26 @@ export function createEyesService(deps: EngineDeps): EyesService {
               new EyesError("insufficient_balance", { balance_cents: s.balance_cents, needed_cents }),
               agent.id,
             );
+          // Pinged workers who answer are fresh for the agent's retry.
+          if (ping) await pinged(null);
         }
         throw agentFacing(err, agent.id);
       });
       const { task } = posted;
       let notified = posted.workers_notified;
       if (posted.created) {
-        const sent = await Promise.allSettled(
-          workers.map((w) =>
-            messaging.sendOffer(w.phone, {
-              task_id: task.id,
-              task_type: task.task_type,
-              question: task.question,
-              place_label: task.place_label,
-              bounty_cents: task.bounty_cents,
-              distance_m: Math.round(w.distance_m),
-              deadline_at: iso(task.deadline_at),
-              live_payouts: config.live_payouts,
-            }),
-          ),
-        );
-        notified = sent.filter((s) => s.status === "fulfilled").length;
-        logFailedOffers(task.id, sent);
+        notified = await sendOffers(task, workers);
+        if (ping && (await pinged(task.id)) > 0) {
+          // ponytail: in-process timer, so a restart in these 30 s loses the re-offer; persist due
+          // re-offers (a column on worker_pings) if that ever matters.
+          setTimeout(
+            () =>
+              offerMore(task).catch((err) =>
+                console.error(`re-offer for task ${task.id} failed: ${errorName(err)}`),
+              ),
+            PING_WAIT_MS,
+          ).unref();
+        }
       }
       return {
         task_id: task.id,
@@ -658,7 +768,10 @@ export function createEyesService(deps: EngineDeps): EyesService {
         throw new EyesError(
           "unauthorized",
           {},
-          { message: "This top-up link is invalid.", fix: "Call get_balance to get a fresh top_up_url." },
+          {
+            message: "This top-up link is invalid.",
+            fix: "Ask your AI agent for a new top-up link. It can get one from Eyes at any time.",
+          },
         );
       }
       const { url } = await payments.createTopupCheckout({
@@ -792,7 +905,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       for (const { task, worker } of await payoutsDue(account_id, null)) await payOut(task, worker);
     },
 
-    async handleWorkerReply({ phone, intent }) {
+    async handleWorkerReply({ phone, intent, text }) {
       const worker = await maybe<Worker>("eyes_worker", { p_worker_id: null, p_phone: phone });
       if (!worker) {
         if (intent === "stop") return;
@@ -806,9 +919,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const reply: Record<ReplyIntent, () => Promise<unknown>> = {
         start: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: true });
+          const fixAt = worker.lat === null ? 0 : Date.parse(worker.location_at ?? worker.created_at);
+          const stale = now().getTime() - fixAt > config.location_max_age_h * 3_600_000;
           await messaging.sendText(
             phone,
-            `You are in. Eyes will text you paid tasks nearby. ${config.live_payouts ? `Set up payouts here: ${connectUrl(worker.id)}` : SIMULATED_PAY}`,
+            `You are in. Eyes will text you paid tasks nearby. ${config.live_payouts ? `Set up payouts here: ${connectUrl(worker.id)}` : SIMULATED_PAY}${stale ? ` Tap to update your spot so we offer you tasks near where you are: ${hereUrl(worker.id)}` : ""}`,
           );
         },
         stop: async () => {
@@ -826,33 +941,62 @@ export function createEyesService(deps: EngineDeps): EyesService {
           });
           await messaging.sendText(phone, released ? REPLY_TEXT.released : REPLY_TEXT.no);
           if (!released) return;
-          const idle = await rpc<Worker>("eyes_reoffer", {
+          const idle = await rpc<Worker & LatLng>("eyes_reoffer", {
             p_task_id: released.id,
             p_released_by: worker.id,
             p_now: nowIso(),
+            p_max_age: maxAge,
           });
-          const sent = await Promise.allSettled(
-            idle.map((w) =>
-              messaging.sendOffer(w.phone, {
-                task_id: released.id,
-                task_type: released.task_type,
-                question: released.question,
-                place_label: released.place_label,
-                bounty_cents: released.bounty_cents,
-                distance_m: Math.round(distanceMeters(released, w)),
-                deadline_at: iso(released.deadline_at),
-                live_payouts: config.live_payouts,
-              }),
-            ),
+          await sendOffers(
+            released,
+            idle.map((w) => ({ worker_id: w.id, phone: w.phone, distance_m: distanceMeters(released, w) })),
           );
-          logFailedOffers(released.id, sent);
         },
-        help: () =>
+        here: () =>
           messaging.sendText(
             phone,
-            `${REPLY_TEXT.help}${simulatedPay} More: ${config.worker_web_url} Your earnings: ${earningsUrl(worker.id)}`,
+            `Eyes: tap to update your spot (the link works for 30 minutes): ${hereUrl(worker.id)}`,
           ),
-        unknown: () => messaging.sendText(phone, REPLY_TEXT.unknown),
+        location_share: () =>
+          messaging.sendText(
+            phone,
+            `Thanks! iMessage locations don't reach us, so tap this to update your spot: ${hereUrl(worker.id)}`,
+          ),
+        shortcut: async () => {
+          const code = randomBytes(32).toString("base64url");
+          // Adds a code (one per device); the 5 newest work. The RPC name is from when it replaced the one code.
+          await one("eyes_rotate_location_token", { p_worker_id: worker.id, p_token_hash: sha256(code) });
+          await messaging.sendText(
+            phone,
+            `Eyes: your location code is in the next text. Use one code per device; your earlier codes keep working (the 5 newest do). ${config.shortcut_url ? `Install the "Eyes on shift" Shortcut (${config.shortcut_url}) and paste the code when it asks.` : 'Paste it into the "Eyes on shift" Shortcut when it asks.'} Text STOP to delete your location and turn all codes off.`,
+          );
+          await messaging.sendText(phone, code);
+        },
+        help: async () => {
+          const ticket = await maybe<Ticket>("eyes_open_ticket", {
+            p_worker_id: worker.id,
+            p_message: text,
+            p_now: nowIso(),
+          });
+          await messaging.sendText(
+            phone,
+            ticket
+              ? `Eyes: ticket #${ticket.id} opened. Someone will check your answer by hand and text you the outcome. Reply here to add details.`
+              : `${REPLY_TEXT.help}${simulatedPay} More: ${config.worker_web_url} Your earnings: ${earningsUrl(worker.id)}`,
+          );
+        },
+        unknown: async () => {
+          const ticket = await maybe<Ticket>("eyes_append_ticket", {
+            p_worker_id: worker.id,
+            p_message: text,
+          });
+          await messaging.sendText(
+            phone,
+            ticket
+              ? `Eyes: added to ticket #${ticket.id}. We will text you the outcome.`
+              : REPLY_TEXT.unknown,
+          );
+        },
       };
       await reply[intent]();
     },
@@ -875,6 +1019,8 @@ export function createEyesService(deps: EngineDeps): EyesService {
         pending_usd: centsToUsd(e.pending_cents),
         tasks: e.tasks.map((t) => ({
           task_id: t.task_id,
+          question: t.question,
+          task_type: t.task_type,
           place_label: t.place_label,
           status: t.status,
           bounty_usd: centsToUsd(t.bounty_cents),
@@ -979,12 +1125,15 @@ export function createEyesService(deps: EngineDeps): EyesService {
         if (lost && photo_url && !faces) await dropPhoto();
         throw err;
       });
+      await storeFix(workerId, { ...capture, source: "capture" }, null).catch((err) =>
+        console.error(`location from capture for task ${task.id} failed: ${errorName(err)}`),
+      );
       const worker = await one<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null });
       const settled = await settle(submitted, worker);
       const amount = dollars(settled.bounty_cents);
       const message =
         settled.status === "needs_review"
-          ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). ${config.live_payouts ? "You will be paid once it is approved." : SIMULATED_PAY}`
+          ? `Thanks, we got it. Your answer needs a quick manual check (${v.vision_reason}). ${config.live_payouts ? "You will be paid once it is approved." : SIMULATED_PAY} To request a manual review, reply HELP to the Eyes text.`
           : !config.live_payouts
             ? `Verified. ${SIMULATED_PAY}`
             : settled.status === "paid"
@@ -1005,6 +1154,34 @@ export function createEyesService(deps: EngineDeps): EyesService {
         },
         message,
       };
+    },
+
+    async updateWorkerLocation(token, input) {
+      const fix = parse(WorkerLocationInput, input);
+      const workerId = token.includes(".")
+        ? tokenPayload(token, "l")
+        : (await maybe<Worker>("eyes_worker_by_location_token", { p_token_hash: sha256(token) }))?.id;
+      const outcome = workerId
+        ? await storeFix(workerId, fix, PING_IN_INPUT.exec(fix.input ?? "")?.[1]?.toLowerCase() ?? null)
+        : "not_found";
+      if (outcome === "not_found") {
+        throw new EyesError(
+          "unauthorized",
+          {},
+          {
+            message: "This location link or code is invalid or has expired.",
+            fix: "Text HERE to the Eyes number for a fresh link, or SHORTCUT for a new code.",
+          },
+        );
+      }
+      if (outcome === "rate_limited") {
+        const wait = config.location_min_interval_s;
+        throw new EyesError(
+          "rate_limited",
+          { retry_after_s: wait },
+          { fix: `Wait ${wait} seconds and send again.` },
+        );
+      }
     },
 
     async expireOverdue() {
@@ -1032,6 +1209,21 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const worker = await one<Worker>("eyes_worker", { p_worker_id: resolved.claimed_by, p_phone: null });
       const settled = await settle(resolved, worker);
       return { task_id: settled.id, status: settled.status };
+    },
+
+    async resolveTicket(input) {
+      const { ticket_id, outcome, note } = parse(ResolveTicketInput, input);
+      const ticket = await one<Ticket>("eyes_resolve_ticket", {
+        p_ticket_id: ticket_id,
+        p_note: note,
+        p_now: nowIso(),
+      });
+      const worker = await one<Worker>("eyes_worker", { p_worker_id: ticket.worker_id, p_phone: null });
+      const body = [`Eyes: ticket #${ticket.id} is resolved.`, TICKET_OUTCOME[outcome], `Note: ${note}`];
+      await textWorker(worker, ticket.task_id, () =>
+        messaging.sendText(worker.phone, body.filter(Boolean).join(" ")),
+      );
+      return { ticket_id: Number(ticket.id), task_id: ticket.task_id, status: "resolved" };
     },
   };
 }
