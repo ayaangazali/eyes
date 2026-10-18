@@ -116,7 +116,7 @@ describe.skipIf(!url)("answer acceptance on PostgreSQL over HTTP/MCP", () => {
 
   it("advertises authenticated model and app callable idempotent feedback", async () => {
     const tools = (await client.listTools()).tools;
-    expect(tools).toHaveLength(13);
+    expect(tools.filter((tool) => tool._meta?.["openai/visibility"] !== "private")).toHaveLength(13);
     const accept = tools.find((tool) => tool.name === "accept_answer");
     expect(accept).toMatchObject({
       annotations: {

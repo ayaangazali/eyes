@@ -258,6 +258,26 @@ export const AskEyesOutput = z.object({
   next_step: z.string(),
 });
 
+// MCP-only envelope. REST and programmatic core callers keep AskEyesOutput unchanged.
+export const AskEyesMcpOutput = z.object({
+  ...AskEyesInput.partial().shape,
+  ...QuoteTaskOutput.partial().shape,
+  status: z
+    .enum(["confirmation_required", "dispatched", "not_sent"])
+    .describe(
+      '"confirmation_required": read-only draft, nothing sent or charged. "dispatched": workers were texted and escrow held. "not_sent": nobody nearby, nothing created or charged.',
+    ),
+  task_id: AskEyesOutput.shape.task_id.optional(),
+  workers_notified: AskEyesOutput.shape.workers_notified.optional(),
+  escrowed_usd: AskEyesOutput.shape.escrowed_usd.optional(),
+  deadline_at: AskEyesOutput.shape.deadline_at.optional(),
+  next_step: AskEyesOutput.shape.next_step.optional(),
+  reason: z.literal("no_workers_nearby").optional(),
+  charged_usd: z.number().optional(),
+  message: z.string().optional(),
+  fix: z.string().optional(),
+});
+
 export const ReportClassifierInput = AskEyesInput.omit({ classifier_report_id: true }).extend({
   ask_idempotency_key: AskEyesInput.shape.idempotency_key.describe(
     "The original refused Ask key. The top-level idempotency_key is the separate per-card report key.",
@@ -309,6 +329,8 @@ export const RetryContext = z.object({
   location: z.object({ lat: z.number(), lng: z.number(), label: z.string() }),
   task_type: TaskType,
   bounty_usd: Usd,
+  deadline_minutes: AskEyesInput.shape.deadline_minutes.optional(),
+  require_photo: AskEyesInput.shape.require_photo.optional(),
 });
 
 export const GetTaskInput = z.object({ task_id: TaskId });

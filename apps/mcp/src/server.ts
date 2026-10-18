@@ -8,6 +8,7 @@ import { inkboxRoutes, primitiveRoutes } from "@eyes/comms";
 import {
   type Agent,
   AskEyesInput,
+  AskEyesMcpOutput as AskEyesToolOutput,
   AwaitAnswerInput,
   CancelTaskInput,
   CaptureFields,
@@ -75,25 +76,23 @@ const HOUR_MS = 60 * 60 * 1000;
 const PUBLIC_CALLS_PER_HOUR = 5;
 const LOGIN_CODES_PER_HOUR = 10;
 const THROTTLE_MAX_KEYS = 10_000;
-// ask_eyes over MCP: the REST result, or "not_sent" when no worker is nearby. One object (MCP tool
-// outputSchema roots must be type object), so the dispatched-only fields are optional.
-const dispatched = TOOLS.ask_eyes.output.shape;
-const AskEyesToolOutput = z.object({
-  status: z
-    .enum(["dispatched", "not_sent"])
-    .describe(
-      '"dispatched": workers were texted and the escrow is held. "not_sent": nobody nearby, nothing created or charged.',
-    ),
-  task_id: dispatched.task_id.optional(),
-  workers_notified: dispatched.workers_notified.optional(),
-  escrowed_usd: dispatched.escrowed_usd.optional(),
-  deadline_at: dispatched.deadline_at.optional(),
-  next_step: dispatched.next_step.optional(),
-  reason: z.literal("no_workers_nearby").optional(),
-  charged_usd: z.number().optional(),
-  message: z.string().optional(),
-  fix: z.string().optional(),
-});
+
+function interactive(ctx: {
+  client?: { supportsViews(): boolean; info(): { name?: string } };
+  req?: { header(name: string): string | undefined };
+}) {
+  // Negotiated Apps support first; legacy ChatGPT/Claude requests lack the capability envelope.
+  // These are presentation hints, not authentication. Non-UI automation keeps its paid API.
+  if (ctx.client?.supportsViews()) return true;
+  const name = ctx.client?.info().name?.toLowerCase();
+  const userAgent = ctx.req?.header("user-agent") ?? "";
+  return (
+    name === "chatgpt" ||
+    name === "openai-mcp" ||
+    name === "claude-user" ||
+    /^(?:openai-mcp|Claude-User)\/[\d.]+(?:\s|$)/i.test(userAgent)
+  );
+}
 const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
 const AGENT_CARD = "/.well-known/agent-card.json";
 const DOCS = {
@@ -291,7 +290,7 @@ function clientKey(forwardedFor: string | undefined) {
 }
 
 const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns their answer with a live photo. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call dispute_answer if it is wrong.
-Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. 3) Call await_answer immediately with the task_id and keep calling it until answered is true or the status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer.
+Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. In ChatGPT, Claude and MCP Apps this only prepares a read-only draft: the user must press Ask in the card to confirm and pay. Never submit another paid request after the card posts; use its task_id. Programmatic non-UI clients may dispatch with ask_eyes directly. 3) After a task is dispatched, call await_answer with its task_id until answered is true or the status is expired, refunded or disputed.
 Money: the bounty plus a 0.50 USD fee is escrowed from your balance when you ask, paid to the worker only after the answer is verified, and refunded in full if nobody answers before the deadline or you cancel before a worker claims it. An answer that fails a verification check (status needs_review) keeps the escrow held until a human review pays the worker or refunds you.
 Final statuses: expired: nobody answered before the deadline; your escrow was refunded. refunded: you cancelled; your escrow was refunded. disputed: your dispute is under human review.
 Only public, commercial or civic places; never private people, homes or vehicles.
@@ -531,6 +530,22 @@ export function createServer(
   server.use("/mcp", auth);
   server.use("/v1/*", auth);
 
+  const dispatch = (agent: Agent, input: z.output<typeof AskEyesInput>) =>
+    run(async (): Promise<z.output<typeof AskEyesToolOutput>> => {
+      try {
+        return await service.askEyes(agent, input);
+      } catch (err) {
+        if (!(err instanceof EyesError && err.code === "no_workers_nearby")) throw err;
+        return {
+          status: "not_sent",
+          reason: "no_workers_nearby",
+          charged_usd: 0,
+          message: err.message,
+          fix: err.fix,
+        };
+      }
+    });
+
   server.tool(
     {
       name: "quote_task",
@@ -541,7 +556,7 @@ Returns workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, re
 suggested_bounty_usd already fits this API key's max_bounty_usd, the daily cap left and your balance, so ask_eyes accepts it. allowed is false only when you cannot post this task right now: the safety rules refuse this task_type at this place, the task_type is not allowed for this key, or even the 1 USD minimum bounty plus the 0.50 USD fee does not fit your limits or balance; reason_if_not says what to do. quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task.
 location is the public place to check: {lat, lng} or a string such as "Blue Bottle Coffee, Mint Plaza, San Francisco", never your user's location. task_type is one of: is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public.
 Example: quote_task({ "location": "Ferry Building, San Francisco", "task_type": "line_length" })
-Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`),
+Next: in ChatGPT, Claude or MCP Apps, show the card and let the user review and confirm; neither quoting nor preparing a draft sends a task. Non-UI automation may call ask_eyes with the same location, task_type and suggested_bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`),
       inputSchema: TOOLS.quote_task.input,
       outputSchema: TOOLS.quote_task.output,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
@@ -560,30 +575,46 @@ Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance 
 Only public, commercial or civic places (stores, cafes, parks, transit stops, venues), never your user's location. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
 idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
-If no worker is near the place right now, nothing is created or charged: the result has status "not_sent", reason "no_workers_nearby", charged_usd 0, message and fix, and no task_id.
-Next: if status is "dispatched", immediately call await_answer with the returned task_id and keep calling it until answered is true. If status is "not_sent", tell your user nobody is nearby and follow fix (a busier place, or later).`),
+In ChatGPT, Claude and MCP Apps, this returns status "confirmation_required" and a read-only quote with the request's idempotency_key. Nothing is sent or charged until the user confirms in the card. Keep that intent key; never follow a successful card confirmation with another paid ask.
+For non-UI automation, this dispatches directly. If no worker is nearby, nothing is created or charged: status "not_sent", reason "no_workers_nearby", charged_usd 0, message and fix, and no task_id.
+Next: only if status is "dispatched", call await_answer with the returned task_id. For "confirmation_required", wait for the card confirmation. For "not_sent", show the explanation.`),
       inputSchema: TOOLS.ask_eyes.input,
       outputSchema: AskEyesToolOutput,
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
       _meta: widgetToolMeta("Texting nearby workers", "Task posted"),
     },
-    // MCP only: no workers nearby is an answer, not a tool failure (nothing created or charged), so
-    // hosts do not show "Failed". REST /v1/tasks keeps the 409 error.
-    (input, ctx) =>
-      run(async (): Promise<z.output<typeof AskEyesToolOutput>> => {
-        try {
-          return await service.askEyes(ctx.get("agent"), input);
-        } catch (err) {
-          if (!(err instanceof EyesError && err.code === "no_workers_nearby")) throw err;
-          return {
-            status: "not_sent",
-            reason: "no_workers_nearby",
-            charged_usd: 0,
-            message: err.message,
-            fix: err.fix,
-          };
-        }
-      }),
+    (input, ctx) => {
+      if (!interactive(ctx)) return dispatch(ctx.get("agent"), input);
+      return run(
+        async (): Promise<z.output<typeof AskEyesToolOutput>> => ({
+          ...input,
+          ...(await service.quoteTask(ctx.get("agent"), {
+            location: input.location,
+            task_type: input.task_type,
+          })),
+          status: "confirmation_required",
+          next_step: "Review the card and press Ask to confirm and pay. Nothing has been created or charged.",
+        }),
+      );
+    },
+  );
+
+  server.tool(
+    {
+      name: "confirm_ask",
+      title: "Confirm and send this task",
+      description:
+        "App-only: dispatch the request explicitly confirmed in the Eyes card. Reuse its idempotency_key and exact parameters for retries; a new explicit Ask Again uses a new key. Next: use the returned task_id with await_answer; never create another paid request for this intent.",
+      visibility: "app",
+      inputSchema: TOOLS.ask_eyes.input,
+      outputSchema: AskEyesToolOutput,
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+      _meta: {
+        ...widgetToolMeta("Texting nearby workers", "Task posted"),
+        "openai/visibility": "private",
+      },
+    },
+    (input, ctx) => dispatch(ctx.get("agent"), input),
   );
 
   server.tool(
@@ -832,16 +863,31 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   // mcp-use strips `_meta.ui` from tools that have no mcp-use `view` (a React build), so put the
   // MCP Apps link back on the tools that carry the ChatGPT template, and let the card's buttons call
   // WIDGET_CALLABLE (ChatGPT: openai/widgetAccessible; MCP Apps: ui.visibility includes "app").
-  server.use("mcp:tools/list", async (_ctx, next) =>
-    (await next()).map((tool) => {
+  server.use("mcp:tools/list", async (ctx, next) =>
+    (await next()).map((listed) => {
+      const tool =
+        listed.name === "ask_eyes" && interactive(ctx)
+          ? {
+              ...listed,
+              title: "Prepare a task for confirmation",
+              description:
+                "Prepare a read-only Eyes card with the question, place, price and intent key. No task, payment or worker notification occurs. The user must press Ask in the card to confirm; never dispatch a second task after that confirmation.",
+              annotations: {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: true,
+              },
+            }
+          : listed;
       const card = tool._meta?.["openai/outputTemplate"] === WIDGET_URI;
       const callable =
         WIDGET_CALLABLE.includes(tool.name) ||
-        ["report_classifier", "get_classifier_report"].includes(tool.name);
+        ["confirm_ask", "report_classifier", "get_classifier_report"].includes(tool.name);
       if (!card && !callable) return tool;
       const ui = {
         ...(card && { resourceUri: WIDGET_URI }),
-        ...(callable && { visibility: ["model", "app"] }),
+        ...(callable && { visibility: tool.name === "confirm_ask" ? ["app"] : ["model", "app"] }),
       };
       return {
         ...tool,

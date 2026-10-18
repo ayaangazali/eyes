@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import {
+  AskEyesMcpOutput,
   ERRORS,
   FAKE_PLACES,
   HTTP_ROUTES,
@@ -193,7 +194,7 @@ const OPS: Record<Documented, Op> = {
     id: "mcp",
     tag: "agent",
     summary: "MCP endpoint",
-    description: `MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: ${[...Object.keys(TOOLS), "show_task"].join(", ")} (schemas in /llms-full.txt).`,
+    description: `MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Model tools: ${[...Object.keys(TOOLS), "show_task"].join(", ")}. Additional app-only action: confirm_ask. Interactive ask_eyes prepares a read-only confirmation draft; REST and non-UI ask_eyes dispatch directly (schemas in /llms-full.txt).`,
     auth: true,
     body: { type: "object", description: "An MCP JSON-RPC 2.0 message." },
     response: { type: "object", description: "An MCP JSON-RPC 2.0 response, as JSON or text/event-stream." },
@@ -337,7 +338,7 @@ function llmsFull(llms: string): string {
     "",
     "## Tools",
     "",
-    "Each tool is available over MCP (POST /mcp) and over REST. Over REST, task_id goes in the path and the other input fields go in the JSON body, or in the query string on GET routes.",
+    "These 13 model-visible tools include show_task (the get_task card). The tools below have REST counterparts; task_id goes in the path and other fields in the JSON body or GET query. Interactive MCP ask_eyes returns a read-only confirmation draft instead of posting. REST and non-UI MCP ask_eyes retain direct dispatch. The additional confirm_ask action is app-only, not a model tool or REST endpoint.",
   ];
   for (const [route, op] of tools) {
     const name = op.id as ToolName;
@@ -353,9 +354,25 @@ function llmsFull(llms: string): string {
       "",
       ...jsonBlock("Input", schema(TOOLS[name].input, "input")),
       ...jsonBlock("Output", schema(TOOLS[name].output)),
+      ...(name === "ask_eyes"
+        ? [
+            "",
+            "Interactive MCP output (status confirmation_required; no task, escrow or messages). The card confirms the same intent with confirm_ask. Never follow its success with a new paid ask.",
+            ...jsonBlock("Interactive MCP output", schema(AskEyesMcpOutput)),
+          ]
+        : []),
     );
   }
   out.push(
+    "",
+    "## App-only confirmation",
+    "",
+    "confirm_ask accepts the same input as ask_eyes and returns the MCP dispatch result below. The card calls it only after an explicit user click. Native MCP Apps visibility is app-only and OpenAI visibility is private. Conforming hosts hide this action from the model. This is a host boundary, not cryptographic proof of a human click; clients that ignore visibility are not covered. Authentication, ownership, spending limits, safety checks and atomic idempotency are unchanged.",
+    "",
+    "The card retains one idempotency_key and frozen submitted parameters for retries, including after a timeout. An intentional Ask Again gets a new key and a fresh confirmation. Identical questions are not globally deduplicated.",
+    "",
+    ...jsonBlock("Input", schema(TOOLS.ask_eyes.input, "input")),
+    ...jsonBlock("Output", schema(AskEyesMcpOutput)),
     "",
     "## Errors",
     "",

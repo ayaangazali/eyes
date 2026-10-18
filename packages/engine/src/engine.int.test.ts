@@ -2092,6 +2092,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
         location: { ...at, label: before.place_label },
         task_type: before.task_type,
         bounty_usd: before.bounty_usd,
+        deadline_minutes: 30,
+        require_photo: true,
       });
       expect((await service.getTask(a, { task_id })).retry_context).toEqual(disputed.retry_context);
       expect(await service.disputeAnswer(a, { task_id, reason: "The same report again." })).toEqual(disputed);

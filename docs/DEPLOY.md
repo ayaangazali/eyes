@@ -17,7 +17,9 @@ Cloudflare's `eyes-api` Worker forwards `mcp.eyes.pictures`, `api.eyes.pictures`
 
 ### Dedicated MCP domain: live
 
-`https://mcp.eyes.pictures/mcp` is **live, with ChatGPT and Claude configured there**. The current registry has 13 tools, including `show_task`, `accept_answer`, `report_classifier` and `get_classifier_report`. The shared card resource is `ui://eyes/card.html`; the legacy React-view build is removed. Not every third-party connector has migrated; existing API-host and gateway configurations remain supported.
+`https://mcp.eyes.pictures/mcp` is **live, with ChatGPT and Claude configured there**. The current registry has 13 model-visible tools plus app-only `confirm_ask`. The shared card resource is `ui://eyes/confirmation-card.html`; the legacy React-view build is removed. Not every third-party connector has migrated; existing API-host and gateway configurations remain supported.
+
+The explicit-confirmation tool contract uses a new resource URI. After publishing, refresh/rescan tool metadata in the existing app draft and reconnect clients if needed, then open a new quote. Old rendered cards are not retroactively updated; their interactive `ask_eyes` calls remain read-only. Reuse existing reviewer credentials; do not rotate keys for this cutover.
 
 The verified deployment sets optional `EYES_PUBLIC_MCP_URL=https://mcp.eyes.pictures/mcp`; keep `EYES_PUBLIC_API_URL=https://api.eyes.pictures`. It separates MCP/OAuth/card metadata from REST URLs. The normalized, trusted edge host selects the matching metadata: existing API-host connectors retain their API issuer and card origins. Provisioning and deployment belong to the domain owner, not this documentation change.
 

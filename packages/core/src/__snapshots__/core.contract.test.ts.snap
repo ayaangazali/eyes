@@ -426,6 +426,13 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             "bounty_usd": {
               "type": "number",
             },
+            "deadline_minutes": {
+              "default": 30,
+              "description": "Minutes until the task expires and the escrow is refunded.",
+              "maximum": 240,
+              "minimum": 5,
+              "type": "integer",
+            },
             "location": {
               "additionalProperties": false,
               "properties": {
@@ -448,6 +455,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             },
             "question": {
               "type": "string",
+            },
+            "require_photo": {
+              "default": true,
+              "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+              "type": "boolean",
             },
             "task_type": {
               "enum": [
@@ -820,6 +832,13 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             "bounty_usd": {
               "type": "number",
             },
+            "deadline_minutes": {
+              "default": 30,
+              "description": "Minutes until the task expires and the escrow is refunded.",
+              "maximum": 240,
+              "minimum": 5,
+              "type": "integer",
+            },
             "location": {
               "additionalProperties": false,
               "properties": {
@@ -842,6 +861,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             },
             "question": {
               "type": "string",
+            },
+            "require_photo": {
+              "default": true,
+              "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+              "type": "boolean",
             },
             "task_type": {
               "enum": [

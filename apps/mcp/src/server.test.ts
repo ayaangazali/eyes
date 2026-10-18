@@ -32,6 +32,7 @@ import { createEventLog, type EventLog, OPS_PAGE } from "@eyes/web-dashboard";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer, SMOKE_UA } from "./server.ts";
+import { WIDGET_URI } from "./widget.ts";
 
 const KEY = "eyes_test_key";
 const SECRET = "x".repeat(32);
@@ -955,7 +956,8 @@ describe("MCP tools", () => {
   it("lists every tool with boolean behavior hints and the read-only and idempotent values", async () => {
     const client = await connect(setup().fetch);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual([...Object.keys(TOOLS), "show_task"].sort());
+    const modelTools = tools.filter((tool) => tool._meta?.["openai/visibility"] !== "private");
+    expect(modelTools.map((t) => t.name).sort()).toEqual([...Object.keys(TOOLS), "show_task"].sort());
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
     for (const name of [
       "quote_task",
@@ -999,7 +1001,7 @@ describe("MCP tools", () => {
     expect(show.structuredContent).toEqual(PAID_TASK);
     expect(show).toEqual(await client.callTool({ name: "get_task", arguments: { task_id: TASK_ID } }));
     const { resources } = await client.listResources();
-    expect(resources.map((resource) => resource.uri)).toEqual(["ui://eyes/card.html"]);
+    expect(resources.map((resource) => resource.uri)).toEqual([WIDGET_URI]);
   });
 
   it("turns an EyesError into isError with the catalog body and fix", async () => {
@@ -1916,7 +1918,15 @@ describe("ops dashboard", () => {
 });
 
 describe("ChatGPT and Claude widget", () => {
-  const WIDGET_TOOLS = ["quote_task", "ask_eyes", "await_answer", "get_task", "show_task", "get_balance"];
+  const WIDGET_TOOLS = [
+    "quote_task",
+    "ask_eyes",
+    "confirm_ask",
+    "await_answer",
+    "get_task",
+    "show_task",
+    "get_balance",
+  ];
 
   it("binds every card tool to the current resource in both MCP Apps and ChatGPT metadata", async () => {
     const client = await connect(setup().fetch);
@@ -1925,8 +1935,8 @@ describe("ChatGPT and Claude widget", () => {
       const meta = tool._meta as Record<string, unknown> | undefined;
       if (WIDGET_TOOLS.includes(tool.name)) {
         expect(meta, tool.name).toMatchObject({
-          ui: { resourceUri: "ui://eyes/card.html" },
-          "openai/outputTemplate": "ui://eyes/card.html",
+          ui: { resourceUri: WIDGET_URI },
+          "openai/outputTemplate": WIDGET_URI,
         });
       } else {
         expect((meta?.ui as { resourceUri?: string } | undefined)?.resourceUri, tool.name).toBeUndefined();
@@ -1939,7 +1949,7 @@ describe("ChatGPT and Claude widget", () => {
     const { tools } = await client.listTools();
     const callable = [
       "quote_task",
-      "ask_eyes",
+      "confirm_ask",
       "get_task",
       "await_answer",
       "cancel_task",
@@ -1953,7 +1963,7 @@ describe("ChatGPT and Claude widget", () => {
       const meta = tool._meta as Record<string, unknown> | undefined;
       if (callable.includes(tool.name)) {
         expect(meta, tool.name).toMatchObject({
-          ui: { visibility: ["model", "app"] },
+          ui: { visibility: tool.name === "confirm_ask" ? ["app"] : ["model", "app"] },
           "openai/widgetAccessible": true,
         });
       } else {
@@ -1964,7 +1974,7 @@ describe("ChatGPT and Claude widget", () => {
 
   it("serves the card as an MCP Apps resource with the photo hosts in its CSP", async () => {
     const client = await connect(setup().fetch);
-    const { contents } = await client.readResource({ uri: "ui://eyes/card.html" });
+    const { contents } = await client.readResource({ uri: WIDGET_URI });
     const [card] = contents as unknown as {
       mimeType: string;
       text: string;
@@ -2011,10 +2021,10 @@ describe("Claude sandbox domain", () => {
       }),
     );
     const { resources } = await client.listResources();
-    expect(resources.find((resource) => resource.uri === "ui://eyes/card.html")?._meta).toMatchObject({
+    expect(resources.find((resource) => resource.uri === WIDGET_URI)?._meta).toMatchObject({
       "openai/widgetDomain": origin === "http://eyes.test" ? "http://api.eyes.test" : origin,
     });
-    const { contents } = await client.readResource({ uri: "ui://eyes/card.html" });
+    const { contents } = await client.readResource({ uri: WIDGET_URI });
     return (contents[0] as unknown as { _meta: { ui: { domain?: string }; "openai/widgetDomain": string } })
       ._meta;
   };
@@ -2184,7 +2194,10 @@ describe("OAuth for connectors", () => {
           requestInit: { headers: { authorization: `Bearer ${access_token}` } },
         }),
       );
-      expect((await client.listTools()).tools.length).toBe(Object.keys(TOOLS).length + 1);
+      const tools = (await client.listTools()).tools;
+      expect(tools.filter((tool) => tool._meta?.["openai/visibility"] !== "private")).toHaveLength(
+        Object.keys(TOOLS).length + 1,
+      );
       const quote = await client.callTool({
         name: "quote_task",
         arguments: { location: "Blue Bottle Coffee, Mint Plaza, San Francisco", task_type: "line_length" },

@@ -31,7 +31,7 @@
         "operationId": "mcp",
         "tags": ["agent"],
         "summary": "MCP endpoint",
-        "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, report_classifier, get_classifier_report, await_answer, get_task, list_tasks, cancel_task, accept_answer, dispute_answer, get_balance, get_spend_policy, show_task (schemas in /llms-full.txt).",
+        "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Model tools: quote_task, ask_eyes, report_classifier, get_classifier_report, await_answer, get_task, list_tasks, cancel_task, accept_answer, dispute_answer, get_balance, get_spend_policy, show_task. Additional app-only action: confirm_ask. Interactive ask_eyes prepares a read-only confirmation draft; REST and non-UI ask_eyes dispatch directly (schemas in /llms-full.txt).",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1113,6 +1113,18 @@
                         },
                         "bounty_usd": {
                           "type": "number"
+                        },
+                        "deadline_minutes": {
+                          "default": 30,
+                          "description": "Minutes until the task expires and the escrow is refunded.",
+                          "type": "integer",
+                          "minimum": 5,
+                          "maximum": 240
+                        },
+                        "require_photo": {
+                          "default": true,
+                          "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+                          "type": "boolean"
                         }
                       },
                       "required": ["question", "location", "task_type", "bounty_usd"],
@@ -1533,6 +1545,18 @@
                         },
                         "bounty_usd": {
                           "type": "number"
+                        },
+                        "deadline_minutes": {
+                          "default": 30,
+                          "description": "Minutes until the task expires and the escrow is refunded.",
+                          "type": "integer",
+                          "minimum": 5,
+                          "maximum": 240
+                        },
+                        "require_photo": {
+                          "default": true,
+                          "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+                          "type": "boolean"
                         }
                       },
                       "required": ["question", "location", "task_type", "bounty_usd"],
