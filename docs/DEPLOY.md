@@ -53,10 +53,11 @@ Ops and ClickHouse settings (any host):
 6. Record each result in STATUS.md "Live verification" with the time and what was seen.
 
 ## Ad hoc releases (iPhone app)
-- `i098/eyes-ios-release` (public) runs `pnpm adhoc:release` from `ayaangazali/eyes` on a GitHub macOS runner: every 5 minutes a Linux job counts `worker_devices` rows with `released_at` null and starts the build only when there are any. It registers the UDIDs with Apple, builds, uploads `Eyes.ipa` and `manifest.plist` to the `apps` bucket and texts the workers.
-- Secrets there: `RELEASE_ENV` (InsForge, Inkbox, App Store Connect key and issuer ids), `ASC_P8`, `DIST_P12` + `P12_PASSWORD` (Apple Distribution certificate). Rotate `RELEASE_ENV` whenever those `.env` values change.
+- `i098/eyes-ios-release` (public) runs `pnpm adhoc:release` from `ayaangazali/eyes` on a GitHub macOS runner. It registers the UDIDs with Apple, builds, uploads `Eyes.ipa` and `manifest.plist` to the `apps` bucket and texts the workers.
+- Trigger: GitHub never started the workflow's 5-minute schedule, so the `eyes-monitor` Worker (see Alerts) starts it. Each minute it counts `worker_devices` rows with `released_at` null; when there are any, no release run is queued or running, and it has not dispatched in the last 10 minutes, it sends `repository_dispatch` (`device-registered`). Worker secrets: `RELEASE_DISPATCH_TOKEN` (fine-grained, i098, Contents read and write on that repo only, expires 2027-10-18) and `INSFORGE_API_KEY`; without the token it skips this.
+- Release repo secrets: `RELEASE_ENV` (InsForge, Inkbox, App Store Connect key and issuer ids), `ASC_P8`, `DIST_P12` + `P12_PASSWORD` (Apple Distribution certificate). Rotate `RELEASE_ENV` whenever those `.env` values change.
 - Test without side effects: `gh workflow run release.yml -R i098/eyes-ios-release -f dry_run=true`, or set the repo variable `DRY_RUN=true` so scheduled runs are dry runs too; delete it afterwards (`gh variable delete DRY_RUN -R i098/eyes-ios-release`).
-- Optional: `EYES_RELEASE_DISPATCH_TOKEN` (fine-grained, Contents read and write on that repo only) as an API secret starts a run right after a device registers.
+- The API's own dispatch (`EYES_RELEASE_DISPATCH_TOKEN` as an API secret) is optional and unset; the monitor covers it within a minute.
 
 ## Manufact redeploy notes (old host, not in use since T6.11; learned 2026-10-17)
 

@@ -8,6 +8,7 @@
   "kv_namespaces": [{ "binding": "EYES_MONITOR", "id": "dd0114db8cb24d46be6d69b54385d638" }],
   "vars": {
     "HEALTH_URL": "https://api.eyes.pictures/healthz",
-    "SUBJECT_PREFIX": ""
+    "SUBJECT_PREFIX": "",
+    "INSFORGE_BASE_URL": "https://pagp38bu.us-west.insforge.app"
   }
 }

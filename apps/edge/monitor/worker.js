@@ -11,9 +11,56 @@ const UA = "eyes-monitor/1.0";
 
 export default {
   async scheduled(_event, env) {
-    await check(env);
+    // The release trigger must not stop the uptime check (or its retry), so its errors only log.
+    await Promise.all([
+      check(env),
+      release(env).catch((err) => console.log(`release trigger: ${err.message}`)),
+    ]);
   },
 };
+
+// Ad hoc iPhone releases (T6.31): GitHub's scheduler on i098/eyes-ios-release is unreliable, so each minute
+// count unreleased worker iPhones and, when some wait and no release run is active, start one.
+// At most one dispatch per RELEASE_EVERY_MS so a failing build is not restarted every minute.
+const RELEASE_REPO = "i098/eyes-ios-release";
+const RELEASE_EVERY_MS = 10 * 60_000;
+
+async function release(env) {
+  if (!env.RELEASE_DISPATCH_TOKEN) return;
+  const db = await fetch(
+    `${env.INSFORGE_BASE_URL.replace(/\/+$/, "")}/api/database/records/worker_devices?select=udid&released_at=is.null`,
+    {
+      headers: { Authorization: `Bearer ${env.INSFORGE_API_KEY}` },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    },
+  );
+  if (!db.ok) throw new Error(`InsForge HTTP ${db.status}`);
+  const pending = (await db.json()).length;
+  if (pending === 0) return;
+  const last = (await env.EYES_MONITOR.get("release", "json"))?.at ?? 0;
+  if (Date.now() - last < RELEASE_EVERY_MS) return;
+  const gh = (path, init = {}) =>
+    fetch(`https://api.github.com/repos/${RELEASE_REPO}${path}`, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${env.RELEASE_DISPATCH_TOKEN}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": UA,
+        ...(init.body ? { "content-type": "application/json" } : {}),
+      },
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    });
+  const runs = await gh("/actions/runs?per_page=10");
+  if (!runs.ok) throw new Error(`GitHub runs HTTP ${runs.status}`);
+  if ((await runs.json()).workflow_runs.some((r) => r.status !== "completed")) return;
+  const res = await gh("/dispatches", {
+    method: "POST",
+    body: JSON.stringify({ event_type: "device-registered" }),
+  });
+  if (!res.ok) throw new Error(`GitHub dispatch HTTP ${res.status}`);
+  await env.EYES_MONITOR.put("release", JSON.stringify({ at: Date.now() }));
+  console.log(`release started: ${pending} iPhone(s) waiting`);
+}
 
 async function check(env) {
   const prev = (await env.EYES_MONITOR.get("state", "json")) ?? { fails: 0, down: false, since: 0 };

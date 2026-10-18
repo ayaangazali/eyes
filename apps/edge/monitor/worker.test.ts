@@ -298,3 +298,99 @@ describe("send response fallbacks", () => {
     expect(kv.put).not.toHaveBeenCalled();
   });
 });
+
+describe("release trigger", () => {
+  const DB = "https://db.test";
+  const GH = "https://api.github.com/repos/i098/eyes-ios-release";
+  const releaseEnv = (kv: Kv) =>
+    fakeEnv(kv, {
+      RELEASE_DISPATCH_TOKEN: "gh-test",
+      INSFORGE_BASE_URL: `${DB}/`,
+      INSFORGE_API_KEY: "db-key",
+    });
+
+  function routeRelease(opts: {
+    pending?: number;
+    dbStatus?: number;
+    runs?: string[];
+    runsStatus?: number;
+    dispatchStatus?: number;
+  }) {
+    const calls: Call[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url === HEALTH_URL) return healthy();
+        if (url.startsWith(`${DB}/api/database/records/worker_devices?`))
+          return json(
+            Array.from({ length: opts.pending ?? 0 }, (_, i) => ({ udid: `u${i}` })),
+            opts.dbStatus ?? 200,
+          );
+        if (url.startsWith(`${GH}/actions/runs`))
+          return json(
+            { workflow_runs: (opts.runs ?? []).map((status) => ({ status })) },
+            opts.runsStatus ?? 200,
+          );
+        if (url === `${GH}/dispatches`) return new Response(null, { status: opts.dispatchStatus ?? 204 });
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+    return calls;
+  }
+  const dispatched = (calls: Call[]) => calls.filter((c) => c.url.endsWith("/dispatches"));
+
+  it("without a token it never asks the database or GitHub", async () => {
+    const calls = routeFetch(healthy);
+    await worker.scheduled({}, fakeEnv(fakeKv()));
+    expect(calls.map((c) => c.url)).toEqual([HEALTH_URL]);
+  });
+
+  it("no unreleased iPhones: no GitHub call", async () => {
+    const calls = routeRelease({ pending: 0 });
+    await worker.scheduled({}, releaseEnv(fakeKv()));
+    expect(calls.some((c) => c.url.startsWith(GH))).toBe(false);
+    expect(calls.find((c) => c.url.startsWith(DB))?.url).toBe(
+      `${DB}/api/database/records/worker_devices?select=udid&released_at=is.null`,
+    );
+  });
+
+  it("an iPhone waits and no run is active: one device-registered dispatch, remembered in KV", async () => {
+    const kv = fakeKv();
+    const calls = routeRelease({ pending: 2, runs: ["completed"] });
+    await worker.scheduled({}, releaseEnv(kv));
+    const [d] = dispatched(calls);
+    expect(JSON.parse(String(d?.init?.body))).toEqual({ event_type: "device-registered" });
+    expect(new Headers(d?.init?.headers).get("authorization")).toBe("Bearer gh-test");
+    expect(JSON.parse(kv.store.get("release") ?? "{}").at).toBeGreaterThan(0);
+  });
+
+  it.each([["in_progress"], ["queued"]])("a %s run means no new dispatch", async (status) => {
+    const calls = routeRelease({ pending: 1, runs: ["completed", status] });
+    await worker.scheduled({}, releaseEnv(fakeKv()));
+    expect(dispatched(calls)).toHaveLength(0);
+  });
+
+  it("a dispatch in the last 10 minutes means no new one", async () => {
+    const kv = fakeKv();
+    kv.store.set("release", JSON.stringify({ at: Date.now() - 5 * MIN }));
+    const calls = routeRelease({ pending: 1 });
+    await worker.scheduled({}, releaseEnv(kv));
+    expect(calls.some((c) => c.url.startsWith(GH))).toBe(false);
+  });
+
+  it.each([
+    ["InsForge HTTP 500", { pending: 1, dbStatus: 500 }],
+    ["GitHub runs HTTP 401", { pending: 1, runsStatus: 401 }],
+    ["GitHub dispatch HTTP 403", { pending: 1, dispatchStatus: 403 }],
+  ])("%s only logs; the uptime check still runs and no dispatch is remembered", async (msg, opts) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const kv = fakeKv();
+    routeRelease(opts);
+    await worker.scheduled({}, releaseEnv(kv));
+    expect(log).toHaveBeenCalledWith(`release trigger: ${msg}`);
+    expect(kv.store.has("release")).toBe(false);
+    expect(stored(kv)).toEqual({ fails: 0, down: false, since: 0 });
+  });
+});
