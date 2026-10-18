@@ -252,6 +252,7 @@ describe("worker location", () => {
     [{ ...ok, accuracy_m: "12,5" }, { accuracy_m: 12.5 }],
     [{ ...ok, accuracy_m: "far", input: 7, captured_at: "yesterday" }, { accuracy_m: undefined }],
     [{ ...ok, input: "Eyes ping 0a1b2c3d" }, { input: "Eyes ping 0a1b2c3d" }],
+    [{ ...ok, source: "app" }, { source: "app" }],
   ])("accepts %j", (body, expected) => {
     expect(WorkerLocationInput.parse(body)).toMatchObject(expected);
   });

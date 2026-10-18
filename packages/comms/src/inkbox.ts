@@ -118,6 +118,8 @@ const INTENTS: Record<string, ReplyIntent> = {
   "im here": "here",
   "i am here": "here",
   shortcut: "shortcut",
+  auto: "shortcut",
+  automation: "shortcut",
 };
 
 export function parseReplyIntent(text: string): ReplyIntent {

@@ -39,7 +39,6 @@ const parsed = AppConfig.safeParse({
   dispatch_radius_m: env.EYES_DISPATCH_RADIUS_M ? Number(env.EYES_DISPATCH_RADIUS_M) : undefined,
   location_max_age_h: env.EYES_LOCATION_MAX_AGE_H ? Number(env.EYES_LOCATION_MAX_AGE_H) : undefined,
   location_ping: env.EYES_LOCATION_PING ? env.EYES_LOCATION_PING === "true" : undefined,
-  shortcut_url: env.EYES_SHORTCUT_URL || undefined,
   location_min_interval_s: env.EYES_LOCATION_MIN_INTERVAL_S
     ? Number(env.EYES_LOCATION_MIN_INTERVAL_S)
     : undefined,

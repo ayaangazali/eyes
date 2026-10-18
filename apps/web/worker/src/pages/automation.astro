@@ -1,0 +1,103 @@
+---
+import Icon from "../components/Icon.astro";
+import Layout from "../layouts/Layout.astro";
+
+const url = "https://api.eyes.pictures/w/location";
+---
+
+<Layout
+  title="Send my spot automatically"
+  ogTitle="Eyes: send your spot automatically"
+  description="Set up iPhone automations that send your spot to Eyes by themselves."
+  noindex
+>
+  <h1 class="ui-h1">Send my spot automatically</h1>
+  <p class="ui-text-secondary">
+    Your iPhone sends your spot to Eyes by itself: once a day, and when Eyes asks because a paid task is near. About
+    10 minutes, once. Needs iOS 26 or later.
+  </p>
+  <p class="ui-notice">
+    <Icon name="message" /> Text AUTO to the Eyes number first. Eyes texts you a code; you paste it in step 4.
+  </p>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">1. Make automation A: every morning</h2>
+    <ol>
+      <li>Open Shortcuts, tap Automation, then <b>+</b>.</li>
+      <li>Choose Time of Day, set 9:00 AM and Daily, choose <b>Run Immediately</b>, tap Next.</li>
+      <li>Tap New Blank Automation, then do steps 2 to 4 below.</li>
+    </ol>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">2. Add Get Current Location</h2>
+    <p>Search the actions for "Get Current Location" and tap it.</p>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">3. Add Get Contents of URL</h2>
+    <p>Search for "Get Contents of URL", tap it, tap the URL field and paste:</p>
+    <button type="button" class="ui-button ui-button--block" data-copy={url}>Copy URL</button>
+    <p>Tap the arrow to show more. Set Method to <b>POST</b>.</p>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">4. Add the header and body</h2>
+    <ol>
+      <li>
+        Headers: Add new header. Key:
+        <button type="button" class="ui-button ui-button--sm" data-copy="Authorization">Copy key</button>
+        Value: paste <b>Bearer </b> then your code, with one space between.
+        <button type="button" class="ui-button ui-button--sm" data-copy="Bearer ">Copy "Bearer "</button>
+      </li>
+      <li>Request Body: JSON. Add three Text fields:</li>
+    </ol>
+    <dl class="ui-kv">
+      <dt>lat</dt>
+      <dd>tap the value, choose Current Location, then Latitude</dd>
+      <dt>lng</dt>
+      <dd>Current Location, then Longitude</dd>
+      <dt>source</dt>
+      <dd>
+        shortcut <button type="button" class="ui-button ui-button--sm" data-copy="shortcut">Copy</button>
+      </dd>
+    </dl>
+    <p>Tap Done. Automation A is on.</p>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">5. Make automation B: when Eyes asks</h2>
+    <ol>
+      <li>Automation, <b>+</b>, Message. Sender: the Eyes number. Message Contains:</li>
+    </ol>
+    <button type="button" class="ui-button ui-button--block" data-copy="Eyes ping">Copy "Eyes ping"</button>
+    <ol start="2">
+      <li>Choose Run Immediately, tap Next, New Blank Automation.</li>
+      <li>Repeat steps 2 to 4, and add a fourth field: <b>input</b>, value Shortcut Input.</li>
+    </ol>
+  </section>
+
+  <section class="ui-card prose">
+    <h2 class="ui-card__title">Optional: when you head out</h2>
+    <p>Make one more with Charger, Is Disconnected, Run Immediately, and the same steps 2 to 4.</p>
+  </section>
+
+  <p id="copied" class="ui-notice ui-notice--success" role="status" hidden></p>
+  <p class="ui-field__hint">
+    iOS 27: make one shortcut with steps 2 to 4, then Edit, Automation, and add each trigger there. Mac with macOS 26:
+    same steps in Shortcuts, Automations. Text STOP to delete your spot and turn every code off.
+  </p>
+</Layout>
+
+<script>
+  import { $ } from "../api.ts";
+
+  const copied = $("copied");
+  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(button.dataset.copy ?? "");
+      copied.textContent = `Copied: ${button.dataset.copy?.trim()}`;
+      copied.hidden = false;
+    });
+  }
+</script>

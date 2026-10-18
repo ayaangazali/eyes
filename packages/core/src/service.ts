@@ -134,7 +134,6 @@ export const AppConfig = z.object({
   verify_radius_m: z.int().min(10).default(150),
   location_max_age_h: z.int().min(1).default(24),
   location_ping: z.boolean().default(false),
-  shortcut_url: z.url().nullable().default(null),
   location_min_interval_s: z.int().min(1).default(30),
   location_daily_max: z.int().min(1).default(1500),
   signup_grant_cents: z.int().min(0).default(2000),

@@ -438,7 +438,7 @@ export const WorkerLocationInput = z
     lat: LooseNumber.pipe(z.number().min(-90).max(90)),
     lng: LooseNumber.pipe(z.number().min(-180).max(180)),
     accuracy_m: LooseNumber.pipe(z.number().min(0)).optional().catch(undefined),
-    source: z.enum(["shortcut", "here_link", "capture", "findmy"]),
+    source: z.enum(["shortcut", "here_link", "capture", "findmy", "app"]),
     input: z.string().max(500).optional().catch(undefined),
     captured_at: Timestamp.optional().catch(undefined),
   })

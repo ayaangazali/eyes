@@ -179,12 +179,19 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     expect(t?.last_used_at).not.toBeNull();
   });
 
-  it("includes the install link when EYES_SHORTCUT_URL is set", async () => {
-    const svc = make({ shortcut_url: "https://www.icloud.com/shortcuts/abc" });
+  it("AUTO, like SHORTCUT, links the automation steps and then texts the code alone", async () => {
     const w = await worker(somewhere());
-    await svc.handleWorkerReply({ phone: w.phone, intent: "shortcut", text: "SHORTCUT" });
+    await say(w.phone, "shortcut", "AUTO");
     const texts = outbox.filter((m) => m.to === w.phone).map((m) => String(m.payload));
-    expect(texts.at(-2)).toContain("https://www.icloud.com/shortcuts/abc");
+    expect(texts.at(-2)).toContain("/automation.html");
+    expect(texts.at(-1)).not.toContain(" ");
+  });
+
+  it("stores a fix from the iOS app as source app (migration 020)", async () => {
+    const w = await worker(somewhere());
+    await say(w.phone, "shortcut", "AUTO");
+    await service.updateWorkerLocation(lastText(w.phone), { lat: 37.7, lng: -122.4, source: "app" });
+    expect(await row(w.phone)).toMatchObject({ lat: 37.7, location_source: "app" });
   });
 
   it("answers an Apple location share with a HERE link instead of 'did not get that'", async () => {

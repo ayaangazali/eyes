@@ -285,8 +285,8 @@ export function createEyesService(deps: EngineDeps): EyesService {
     return sent.filter((s) => s.status === "fulfilled").length;
   }
 
-  // Too few fresh workers nearby: text the nearest stale ones a ping. Their Shortcut (Message
-  // automation on "Eyes ping") or a tap on the HERE link sends a fresh fix.
+  // Too few fresh workers nearby: text the nearest stale ones a ping. Their Message automation on
+  // "Eyes ping" (automation.html) or a tap on the HERE link sends a fresh fix.
   async function pingStale(place: LatLng, taskId: string | null): Promise<number> {
     const stale = await rpc<Nearby>("eyes_ping_candidates", {
       p_lat: place.lat,
@@ -969,7 +969,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           await one("eyes_rotate_location_token", { p_worker_id: worker.id, p_token_hash: sha256(code) });
           await messaging.sendText(
             phone,
-            `Eyes: your location code is in the next text. Use one code per device; your earlier codes keep working (the 5 newest do). ${config.shortcut_url ? `Install the "Eyes on shift" Shortcut (${config.shortcut_url}) and paste the code when it asks.` : 'Paste it into the "Eyes on shift" Shortcut when it asks.'} Text STOP to delete your location and turn all codes off.`,
+            `Eyes: your location code is in the next text. Set up automatic location with these steps and paste the code where they say: ${config.worker_web_url}/automation.html Use one code per device; your earlier codes keep working (the 5 newest do). Text STOP to delete your location and turn all codes off.`,
           );
           await messaging.sendText(phone, code);
         },
@@ -1193,7 +1193,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           {},
           {
             message: "This location link or code is invalid or has expired.",
-            fix: "Text HERE to the Eyes number for a fresh link, or SHORTCUT for a new code.",
+            fix: "Text HERE to the Eyes number for a fresh link, or AUTO for a new code.",
           },
         );
       }
