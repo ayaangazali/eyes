@@ -7,13 +7,20 @@
  * Shape rule for the whole page: buttons full pill, inputs and code 12 px, cards and photos 16 px.
  */
 @theme inline {
-  --font-display: "Instrument Sans Variable", var(--eyes-font);
+  --font-display: var(--eyes-font-display);
 }
 
 html {
+  /* The site head (@eyes/ui .ui-site-head) is as wide as the page column, so the wordmark starts
+     where the page text starts: max-w-6xl, or the narrower Terms and Privacy column. */
+  --ui-column: 72rem;
   background: var(--eyes-surface);
   scroll-behavior: smooth;
   scroll-padding-top: 5rem;
+}
+
+html:has(.legal) {
+  --ui-column: 68ch;
 }
 
 body {
@@ -119,7 +126,7 @@ body {
 /* Terms and Privacy: one readable column of short sections. Layered so utilities still win. */
 @layer components {
   .legal {
-    max-width: 68ch;
+    max-width: var(--ui-column);
     margin-inline: auto;
     padding: 4rem 1.25rem 6rem;
     line-height: 1.65;

@@ -102,10 +102,13 @@
   --eyes-on-accent: #0d0d0d;
   --eyes-accent-soft: rgb(255 214 10 / 24%);
 
-  /* Type: platform system fonts only (ChatGPT rule: no custom fonts) */
+  /* Type: platform system fonts (ChatGPT rule: no custom fonts). The display face is for h1 only:
+     the landing page, the worker web and the API pages load Instrument Sans; anywhere else, such as
+     a ChatGPT widget, it is not loaded and titles fall back to the system font. */
   --eyes-font:
     ui-sans-serif, -apple-system, system-ui, "Segoe UI", "Noto Sans", "Helvetica", "Arial", sans-serif;
   --eyes-font-mono: ui-monospace, "SF Mono", "Menlo", "Consolas", monospace;
+  --eyes-font-display: "Instrument Sans Variable", var(--eyes-font);
   --eyes-text-xs: 0.75rem;
   --eyes-text-sm: 0.875rem;
   --eyes-text-md: 1rem;

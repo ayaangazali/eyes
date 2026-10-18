@@ -22,13 +22,13 @@ export type AppPageDeps = {
   testflightUrl: string | undefined;
 };
 
-export type OpenAppDeps = Pick<AppPageDeps, "reveal" | "navigate" | "doc" | "win" | "testflightUrl">;
+export type OpenAppDeps = Pick<AppPageDeps, "navigate" | "doc" | "win" | "testflightUrl">;
 
 /**
  * Opens the app, or installs it when it is missing. An opened app hides the page (cancel). iOS's
  * "Open in Eyes?" prompt and its "cannot open" alert both blur the page, so blur pauses the 2.5 s clock and
  * focus resumes it: confirming the prompt hides the page, dismissing either dialog lets the fallback run.
- * When the clock runs out: TestFlight, or the in-review notice while there is no TestFlight link.
+ * When the clock runs out: TestFlight, or the ad hoc install page with the same code in its fragment.
  */
 export function openApp(deep: string, d: OpenAppDeps): void {
   d.navigate(deep);
@@ -38,8 +38,7 @@ export function openApp(deep: string, d: OpenAppDeps): void {
   let paused = false;
   const fallback = () => {
     done = true;
-    if (d.testflightUrl) d.navigate(d.testflightUrl);
-    else d.reveal("review");
+    d.navigate(d.testflightUrl || `/install${new URL(deep).hash}`);
   };
   let timer = setTimeout(fallback, left);
   d.doc.addEventListener("visibilitychange", () => {

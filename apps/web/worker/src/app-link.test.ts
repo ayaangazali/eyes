@@ -4,6 +4,7 @@ import { type AppPageDeps, connectDeepLink, openApp, startApp } from "./app-link
 const CODE = "a".repeat(20);
 const DEEP = `eyes://connect#c=${CODE}`;
 const TESTFLIGHT = "https://testflight.apple.com/join/bqnkz1NT";
+const INSTALL = `/install#c=${CODE}`;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -85,7 +86,7 @@ describe("startApp", () => {
     vi.mocked(d.onTap).mock.calls[0]?.[0]();
     expect(d.navigate).toHaveBeenCalledWith(DEEP);
     vi.advanceTimersByTime(2500);
-    expect(d.reveal).toHaveBeenLastCalledWith("review");
+    expect(d.navigate).toHaveBeenLastCalledWith(INSTALL);
   });
 
   it("shows only the missing message when the code is malformed, but still clears the fragment", () => {
@@ -151,18 +152,18 @@ describe("openApp", () => {
     d.win.dispatchEvent(new Event("blur"));
     d.win.dispatchEvent(new Event("blur"));
     vi.advanceTimersByTime(10_000);
-    expect(d.reveal).not.toHaveBeenCalled();
+    expect(d.navigate).toHaveBeenCalledTimes(1);
     d.win.dispatchEvent(new Event("focus"));
     d.win.dispatchEvent(new Event("focus"));
     vi.advanceTimersByTime(1499);
-    expect(d.reveal).not.toHaveBeenCalled();
+    expect(d.navigate).toHaveBeenCalledTimes(1);
     vi.advanceTimersByTime(1);
-    expect(d.reveal).toHaveBeenCalledTimes(1);
-    expect(d.reveal).toHaveBeenCalledWith("review");
+    expect(d.navigate).toHaveBeenCalledTimes(2);
+    expect(d.navigate).toHaveBeenLastCalledWith(INSTALL);
     d.win.dispatchEvent(new Event("blur"));
     d.win.dispatchEvent(new Event("focus"));
     vi.advanceTimersByTime(10_000);
-    expect(d.reveal).toHaveBeenCalledTimes(1);
+    expect(d.navigate).toHaveBeenCalledTimes(2);
   });
 
   it("goes to TestFlight when the page still shows after 2.5 s", () => {
@@ -175,13 +176,14 @@ describe("openApp", () => {
     expect(d.reveal).not.toHaveBeenCalled();
   });
 
-  it("stays and shows the in-review notice when there is no TestFlight link", () => {
+  it("goes to the ad hoc install page, code kept in the fragment, when there is no TestFlight link", () => {
     const d = fakeDeps();
     openApp(DEEP, d);
     // Turning visible is not leaving, so the fallback still runs.
     d.doc.dispatchEvent(new Event("visibilitychange"));
     vi.advanceTimersByTime(2500);
-    expect(d.reveal).toHaveBeenCalledWith("review");
-    expect(d.navigate).toHaveBeenCalledTimes(1);
+    expect(d.navigate).toHaveBeenLastCalledWith(INSTALL);
+    expect(d.navigate).toHaveBeenCalledTimes(2);
+    expect(d.reveal).not.toHaveBeenCalled();
   });
 });

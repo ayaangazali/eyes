@@ -166,13 +166,13 @@ const expectPrivate = (res: Response) => {
   expect(res.headers.get("referrer-policy")).toBe("no-referrer");
   expect(res.headers.get("cache-control")).toBe("no-store");
   expect(res.headers.get("content-security-policy")).toMatch(
-    /^default-src 'none';( script-src 'sha256-[\w+/=]+';)? style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'$/,
+    /^default-src 'none';( script-src 'sha256-[\w+/=]+';)? style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'$/,
   );
 };
 const PRIVATE = {
   referrer: "no-referrer",
   cache: "no-store",
-  csp: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+  csp: "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };
 
 function setup(payments: Payments = fakeProviders().payments, live_payouts = true) {
@@ -614,7 +614,7 @@ describe("worker earnings page", () => {
     expect(privateHeaders(res)).toEqual({
       ...PRIVATE,
       csp: expect.stringMatching(
-        /^default-src 'none'; script-src 'sha256-[\w+/=]+'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'$/,
+        /^default-src 'none'; script-src 'sha256-[\w+/=]+'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'$/,
       ),
     });
     expect(body).not.toContain("<script");

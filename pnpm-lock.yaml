@@ -68,6 +68,9 @@ importers:
       '@eyes/web-dashboard':
         specifier: workspace:*
         version: link:../web/dashboard
+      '@fontsource-variable/instrument-sans':
+        specifier: 5.3.0
+        version: 5.3.0
       hono:
         specifier: 4.13.13
         version: 4.13.13
@@ -131,6 +134,9 @@ importers:
       '@eyes/ui':
         specifier: workspace:*
         version: link:../../../packages/ui
+      '@fontsource-variable/instrument-sans':
+        specifier: 5.3.0
+        version: 5.3.0
       '@tailwindcss/vite':
         specifier: 4.3.3
         version: 4.3.3(vite@8.3.4(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0))

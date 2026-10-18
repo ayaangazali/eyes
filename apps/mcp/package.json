@@ -19,6 +19,7 @@
     "@eyes/ui": "workspace:*",
     "@eyes/verify": "workspace:*",
     "@eyes/web-dashboard": "workspace:*",
+    "@fontsource-variable/instrument-sans": "5.3.0",
     "hono": "4.13.13",
     "mcp-use": "2.10.0",
     "zod": "4.6.7"

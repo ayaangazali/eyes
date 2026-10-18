@@ -80,7 +80,7 @@ const flight = [
         <span>Your agent asks.</span>
         <span class="text-secondary">Someone nearby looks.</span>
       </h1>
-      <div class="grid content-end gap-6 md:col-span-5">
+      <div class="grid content-center gap-6 md:col-span-5">
         <p class="m-0 max-w-[34ch] text-lg text-secondary md:text-xl">
           Eyes pays a person near the place to take a live photo, then hands your agent a verified answer in
           minutes.
@@ -430,20 +430,23 @@ const flight = [
           if (conditions?.still) return;
           const wide = Boolean(conditions?.wide);
 
-          // #how: pinned on wide screens and scrubbed through the four steps; on phones the panel
-          // scrubs as it crosses the screen, no pin.
-          stepList.classList.add("is-live");
-          show(0);
-          ScrollTrigger.create({
-            animation: flightTimeline(),
-            trigger: wide ? "#how" : panel,
-            start: wide ? "top top" : "clamp(top 75%)",
-            end: wide ? () => `+=${innerHeight * 2.5}` : "clamp(bottom 85%)",
-            pin: wide,
-            scrub,
-            refreshPriority: 1,
-            invalidateOnRefresh: true,
-          });
+          // #how: on wide screens pinned for about a screen and a quarter and scrubbed through the
+          // four steps, so every scroll step moves the story. Phones show all four steps and the
+          // finished panel as they are: no pin, no dimmed steps, nothing to scroll past.
+          if (wide) {
+            stepList.classList.add("is-live");
+            show(0);
+            ScrollTrigger.create({
+              animation: flightTimeline(),
+              trigger: "#how",
+              start: "top top",
+              end: () => `+=${innerHeight * 1.25}`,
+              pin: true,
+              scrub,
+              refreshPriority: 1,
+              invalidateOnRefresh: true,
+            });
+          }
 
           // Hero: the photo loads sharp after one short focus pull (time-based, not scroll). Scroll then
           // only locks the brackets, shows the labels and eases the frame back a little. No scrubbed blur
@@ -476,7 +479,7 @@ const flight = [
               defaults: { ease: "none" },
               scrollTrigger: { trigger: ".band__card", start: "clamp(top 90%)", end: "clamp(top 35%)", scrub },
             })
-            .fromTo(".band__card", { opacity: 0.3, scale: 0.98 }, { opacity: 1, scale: 1, duration: 0.6 }, 0)
+            .fromTo(".band__card", { scale: 0.98 }, { scale: 1, duration: 0.6 }, 0)
             .fromTo(".band__card", { "--lock": 0, "--lock-o": 0 }, { "--lock": 1, "--lock-o": 1, duration: 0.5 }, 0.3)
             .to(".band__card", { "--lock-o": 0, duration: 0.2 }, 0.8);
 
@@ -608,17 +611,15 @@ const flight = [
 
   /* Steps list: the current one is lit while the panel runs. */
   .step__n {
-    color: var(--eyes-text-tertiary);
+    color: var(--eyes-text-secondary);
     font-size: var(--eyes-text-sm);
     font-weight: 600;
   }
-  /* Steps dim only while the scroll story runs; without it all four read at full strength. */
-  .steps.is-live .step {
-    opacity: 0.45;
-    transition: opacity 250ms ease;
-  }
-  .steps.is-live .step.is-now {
-    opacity: 1;
+  /* Steps dim only while the scroll story runs; without it all four read at full strength. Dimmed
+     means the secondary text token (4.5:1 or better), never opacity. */
+  .steps.is-live .step:not(.is-now) h3 {
+    color: var(--eyes-text-secondary);
+    transition: color 250ms ease;
   }
   .step.is-now .step__n {
     color: var(--eyes-text);

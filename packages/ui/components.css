@@ -3,9 +3,9 @@
  * Plain CSS classes so the same markup works in the worker web (Vite), server-rendered pages and
  * ChatGPT widgets (inside or outside @openai/apps-sdk-ui). Catalog with every element: catalog.html.
  *
- * Atoms      ui-button, ui-badge, ui-input, ui-choice, ui-icon, ui-link, ui-num, ui-divider, ui-spinner
+ * Atoms      ui-button, ui-badge, ui-input, ui-choice, ui-icon, ui-link, ui-num, ui-divider, ui-spinner, ui-mark
  * Molecules  ui-field, ui-notice, ui-meta, ui-kv, ui-check, ui-place, ui-viewfinder, ui-steps
- * Organisms  ui-card (task, answer), ui-carousel, ui-form, ui-capture, ui-status, ui-empty
+ * Organisms  ui-card (task, answer), ui-carousel, ui-form, ui-capture, ui-status, ui-empty, ui-site-head
  */
 
 /* ---------- Base ---------- */
@@ -55,6 +55,12 @@
 
 .ui-h3 {
   font-size: var(--eyes-heading-sm);
+}
+
+/* Page titles carry the display face (Instrument Sans where the page loads it). */
+.ui h1,
+.ui-h1 {
+  font-family: var(--eyes-font-display);
 }
 
 .ui-text-secondary {
@@ -758,4 +764,56 @@ textarea.ui-input {
 .ui-empty p {
   margin: 0;
   color: var(--eyes-text-secondary);
+}
+
+/* Site head: the sticky bar of the landing page, the worker web and the API pages (markup:
+   header.ts). Same height and padding everywhere. The inner row is as wide as the page column, so
+   the wordmark starts where the page text starts: each site sets --ui-column to its column width. */
+.ui-site-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  border-bottom: 1px solid var(--eyes-border-subtle);
+  background: color-mix(in srgb, var(--eyes-surface) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.ui-site-head__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--eyes-space-6);
+  height: 4rem;
+  max-width: var(--ui-column, 72rem);
+  margin-inline: auto;
+  padding-inline: var(--eyes-space-5);
+}
+
+.ui-site-head__home {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--eyes-space-2);
+  margin-right: auto;
+  color: var(--eyes-text);
+  font-size: var(--eyes-text-lg);
+  font-weight: var(--eyes-weight-semibold);
+  letter-spacing: -0.02em;
+  text-decoration: none;
+}
+
+/* Mark: viewfinder brackets around a dot. The brackets are the brand, not a logo file. */
+.ui-mark {
+  --b: 0.4rem;
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  background:
+    linear-gradient(var(--eyes-accent) 0 0) top left / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top left / 2px var(--b) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top right / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) top right / 2px var(--b) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom left / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom left / 2px var(--b) no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom right / var(--b) 2px no-repeat,
+    linear-gradient(var(--eyes-accent) 0 0) bottom right / 2px var(--b) no-repeat,
+    radial-gradient(circle, var(--eyes-text) 0 0.17rem, transparent 0.19rem) center / 100% 100% no-repeat;
 }

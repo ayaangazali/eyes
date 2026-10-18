@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isIPv6 } from "node:net";
 import { join } from "node:path";
@@ -155,6 +156,13 @@ const SIMULATED = {
     .map((place) => `"${place.label}"`)
     .join(", ")}.`,
 } as const;
+
+// Instrument Sans for the h1 of these pages (the @font-face in @eyes/ui/page): read once at start.
+const DISPLAY_FONT = readFileSync(
+  new URL(
+    import.meta.resolve("@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2"),
+  ),
+);
 
 const layout = (
   title: string,
@@ -884,6 +892,12 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   server.get("/healthz", (c) => c.json({ ok: true, providers, db }));
   const status = statusPage(live, classifier, db, env.EYES_COMMIT);
   server.get("/status", (c) => c.html(status, 200, PAGE_HEADERS));
+  server.get("/fonts/instrument-sans.woff2", (c) =>
+    c.body(DISPLAY_FONT, 200, {
+      "content-type": "font/woff2",
+      "cache-control": "public, max-age=31536000, immutable",
+    }),
+  );
 
   const { rpc } = deps;
   if (rpc) {

@@ -1,4 +1,5 @@
 ---
+import { siteHeader } from "@eyes/ui/header";
 import sprite from "@eyes/ui/icons.svg?raw";
 import "../styles/global.css";
 
@@ -28,10 +29,7 @@ const { title, ogTitle, description, wide = false, noindex = false } = Astro.pro
   </head>
   <body class="ui">
     <Fragment set:html={sprite} />
-    <header class="site-bar">
-      <a class="wordmark" href="https://eyes.pictures"><span class="wordmark__mark" aria-hidden="true"></span>Eyes</a>
-      <slot name="bar" />
-    </header>
+    <Fragment set:html={siteHeader()} />
     <main class:list={["page", { "page--wide": wide }]}>
       <slot />
     </main>

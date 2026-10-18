@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { siteHeader } from "./header.ts";
 import { PAGE_CSS, PAGE_HEADER } from "./page.ts";
 
 const read = (name: string) => readFileSync(new URL(`./${name}`, import.meta.url), "utf8");
@@ -16,8 +17,14 @@ describe("PAGE_CSS", () => {
 
   it("styles the page skeleton with the design tokens it depends on", () => {
     expect(PAGE_CSS).toContain("var(--eyes-surface)");
-    expect(PAGE_CSS).toContain(".page-head{");
     expect(PAGE_CSS).toContain(".page h1{");
+  });
+
+  it("lines the site header up with the page column and loads the display face from the API", () => {
+    expect(PAGE_CSS).toContain("--ui-column:40rem}");
+    expect(PAGE_CSS).toContain(".page{max-width:var(--ui-column);");
+    expect(PAGE_CSS).toContain('font-family:"Instrument Sans Variable"');
+    expect(PAGE_CSS).toContain("src:url(/fonts/instrument-sans.woff2)");
   });
 
   it("honours reduced motion for buttons", () => {
@@ -27,11 +34,17 @@ describe("PAGE_CSS", () => {
   });
 });
 
-describe("PAGE_HEADER", () => {
-  it("links the wordmark to the home page and hides the decorative mark", () => {
-    expect(PAGE_HEADER.startsWith('<header class="page-head">')).toBe(true);
-    expect(PAGE_HEADER).toContain('href="https://eyes.pictures"');
-    expect(PAGE_HEADER).toContain('<span class="mark" aria-hidden="true"></span>');
-    expect(PAGE_HEADER).toContain(">Eyes</a></header>");
+describe("siteHeader", () => {
+  it("links the wordmark home, hides the decorative mark, and is the API pages' header", () => {
+    expect(PAGE_HEADER).toBe(siteHeader());
+    expect(PAGE_HEADER).toBe(
+      '<header class="ui-site-head"><div class="ui-site-head__inner"><a class="ui-site-head__home" href="https://eyes.pictures"><span class="ui-mark" aria-hidden="true"></span>Eyes</a></div></header>',
+    );
+  });
+
+  it("puts the nav, then the call to action, after the wordmark", () => {
+    const html = siteHeader({ home: "/", nav: "<nav>N</nav>", cta: '<a class="ui-button">C</a>' });
+    expect(html).toContain('<a class="ui-site-head__home" href="/">');
+    expect(html).toMatch(/Eyes<\/a><nav>N<\/nav><a class="ui-button">C<\/a><\/div><\/header>$/);
   });
 });

@@ -4,7 +4,6 @@ import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
 
 const appSms = smsHref("APP");
-const hereSms = smsHref("HERE");
 ---
 
 <Layout
@@ -22,13 +21,6 @@ const hereSms = smsHref("HERE");
     <a id="open" class="ui-button ui-button--primary ui-button--block" href="eyes://connect">
       <Icon name="expand" /> Install / open Eyes app
     </a>
-  </section>
-
-  <section id="review" hidden>
-    <p class="ui-notice">
-      <Icon name="message" /> The Eyes app is in Apple's review. Text HERE to share your spot meanwhile.
-    </p>
-    {hereSms && <a class="ui-button ui-button--primary ui-button--block" href={hereSms}>Text HERE to Eyes</a>}
   </section>
 
   <section id="missing" hidden>

@@ -1,20 +1,15 @@
 // Server-rendered pages on the API host (home, status, payments, owner controls). Those are HTML
 // strings with no bundler, so the design system is inlined: tokens.css and components.css read once
 // at startup, plus a page skeleton that styles the plain markup the templates already emit
-// (h1, p, dl, table, form, .box, .button, .note). System fonts, light and dark from the tokens.
+// (h1, p, dl, table, form, .box, .button, .note). System fonts, with Instrument Sans for h1 (the API
+// serves the file at /fonts/instrument-sans.woff2). Light and dark from the tokens.
 import { readFileSync } from "node:fs";
+import { siteHeader } from "./header.ts";
 
 const SKELETON = `
-body.ui{margin:0;min-height:100dvh;background:var(--eyes-surface)}
-.page-head{position:sticky;top:0;z-index:1;height:4rem;display:flex;align-items:center;padding:0 max(1.25rem,calc(50% - 20rem));border-bottom:1px solid var(--eyes-border-subtle);background:color-mix(in srgb,var(--eyes-surface) 88%,transparent);backdrop-filter:blur(12px)}
-.wordmark{display:inline-flex;align-items:center;gap:.5rem;color:var(--eyes-text);font-size:1.125rem;font-weight:600;letter-spacing:-.02em;text-decoration:none}
-.mark{--b:.4rem;width:1.25rem;height:1.25rem;background:
-linear-gradient(var(--eyes-accent) 0 0) top left/var(--b) 2px no-repeat,linear-gradient(var(--eyes-accent) 0 0) top left/2px var(--b) no-repeat,
-linear-gradient(var(--eyes-accent) 0 0) top right/var(--b) 2px no-repeat,linear-gradient(var(--eyes-accent) 0 0) top right/2px var(--b) no-repeat,
-linear-gradient(var(--eyes-accent) 0 0) bottom left/var(--b) 2px no-repeat,linear-gradient(var(--eyes-accent) 0 0) bottom left/2px var(--b) no-repeat,
-linear-gradient(var(--eyes-accent) 0 0) bottom right/var(--b) 2px no-repeat,linear-gradient(var(--eyes-accent) 0 0) bottom right/2px var(--b) no-repeat,
-radial-gradient(circle,var(--eyes-text) 0 .17rem,transparent .19rem) center/100% 100% no-repeat}
-.page{max-width:40rem;margin:0 auto;padding:3rem 1.25rem 5rem}
+body.ui{margin:0;min-height:100dvh;background:var(--eyes-surface);--ui-column:40rem}
+@font-face{font-family:"Instrument Sans Variable";font-style:normal;font-display:swap;font-weight:400 700;src:url(/fonts/instrument-sans.woff2) format("woff2")}
+.page{max-width:var(--ui-column);margin:0 auto;padding:3rem 1.25rem 5rem}
 .page h1{margin:0 0 1rem;font-size:clamp(2rem,6vw,2.75rem);line-height:1.05;font-weight:600;letter-spacing:-.035em;text-wrap:balance}
 .page h2{margin:2.5rem 0 .75rem;font-size:1.25rem;line-height:1.25;font-weight:600;letter-spacing:-.015em}
 .page p{margin:0 0 1rem}
@@ -89,6 +84,5 @@ export const PAGE_CSS =
   readFileSync(new URL("./components.css", import.meta.url), "utf8") +
   SKELETON;
 
-/** The Eyes wordmark: viewfinder brackets around a dot, linking home. Static HTML, safe to inline. */
-export const PAGE_HEADER =
-  '<header class="page-head"><a class="wordmark" href="https://eyes.pictures"><span class="mark" aria-hidden="true"></span>Eyes</a></header>';
+/** The shared site header, lined up with the page column (--ui-column above). Static HTML, safe to inline. */
+export const PAGE_HEADER = siteHeader();

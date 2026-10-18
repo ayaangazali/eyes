@@ -8,6 +8,7 @@
     "./tailwind.css": "./tailwind.css",
     "./chatgpt.css": "./chatgpt.css",
     "./icons.svg": "./icons.svg",
+    "./header": "./header.ts",
     "./page": "./page.ts"
   }
 }

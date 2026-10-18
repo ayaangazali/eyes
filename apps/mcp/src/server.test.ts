@@ -1034,6 +1034,14 @@ describe("routes", () => {
     expect(body).toContain('href="https://eyes.pictures"');
   });
 
+  it("serves the display font of the server-rendered pages as an immutable woff2", async () => {
+    const res = await setup().fetch("http://eyes.test/fonts/instrument-sans.woff2");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("font/woff2");
+    expect(res.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(new TextDecoder().decode((await res.arrayBuffer()).slice(0, 4))).toBe("wOF2");
+  });
+
   it("answers an unknown route with a JSON error that points at the docs", async () => {
     const res = await setup().fetch("http://eyes.test/nope");
     expect(res.status).toBe(404);
@@ -1061,7 +1069,7 @@ describe("page headers", () => {
       const res = await fetch(`http://eyes.test${path}`);
       expect(res.headers.get("content-type"), path).toContain("text/html");
       expect(res.headers.get("content-security-policy"), path).toBe(
-        "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
       );
       expect(res.headers.get("referrer-policy"), path).toBe("no-referrer");
       expect(res.headers.get("cache-control"), path).toBe("no-store");

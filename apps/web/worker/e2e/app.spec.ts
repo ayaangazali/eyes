@@ -14,23 +14,15 @@ test("/app hands the fragment code to the app and clears it from the address bar
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");
 });
 
-test("/app sends a tap with no app to TestFlight, or to the text-HERE step without TestFlight", async ({
-  page,
-}) => {
+test("/app sends a tap with no app to TestFlight, or to the install page with the code", async ({ page }) => {
   const testflight = process.env.VITE_TESTFLIGHT_URL;
   if (testflight) await page.route(testflight, (r) => r.fulfill({ body: "TestFlight" }));
   await page.goto(`/app.html#c=${code}`);
   await page.getByRole("link", { name: "Install / open Eyes app" }).click();
-  if (testflight) {
-    await page.waitForURL(testflight);
-  } else {
-    await expect(page.getByText("The Eyes app is in Apple's review.")).toBeVisible();
-    await expect(page.getByRole("link", { name: "Text HERE to Eyes" })).toHaveAttribute(
-      "href",
-      "sms:+14155550100?&body=HERE",
-    );
-    await expect(page.getByRole("link", { name: "Install / open Eyes app" })).toBeHidden();
-  }
+  // Polls page.url(): the eyes:// attempt fails (ERR_ABORTED) in Chromium, which ends a toHaveURL wait early.
+  await expect
+    .poll(() => page.url(), { timeout: 8000 })
+    .toBe(testflight ?? `${new URL(page.url()).origin}/install#c=${code}`);
 });
 
 test("/app without a code offers a text APP button", async ({ page }) => {

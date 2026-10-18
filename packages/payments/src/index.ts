@@ -207,11 +207,12 @@ async function explained(c: Context, respond: () => Promise<Response>) {
 const redirectTo = (c: Context, url: () => Promise<string>) =>
   explained(c, async () => c.redirect(await url(), 302));
 
+// font-src: the h1 face (Instrument Sans) that @eyes/ui/page loads from /fonts on the API host.
 export const PAGE_HEADERS = {
   "Referrer-Policy": "no-referrer",
   "Cache-Control": "no-store",
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; font-src 'self'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
 };
 
 const TASK_TYPE_LABELS: Record<TaskType, string> = {
