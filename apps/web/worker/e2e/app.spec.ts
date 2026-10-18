@@ -9,7 +9,14 @@ test("/app hands the fragment code to the app and clears it from the address bar
   const open = page.getByRole("link", { name: "Open in the Eyes app" });
   await expect(open).toBeVisible();
   await expect(open).toHaveAttribute("href", `eyes://connect#c=${code}`);
-  await expect(page.getByText("Ask the Eyes team for an invite")).toBeVisible();
+  if (process.env.VITE_TESTFLIGHT_URL) {
+    await expect(page.getByRole("link", { name: "Install it with TestFlight" })).toHaveAttribute(
+      "href",
+      process.env.VITE_TESTFLIGHT_URL,
+    );
+  } else {
+    await expect(page.getByText("Ask the Eyes team for an invite")).toBeVisible();
+  }
   expect(new URL(page.url()).hash).toBe("");
   expect(requests.filter((u) => u.includes(code) && !u.startsWith("eyes:"))).toEqual([]);
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex");

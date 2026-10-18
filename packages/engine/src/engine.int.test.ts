@@ -270,7 +270,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const help = String(outbox.findLast((m) => m.to === phone)?.payload);
     const [text, url] = help.split(" Your earnings: ");
     expect(text).toBe(
-      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, STOP to opt out. More: https://w.eyes.test",
+      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out. More: https://w.eyes.test",
     );
     expect(url).toMatch(/^https:\/\/api\.eyes\.test\/w\/earnings\/[\w-]+\.[\w-]+$/);
     expect(await service.workerEarnings(earningsToken(url))).toEqual({
@@ -279,6 +279,27 @@ describe.skipIf(!url)("engine on Postgres", () => {
       tasks: [],
     });
     expect(help.length).toBeLessThanOrEqual(1600);
+  });
+
+  it("INSTALL says the app isn't available yet while no TestFlight link is set", async () => {
+    const { phone } = await worker(somewhere());
+    await service.handleWorkerReply({ phone, intent: "install", text: "INSTALL" });
+    expect(String(outbox.findLast((m) => m.to === phone)?.payload)).toBe(
+      "The Eyes app isn't available yet. Text HERE to share your spot from the browser.",
+    );
+  });
+
+  it("INSTALL texts the TestFlight link and steps when EYES_TESTFLIGHT_URL is set", async () => {
+    const link = "https://testflight.apple.com/join/TESTLINK1";
+    const withLink = createEyesService({
+      ...deps,
+      config: AppConfig.parse({ ...deps.config, testflight_url: link }),
+    });
+    const { phone } = await worker(somewhere());
+    await withLink.handleWorkerReply({ phone, intent: "install", text: "INSTALL" });
+    expect(String(outbox.findLast((m) => m.to === phone)?.payload)).toBe(
+      `Get the Eyes iPhone app: 1) Install TestFlight and Eyes here: ${link} 2) Then text APP to connect it.`,
+    );
   });
 
   it("returns outputs that parse against the frozen contract schemas on every service call", async () => {

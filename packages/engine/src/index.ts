@@ -143,7 +143,7 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
 const REPLY_TEXT: Record<"no" | "released" | "help" | "unknown", string> = {
   no: "No problem, we will text you the next task nearby.",
   released: "Got it, the task is released. Thanks.",
-  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, STOP to opt out.",
+  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out.",
   unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
 const SIMULATED_PAY = "This is a test server and payouts are simulated, so no real money is paid.";
@@ -231,8 +231,14 @@ export function createEyesService(deps: EngineDeps): EyesService {
     return code;
   };
   // The code rides in the URL fragment, so no server (ours or a CDN) ever logs it.
-  const appText = (code: string) =>
-    `Get the Eyes app so tasks find you: ${config.worker_web_url}/app#c=${code}`;
+  const appText = (code: string, installFirst = false) => {
+    const link = `Get the Eyes app so tasks find you: ${config.worker_web_url}/app#c=${code}`;
+    const url = config.testflight_url;
+    if (!url) return link;
+    return installFirst
+      ? `Install the Eyes iPhone app first: ${url}\n${link}`
+      : `${link}\nDon't have the app? ${url}`;
+  };
   // ponytail: in memory (one server instance); a restart allows one extra code on the next START.
   const appLinkSentAt = new Map<string, number>();
 
@@ -990,7 +996,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           const last = appLinkSentAt.get(worker.id);
           if (last !== undefined && now().getTime() - last < HOUR_MS) return;
           appLinkSentAt.set(worker.id, now().getTime());
-          await messaging.sendText(phone, appText(await mintLocationCode(worker.id)));
+          await messaging.sendText(phone, appText(await mintLocationCode(worker.id), true));
         },
         stop: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false });
@@ -1033,6 +1039,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
           appLinkSentAt.set(worker.id, now().getTime());
           await messaging.sendText(phone, appText(await mintLocationCode(worker.id)));
         },
+        install: () =>
+          messaging.sendText(
+            phone,
+            config.testflight_url
+              ? `Get the Eyes iPhone app: 1) Install TestFlight and Eyes here: ${config.testflight_url} 2) Then text APP to connect it.`
+              : "The Eyes app isn't available yet. Text HERE to share your spot from the browser.",
+          ),
         shortcut: async () => {
           const code = await mintLocationCode(worker.id);
           await messaging.sendText(

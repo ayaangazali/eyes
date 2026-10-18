@@ -42,6 +42,7 @@ export const REPLY_INTENTS = [
   "here",
   "shortcut",
   "app",
+  "install",
   "location_share",
   "unknown",
 ] as const;

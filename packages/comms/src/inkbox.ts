@@ -121,6 +121,9 @@ const INTENTS: Record<string, ReplyIntent> = {
   auto: "shortcut",
   automation: "shortcut",
   app: "app",
+  install: "install",
+  download: "install",
+  testflight: "install",
 };
 
 export function parseReplyIntent(text: string): ReplyIntent {

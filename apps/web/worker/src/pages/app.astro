@@ -1,6 +1,8 @@
 ---
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
+
+const testflightUrl: string | undefined = import.meta.env.VITE_TESTFLIGHT_URL || undefined;
 ---
 
 <Layout
@@ -18,7 +20,7 @@ import Layout from "../layouts/Layout.astro";
     <a id="open" class="ui-button ui-button--primary ui-button--block" href="eyes://connect">
       <Icon name="expand" /> Open in the Eyes app
     </a>
-    <p class="ui-field__hint" style="margin-top:.75rem">Don't have the app yet? Ask the Eyes team for an invite (TestFlight coming).</p>
+    <p class="ui-field__hint" style="margin-top:.75rem">Don't have the app yet? {testflightUrl ? <a href={testflightUrl}>Install it with TestFlight</a> : "Ask the Eyes team for an invite (TestFlight coming)."}</p>
   </div>
 
   <p id="missing" class="ui-notice" hidden>

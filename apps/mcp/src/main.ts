@@ -43,6 +43,7 @@ const parsed = AppConfig.safeParse({
     ? Number(env.EYES_LOCATION_MIN_INTERVAL_S)
     : undefined,
   location_daily_max: env.EYES_LOCATION_DAILY_MAX ? Number(env.EYES_LOCATION_DAILY_MAX) : undefined,
+  testflight_url: env.EYES_TESTFLIGHT_URL || undefined,
   email_domain: env.PRIMITIVE_DOMAIN || undefined,
   email_delivery: live.email,
   live_payouts: live.payments,

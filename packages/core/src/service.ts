@@ -157,6 +157,13 @@ export const AppConfig = z.object({
   email_domain: z.string().min(3).nullable().default(null),
   email_delivery: z.boolean().default(false),
   live_payouts: z.boolean().default(false),
+  testflight_url: z
+    .string()
+    .regex(
+      /^https:\/\/testflight\.apple\.com\/join\/[A-Za-z0-9]+\/?$/,
+      "EYES_TESTFLIGHT_URL must be https://testflight.apple.com/join/XXXX",
+    )
+    .optional(),
 });
 export type AppConfig = z.output<typeof AppConfig>;
 
