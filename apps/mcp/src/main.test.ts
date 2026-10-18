@@ -41,6 +41,21 @@ describe("main.ts as a process", () => {
     expect(run.stdout).not.toContain("listening");
   });
 
+  it("refuses EYES_SANDBOX=1 unless every provider is fake and EYES_FAKE_WEBHOOKS and ANTHROPIC_API_KEY are unset", async () => {
+    const refused: Record<string, string>[] = [
+      { ANTHROPIC_API_KEY: "sk-ant-test" },
+      { EYES_PROVIDERS: "fake", EYES_FAKE_WEBHOOKS: "1" },
+      { EYES_PROVIDERS: "fake", ANTHROPIC_API_KEY: "sk-ant-test" },
+    ];
+    for (const env of refused) {
+      const run = await boot({ EYES_SANDBOX: "1", ...env });
+      expect(run.code).toBe(1);
+      expect(run.stderr).toContain("EYES_SANDBOX=1 gives an agent with play money to anyone");
+      expect(run.stdout).not.toContain("listening");
+    }
+    expect((await boot({ EYES_SANDBOX: "1", EYES_PROVIDERS: "fake" })).stdout).toContain("listening");
+  }, 15_000);
+
   it("wires InsForge storage in live mode and starts serving", async () => {
     const run = await boot({
       ANTHROPIC_API_KEY: "sk-ant-test",

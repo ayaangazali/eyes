@@ -1,0 +1,35 @@
+{
+  "as_of": "2026-10-17T18:06:00Z",
+  "sandbox": true,
+  "kind": "task",
+  "task": {
+    "task_id": "8b1d2c3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+    "status": "needs_review",
+    "question": "How long is the line at Blue Bottle right now?",
+    "task_type": "line_length",
+    "place_label": "Blue Bottle Coffee, Mint Plaza",
+    "bounty_usd": 3,
+    "fee_usd": 0.5,
+    "deadline_at": "2026-10-17T18:30:00Z",
+    "created_at": "2026-10-17T18:00:00Z",
+    "claimed_at": "2026-10-17T18:01:00Z",
+    "answer": {
+      "task_id": "8b1d2c3e-4f5a-4b6c-8d7e-9f0a1b2c3d4e",
+      "answer_text": "Line is out the door",
+      "answer_bool": null,
+      "photo_url": "fixture:line-photo",
+      "captured_at": "2026-10-17T18:04:00Z",
+      "worker_distance_m": 52,
+      "verification": {
+        "gps_ok": true,
+        "fresh_ok": true,
+        "vision_ok": false,
+        "vision_reason": "The photo shows the counter, not the line."
+      },
+      "confidence": 0.41,
+      "worker_rating": 4.8,
+      "cost_usd": 3.5
+    },
+    "dispute": null
+  }
+}

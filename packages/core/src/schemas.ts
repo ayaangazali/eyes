@@ -131,10 +131,12 @@ export const LocationInput = z
       .string()
       .min(2)
       .max(200)
-      .describe('Address or "place name, city", e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco"'),
+      .describe(
+        'A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.',
+      ),
   ])
   .describe(
-    'Where to look. Either numbers {"lat": 37.7825, "lng": -122.4078} or a string address / "place name, city".',
+    'The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user\'s own location or a home address.',
   );
 
 export const ResolvedLocation = z.object({ lat: z.number(), lng: z.number(), label: z.string() });

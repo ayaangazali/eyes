@@ -559,6 +559,44 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await sql`select id from tasks where agent_id = ${a.id}`).toHaveLength(0);
   });
 
+  it("refuses an unsafe task at a place it cannot resolve as unsafe_task, checking the place text as given", async () => {
+    const a = await agent();
+    const nowhere = "123 Oak St, Nowhere";
+    const check = vi.spyOn(deps, "assessTask");
+    safety = {
+      allowed: false,
+      category: "private_residence",
+      reason: "Targets a private home.",
+      fix: "Ask about a public place instead.",
+      layer: "rules",
+    };
+    try {
+      const question = "Photograph the house at 123 Oak St";
+      await expect(ask(a, somewhere(), { question, location: nowhere })).rejects.toMatchObject({
+        code: "unsafe_task",
+        fix: "Ask about a public place instead.",
+        context: { category: "private_residence" },
+      });
+      await expect(
+        ask(a, somewhere(), { question, location: "ferry building, san francisco" }),
+      ).rejects.toMatchObject({ code: "unsafe_task" });
+      safety = ALLOW;
+      await expect(ask(a, somewhere(), { location: nowhere })).rejects.toMatchObject({
+        code: "location_not_found",
+      });
+      expect(check.mock.calls.map(([input]) => input.place_label)).toEqual([
+        nowhere,
+        "Ferry Building, San Francisco",
+        nowhere,
+      ]);
+    } finally {
+      safety = ALLOW;
+      check.mockRestore();
+    }
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
+    expect(await sql`select id from tasks where agent_id = ${a.id}`).toHaveLength(0);
+  });
+
   it("enforces the daily cap with the remaining amount, and refunds free the cap again", async () => {
     const at = somewhere();
     await worker(north(at, 100));
