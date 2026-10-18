@@ -222,7 +222,8 @@ test.beforeAll(async () => {
     await post("/w/join", w);
     await iMessageEyes(w.phone, "START");
   }
-  const connectUrl = String(sent(PAYEE.phone, "text").at(-1)?.payload).match(/\S+\/w\/connect\/\S+/)?.[0];
+  // START sends the welcome (with the payout link), then the app link.
+  const connectUrl = String(sent(PAYEE.phone, "text").at(-2)?.payload).match(/\S+\/w\/connect\/\S+/)?.[0];
   expect((await fetch(connectUrl ?? "", { redirect: "manual" })).status).toBe(302);
 
   signup = (await post("/v1/signup", { name: "demo-rehearsal-agent" })) as SignupOutput;
@@ -298,7 +299,7 @@ test("demo: Claude asks about the cafe line, a texted worker answers on site, Cl
     await expect(page.getByAltText("What you captured")).toBeVisible();
     await page.getByLabel("Anything to add?").fill(ANSWER);
     await page.getByRole("button", { name: "Send to Eyes" }).click();
-    await expect(page.getByText("Verified and paid. $3.00 is on its way to your account.")).toBeVisible();
+    await expect(page.locator("#message")).toHaveText("$3.00 is on its way to your account. Thank you!");
   });
 
   await test.step("await_answer returns the verified answer, 3.50 total", async () => {

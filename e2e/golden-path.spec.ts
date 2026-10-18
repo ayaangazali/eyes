@@ -188,7 +188,7 @@ test("an agent asks over MCP, a texted worker captures on site, the agent gets a
   await page.getByLabel("Anything to add?").fill(ANSWER);
   await page.getByRole("button", { name: "Send to Eyes" }).click();
   await expect(page.getByRole("heading", { name: "Verified and paid" })).toBeVisible();
-  await expect(page.getByText("Verified and paid. $3.00 is on its way to your account.")).toBeVisible();
+  await expect(page.locator("#message")).toHaveText("$3.00 is on its way to your account. Thank you!");
   for (const check of ["Location matches the place", "Photo taken in time", "Photo answers the question"]) {
     await expect(page.getByText(`${check}: passed`)).toBeVisible();
   }
