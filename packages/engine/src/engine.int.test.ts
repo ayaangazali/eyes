@@ -282,12 +282,19 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(help.length).toBeLessThanOrEqual(1600);
   });
 
-  it("INSTALL says the app is in Apple's review while no TestFlight link is set", async () => {
+  it("INSTALL without TestFlight texts the /install link with a fresh app code; APP adds it as a second line", async () => {
     const { phone } = await worker(somewhere());
     await service.handleWorkerReply({ phone, intent: "install", text: "INSTALL" });
-    expect(String(outbox.findLast((m) => m.to === phone)?.payload)).toBe(
-      "The Eyes app is in Apple's review. Text HERE to share your spot meanwhile.",
-    );
+    const install = String(outbox.findLast((m) => m.to === phone)?.payload);
+    expect(install).toMatch(/^Get the Eyes app: https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/);
+    const code = install.slice(-43);
+    expect(await service.workerDevice(code)).toMatchObject({ registered: false, ready: false });
+    await service.handleWorkerReply({ phone, intent: "app", text: "APP" });
+    const [first, second, ...rest] = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
+    const appCode = /\/app#c=([\w-]{43})$/.exec(first ?? "")?.[1];
+    expect(appCode).toMatch(/^[\w-]{43}$/);
+    expect(appCode).not.toBe(code);
+    expect([second, rest]).toEqual([`Don't have the app? https://w.eyes.test/install#c=${appCode}`, []]);
   });
 
   it("INSTALL texts the TestFlight link and steps when EYES_TESTFLIGHT_URL is set", async () => {

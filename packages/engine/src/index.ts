@@ -234,11 +234,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
     await one("eyes_rotate_location_token", { p_worker_id: workerId, p_token_hash: sha256(code) });
     return code;
   };
-  // The code rides in the URL fragment, so no server (ours or a CDN) ever logs it.
+  // The code rides in the URL fragment, so no server (ours or a CDN) ever logs it. Without TestFlight,
+  // the app installs from /install (ad hoc, T6.31), which uses the same code.
+  const installUrl = (code: string) => `${config.worker_web_url}/install#c=${code}`;
   const appText = (code: string, installFirst = false) => {
     const link = `Get the Eyes app so tasks find you: ${config.worker_web_url}/app#c=${code}`;
     const url = config.testflight_url;
-    if (!url) return link;
+    if (!url) return `${link}\nDon't have the app? ${installUrl(code)}`;
     return installFirst
       ? `Install the Eyes iPhone app first: ${url}\n${link}`
       : `${link}\nDon't have the app? ${url}`;
@@ -1043,13 +1045,19 @@ export function createEyesService(deps: EngineDeps): EyesService {
           appLinkSentAt.set(worker.id, now().getTime());
           await messaging.sendText(phone, appText(await mintLocationCode(worker.id)));
         },
-        install: () =>
-          messaging.sendText(
+        install: async () => {
+          if (config.testflight_url) {
+            return messaging.sendText(
+              phone,
+              `Get the Eyes iPhone app: 1) Install TestFlight and Eyes here: ${config.testflight_url} 2) Then text APP to connect it.`,
+            );
+          }
+          appLinkSentAt.set(worker.id, now().getTime());
+          await messaging.sendText(
             phone,
-            config.testflight_url
-              ? `Get the Eyes iPhone app: 1) Install TestFlight and Eyes here: ${config.testflight_url} 2) Then text APP to connect it.`
-              : "The Eyes app is in Apple's review. Text HERE to share your spot meanwhile.",
-          ),
+            `Get the Eyes app: ${installUrl(await mintLocationCode(worker.id))}`,
+          );
+        },
         // ADR-027: the live capture link again. Newest claim first; a claim past its deadline
         // stays 'claimed' until the sweep expires it, so the deadline is checked here.
         task: async () => {

@@ -172,16 +172,16 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     expect(after.at(-2)).toContain("/here.html?t=");
     // STOP deleted every code, so this START sends a fresh app link even within the hour.
     expect(after.at(-1)).toMatch(
-      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
+      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/m,
     );
   });
 
   it("START texts the app link with a fresh code in the fragment, once per hour; APP always mints", async () => {
-    const appCode = (text: string) => /\/app#c=([\w-]{43})$/.exec(text)?.[1] ?? "";
+    const appCode = (text: string) => /\/app#c=([\w-]{43})/.exec(text)?.[1] ?? "";
     const w = await worker(somewhere());
     const first = appCode(lastText(w.phone));
     expect(first).not.toBe("");
-    expect(lastText(w.phone)).not.toContain("?");
+    expect(lastText(w.phone)).not.toMatch(/[?&]c=/); // the code is only ever in a fragment
     // The code in the link works as a location code.
     await service.updateWorkerLocation(first, { lat: 37.7, lng: -122.4, source: "app" });
     expect(await row(w.phone)).toMatchObject({ lat: 37.7, location_source: "app" });
@@ -353,7 +353,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
   it("device: the code gets a 1-hour profile ticket; the ticket stores the UDID; ready after release; STOP deletes", async () => {
     const w = await worker(somewhere());
     await say(w.phone, "app", "APP");
-    const appCode = /\/app#c=([\w-]{43})$/.exec(lastText(w.phone))?.[1] ?? "";
+    const appCode = /\/app#c=([\w-]{43})/.exec(lastText(w.phone))?.[1] ?? "";
     const first = await service.workerDevice(appCode);
     expect(first).toMatchObject({ registered: false, ready: false });
     const ticket = first.profile_url.replace("https://api.eyes.test/w/device/profile/", "");
