@@ -16,6 +16,7 @@
     "@eyes/engine": "workspace:*",
     "@eyes/payments": "workspace:*",
     "@eyes/safety": "workspace:*",
+    "@eyes/ui": "workspace:*",
     "@eyes/verify": "workspace:*",
     "@eyes/web-dashboard": "workspace:*",
     "hono": "4.13.13",

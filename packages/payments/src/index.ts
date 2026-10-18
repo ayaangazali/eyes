@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   centsToUsd,
   EyesError,
@@ -6,12 +7,15 @@ import {
   OwnerPolicyInput,
   type Payments,
   type PaymentsEvent,
+  placeName,
   type RouteDeps,
   TASK_TYPES,
+  type TaskStatus,
   type TaskType,
   usdToCents,
   type WorkerEarnings,
 } from "@eyes/core";
+import { PAGE_CSS, PAGE_HEADER } from "@eyes/ui/page";
 import { type Context, Hono, type Next } from "hono";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
@@ -164,25 +168,23 @@ export function createStripePayments(env: Env): Payments {
   };
 }
 
-const BRAND_STYLE = `*{box-sizing:border-box}
-body{margin:0;font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#121820;background:#fafafa}
-header{background:#121820;padding:.75rem max(1rem,calc(50% - 19rem))}
-header a{display:inline-flex;align-items:center;gap:.6rem;color:#eef3f8;font-size:1.25rem;font-weight:750;letter-spacing:-.02em;text-decoration:none}
-.mark{width:1.6rem;height:1rem;border-radius:50%;background:radial-gradient(circle,#121820 0 28%,#ffc24b 30%);box-shadow:0 0 .8rem rgba(255,194,75,.45)}
-main{max-width:40rem;margin:0 auto;padding:1rem 1rem 3rem}
-h1{font-size:1.5rem;margin:.5rem 0}`;
-
-const shell = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>, style = "") =>
+const shell = (title: string, body: HtmlEscapedString | Promise<HtmlEscapedString>) =>
   html`<!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>${title}</title>
-<style>${raw(BRAND_STYLE + style)}</style></head>
-<body><header><a href="/"><span class="mark"></span>Eyes</a></header>
-<main>${body}</main>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><meta name="color-scheme" content="light dark"><title>${title}</title>
+<style>${raw(PAGE_CSS)}</style></head>
+<body class="ui">${raw(PAGE_HEADER)}
+<main class="page">${body}</main>
 </body>
 </html>`;
 
-const page = (title: string, text: string) => shell(title, html`<h1>${title}</h1><p>${text}</p>`);
+// One-message pages (payment received, payouts set up, errors): a framed card with the next step and
+// a way out to the Eyes landing page, so a dead-end link never leaves people on a blank screen.
+const page = (title: string, text: string) =>
+  shell(
+    title,
+    html`<section class="notice-page"><h1>${title}</h1><p>${text}</p><a class="button" href="https://eyes.pictures">Go to eyes.pictures</a></section>`,
+  );
 
 async function explained(c: Context, respond: () => Promise<Response>) {
   try {
@@ -233,22 +235,21 @@ const UNCONFIRMED: Note = {
   error: true,
 };
 
-const OWNER_STYLE = `
-h2{font-size:1.2rem;margin-top:2rem}
-dl{display:grid;grid-template-columns:auto 1fr;gap:.25rem 1rem}dt{color:#555}dd{margin:0;font-weight:600}
-label{display:block;margin-top:1rem;font-weight:600}
-input[type=number]{display:block;width:100%;font-size:1rem;padding:.6rem;margin-top:.25rem;border:1px solid #888;border-radius:.4rem}
-fieldset{margin-top:1rem;border:1px solid #ccc;border-radius:.4rem}fieldset label{font-weight:400;margin-top:.5rem}
-input[type=checkbox]{width:1.25rem;height:1.25rem;vertical-align:middle;margin:0 .5rem 0 0}
-button,.button{display:inline-block;font-size:1rem;padding:.75rem 1.25rem;margin-top:1rem;border:0;border-radius:.5rem;background:#121820;color:#fff;text-decoration:none}
-.note{padding:.75rem;border-radius:.5rem;background:#e6f4ea}.error{background:#fdecea}.hint{color:#555}
-.danger{background:#a4231a}.key{font:1rem ui-monospace,monospace;word-break:break-all;padding:.75rem;border:1px solid #888;border-radius:.4rem;background:#fff}
-ul{padding-left:1.25rem}li{margin-bottom:.75rem}
-.scroll{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:.9rem}th,td{text-align:left;padding:.35rem .25rem;border-bottom:1px solid #ddd}`;
-
-const usd = (n: number) => `$${n.toFixed(2)}`;
+const usd = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toFixed(2)}`;
 const when = (iso: string) => `${iso.slice(0, 16).replace("T", " ")} UTC`;
-const shortId = (id: string) => id.slice(0, 8);
+
+// Task status as the agent's owner reads it.
+const OWNER_STATUS: Record<TaskStatus, { label: string; tone: "" | "success" | "warning" }> = {
+  dispatched: { label: "Looking for a worker", tone: "" },
+  claimed: { label: "Worker on the way", tone: "" },
+  submitted: { label: "Checking the photo", tone: "" },
+  verified: { label: "Answered", tone: "success" },
+  paid: { label: "Answered and paid", tone: "success" },
+  expired: { label: "Expired, refunded", tone: "" },
+  refunded: { label: "Refunded", tone: "" },
+  disputed: { label: "Disputed", tone: "warning" },
+  needs_review: { label: "Needs review", tone: "warning" },
+};
 
 const PAYOUT_LABELS: Record<NonNullable<WorkerEarnings["tasks"][number]["payout"]>, string> = {
   paid: "Paid",
@@ -257,27 +258,57 @@ const PAYOUT_LABELS: Record<NonNullable<WorkerEarnings["tasks"][number]["payout"
   waiting_for_payout_setup: "Waiting for your payout setup",
 };
 
+// What a task's status means to the worker who did it. `review` adds the way to ask a person.
+const TASK_BADGES: Record<TaskStatus, { label: string; tone: "" | "success" | "warning"; review?: true }> = {
+  dispatched: { label: "Claimed", tone: "" },
+  claimed: { label: "Claimed", tone: "" },
+  submitted: { label: "Checking your photo", tone: "" },
+  verified: { label: "Verified", tone: "success" },
+  paid: { label: "Paid", tone: "success" },
+  expired: { label: "Expired", tone: "" },
+  refunded: { label: "Not paid", tone: "" },
+  disputed: { label: "Disputed", tone: "warning", review: true },
+  needs_review: { label: "Needs review", tone: "warning", review: true },
+};
+
+// Dates render in UTC on the server and switch to the reader's local time when scripts run.
+// The page CSP allows exactly this script by hash.
+const LOCAL_TIME =
+  'const f=new Intl.DateTimeFormat(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});for(const t of document.querySelectorAll("time[datetime]"))t.textContent=f.format(new Date(t.dateTime));';
+const LOCAL_TIME_CSP = PAGE_HEADERS["Content-Security-Policy"].replace(
+  "default-src 'none';",
+  `default-src 'none'; script-src 'sha256-${createHash("sha256").update(LOCAL_TIME).digest("base64")}';`,
+);
+
 function earningsPage(view: WorkerEarnings, livePayouts: boolean) {
   const waiting = view.tasks.some((t) => t.payout === "waiting_for_payout_setup");
   return shell(
     "Your Eyes earnings",
     html`<h1>Your earnings</h1>
 <p>Keep this link private: anyone who has it can see where and when you did tasks. Links stop working 7 days after we text them; text HELP to the Eyes number for a new one.</p>
-<dl>
-<dt>Paid to you</dt><dd>${usd(view.paid_usd)}</dd>
-<dt>Earned, not sent yet</dt><dd>${usd(view.pending_usd)}</dd>
+<dl class="totals">
+<div><dt>Paid to you</dt><dd>${usd(view.paid_usd)}</dd></div>
+<div><dt>Earned, not sent yet</dt><dd>${usd(view.pending_usd)}</dd></div>
 </dl>
 ${!livePayouts ? html`<p class="note">This is a test server and payouts are simulated, so the amounts on this page are not real money and nothing is sent to you.</p>` : waiting ? html`<p class="note">Some of your earnings are waiting for you to set up payouts. Open the payout link we texted you, or text START to the Eyes number for a new one.</p>` : ""}
 <h2>Your recent tasks</h2>
 ${
   view.tasks.length
-    ? html`<div class="scroll"><table>
-<thead><tr><th scope="col">Place</th><th scope="col">Bounty</th><th scope="col">Task</th><th scope="col">Payout</th><th scope="col">Claimed</th></tr></thead>
-<tbody>${view.tasks.map((t) => html`<tr><td>${t.place_label}</td><td>${usd(t.bounty_usd)}</td><td>${t.status.replaceAll("_", " ")}</td><td>${t.payout ? (livePayouts ? PAYOUT_LABELS[t.payout] : "Simulated, nothing sent") : ""}${livePayouts && t.paid_at ? ` ${when(t.paid_at)}` : ""}</td><td>${when(t.claimed_at)}</td></tr>`)}</tbody>
-</table></div>`
+    ? html`<ol class="tasks">${view.tasks.map((t) => {
+        const badge = TASK_BADGES[t.status];
+        const payout = t.payout ? (livePayouts ? PAYOUT_LABELS[t.payout] : "Simulated, nothing sent") : "";
+        return html`<li class="task">
+<div class="task__top"><span class="ui-badge${badge.tone ? ` ui-badge--${badge.tone}` : ""}">${badge.label}</span><span class="task__bounty">${usd(t.bounty_usd)}</span></div>
+<p class="task__question">${t.question || TASK_TYPE_LABELS[t.task_type]}</p>
+<p class="task__place">${placeName(t.place_label)}</p>
+${badge.review ? html`<p class="hint">Reply HELP for a manual review.</p>` : ""}
+${payout ? html`<p class="task__payout">${payout}${livePayouts && t.paid_at ? html` <time datetime="${t.paid_at}">${when(t.paid_at)}</time>` : ""}</p>` : ""}
+<p class="task__when">Claimed <time datetime="${t.claimed_at}">${when(t.claimed_at)}</time></p>
+</li>`;
+      })}</ol>
+<script>${raw(LOCAL_TIME)}</script>`
     : html`<p>No tasks yet. Reply YES to a task text to claim one.</p>`
 }`,
-    OWNER_STYLE,
   );
 }
 
@@ -310,21 +341,34 @@ ${TASK_TYPES.map((t) => html`<label><input type="checkbox" name="allowed_task_ty
 <h2>Recent tasks</h2>
 ${
   view.tasks.length
-    ? html`<ul>${view.tasks.map((t) => html`<li><strong>${t.question}</strong><br>${t.place_label}<br>${t.status.replaceAll("_", " ")}, ${usd(t.bounty_usd)} bounty, ${when(t.created_at)}, task ${shortId(t.task_id)}</li>`)}</ul>`
+    ? html`<ol class="tasks">${view.tasks.map((t) => {
+        const s = OWNER_STATUS[t.status];
+        return html`<li class="task">
+<div class="task__top"><span class="ui-badge${s.tone ? ` ui-badge--${s.tone}` : ""}">${s.label}</span><span class="task__bounty">${usd(t.bounty_usd)}</span></div>
+<p class="task__question">${t.question}</p>
+<p class="task__place">${placeName(t.place_label)}</p>
+<p class="task__when">Asked <time datetime="${t.created_at}">${when(t.created_at)}</time></p>
+</li>`;
+      })}</ol>`
     : html`<p>No tasks yet.</p>`
 }
 <h2>Money in and out</h2>
-<div class="scroll"><table>
-<thead><tr><th scope="col">What</th><th scope="col">Amount</th><th scope="col">Task</th><th scope="col">When</th></tr></thead>
-<tbody>${view.ledger.map((l) => html`<tr><td>${LEDGER_LABELS[l.type]}</td><td>${usd(l.amount_usd)}</td><td>${l.task_id ? shortId(l.task_id) : ""}</td><td>${when(l.created_at)}</td></tr>`)}</tbody>
-</table></div>
+${
+  view.ledger.length
+    ? html`<ol class="ledger">${view.ledger.map((l) => {
+        const task = l.task_id ? view.tasks.find((t) => t.task_id === l.task_id)?.question : undefined;
+        return html`<li><span class="ledger__what">${LEDGER_LABELS[l.type]}</span><span class="ledger__amount">${usd(l.amount_usd)}</span>
+<span class="ledger__meta">${task ? html`${task} · ` : ""}<time datetime="${l.created_at}">${when(l.created_at)}</time></span></li>`;
+      })}</ol>`
+    : html`<p>No money in or out yet.</p>`
+}
 <h2>Replace this agent's API key</h2>
 <p>If the API key may have leaked, replace it. The old key stops working immediately, so your agent cannot use Eyes until you give it the new key. The new key is shown once, on the next page.</p>
 <form method="post" action="/owner/${token}/rotate-key">
 <label><input type="checkbox" name="confirm" value="yes" required>I understand the old key stops working now, and my agent cannot use Eyes until I give it the new key.</label>
 <button class="danger" type="submit">Replace the API key</button>
-</form>`,
-    OWNER_STYLE,
+</form>
+<script>${raw(LOCAL_TIME)}</script>`,
   );
 }
 
@@ -336,7 +380,6 @@ const newKeyPage = (apiKey: string, token: string) =>
 <p class="key">${apiKey}</p>
 <p class="hint">Your agent sends it as the header Authorization: Bearer followed by the key.</p>
 <a class="button" href="/owner/${token}">Back to owner controls</a>`,
-    OWNER_STYLE,
   );
 
 export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
@@ -360,12 +403,22 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
       return c.text(`Webhook Error: ${(err as Error).message}`, 400);
     }
     if (event?.type === "topup.completed") {
-      await deps.service.creditTopup({
-        agent_id: event.agent_id,
-        amount_cents: event.amount_cents,
-        stripe_ref: event.ref,
-        payer_email: event.payer_email,
-      });
+      try {
+        await deps.service.creditTopup({
+          agent_id: event.agent_id,
+          amount_cents: event.amount_cents,
+          stripe_ref: event.ref,
+          payer_email: event.payer_email,
+        });
+      } catch (err) {
+        // The ledger row needs its agent in this database. A top-up for an agent this database lacks (for
+        // example, a Checkout session made against another deployment) fails that foreign key. Only that
+        // failure is acknowledged; any other credit error still answers 500 so Stripe retries it.
+        if (!(err instanceof Error && err.message.includes("ledger_agent_id_fkey"))) throw err;
+        console.error(
+          `stripe top-up for unknown agent ${event.agent_id.slice(0, 8)}, not credited (session ${event.ref.slice(0, 12)})`,
+        );
+      }
     }
     if (event?.type === "worker.onboarded") await deps.service.markWorkerOnboarded(event.account_id);
     return c.json({ received: true });
@@ -404,11 +457,13 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
   });
 
   const fee = centsToUsd(deps.config.fee_cents);
-  const ownerView = (c: Context, note: Note | null, status: ContentfulStatusCode = 200) =>
-    explained(c, async () => {
+  const ownerView = (c: Context, note: Note | null, status: ContentfulStatusCode = 200) => {
+    c.header("Content-Security-Policy", LOCAL_TIME_CSP);
+    return explained(c, async () => {
       const token = c.req.param("token") ?? "";
       return c.html(ownerPage(await deps.service.ownerConsole(token), token, note, fee), status);
     });
+  };
   const formNumber = (v: unknown) =>
     typeof v === "string" && /^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : Number.NaN;
 
@@ -443,11 +498,12 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
       ),
     ),
   );
-  app.get("/w/earnings/:token", (c) =>
-    explained(c, async () =>
+  app.get("/w/earnings/:token", (c) => {
+    c.header("Content-Security-Policy", LOCAL_TIME_CSP);
+    return explained(c, async () =>
       c.html(earningsPage(await deps.service.workerEarnings(c.req.param("token")), deps.config.live_payouts)),
-    ),
-  );
+    );
+  });
   app.get("/w/connect/:token", (c) =>
     deps.config.live_payouts
       ? redirectTo(c, () => deps.service.workerConnectUrl(c.req.param("token")))
