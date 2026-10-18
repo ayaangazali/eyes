@@ -147,13 +147,24 @@
   --eyes-hairline: 0 0 0 1px var(--eyes-border);
   --eyes-shadow-float: 0 10px 15px -3px rgb(0 0 0 / 10%), 0 4px 6px -4px rgb(0 0 0 / 10%);
 
-  /* Motion: only in answer to an action */
+  /* Motion: only in answer to an action. Custom curves (the built-in keywords are too weak):
+     ease-out for anything entering or responding to a press, ease-in-out for things moving on
+     screen, plain ease for hover and colour. UI motion stays under 300ms; press feedback 160ms. */
   --eyes-ease: cubic-bezier(0.2, 0, 0, 1);
+  --eyes-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --eyes-ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --eyes-duration: 150ms;
+  --eyes-duration-press: 160ms;
+  --eyes-duration-enter: 200ms;
+  --eyes-press-scale: 0.97;
+  --eyes-enter-y: 6px;
 }
 
+/* Reduced motion means gentler, not none: colour and opacity still change, nothing moves or scales. */
 @media (prefers-reduced-motion: reduce) {
-  :root {
-    --eyes-duration: 0ms;
+  :root,
+  [data-theme] {
+    --eyes-press-scale: 1;
+    --eyes-enter-y: 0px;
   }
 }

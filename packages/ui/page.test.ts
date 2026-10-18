@@ -27,9 +27,10 @@ describe("PAGE_CSS", () => {
     expect(PAGE_CSS).toContain("src:url(/fonts/instrument-sans.woff2)");
   });
 
-  it("honours reduced motion for buttons", () => {
+  it("honours reduced motion for buttons: the press scale is a token that reduced motion sets to 1", () => {
+    expect(PAGE_CSS).toContain("transform:scale(var(--eyes-press-scale))");
     expect(PAGE_CSS).toMatch(
-      /@media \(prefers-reduced-motion:reduce\)\{\.page \.button,\.page button\{transition:none\}\}/,
+      /prefers-reduced-motion: reduce\)\s*\{\s*:root,\s*\[data-theme\]\s*\{\s*--eyes-press-scale: 1;/,
     );
   });
 });
