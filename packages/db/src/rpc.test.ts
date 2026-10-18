@@ -79,6 +79,15 @@ describe("createRpc over InsForge", () => {
     expect(err).toBeInstanceOf(TypeError);
     expect(err).not.toBeInstanceOf(EyesError);
   });
+
+  it("rethrows non-Error rejections untouched", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject("socket hang up")),
+    );
+    const err = await errorOf(createRpc(insforge)("eyes_thing", {}));
+    expect(err).toBe("socket hang up");
+  });
 });
 
 describe("createRpc over Postgres", () => {
@@ -111,5 +120,14 @@ describe("createRpc over Postgres", () => {
     const err = await errorOf(createRpc(pg)("eyes_claim", {}));
     expect(err).not.toBeInstanceOf(EyesError);
     expect((err as Error).message).toBe("connect ECONNREFUSED 127.0.0.1:1");
+  });
+
+  it("swallows Postgres notices so they never reach the console", () => {
+    const spies = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+    createRpc(pg);
+    const options = postgresCtor.mock.calls[0]?.[1] as { onnotice: (notice: unknown) => void };
+    options.onnotice({ message: "NOTICE: function already exists" });
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    for (const spy of spies) spy.mockRestore();
   });
 });

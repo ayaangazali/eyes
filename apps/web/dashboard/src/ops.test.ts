@@ -57,6 +57,29 @@ describe("summarize", () => {
     const s = summarize({ tasks: [task("paid", 1)], ledger: [], workers: [], totals: {} }, 1, NOW);
     expect(s.partial.tasks).toBe(true);
   });
+
+  it("counts unknown task statuses and ledger types instead of dropping them", () => {
+    const s = summarize(
+      {
+        tasks: [task("legacy_status", 1)],
+        ledger: [{ type: "bonus", amount_cents: 75, created_at: hoursAgo(1) }],
+        workers: [],
+        totals: {},
+      },
+      10,
+      NOW,
+    );
+    expect(s.statuses.legacy_status).toBe(1);
+    expect(s.money_24h.bonus).toBe(75);
+  });
+
+  it("marks the ledger partial only when it is full and every row is inside the window", () => {
+    const row = (h: number) => ({ type: "fee", amount_cents: 1, created_at: hoursAgo(h) });
+    const inside = summarize({ tasks: [], ledger: [row(1), row(2)], workers: [], totals: {} }, 2, NOW);
+    expect(inside.partial.ledger).toBe(true);
+    const older = summarize({ tasks: [], ledger: [row(1), row(30)], workers: [], totals: {} }, 2, NOW);
+    expect(older.partial.ledger).toBe(false);
+  });
 });
 
 describe("event log", () => {
