@@ -15,6 +15,7 @@ interface El {
   className: string;
   innerHTML: string;
   src?: string;
+  srcObject?: unknown;
   listeners: Record<string, (event: unknown) => unknown>;
   addEventListener: ReturnType<typeof vi.fn>;
   replaceChildren: ReturnType<typeof vi.fn>;
@@ -40,6 +41,20 @@ function makeEl(tagName = ""): El {
   };
   return el;
 }
+
+// Stands in for the canvas capture.ts draws the live frame on.
+function makeCanvas(blob: Blob | null) {
+  const ctx = { drawImage: vi.fn() };
+  return Object.assign(makeEl("CANVAS"), {
+    width: 0,
+    height: 0,
+    ctx,
+    getContext: vi.fn(() => ctx),
+    toBlob: vi.fn((done: (blob: Blob | null) => void) => done(blob)),
+  });
+}
+
+let lastCanvas: ReturnType<typeof makeCanvas> | undefined;
 
 let els = new Map<string, El>();
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -96,16 +111,24 @@ interface Setup {
   offer?: Record<string, unknown>;
   result?: unknown;
   camera?: unknown;
+  canvas?: { blob: Blob | null };
 }
 
 // Loads capture.ts on a fake page. main() runs on load, so callers wait for what they check.
-async function load({ search = "?t=tok", offer = makeOffer(), result = RESULT, camera }: Setup = {}) {
+async function load({ search = "?t=tok", offer = makeOffer(), result = RESULT, camera, canvas }: Setup = {}) {
   els = new Map();
   geo = { watchPosition: vi.fn(() => 7), clearWatch: vi.fn() };
   fetchMock = vi.fn(async (_url: string, init?: RequestInit) =>
     init?.method === "POST" ? json(result) : json(offer),
   );
-  vi.stubGlobal("document", { getElementById: byId, createElement: (tag: string) => makeEl(tag) });
+  vi.stubGlobal("document", {
+    getElementById: byId,
+    createElement: (tag: string) => {
+      if (tag !== "canvas" || !canvas) return makeEl(tag);
+      lastCanvas = makeCanvas(canvas.blob);
+      return lastCanvas;
+    },
+  });
   vi.stubGlobal("FormData", FakeFormData);
   vi.stubGlobal("location", { search });
   vi.stubGlobal("navigator", { geolocation: geo, mediaDevices: camera });
@@ -278,6 +301,13 @@ describe("capture page", () => {
     onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 12.4 } });
   }
 
+  // Like withFix, with a custom offer, result, or camera.
+  async function loadWithFix(setup: Setup = {}) {
+    await load(setup);
+    const [onFix] = await waitForWatch();
+    onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 12.4 } });
+  }
+
   function submit() {
     return byId("capture").listeners.submit?.({ preventDefault: vi.fn() });
   }
@@ -342,5 +372,147 @@ describe("capture page", () => {
     byId("file").listeners.change?.({ currentTarget: { files: [] } });
     expect(createObjectURL).not.toHaveBeenCalled();
     createObjectURL.mockRestore();
+  });
+
+  it("takes a photo from the live view and uses it for the report", async () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:shot");
+    await load({ canvas: { blob: new Blob(["jpeg"], { type: "image/jpeg" }) } });
+    await vi.waitFor(() => expect(byId("question").textContent).toBe("Is the shop open?"));
+    Object.assign(byId("video"), { videoWidth: 640, videoHeight: 480 });
+    byId("shutter").listeners.click?.({});
+    expect(lastCanvas?.width).toBe(640);
+    expect(lastCanvas?.height).toBe(480);
+    expect(lastCanvas?.ctx.drawImage).toHaveBeenCalledWith(byId("video"), 0, 0);
+    expect(lastCanvas?.toBlob).toHaveBeenCalledWith(expect.any(Function), "image/jpeg", 0.85);
+    const shot = createObjectURL.mock.calls[0]?.[0] as File;
+    expect(shot).toBeInstanceOf(File);
+    expect(shot.name).toBe("capture.jpg");
+    expect(byId("video").hidden).toBe(true);
+    expect(byId("preview").src).toBe("blob:shot");
+    expect(byId("shutter").textContent).toBe("Retake photo");
+    createObjectURL.mockRestore();
+  });
+
+  it("keeps the live view when the frame cannot be encoded", async () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL");
+    await load({ canvas: { blob: null } });
+    await vi.waitFor(() => expect(byId("question").textContent).toBe("Is the shop open?"));
+    byId("shutter").listeners.click?.({});
+    expect(lastCanvas?.toBlob).toHaveBeenCalled();
+    expect(createObjectURL).not.toHaveBeenCalled();
+    expect(byId("video").hidden).toBe(false);
+    createObjectURL.mockRestore();
+  });
+
+  it("retake clears the photo and asks for a new one when a photo is required", async () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");
+    await load({ offer: makeOffer({ require_photo: true }) });
+    await vi.waitFor(() => expect(byId("question").textContent).toBe("Is the shop open?"));
+    expect(byId("todo").textContent).toBe("Take the photo first.");
+    const file = new File(["jpeg"], "shop.jpg", { type: "image/jpeg" });
+    byId("file").listeners.change?.({ currentTarget: { files: [file] } });
+    expect(byId("todo").textContent).toBe("Waiting for GPS...");
+    byId("shutter").listeners.click?.({});
+    expect(byId("video").hidden).toBe(false);
+    expect(byId("preview").hidden).toBe(true);
+    expect(byId("shutter").textContent).toBe("Take photo");
+    expect(byId("shutter").className).toBe("ui-button ui-button--primary ui-button--block");
+    expect(byId("todo").textContent).toBe("Take the photo first.");
+    createObjectURL.mockRestore();
+  });
+
+  it("does not submit before a GPS fix", async () => {
+    await load();
+    await vi.waitFor(() => expect(byId("question").textContent).toBe("Is the shop open?"));
+    await submit();
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("sends the picked photo with the report", async () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");
+    await load();
+    await vi.waitFor(() => expect(byId("question").textContent).toBe("Is the shop open?"));
+    const file = new File(["jpeg"], "shop.jpg", { type: "image/jpeg" });
+    byId("file").listeners.change?.({ currentTarget: { files: [file] } });
+    const [onFix] = geo.watchPosition.mock.calls.at(-1) ?? [];
+    onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 12.4 } });
+    await submit();
+    const body = fetchMock.mock.calls.at(-1)?.[1]?.body as { get(key: string): unknown };
+    expect(body.get("photo")).toBe(file);
+    createObjectURL.mockRestore();
+  });
+
+  it("keeps the earlier fix when a relocate fix is less accurate", async () => {
+    await withFix();
+    byId("relocate").listeners.click?.({});
+    await vi.waitFor(() => expect(geo.watchPosition).toHaveBeenCalledTimes(2));
+    const [onFix] = geo.watchPosition.mock.calls[1] ?? [];
+    onFix({ coords: { latitude: 37.78, longitude: -122.43, accuracy: 80 } });
+    expect(byId("gps").textContent).toBe(
+      "GPS within 12 m. You are 0 m from the place. Getting your location...",
+    );
+  });
+
+  it("says another worker claimed the task when this worker lost it", async () => {
+    await load({ offer: makeOffer({ status: "paid", claimed_by_you: false }) });
+    await vi.waitFor(() =>
+      expect(byId("closed").textContent).toBe(
+        "Another worker already claimed this task. Watch for the next task text.",
+      ),
+    );
+  });
+
+  it("opens the live view and stops the camera once the report is sent", async () => {
+    const track = { stop: vi.fn() };
+    const stream = { getTracks: () => [track] };
+    await loadWithFix({ camera: { getUserMedia: vi.fn(async () => stream) } });
+    await vi.waitFor(() => expect(byId("video")).toMatchObject({ srcObject: stream }));
+    await submit();
+    expect(track.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers the phone camera for a camera error that is not a denial", async () => {
+    const missing = Object.assign(new Error("no camera"), { name: "NotFoundError" });
+    await load({
+      camera: {
+        getUserMedia: vi.fn(async () => {
+          throw missing;
+        }),
+      },
+    });
+    await vi.waitFor(() => expect(byId("fallback").hidden).toBe(false));
+    expect(byId("why").textContent).toBe("");
+    expect(byId("video").srcObject).toBeUndefined();
+  });
+
+  it("titles a status with no outcome title as Sent", async () => {
+    await loadWithFix({ result: { ...RESULT, status: "submitted", message: "Sent. Waiting for review." } });
+    await submit();
+    expect(byId("outcome").textContent).toBe("Sent");
+    expect(byId("message").textContent).toBe("Waiting for review.");
+  });
+
+  it("shows real payout wording when live payouts are on", async () => {
+    vi.doMock("./api.ts", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("./api.ts")>()),
+      LIVE_PAYOUTS: true,
+    }));
+    try {
+      await loadWithFix({
+        offer: makeOffer({ bounty_usd: 2.5 }),
+        result: { ...RESULT, status: "paid", message: "Verified and paid. Funds on the way." },
+      });
+      await submit();
+      expect(byId("bounty").textContent).toBe("$2.50 for this task");
+      expect(byId("outcome").textContent).toBe("Verified and paid");
+      expect(byId("message").textContent).toBe("Funds on the way.");
+      await loadWithFix({
+        result: { ...RESULT, status: "verified", message: "Verified, payout pending. Photo checks pass." },
+      });
+      await submit();
+      expect(byId("outcome").textContent).toBe("Verified, payout pending");
+    } finally {
+      vi.doUnmock("./api.ts");
+    }
   });
 });
