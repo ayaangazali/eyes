@@ -596,6 +596,16 @@ describe("parseTaskEmail", () => {
     expect(question.length).toBeLessThanOrEqual(500);
     expect(question).not.toMatch(/\p{Cs}/u);
   });
+
+  it("drops a reply attribution that is the first line, leaving the subject as the question", () => {
+    expect(parseTaskEmail("Line check", "Eyes <eyes@x> wrote:\n> Location: Old place")).toEqual({
+      question: "Line check",
+      location: null,
+      task_type: "other_public",
+      bounty_usd: undefined,
+      deadline_minutes: undefined,
+    });
+  });
 });
 
 describe("in-thread replies", () => {
@@ -822,6 +832,59 @@ describe("answer loop", () => {
     expect(awaitAnswer).toHaveBeenCalledOnce();
     expect(outbox).toHaveLength(2);
   });
+
+  it("writes failed checks, a no or a missing yes/no, and no photo line or attachment without a photo", async () => {
+    const variants: [Partial<Answer>, string[], string[]][] = [
+      [{ answer_bool: false, photo_url: null }, ["Yes/no: no"], ["Photo attached"]],
+      [
+        { answer_bool: null, verification: { ...ANSWER.verification, gps_ok: false, vision_ok: false } },
+        ["GPS failed", "photo safe to share failed", "Photo attached"],
+        ["Yes/no"],
+      ],
+    ];
+    for (const [patch, present, absent] of variants) {
+      const answer = { ...ANSWER, ...patch };
+      const { post, outbox } = setup({ awaitAnswer: async () => ({ ...answered, answer }) });
+      await post(JSON.stringify(emailEvent()));
+      await vi.waitFor(() => expect(outbox).toHaveLength(2));
+      const reply = outbox[1] as OutboundEmail;
+      for (const part of present) expect(reply.text).toContain(part);
+      for (const part of absent) expect(reply.text).not.toContain(part);
+      expect(reply.attachments).toEqual(
+        answer.photo_url ? [expect.objectContaining({ url: answer.photo_url })] : undefined,
+      );
+    }
+  });
+
+  it("logs an awaitAnswer failure by EyesError code, or by type when it is not an Error", async () => {
+    vi.useFakeTimers();
+    const awaitAnswer = vi
+      .fn()
+      .mockRejectedValueOnce(new EyesError("task_not_found"))
+      .mockRejectedValueOnce("socket closed")
+      .mockResolvedValueOnce(answered);
+    const { post, outbox } = setup({ awaitAnswer });
+    await post(JSON.stringify(emailEvent()));
+    for (let failures = 1; failures <= 2; failures++) {
+      await vi.waitFor(() => expect(error).toHaveBeenCalledTimes(failures));
+      await vi.advanceTimersByTimeAsync(5_000);
+    }
+    await vi.waitFor(() => expect(outbox).toHaveLength(2));
+    expect(error.mock.calls.map((call) => call[0])).toEqual([
+      `primitive: awaitAnswer for task ${TASK.task_id} failed: task_not_found`,
+      `primitive: awaitAnswer for task ${TASK.task_id} failed: string`,
+    ]);
+  });
+
+  it("logs an answer loop that throws by error name and sends no answer", async () => {
+    const broken = { ...answered, answer: { ...ANSWER, confidence: null } } as unknown as typeof answered;
+    const { post, outbox } = setup({ awaitAnswer: async () => broken });
+    await post(JSON.stringify(emailEvent()));
+    await vi.waitFor(() =>
+      expect(error).toHaveBeenCalledWith(`primitive: answer loop for task ${TASK.task_id} failed: TypeError`),
+    );
+    expect(outbox).toHaveLength(1);
+  });
 });
 
 describe("createPrimitiveEmail", () => {
@@ -947,6 +1010,26 @@ describe("createPrimitiveEmail", () => {
     sdk.send.mockResolvedValueOnce({ id: "se_2", status: "gate_denied", requestId: "req_2" });
     await expect(createPrimitiveEmail(env).send({ to: "x@y.test", subject: "s", text: "t" })).rejects.toThrow(
       /gate_denied/,
+    );
+  });
+
+  it("keeps a filename that has an extension and the caller's type when the download has no content-type", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(photo)),
+    );
+    await createPrimitiveEmail(env).send({
+      to: "agent@agent.test",
+      subject: "s",
+      text: "t",
+      attachments: [
+        { filename: "p.jpg", content_type: "image/jpeg", url: "https://storage.eyes.test/p.jpg" },
+      ],
+    });
+    expect(sdk.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [expect.objectContaining({ filename: "p.jpg", content_type: "image/jpeg" })],
+      }),
     );
   });
 });

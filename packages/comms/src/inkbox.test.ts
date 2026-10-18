@@ -313,6 +313,23 @@ describe("inkbox webhook", () => {
     expect(first).not.toMatch(/4155550999|secret|claim failed/);
     expect(second).toContain("internal_error");
   });
+
+  it("logs a non-Error service failure by its type", async () => {
+    const { post, handleWorkerReply } = setup();
+    handleWorkerReply.mockRejectedValueOnce("db gone");
+    const body = JSON.stringify(textReceived("yes"));
+    expect((await post(body, signedHeaders(body))).status).toBe(200);
+    expect(String(error.mock.calls[0]?.[0])).toMatch(/failed: string$/);
+  });
+
+  it("falls back to the message id when an iMessage event has no event id", async () => {
+    const { post, handleWorkerReply } = setup();
+    handleWorkerReply.mockRejectedValueOnce(new Error("x"));
+    const { id: _, ...evt } = imessageReceived("yes");
+    const body = JSON.stringify(evt);
+    await post(body, signedHeaders(body));
+    expect(String(error.mock.calls[0]?.[0])).toContain("reply 1a90e8b0-0e1e-485f-b316-28f7dfa96afd from");
+  });
 });
 
 describe("createInkboxMessaging", () => {
@@ -458,6 +475,19 @@ describe("createInkboxMessaging", () => {
     const err = new Error("403 recipient_not_opted_in");
     sdk.sendIMessage.mockRejectedValueOnce(err);
     await expect(createInkboxMessaging(env).sendText(TO, "a")).rejects.toBe(err);
+  });
+
+  it("names a send with no error code as 'no error code', whether reported in the reply or the API error", async () => {
+    sdk.sendIMessage.mockResolvedValueOnce({ id: "im_3", status: "error", errorCode: null });
+    sdk.sendIMessage.mockRejectedValueOnce(new InkboxAPIError(500, { error: { nested: true } }));
+    const m = createInkboxMessaging(env);
+    expect(await m.sendText(TO, "a").catch((err: Error) => [err.message, err.name])).toEqual([
+      "Inkbox iMessage error: no error code",
+      "InkboxSendError(error no error code)",
+    ]);
+    expect(await m.sendText(TO, "b").catch((err: Error) => err.name)).toBe(
+      "InkboxSendError(500 no error code)",
+    );
   });
 });
 
