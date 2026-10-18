@@ -64,6 +64,25 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm ax:eval
 
+  coverage:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: eyes
+          POSTGRES_DB: eyes
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 2s --health-timeout 5s --health-retries 30
+    env:
+      DATABASE_URL: postgres://postgres:eyes@127.0.0.1:5432/eyes
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup
+      - run: pnpm db:migrate
+      - run: pnpm coverage:all
+
   e2e:
     runs-on: ubuntu-latest
     services:

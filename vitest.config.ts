@@ -1,6 +1,7 @@
 import { defineConfig } from "vitest/config";
 
 const ignore = ["**/node_modules/**", "**/dist/**"];
+const gate = process.env.COVERAGE_GATE === "1";
 
 export default defineConfig({
   test: {
@@ -30,6 +31,9 @@ export default defineConfig({
         "scripts/**",
         "apps/mobile/ios/**",
       ],
+      thresholds: gate
+        ? { perFile: true, statements: 95, branches: 95, functions: 95, lines: 95 }
+        : undefined,
     },
   },
 });
