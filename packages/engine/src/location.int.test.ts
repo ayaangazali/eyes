@@ -171,9 +171,9 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     // One text. STOP deleted every code, so this START sends a fresh app link even within the hour.
     expect(lastText(w.phone).split("\n").slice(1, 3)).toEqual([
       expect.stringMatching(
-        /^1\. Get the app \(keeps your spot fresh\): https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/,
+        /^Get the app \(keeps your spot fresh\): https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/,
       ),
-      expect.stringMatching(/^2\. Update your spot: https:\/\/w\.eyes\.test\/here\.html\?t=/),
+      "This is a test server and payouts are simulated, so no real money is paid.",
     ]);
   });
 
@@ -191,11 +191,11 @@ describe.skipIf(!url)("worker location on Postgres", () => {
       (await sql`select count(*)::int as n from worker_location_tokens where worker_id = ${w.id}`)[0]?.n;
     expect(await codes()).toBe(1);
 
-    // START again within the hour: the welcome text only, no new code.
+    // START again within the hour, after the app sent a spot: nothing left to do, no new code.
     const before = sent();
     await say(w.phone, "start", "START");
     expect(sent()).toBe(before + 1);
-    expect(lastText(w.phone)).toContain("You're in.");
+    expect(lastText(w.phone)).toMatch(/^You're all set\. /);
     expect(await codes()).toBe(1);
 
     // APP mints even within the hour, as one text.
@@ -206,8 +206,8 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     expect(sent()).toBe(before + 2);
     expect(await codes()).toBe(2);
 
-    // An hour after the last link, START sends a new one.
-    providers.clock.advance(61 * 60_000);
+    // A day after the app's last spot (so over an hour after the last link), START sends a new one.
+    providers.clock.advance(24 * HOUR + 60_000);
     await say(w.phone, "start", "START");
     expect(appCode(lastText(w.phone))).not.toBe("");
     expect(await codes()).toBe(3);
@@ -268,9 +268,10 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     const w = await worker(north(at, 100));
     providers.clock.advance(25 * HOUR);
     await say(w.phone, "start", "START");
-    expect(welcome(w.phone)).toContain("/here.html?t=");
+    expect(welcome(w.phone)).not.toContain("/here.html"); // the app step keeps the spot fresh now
     expect(await code(ask(service, a, at))).toBe("no_workers_nearby");
-    await service.updateWorkerLocation(hereToken(welcome(w.phone)), {
+    await say(w.phone, "here");
+    await service.updateWorkerLocation(hereToken(lastText(w.phone)), {
       ...north(at, 50),
       source: "here_link",
     });
