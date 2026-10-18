@@ -16,6 +16,7 @@ import {
   QuoteTaskOutput,
   signToken,
   TOOLS,
+  type ToolOutput,
 } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
 import { PAGE } from "@eyes/web-dashboard";
@@ -49,6 +50,32 @@ const QUOTE = {
     label: "Blue Bottle Coffee, Mint Plaza, San Francisco",
   },
 };
+
+const PAID_TASK: ToolOutput<"get_task"> = {
+  task_id: TASK_ID,
+  status: "paid",
+  question: "How long is the line?",
+  task_type: "line_length",
+  place_label: "Blue Bottle Coffee, Mint Plaza, San Francisco",
+  bounty_usd: 3,
+  fee_usd: 0.5,
+  deadline_at: "2026-10-17T19:30:00.000Z",
+  created_at: "2026-10-17T19:00:00.000Z",
+  claimed_at: "2026-10-17T19:02:00.000Z",
+  answer: {
+    task_id: TASK_ID,
+    answer_text: "Short line, about 4 people",
+    answer_bool: null,
+    photo_url: "https://eyes.us-west.insforge.app/api/storage/buckets/photos/objects/p.jpg",
+    captured_at: "2026-10-17T19:06:00.000Z",
+    worker_distance_m: 60,
+    verification: { gps_ok: true, fresh_ok: true, vision_ok: true, vision_reason: "Shows the line." },
+    confidence: 0.95,
+    worker_rating: 5,
+    cost_usd: 3.5,
+  },
+};
+const CARD_URI = "ui://views/task-card.html";
 
 const OPS_KEY = "ops-5f2c9a1e7b3d4c8a9e0f1a2b3c4d5e6f";
 const FEED = {
@@ -324,12 +351,13 @@ describe("MCP tools", () => {
   it("lists every tool with boolean behavior hints and the read-only and idempotent values", async () => {
     const client = await connect(setup().fetch);
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(TOOLS).sort());
+    expect(tools.map((t) => t.name).sort()).toEqual([...Object.keys(TOOLS), "show_task"].sort());
     const hints = Object.fromEntries(tools.map((t) => [t.name, t.annotations]));
     for (const name of [
       "quote_task",
       "await_answer",
       "get_task",
+      "show_task",
       "list_tasks",
       "get_balance",
       "get_spend_policy",
@@ -354,6 +382,61 @@ describe("MCP tools", () => {
     expect(result.isError).toBeFalsy();
     expect(QuoteTaskOutput.parse(result.structuredContent)).toEqual(QUOTE);
     expect(parseText(result)).toEqual(QUOTE);
+  });
+
+  it("answers show_task with the same JSON as get_task, and no card when no view is built", async () => {
+    const env = { EYES_VIEWS_MANIFEST: join(tmpdir(), "eyes-no-views", "manifest.json") };
+    const client = await connect(setup({ getTask: async () => PAID_TASK }, env).fetch);
+    const show = await client.callTool({ name: "show_task", arguments: { task_id: TASK_ID } });
+    expect(show.structuredContent).toEqual(PAID_TASK);
+    expect(show).toEqual(await client.callTool({ name: "get_task", arguments: { task_id: TASK_ID } }));
+    const { tools } = await client.listTools();
+    expect(tools.every((t) => t._meta === undefined)).toBe(true);
+  });
+
+  it("serves show_task without a card when the views manifest is unreadable, instead of failing to start", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "eyes-bad-views-"));
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      for (const body of ['{"views":{"task-card":{"kind"', "{}"]) {
+        const manifest = join(dir, "manifest.json");
+        await writeFile(manifest, body);
+        const client = await connect(
+          setup({ getTask: async () => PAID_TASK }, { EYES_VIEWS_MANIFEST: manifest }).fetch,
+        );
+        const { tools } = await client.listTools();
+        expect(tools.find((t) => t.name === "show_task")?._meta).toBeUndefined();
+      }
+      expect(error).toHaveBeenCalledOnce();
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it("binds only show_task to the built task-card view, allowing the photo host", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "eyes-views-"));
+    const manifest = join(dir, "manifest.json");
+    const js = "document.body.dataset.card = 'eyes'";
+    await writeFile(manifest, JSON.stringify({ views: { "task-card": { kind: "inline", js, css: "" } } }));
+    const env = { EYES_VIEWS_MANIFEST: manifest, INSFORGE_BASE_URL: "https://eyes.us-west.insforge.app" };
+    const client = await connect(setup({ getTask: async () => PAID_TASK }, env).fetch);
+    const { tools } = await client.listTools();
+    expect(tools.find((t) => t.name === "show_task")?._meta).toMatchObject({ ui: { resourceUri: CARD_URI } });
+    expect(tools.filter((t) => t._meta !== undefined).map((t) => t.name)).toEqual(["show_task"]);
+    const [card] = (await client.readResource({ uri: CARD_URI })).contents;
+    expect(card).toMatchObject({
+      mimeType: "text/html;profile=mcp-app",
+      text: expect.stringContaining(js),
+      _meta: {
+        ui: { csp: { resourceDomains: expect.arrayContaining(["https://eyes.us-west.insforge.app"]) } },
+      },
+    });
+    const show = await client.callTool({ name: "show_task", arguments: { task_id: TASK_ID } });
+    expect(show.structuredContent).toEqual(PAID_TASK);
+    expect(show._meta).toMatchObject({ ui: { resourceUri: CARD_URI } });
+    const get = await client.callTool({ name: "get_task", arguments: { task_id: TASK_ID } });
+    expect(get._meta).toBeUndefined();
+    await rm(dir, { recursive: true, force: true });
   });
 
   it("turns an EyesError into isError with the catalog body and fix", async () => {

@@ -8,6 +8,7 @@ playwright-report
 coverage
 evals/ax/out/
 .mcp-use
+mcp-env.d.ts
 .DS_Store
 .claude/worktrees
 .claude/settings.local.json
