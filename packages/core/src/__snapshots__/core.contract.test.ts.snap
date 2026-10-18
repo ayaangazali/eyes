@@ -186,7 +186,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "task_id": {
-          "description": "The task_id returned by ask_eyes.",
+          "description": "Existing task_id from confirmed dispatch or a task lookup. Not a draft idempotency_key.",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
           "type": "string",

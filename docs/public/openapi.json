@@ -868,7 +868,7 @@
         "operationId": "await_answer",
         "tags": ["agent"],
         "summary": "Wait for the answer",
-        "description": "Long-poll for the answer to a task. Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the task is answered. Call it right after ask_eyes and keep calling it with the same task_id until answered is true or status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer. answered: false only means not yet; tasks usually take 5 to 20 minutes. Same as the MCP tool await_answer.",
+        "description": "Read-only bounded wait for an existing dispatched task_id, not a draft intent key. It checks recorded state about once a second for up to timeout_seconds (default 50, max 55); the request can be cancelled earlier. It does not dispatch, pay, refund or keep watching after the response. answered is true for verified, paid or needs_review, but answer and photo_url can be null. verified does not prove payout; paid records payout; needs_review requires human settlement. Re-call the same task_id while dispatched, claimed or submitted; stop on expired, refunded or disputed. get_task and show_task can also read the current answer. Same as the MCP tool await_answer.",
         "parameters": [
           {
             "name": "task_id",
@@ -878,7 +878,7 @@
               "type": "string",
               "format": "uuid",
               "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
-              "description": "The task_id returned by ask_eyes."
+              "description": "Existing task_id from confirmed dispatch or a task lookup. Not a draft idempotency_key."
             }
           }
         ],

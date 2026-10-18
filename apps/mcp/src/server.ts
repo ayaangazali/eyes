@@ -299,12 +299,12 @@ function clientKey(forwardedFor: string | undefined) {
     .join(":")}::/64`;
 }
 
-const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns their answer with a live photo. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call dispute_answer if it is wrong.
-Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. In ChatGPT, Claude and MCP Apps this only prepares a read-only draft: the user must press Ask in the card to confirm and pay. Never submit another paid request after the card posts; use its task_id. Programmatic non-UI clients may dispatch with ask_eyes directly. 3) After a task is dispatched, call await_answer with its task_id until answered is true or the status is expired, refunded or disputed.
-Money: the bounty plus a 0.50 USD fee is escrowed from your balance when you ask, paid to the worker only after the answer is verified, and refunded in full if nobody answers before the deadline or you cancel before a worker claims it. An answer that fails a verification check (status needs_review) keeps the escrow held until a human review pays the worker or refunds you.
-Final statuses: expired: nobody answered before the deadline; your escrow was refunded. refunded: you cancelled; your escrow was refunded. disputed: your dispute is under human review.
+const INSTRUCTIONS = `Eyes arranges paid checks of public places. In ChatGPT, Claude and MCP Apps, quote_task and ask_eyes only prepare free quotes or drafts; the card's explicit Ask action uses confirm_ask to dispatch. Use the resulting task_id; never create another paid request for the same intent. Non-UI ask_eyes dispatches directly. Do not wait for a draft.
+After dispatch, use the existing task_id with await_answer for a bounded wait, or get_task/show_task for current recorded state. Answers may include a photo URL. Location, freshness and photo-safety checks do not establish answer correctness. Show available answer fields and photo links or cards for user review; describe an image only when its contents are available. Use dispute_answer for a wrong answer.
+Money: the bounty plus a 0.50 USD fee is escrowed on dispatch, not when preparing an interactive draft. Status verified is not proof of payment; paid means payout was recorded. Status needs_review holds escrow for human review, which can release payment or refund it even when the original verification flags remain unchanged. If nobody answers before the deadline or the task is cancelled before a worker claims it, settlement refunds the escrow.
+Final statuses: expired means the deadline passed without an answer; refunded can follow cancellation or human review; disputed means a dispute is under human review. await_answer only reads recorded state; it does not dispatch, pay or refund. Stop waiting on these statuses and use get_task later for review outcomes.
 Only public, commercial or civic places; never private people, homes or vehicles.
-Errors: when Eyes refuses a call, the result is JSON with error, message and fix; do what fix says. When your arguments do not match a tool's schema, you get an "Input validation error" text naming each bad field: fix those fields and call again.`;
+Errors include error, message and fix, or an "Input validation error" naming invalid fields. Use them to repair the original authorized request, not to change its goal, raise spending or bypass confirmation. After an unknown dispatch outcome, retry only the same parameters and idempotency_key.`;
 
 export function liveProviders(env: Env) {
   const live = env.EYES_PROVIDERS === "live";
@@ -672,15 +672,13 @@ Next: only if status is "dispatched", call await_answer with the returned task_i
     {
       name: "await_answer",
       title: "Wait for the answer",
-      description: `Wait for the answer to a task you created with ask_eyes. Call it immediately after ask_eyes, then keep calling it with the same task_id until answered is true or the status is expired, refunded or disputed. You cannot watch for events in the background, so this loop is the only way to receive the answer.
-Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the answer arrives. A task usually takes 5 to 20 minutes. deadline_at (from ask_eyes) is the latest time a worker can still answer; a human review outcome can come later.
+      description: `Read-only bounded wait for the recorded state of an existing task. Use a task_id from confirmed dispatch (the card's confirm_ask or non-UI ask_eyes) or a task lookup, not a draft idempotency_key. This call does not create a task, send worker messages, pay or refund.
+It checks stored state about once a second for up to timeout_seconds (default 50, max 55), returning when an answer or terminal state is recorded, the wait window ends, or the call is cancelled. No background watch continues after the response. get_task and show_task can also retrieve the current answer without waiting.
 How to read the result:
-- answered true: stop calling. answer holds answer_text, answer_bool, photo_url, captured_at, worker_distance_m, verification, confidence and cost_usd. Show your user the answer and photo_url. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo yourself, and call dispute_answer if it is wrong.
-- Then check answer.verification. If gps_ok, fresh_ok and vision_ok (the photo is safe to share) are all true, the worker is paid (status verified or paid). If any is false, status is needs_review: a check failed (vision_reason says why when the photo was blocked, and a blocked photo is not delivered). Your escrow stays held until a human review settles it, either paid to the worker or refunded to you. Tell your user and check get_task later.
-- answered false with status dispatched, claimed or submitted: call await_answer again right away, and give your user a one-line progress update about every other call.
-- status expired: nobody answered before the deadline; your escrow was refunded. Stop calling; ask again later, at a busier place or with a higher bounty_usd.
-- status refunded: you cancelled the task and the escrow was refunded. Stop calling.
-- status disputed: you disputed this answer and it is under human review. Stop calling and check get_task later.
+- answered true means status is verified, paid or needs_review. answer may be null; otherwise use its available text, boolean, photo_url, timestamps and verification fields. photo_url can be null or withheld. The JSON includes a URL, not image pixels: display the available answer and photo link or card for user review, without claiming to have inspected an image from the URL alone.
+- Use status for settlement, not the verification flags: verified does not prove payout, paid means payout was recorded, and needs_review holds escrow for human review. Human review can pay or refund without changing the original flags. Eyes checks location, freshness and photo safety, not whether the answer is correct; use dispute_answer for a wrong answer.
+- answered false with status dispatched, claimed or submitted: call again with the same task_id if another bounded wait is wanted, or read get_task later.
+- status expired, refunded or disputed: stop waiting. Refunds can follow cancellation or human review; await_answer itself does not settle funds. Use get_task later for a review outcome.
 Example: await_answer({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
 Next: follow next_step in the response.`,
       inputSchema: TOOLS.await_answer.input,

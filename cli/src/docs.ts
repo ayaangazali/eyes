@@ -95,7 +95,7 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
   await_answer: {
     title: "Wait for the answer",
     summary:
-      "Long-poll for the answer to a task. Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the task is answered. Call it right after ask_eyes and keep calling it with the same task_id until answered is true or status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer. answered: false only means not yet; tasks usually take 5 to 20 minutes.",
+      "Read-only bounded wait for an existing dispatched task_id, not a draft intent key. It checks recorded state about once a second for up to timeout_seconds (default 50, max 55); the request can be cancelled earlier. It does not dispatch, pay, refund or keep watching after the response. answered is true for verified, paid or needs_review, but answer and photo_url can be null. verified does not prove payout; paid records payout; needs_review requires human settlement. Re-call the same task_id while dispatched, claimed or submitted; stop on expired, refunded or disputed. get_task and show_task can also read the current answer.",
     tags: ["physical-world", "polling"],
     example: TASK_ID,
   },
