@@ -687,7 +687,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_fee_cents: config.fee_cents,
         p_require_photo: ask.require_photo,
         p_deadline_minutes: ask.deadline_minutes,
-        p_idempotency_key: ask.idempotency_key ?? null,
+        p_idempotency_key: ask.idempotency_key,
         p_worker_ids: workers.map((w) => w.worker_id),
         p_now: nowIso(),
       }).catch(async (err) => {

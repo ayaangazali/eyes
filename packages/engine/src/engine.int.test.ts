@@ -7,6 +7,7 @@ import {
   agentEmailAddress,
   CaptureResult,
   type EngineDeps,
+  ERRORS,
   type EyesError,
   fakeProviders,
   JoinWorkerOutput,
@@ -1452,6 +1453,272 @@ describe.skipIf(!url)("engine on Postgres", () => {
       expect(r).toMatchObject({ agent_refund_cents: 350, reversal: "none" });
       expect(await ledger(task_id)).toContainEqual(expect.objectContaining({ type: "refund", amount: 350 }));
       expect((await service.getBalance(a)).escrowed_usd).toBe(0);
+    });
+  });
+
+  describe("edge paths", () => {
+    const secret = deps.config.link_secret;
+
+    it("geocodes a string location, refuses an unknown place, and gives no ETA with nobody nearby", async () => {
+      const a = await agent();
+      const at = somewhere();
+      const quote = await service.quoteTask(a, { location: `${at.lat},${at.lng}`, task_type: "line_length" });
+      expect(quote).toMatchObject({
+        workers_nearby: 0,
+        est_minutes_to_answer: null,
+        resolved_location: { lat: at.lat, lng: at.lng, label: `${at.lat},${at.lng}` },
+      });
+      await expect(
+        service.quoteTask(a, { location: "Nowhere Street 1, Atlantis", task_type: "line_length" }),
+      ).rejects.toMatchObject({ code: "location_not_found" });
+    });
+
+    it("explains an unsafe quote with the classifier text or the default message, and refuses ask_eyes", async () => {
+      const a = await agent();
+      const at = somewhere();
+      const refusals: [string | null, string][] = [
+        ["Weapons are off limits.", "Weapons are off limits."],
+        [null, ERRORS.unsafe_task.message],
+      ];
+      try {
+        for (const [reason, expected] of refusals) {
+          safety = { allowed: false, category: "illegal_or_dangerous", reason, fix: null, layer: "rules" };
+          expect(await service.quoteTask(a, { location: at, task_type: "line_length" })).toMatchObject({
+            allowed: false,
+            reason_if_not: expected,
+          });
+        }
+        await expect(ask(a, at)).rejects.toMatchObject({ code: "unsafe_task" });
+      } finally {
+        safety = ALLOW;
+      }
+    });
+
+    it("names 'none' for a key allowed no task types, and an owner link for a missing agent is invalid", async () => {
+      const a = await agent();
+      await service.updateSpendPolicy(signToken(secret, `p:${a.id}`), {
+        max_bounty_usd: 5,
+        daily_cap_usd: 50,
+        allowed_task_types: [],
+      });
+      const quote = await service.quoteTask(a, { location: somewhere(), task_type: "line_length" });
+      expect(quote.reason_if_not).toContain("its allowed_task_types are none.");
+      await expect(
+        service.updateSpendPolicy(signToken(secret, `p:${randomUUID()}`), {
+          max_bounty_usd: 5,
+          daily_cap_usd: 50,
+          allowed_task_types: ["line_length"],
+        }),
+      ).rejects.toMatchObject({ code: "owner_link_invalid" });
+    });
+
+    it("refuses an ask without an idempotency key before charging", async () => {
+      const at = somewhere();
+      const a = await agent();
+      await worker(north(at, 100));
+      await expect(ask(a, at, { idempotency_key: undefined })).rejects.toMatchObject({
+        code: "invalid_input",
+      });
+      expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
+    });
+
+    it("tells an agent with no tasks how to start, or to drop the status filter", async () => {
+      const a = await agent();
+      expect(await service.listTasks(a, { limit: 20 })).toEqual({
+        tasks: [],
+        next_step: "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
+      });
+      expect((await service.listTasks(a, { status: "paid", limit: 20 })).next_step).toBe(
+        "You have no tasks with status paid. Call list_tasks without status to see all your tasks.",
+      );
+    });
+
+    it("opens a $20 top-up checkout only for a t: token", async () => {
+      const a = await agent();
+      const checkout = vi.spyOn(providers.payments, "createTopupCheckout");
+      try {
+        expect(await service.topupCheckoutUrl(signToken(secret, `t:${a.id}`))).toBe(
+          "https://api.eyes.test/topup/done?simulated=1",
+        );
+        expect(checkout).toHaveBeenCalledWith(
+          expect.objectContaining({ agent_id: a.id, amount_cents: 2000 }),
+        );
+        for (const token of ["nope", signToken(secret, `p:${a.id}`)])
+          await expect(service.topupCheckoutUrl(token)).rejects.toMatchObject({
+            code: "unauthorized",
+            message: "This top-up link is invalid.",
+          });
+      } finally {
+        checkout.mockRestore();
+      }
+    });
+
+    it("live mode issues eyes_live_ keys with no grant, and owner email failures log a redacted reason", async () => {
+      const live = createEyesService({ ...deps, config: { ...deps.config, test_mode: false } });
+      const send = vi
+        .spyOn(providers.email, "send")
+        .mockRejectedValueOnce("smtp down")
+        .mockRejectedValueOnce(
+          Object.assign(new Error("rejected owner@example.com, see https://smtp.example/x"), { status: 550 }),
+        );
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const first = await live.signupAgent({ name: "live-agent", owner_email: "owner@example.com" });
+        expect(first.api_key).toMatch(/^eyes_live_/);
+        expect(first.balance_usd).toBe(0);
+        expect(first.next_step).toContain("We could not email your user at owner@example.com");
+        const second = await live.signupAgent({ name: "live-agent", owner_email: "owner@example.com" });
+        expect(error.mock.calls.map((call) => String(call[0]))).toEqual([
+          `owner email for agent ${first.agent_id} failed: unknown`,
+          `owner email for agent ${second.agent_id} failed: Error status 550: rejected <redacted> see <redacted>`,
+        ]);
+      } finally {
+        send.mockRestore();
+        error.mockRestore();
+      }
+    });
+
+    it("ignores STOP from an unknown number and anything but START from a banned worker", async () => {
+      const before = outbox.length;
+      await service.handleWorkerReply({ phone: newPhone(), intent: "stop", text: "STOP" });
+      const w = await worker(somewhere());
+      await sql`update workers set banned = true where id = ${w.worker_id}`;
+      const sent = outbox.length;
+      await service.handleWorkerReply({ phone: w.phone, intent: "help", text: "HELP" });
+      expect(outbox.length).toBe(sent);
+      expect(outbox.slice(before).some((m) => m.to !== w.phone)).toBe(false);
+    });
+
+    it("reuses the worker's Stripe account on a second payout setup link", async () => {
+      const w = await worker(somewhere());
+      const create = vi.spyOn(providers.payments, "createWorkerAccount");
+      try {
+        const token = connectToken(w.phone);
+        const first = await service.workerConnectUrl(token);
+        expect(await service.workerConnectUrl(token)).toBe(first);
+        expect(create).toHaveBeenCalledTimes(1);
+      } finally {
+        create.mockRestore();
+      }
+    });
+
+    it("needs the photo a task requires, answers Yes/No from answer_bool, and shows no payout before release", async () => {
+      for (const answer_bool of [true, false]) {
+        const at = somewhere();
+        const { a, w, task_id, token } = await claimed(at);
+        const fields = {
+          lat: at.lat,
+          lng: at.lng,
+          accuracy_m: 5,
+          captured_at: providers.clock.now().toISOString(),
+          answer_text: null,
+          answer_bool,
+        };
+        await expect(service.submitCapture(token, fields, null)).rejects.toMatchObject({
+          code: "invalid_input",
+          fix: "Take a photo with the capture page camera and submit again.",
+        });
+        const earnings = await service.workerEarnings(await helpEarnings(w.phone));
+        expect(earnings.tasks.find((t) => t.task_id === task_id)).toMatchObject({
+          status: "claimed",
+          payout: null,
+        });
+        await service.submitCapture(token, fields, {
+          bytes: new Uint8Array([1]),
+          content_type: "image/jpeg",
+        });
+        expect((await service.getTask(a, { task_id })).answer).toMatchObject({
+          answer_text: answer_bool ? "Yes" : "No",
+          answer_bool,
+        });
+      }
+    });
+
+    it("pings stale workers, re-offers after 30 s, and logs ping and re-offer failures by name", async () => {
+      const pinging = createEyesService({ ...deps, config: { ...deps.config, location_ping: true } });
+      const places = [somewhere(), somewhere(), somewhere(), somewhere()];
+      const stale: { phone: string; worker_id: string }[] = [];
+      for (const p of places) stale.push(await worker(north(p, 200)));
+      providers.clock.advance(25 * 3_600_000);
+      await worker(north(places[0] as LatLng, 100));
+      await worker(north(places[1] as LatLng, 100));
+      await worker(north(places[3] as LatLng, 100));
+      const a = await agent();
+      const askAt = (at: LatLng | undefined) =>
+        pinging.askEyes(a, {
+          question: "Is the line long right now?",
+          location: at as LatLng,
+          task_type: "line_length",
+          bounty_usd: 3,
+          deadline_minutes: 30,
+          require_photo: true,
+          idempotency_key: randomUUID(),
+        });
+      // The pinged worker taps the HERE link from its ping text.
+      const answerPing = (i: number) => {
+        const ping = outbox.findLast(
+          (m) => m.to === stale[i]?.phone && /^Eyes ping /.test(String(m.payload)),
+        );
+        const link = /https:\S+/.exec(String(ping?.payload))?.[0] ?? "x:";
+        return service.updateWorkerLocation(new URL(link).searchParams.get("t") ?? "", {
+          ...north(places[i] as LatLng, 150),
+          source: "here_link",
+        });
+      };
+      const timers: (() => Promise<unknown>)[] = [];
+      const realSetTimeout = globalThis.setTimeout;
+      const timer = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+        fn: () => Promise<unknown>,
+        ms?: number,
+        ...rest: unknown[]
+      ) => {
+        // postgres also arms 30 s timers; hold back only the engine's re-offer.
+        if (ms !== 30_000 || !String(fn).includes("offerMore")) return realSetTimeout(fn, ms, ...rest);
+        timers.push(fn);
+        return { unref: () => {} };
+      }) as unknown as typeof setTimeout);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        // Ping delivered: after 30 s the task goes to the pinged worker, now fresh.
+        const first = await askAt(places[0]);
+        expect(first.workers_notified).toBe(1);
+        await answerPing(0);
+        await timers[0]?.();
+        expect(
+          outbox.some(
+            (m) => m.to === stale[0]?.phone && m.kind === "offer" && m.payload.task_id === first.task_id,
+          ),
+        ).toBe(true);
+
+        // The re-offer itself fails: logged by error name, never thrown.
+        const second = await askAt(places[1]);
+        await answerPing(1);
+        const offerFail = vi.spyOn(providers.messaging, "sendOffer").mockImplementationOnce(() => {
+          throw new TypeError("bad offer");
+        });
+        await timers[1]?.();
+        offerFail.mockRestore();
+
+        // Nobody fresh: the ping still goes out (here it fails to send), then no_workers_nearby.
+        vi.spyOn(providers.messaging, "sendText").mockRejectedValueOnce("carrier down");
+        await expect(askAt(places[2])).rejects.toMatchObject({ code: "no_workers_nearby" });
+
+        // Pinging itself throws: the ask still succeeds, with no re-offer timer.
+        vi.spyOn(providers.messaging, "sendText").mockImplementationOnce(() => {
+          throw new RangeError("bad ping");
+        });
+        expect((await askAt(places[3])).workers_notified).toBe(1);
+        expect(timers).toHaveLength(2);
+        expect(error.mock.calls.map((call) => String(call[0]))).toEqual([
+          `re-offer for task ${second.task_id} failed: TypeError`,
+          "ping failed: string",
+          "location pings failed: RangeError",
+        ]);
+      } finally {
+        timer.mockRestore();
+        error.mockRestore();
+        vi.restoreAllMocks();
+      }
     });
   });
 });
