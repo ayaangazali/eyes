@@ -6,8 +6,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "start": "node src/main.ts",
-    "dev": "node --watch src/main.ts"
+    "start": "node --no-experimental-webstorage src/main.ts",
+    "dev": "node --no-experimental-webstorage --watch src/main.ts"
   },
   "dependencies": {
     "@eyes/comms": "workspace:*",

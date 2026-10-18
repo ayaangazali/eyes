@@ -42,6 +42,9 @@ describe("createNominatimGeo", () => {
     expect(fetch.mock.calls[0]?.[0]).toBe(
       "https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=Grand%20Central%2C%20New%20York",
     );
+    expect(fetch.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "user-agent": expect.stringMatching(/^Eyes\/1\.0 \(\+https:\/\/eyes\.pictures/),
+    });
   });
 
   const nominatim = (hits: Record<string, string>) =>
@@ -54,7 +57,7 @@ describe("createNominatimGeo", () => {
   const at = (label: string) => ({ lat: 37.75, lng: -122.41, label });
 
   it("only trusts a hit that has the house number, retrying once 1.1 s later with the street address", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const fetch = nominatim({
       "Philz Coffee, 3101 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, Noe Valley, 94114",
       "3101 24th St, San Francisco": "La Rancho Market, 3101, 24th Street, Mission, 94110",
@@ -69,11 +72,14 @@ describe("createNominatimGeo", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(100);
     expect(await philz).toEqual(at("La Rancho Market, 3101, 24th Street, Mission, 94110"));
-    expect(await geo.geocode("Philz Coffee, 4298 24th St, San Francisco")).toEqual(
-      at("Philz Coffee, 4298, 24th Street, Noe Valley, 94114"),
-    );
+    // Nominatim allows 1 request/s app-wide, so the next lookup waits too.
+    const exact = geo.geocode("Philz Coffee, 4298 24th St, San Francisco");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(await exact).toEqual(at("Philz Coffee, 4298, 24th Street, Noe Valley, 94114"));
     const missing = geo.geocode("Philz Coffee, 9999 24th St, San Francisco");
-    await vi.advanceTimersByTimeAsync(1100);
+    await vi.advanceTimersByTimeAsync(2200);
     expect(await missing).toBeNull();
     expect(queries(fetch)).toEqual([
       "Philz Coffee, 3101 24th St, San Francisco",
@@ -85,7 +91,7 @@ describe("createNominatimGeo", () => {
   });
 
   it("retries from the part with the house number, and not when the query starts with it", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const fetch = nominatim({
       "Philz Coffee, Mission, 3101 24th St, San Francisco": "Philz Coffee, 4298, 24th Street, 94114",
       "3101 24th St, San Francisco": "La Rancho Market, 3101, 24th Street, Mission, 94110",
@@ -96,7 +102,9 @@ describe("createNominatimGeo", () => {
     const philz = geo.geocode("Philz Coffee, Mission, 3101 24th St, San Francisco");
     await vi.advanceTimersByTimeAsync(1100);
     expect(await philz).toEqual(at("La Rancho Market, 3101, 24th Street, Mission, 94110"));
-    expect(await geo.geocode("548 Market St, Suite 200, San Francisco")).toBeNull();
+    const market = geo.geocode("548 Market St, Suite 200, San Francisco");
+    await vi.advanceTimersByTimeAsync(1100);
+    expect(await market).toBeNull();
     expect(queries(fetch)).toEqual([
       "Philz Coffee, Mission, 3101 24th St, San Francisco",
       "3101 24th St, San Francisco",
@@ -105,6 +113,7 @@ describe("createNominatimGeo", () => {
   });
 
   it("reads the house number only at the start of a part and finds it in multi-number labels", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const fetch = nominatim({
       "135 Powell St, San Francisco": "Walgreens, 135;141;149, Powell Street, Union Square, 94102",
       "Suite 200, 548 Market St, San Francisco": "548, Market Street, Financial District, 94104",
@@ -112,15 +121,17 @@ describe("createNominatimGeo", () => {
     });
     vi.stubGlobal("fetch", fetch);
     const geo = createNominatimGeo();
-    expect(await geo.geocode("135 Powell St, San Francisco")).toEqual(
+    const all = Promise.all([
+      geo.geocode("135 Powell St, San Francisco"),
+      geo.geocode("Suite 200, 548 Market St, San Francisco"),
+      geo.geocode("Blue Bottle Coffee, San Francisco, CA 94103"),
+    ]);
+    await vi.advanceTimersByTimeAsync(2200);
+    expect(await all).toEqual([
       at("Walgreens, 135;141;149, Powell Street, Union Square, 94102"),
-    );
-    expect(await geo.geocode("Suite 200, 548 Market St, San Francisco")).toEqual(
       at("548, Market Street, Financial District, 94104"),
-    );
-    expect(await geo.geocode("Blue Bottle Coffee, San Francisco, CA 94103")).toEqual(
       at("Blue Bottle Coffee, Mint Plaza, San Francisco"),
-    );
+    ]);
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 });

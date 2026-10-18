@@ -250,6 +250,8 @@ function renderMap(all) {
   if (!map) {
     map = L.map("map", { zoomControl: false, attributionControl: true }).setView([37.7749, -122.4194], 12);
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      // The page is Referrer-Policy same-origin; OSM blocks tile requests with no Referer.
+      referrerPolicy: "strict-origin-when-cross-origin",
       maxZoom: 16,
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     }).addTo(map);

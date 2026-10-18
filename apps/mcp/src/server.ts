@@ -106,6 +106,7 @@ function opsHeaders(page: string) {
 }
 const OPS_FEED_LIMIT = 500;
 const OPS_RECENT = 50;
+export const SMOKE_UA = "eyes-smoke/";
 const OPS_EVENTS = 200;
 const TicketAction = z.object({
   ticket_id: z.coerce.number().int().positive(),
@@ -356,10 +357,11 @@ export function createServer(
     const webhook = /^\/webhooks\/(\w+)/.exec(path)?.[1];
     log({
       kind: webhook ? "webhook" : "http",
-      level: status >= 500 ? "error" : status >= 400 ? "warn" : "info",
-      summary: webhook
-        ? `${webhook} ${status < 400 ? "accepted" : status} (${ms} ms)`
-        : `${c.req.method} ${path} ${status} ${ms} ms`,
+      level: status >= 500 ? "error" : status >= 400 && status !== 404 && !probe ? "warn" : "info",
+      summary:
+        (webhook
+          ? `${webhook} ${status < 400 ? "accepted" : status} (${ms} ms)`
+          : `${c.req.method} ${path} ${status} ${ms} ms`) + (probe ? " (smoke probe)" : ""),
       data: {
         method: c.req.method,
         path,
@@ -377,6 +379,7 @@ export function createServer(
   server.app.onError((err, c) => {
     const e = toEyesError(err);
     return c.json(e.toBody(), e.status as ContentfulStatusCode);
+        ...(probe && { probe: true }),
   });
 
   server.use("*", async (c, next) => {

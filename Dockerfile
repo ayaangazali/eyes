@@ -5,4 +5,4 @@ COPY . .
 RUN pnpm install --frozen-lockfile --filter "@eyes/mcp..."
 ENV HOST=0.0.0.0 PORT=3000 NODE_ENV=production
 EXPOSE 3000
-CMD ["node", "apps/mcp/src/main.ts"]
+CMD ["node", "--no-experimental-webstorage", "apps/mcp/src/main.ts"]

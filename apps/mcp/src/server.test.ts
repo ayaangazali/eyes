@@ -20,10 +20,10 @@ import {
 } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
 import { PAGE_HEADERS } from "@eyes/payments";
-import { createEventLog, OPS_PAGE, PAGE } from "@eyes/web-dashboard";
+import { createEventLog, type EventLog, OPS_PAGE, PAGE } from "@eyes/web-dashboard";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createServer } from "./server.ts";
+import { createServer, SMOKE_UA } from "./server.ts";
 
 const KEY = "eyes_test_key";
 const SECRET = "x".repeat(32);
@@ -1192,6 +1192,31 @@ describe("ops dashboard", () => {
     });
     expect(body.ops.errors).toMatchObject([{ kind: "log", level: "error", summary: "boom" }]);
     expect(body.tasks).toEqual([]);
+  });
+
+  it("logs 404s and smoke probes as info, other 4xx as warnings", async () => {
+    const logged: { level?: string; summary: string }[] = [];
+    const server = createServer({
+      service: {} as EyesService,
+      providers: fakeProviders(),
+      config: AppConfig.parse({
+        public_api_url: "http://api.eyes.test",
+        worker_web_url: "http://worker.eyes.test",
+        link_secret: SECRET,
+      }),
+      env: { EYES_OPS_KEY: OPS_KEY },
+      events: { log: (e) => logged.push(e) } as EventLog,
+    });
+    const smoke = { "user-agent": `${SMOKE_UA}1 (deliberate probes)` };
+    const missing = await server.fetch(new Request("http://eyes.test/nope"));
+    const denied = await server.fetch(new Request("http://eyes.test/ops/tickets"));
+    const probe = await server.fetch(new Request("http://eyes.test/ops/tickets", { headers: smoke }));
+    expect([missing.status, denied.status, probe.status]).toEqual([404, 401, 401]);
+    expect(logged.map(({ level, summary }) => [level, summary.replace(/\d+ ms/, "ms")])).toEqual([
+      ["info", "GET /nope 404 ms"],
+      ["warn", "GET /ops/tickets 401 ms"],
+      ["info", "GET /ops/tickets 401 ms (smoke probe)"],
+    ]);
   });
 });
 

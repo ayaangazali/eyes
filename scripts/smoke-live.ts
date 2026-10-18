@@ -53,6 +53,7 @@ async function main() {
     const res = await fetch(`${base}${path}`, {
       method,
       headers: {
+        "user-agent": "eyes-smoke/1 (deliberate probes)",
         ...(init.key && { authorization: `Bearer ${init.key}` }),
         ...(init.body !== undefined && { "content-type": "application/json" }),
       },
@@ -112,7 +113,9 @@ async function main() {
     const mcp = new Client({ name: "eyes-smoke-live", version: "1.0.0" });
     await mcp.connect(
       new StreamableHTTPClientTransport(new URL(`${base}/mcp`), {
-        requestInit: { headers: { authorization: `Bearer ${key}` } },
+        requestInit: {
+          headers: { authorization: `Bearer ${key}`, "user-agent": "eyes-smoke/1 (deliberate probes)" },
+        },
       }),
     );
     client = mcp;
