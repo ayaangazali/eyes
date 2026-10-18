@@ -1,6 +1,6 @@
 # Eyes task card widget (W1, placeholder)
 
-One compact card for an Eyes task, built for MCP Apps hosts (ChatGPT, Claude). This phase runs on fixture data and a mock bridge only. It is **not registered in the MCP server**, makes no network calls, and nothing outside this folder imports it. The simpler card already bound to `show_task` lives in `apps/mcp/views/task-card/` and is untouched.
+One compact card prototype for MCP Apps hosts (ChatGPT, Claude). This package runs on fixture data and a mock bridge only. It is **not registered in the MCP server**, makes no network calls, and nothing outside this folder imports it. The deployed `show_task` uses the same vanilla `ui://eyes/card.html` widget as `get_task`, implemented in [`apps/mcp/src/widget.ts`](../../mcp/src/widget.ts). The former `apps/mcp/views/task-card/` React view and its build are gone; this prototype is not the live card.
 
 ## Run it
 
@@ -33,7 +33,7 @@ The preview shows all ten states in a 320px and a 420px column, a Dark/Light tog
 
 ## Why the components are `.ts`, not `.tsx`
 
-The tests must render the card, and the root Vitest `unit` project only picks up `*.test.ts`. A `.test.ts` that imports a `.tsx` pulls it into the root `pnpm typecheck`, which has no `jsx` option and fails with `TS6142: Module './card.tsx' was resolved to ..., but '--jsx' is not set`. Changing the root tsconfig is out of scope, so the components call `React.createElement` (as `h`) in plain `.ts`. The side effect is good: the root typecheck now covers every line of the widget, and neither Vite nor Vitest needs a JSX transform or plugin. W2 can still mount it from a `view.tsx` in `apps/mcp/views/`.
+The tests must render the card, and the root Vitest `unit` project only picks up `*.test.ts`. A `.test.ts` that imports a `.tsx` pulls it into the root `pnpm typecheck`, which has no `jsx` option and fails with `TS6142: Module './card.tsx' was resolved to ..., but '--jsx' is not set`. Changing the root tsconfig is out of scope, so the components call `React.createElement` (as `h`) in plain `.ts`. The side effect is good: the root typecheck now covers every line of the widget, and neither Vite nor Vitest needs a JSX transform or plugin. The proposed W2 React-view integration below was not deployed; the live card uses vanilla HTML.
 
 ## States
 
@@ -71,7 +71,7 @@ A Sandbox pill shows whenever `sandbox` is true. Badges: green passed, amber pen
 - `safePhotoUrl` shows a photo only when the URL parses with origin exactly `https://7t6779x4.us-east.insforge.app`, has no username or password, and its path is `/api/storage/buckets/photos/objects/` followed by exactly the engine's key shape, `<task uuid>/<uuid>.jpg` (`packages/engine/src/index.ts`), with the `/` written literally or as `%2F`, since the InsForge SDK builds object URLs with `encodeURIComponent(key)`; the bundled fixture photo is the exact string `fixture:line-photo`. Anything else (other hosts, `http:`, `javascript:`, `data:`, protocol-relative, relative, credentials, other ports, look-alike or IDN hosts, backslashes, `../` out of the bucket, percent-encoded traversal such as `..%2f` or `%252e%252e/`, `%5c`, any other key shape, empty keys) shows the map placeholder. The `<img>` sends no referrer, and one that fails to load also falls back to the placeholder.
 - No fetch, fonts, external images or scripts. The map and the sample photo are inline SVG.
 
-## W2 handoff
+## Historical W2 proposal (not deployed)
 
 Core gaps, each carried by a local field in `CardData` today:
 

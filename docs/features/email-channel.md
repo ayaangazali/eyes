@@ -1,15 +1,13 @@
 # Email channel
 
-Workers can add one optional email address. Eyes uses it to send task offers, capture links and paid notices, and to sign you in to your setup page at `/me`. A mobile number is still required for every worker.
+Workers can add one optional email address. Eyes uses it to send task offers, capture links and paid notices, and to sign you in to your setup page at `/me`. A mobile number is still required for every worker. **Use iMessage only** skips the optional email step without adding or verifying an address or sending email.
 
 ## How it works
 
 - Every worker needs a mobile number. Each account has one phone. You can't change it yourself; text HELP to ask.
 - Each account has at most one email.
-- After START, text EMAIL to Eyes in your existing iMessage thread. Eyes replies with a link to send your first email.
-- An email entered at join stays pending until your phone texts START.
-- After START, Eyes emails a verification link. It works once and expires after 24 hours.
-- A pending email that is not confirmed within 24 hours is dropped.
+- After START, text EMAIL to Eyes in your existing iMessage thread. Eyes replies with a one-time link, valid for 24 hours, to send your first email. An authenticated message carrying that code connects its sender's email address.
+- An email entered at join stays pending until your phone texts START. For that separate flow, Eyes sends a one-time verification link valid for 24 hours. A join-form email is dropped if START comes more than 24 hours after joining.
 - Email replies YES, STOP and HELP work the same as texts.
 - Eyes emails come from `work@glad-marsh.primitive.email`. Reply to that address.
 - STOP by text or email deletes your email. Removing your account does too.
@@ -22,9 +20,11 @@ Workers can add one optional email address. Eyes uses it to send task offers, ca
 4. Refresh your setup page at `/me`. The Email row shows your address (masked); it has text instructions, not an Add email button or provider chooser.
 5. Later, sign in at https://app.eyes.pictures/login: enter that email, tap "Email me a sign-in link", and open the link within 15 minutes.
 
-Send from an address your mail provider verifies; custom aliases need SPF/DKIM.
+Send from an address your mail provider verifies; custom aliases need SPF/DKIM. The known custom-alias authentication problem is not fixed.
 
 To change the email, text EMAIL in the same iMessage thread and send the prepared message from the new address. Remove on `/me` stops email right away; texts keep coming.
+
+Primitive outbound DNS and one owner-email delivery are verified, not delivery to every domain. `send_to_any_domain` remains false; first-contact sends rejected by Primitive still use the Inkbox fallback.
 
 ## Where in the code
 
