@@ -1,29 +1,19 @@
 import * as Clipboard from "expo-clipboard";
 import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
   Linking,
   Pressable,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   useColorScheme,
   View,
 } from "react-native";
-import {
-  getCode,
-  getLast,
-  removeCode,
-  report,
-  saveCode,
-  startSharing,
-  stopSharing,
-  TASK,
-} from "./src/background.ts";
-import { codeFromUrl, isCode, type Last, MESSAGES, type Perm, permOf } from "./src/eyes.ts";
+import { getCode, getLast, isPaused, pause, report, saveCode, startSharing, TASK } from "./src/background.ts";
+import { codeFromUrl, isCode, type Last, MESSAGES, type State, settle } from "./src/eyes.ts";
 
 // packages/ui/tokens.css
 const YELLOW = "#ffd60a";
@@ -32,94 +22,85 @@ const DARK = { text: "#ffffff", text2: "#afafaf", bg: "#181818", field: "#212121
 
 export default function App() {
   const c = useColorScheme() === "dark" ? DARK : LIGHT;
-  const [code, setCode] = useState<string | null | undefined>(undefined);
+  const [state, setState] = useState<State>({ view: "loading" });
   const [draft, setDraft] = useState("");
-  const [perm, setPerm] = useState<Perm | "unknown">("unknown");
-  const [sharing, setSharing] = useState(false);
   const [last, setLast] = useState<Last | null>(null);
-  const [connected, setConnected] = useState(false);
+  const busy = useRef(false);
+  const again = useRef(false);
+  const askedAlways = useRef(false);
 
-  const refresh = useCallback(async () => {
-    setCode(await getCode());
-    setLast(await getLast());
-    setSharing(await Location.hasStartedLocationUpdatesAsync(TASK));
-    setPerm(
-      permOf(await Location.getForegroundPermissionsAsync(), await Location.getBackgroundPermissionsAsync()),
-    );
-  }, []);
-
-  // One automatic send (60 s throttle applies) whenever sharing is on and the app is in front.
-  // Sharing on implies a code and "Always" permission: start is only called with both.
-  const sendAuto = useCallback(async () => {
-    if (!(await Location.hasStartedLocationUpdatesAsync(TASK))) return;
-    try {
-      await report(await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
-    } catch {
-      return; // no fix right now; background updates keep trying
+  // Every entry point (launch, deep link, back from Settings, buttons) runs the same settle pass.
+  // Permission dialogs flip AppState, so overlapping calls queue one rerun instead of stacking.
+  const run = useCallback(async () => {
+    if (busy.current) {
+      again.current = true;
+      return;
     }
-    await refresh();
-  }, [refresh]);
-
-  useEffect(() => {
-    refresh().then(sendAuto);
-    const sub = AppState.addEventListener("change", (s) => s === "active" && refresh().then(sendAuto));
-    return () => sub.remove();
-  }, [refresh, sendAuto]);
-
-  async function allow() {
-    const fg = await Location.requestForegroundPermissionsAsync();
-    const bg = fg.granted ? await Location.requestBackgroundPermissionsAsync() : null;
-    if (!bg?.granted) return setPerm(fg.granted ? "while_using" : "denied");
-    setPerm("always");
-    await startSharing();
-    setSharing(true);
-    await sendAuto();
-  }
-
-  const save = useCallback(
-    async (next: string) => {
-      await saveCode(next);
-      setDraft("");
-      if ((await Location.getBackgroundPermissionsAsync()).granted) await startSharing();
-      await refresh();
-      await sendAuto();
-    },
-    [refresh, sendAuto],
-  );
+    busy.current = true;
+    try {
+      do {
+        again.current = false;
+        await settle(
+          {
+            code: getCode,
+            paused: isPaused,
+            fg: Location.getForegroundPermissionsAsync,
+            askFg: Location.requestForegroundPermissionsAsync,
+            bg: Location.getBackgroundPermissionsAsync,
+            askBg: () => {
+              askedAlways.current = true;
+              return Location.requestBackgroundPermissionsAsync();
+            },
+            sharing: () => Location.hasStartedLocationUpdatesAsync(TASK),
+            start: startSharing,
+            sendNow: async () => {
+              try {
+                await report(
+                  await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+                );
+              } catch {
+                // no fix right now; background updates keep trying
+              }
+            },
+            show: setState,
+          },
+          !askedAlways.current,
+        );
+        setLast(await getLast());
+      } while (again.current);
+    } finally {
+      busy.current = false;
+    }
+  }, []);
 
   useEffect(() => {
     const open = async (url?: string | null) => {
       const next = url && codeFromUrl(url);
-      if (!next) return;
-      await save(next);
-      setConnected(true);
+      try {
+        if (next) await saveCode(next);
+      } finally {
+        await run(); // a failed save falls back to the paste screen, never a blank one
+      }
     };
     Linking.getInitialURL().then(open);
-    const sub = Linking.addEventListener("url", (e) => open(e.url));
-    return () => sub.remove();
-  }, [save]);
-
-  async function toggle(on: boolean) {
-    await (on ? startSharing() : stopSharing());
-    setSharing(on);
-  }
-
-  async function remove() {
-    await removeCode();
-    await refresh();
-  }
+    const link = Linking.addEventListener("url", (e) => open(e.url));
+    const app = AppState.addEventListener("change", (s) => s === "active" && run());
+    return () => {
+      link.remove();
+      app.remove();
+    };
+  }, [run]);
 
   const t = { color: c.text };
   const muted = { color: c.text2 };
   const valid = isCode(draft.trim());
-  const stopped = last?.result === "stopped";
 
   let body: React.ReactNode = null;
-  if (code === null) {
+  if (state.view === "code") {
     body = (
       <>
         <Text style={[s.h1, t]}>Paste your Eyes code</Text>
-        {stopped && <Text style={{ color: c.danger }}>{MESSAGES.stopped}</Text>}
+        {last?.result === "stopped" && <Text style={{ color: c.danger }}>{MESSAGES.stopped}</Text>}
         <Text style={muted}>Text APP to Eyes to get your link. Or paste a code here.</Text>
         <TextInput
           style={[s.field, t, { backgroundColor: c.field }]}
@@ -139,61 +120,80 @@ export default function App() {
           onPress={async () => setDraft((await Clipboard.getStringAsync()).trim())}
           c={c}
         />
-        <Button label="Save" primary disabled={!valid} onPress={() => save(draft.trim())} c={c} />
+        <Button
+          label="Save"
+          primary
+          disabled={!valid}
+          onPress={async () => {
+            await saveCode(draft.trim());
+            setDraft("");
+            await run();
+          }}
+          c={c}
+        />
       </>
     );
-  } else if (code && perm !== "always") {
+  } else if (state.view === "ask" || state.view === "denied") {
     body = (
       <>
-        {connected && <Text style={muted}>Connected</Text>}
         <Text style={[s.h1, t]}>Allow location</Text>
-        <Text style={t}>
-          Eyes texts you paid tasks near you. Your spot is sent when you move, even with the app closed.
-        </Text>
-        {perm === "ask" || perm === "unknown" ? (
-          <Button label="Allow location" primary onPress={allow} c={c} />
+        <Text style={t}>Eyes texts you paid tasks near you. It needs your location to find them.</Text>
+        {state.view === "ask" ? (
+          <Button label="Allow location" primary onPress={run} c={c} />
         ) : (
           <>
-            <Text style={muted}>
-              {perm === "while_using"
-                ? "Choose Always in Settings so Eyes works when the app is closed."
-                : 'Set Location to "Always" in Settings.'}
-            </Text>
+            <Text style={muted}>In Settings, tap Location, then choose "Always".</Text>
             <Button label="Open Settings" primary onPress={() => Linking.openSettings()} c={c} />
           </>
         )}
       </>
     );
-  } else if (code) {
+  } else if (state.view === "paused") {
     body = (
       <>
-        {connected && <Text style={muted}>Connected</Text>}
-        <View style={s.row}>
-          <Text style={[s.h1, t, { flex: 1 }]}>Sharing your location</Text>
-          <Switch value={sharing} onValueChange={toggle} trackColor={{ true: YELLOW }} />
-        </View>
+        <Text style={[s.h1, t]}>Sharing is off</Text>
+        <Text style={muted}>Eyes won't text you tasks near you until you share again.</Text>
+        <Button
+          label="Share again"
+          primary
+          onPress={async () => {
+            await pause(false);
+            await run();
+          }}
+          c={c}
+        />
+      </>
+    );
+  } else if (state.view === "sharing") {
+    body = (
+      <>
+        <Text style={[s.h1, t]}>Sharing</Text>
         {last && (
-          <>
-            <Text style={t}>
-              {new Date(last.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}:{" "}
-              {MESSAGES[last.result]}
-            </Text>
-            <Text style={muted}>
-              Near {last.lat.toFixed(2)}, {last.lng.toFixed(2)}
-            </Text>
-          </>
+          <Text style={muted}>
+            {new Date(last.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}:{" "}
+            {MESSAGES[last.result]}, near {last.lat.toFixed(2)}, {last.lng.toFixed(2)}
+          </Text>
         )}
-        {sharing && (
-          <>
-            <Text style={[s.allSet, t]}>
-              All set. You can leave the app now. It keeps sharing your location in the background.
-            </Text>
-            <Text style={[s.small, muted]}>
-              Don't swipe Eyes away in the app switcher: iOS stops it until you open it again.
-            </Text>
-          </>
+        <Text style={[s.allSet, t]}>All set. You can leave the app now.</Text>
+        {!state.always && (
+          <Text style={t} accessibilityRole="link" onPress={() => Linking.openSettings()}>
+            For sharing while Eyes is closed, set Location to "Always" in <Text style={s.link}>Settings</Text>
+            .
+          </Text>
         )}
-        <Button label="Remove code" onPress={remove} c={c} />
+        <Text style={[s.small, muted]}>
+          Don't swipe Eyes away in the app switcher: iOS stops it until you open it again.
+        </Text>
+        <Text
+          style={[s.small, muted, s.link]}
+          accessibilityRole="button"
+          onPress={async () => {
+            await pause(true);
+            await run();
+          }}
+        >
+          Stop sharing
+        </Text>
       </>
     );
   }
@@ -229,10 +229,10 @@ const s = StyleSheet.create({
   screen: { flex: 1 },
   body: { padding: 24, paddingTop: 88, gap: 14 },
   h1: { fontSize: 24, fontWeight: "600" },
-  row: { flexDirection: "row", alignItems: "center" },
   field: { borderRadius: 12, padding: 14, fontSize: 16 },
   button: { borderRadius: 999, paddingVertical: 14, alignItems: "center" },
   buttonText: { fontSize: 17, fontWeight: "600" },
   allSet: { fontSize: 17, fontWeight: "600", marginTop: 8 },
   small: { fontSize: 13 },
+  link: { textDecorationLine: "underline" },
 });

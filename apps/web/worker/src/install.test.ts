@@ -4,9 +4,13 @@ import {
   DEFAULT_MANIFEST_URL,
   type DeviceStatus,
   deviceStep,
+  forgetCode,
   type InstallDeps,
   itmsUrl,
+  loadSaved,
+  markInstalled,
   readCode,
+  SAVED_KEY,
   startInstall,
 } from "./install.ts";
 
@@ -20,8 +24,22 @@ const status = (over: Partial<DeviceStatus> = {}): DeviceStatus => ({
   ...over,
 });
 
+const NOW = 1_800_000_000_000;
+const HOUR = 3_600_000;
+const memStore = (init: Record<string, string> = {}) => {
+  const m = new Map(Object.entries(init));
+  return {
+    getItem: (k: string) => m.get(k) ?? null,
+    setItem: vi.fn((k: string, v: string) => void m.set(k, v)),
+    removeItem: vi.fn((k: string) => void m.delete(k)),
+  };
+};
+const savedStore = (saved: object) => memStore({ [SAVED_KEY]: JSON.stringify(saved) });
+
 function fakeDeps(over: Partial<InstallDeps> = {}): InstallDeps {
   return {
+    store: memStore(),
+    now: NOW,
     hash: `#c=${CODE}`,
     pathname: "/install",
     search: "",
@@ -74,6 +92,41 @@ describe("deviceStep", () => {
   ] as const)("%o with registered=%s → %s", (s, param, step) => {
     expect(deviceStep(s, param)).toBe(step);
   });
+
+  it("moves past Install once the page has seen the Install tap", () => {
+    expect(deviceStep(status({ registered: true, ready: true }), false, true)).toBe("installed");
+    expect(deviceStep(status({ registered: true }), false, true)).toBe("waiting");
+  });
+});
+
+describe("saved code", () => {
+  it("loads a fresh saved code and drops expired, future, malformed or unparsable ones", () => {
+    expect(loadSaved(savedStore({ code: CODE, savedAt: NOW - 23 * HOUR }), NOW)).toEqual({
+      code: CODE,
+      savedAt: NOW - 23 * HOUR,
+    });
+    expect(loadSaved(memStore(), NOW)).toBeNull();
+    for (const store of [
+      savedStore({ code: CODE, savedAt: NOW - 24 * HOUR }),
+      savedStore({ code: CODE, savedAt: NOW + HOUR }),
+      savedStore({ code: "short", savedAt: NOW }),
+      memStore({ [SAVED_KEY]: "{" }),
+    ]) {
+      expect(loadSaved(store, NOW)).toBeNull();
+      expect(store.removeItem).toHaveBeenCalledWith(SAVED_KEY);
+    }
+  });
+
+  it("markInstalled flags a saved code; forgetCode removes it", () => {
+    const store = savedStore({ code: CODE, savedAt: NOW });
+    markInstalled(store, NOW);
+    expect(loadSaved(store, NOW)).toEqual({ code: CODE, savedAt: NOW, installed: true });
+    forgetCode(store);
+    expect(loadSaved(store, NOW)).toBeNull();
+    const empty = memStore();
+    markInstalled(empty, NOW);
+    expect(empty.setItem).not.toHaveBeenCalled();
+  });
 });
 
 describe("startInstall", () => {
@@ -93,14 +146,41 @@ describe("startInstall", () => {
   it("shows the waiting step once registered", async () => {
     const d = fakeDeps({ send: vi.fn(async () => status({ registered: true })) });
     expect(await startInstall(d)).toBe("waiting");
-    expect(d.setHref).not.toHaveBeenCalled();
+    expect(d.setHref).toHaveBeenCalledExactlyOnceWith("open", `eyes://connect#c=${CODE}`);
   });
 
   it("sets the install link when ready", async () => {
     const d = fakeDeps({ send: vi.fn(async () => status({ registered: true, ready: true })) });
     expect(await startInstall(d, "https://x.test/m.plist")).toBe("install");
     expect(d.setHref).toHaveBeenCalledWith("itms", itmsUrl("https://x.test/m.plist"));
+    expect(d.setHref).toHaveBeenCalledWith("open", `eyes://connect#c=${CODE}`);
     expect(d.show).toHaveBeenCalledWith("install");
+  });
+
+  it("saves the code from the link, so the bare ready link and the profile redirect still work", async () => {
+    const store = memStore();
+    await startInstall(fakeDeps({ store }));
+    expect(loadSaved(store, NOW)).toEqual({ code: CODE, savedAt: NOW });
+    const d = fakeDeps({ store, hash: "", search: "?registered=1", now: NOW + HOUR });
+    expect(await startInstall(d)).toBe("waiting");
+    expect(d.send).toHaveBeenCalledWith("/w/device", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${CODE}` },
+    });
+  });
+
+  it("starts at Developer Mode after the Install tap, keeping the saved time for the same code", async () => {
+    const store = savedStore({ code: CODE, savedAt: NOW - HOUR, installed: true });
+    const d = fakeDeps({ store, send: vi.fn(async () => status({ registered: true, ready: true })) });
+    expect(await startInstall(d)).toBe("installed");
+    expect(store.setItem).not.toHaveBeenCalled();
+    expect(d.setHref).toHaveBeenCalledWith("open", `eyes://connect#c=${CODE}`);
+  });
+
+  it("a new code in the link replaces the saved one and starts over", async () => {
+    const store = savedStore({ code: "b".repeat(43), savedAt: NOW - HOUR, installed: true });
+    await startInstall(fakeDeps({ store }));
+    expect(loadSaved(store, NOW)).toEqual({ code: CODE, savedAt: NOW });
   });
 
   it("treats ?registered=1 without a code as registered, without calling the API", async () => {
@@ -128,6 +208,7 @@ describe("startInstall", () => {
     const d = fakeDeps({ send: vi.fn().mockRejectedValue(new Problem("x", "y", 401)) });
     expect(await startInstall(d)).toBe("expired");
     expect(d.report).not.toHaveBeenCalled();
+    expect(loadSaved(d.store, NOW)).toBeNull();
   });
 
   it.each([

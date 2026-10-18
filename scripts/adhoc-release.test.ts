@@ -1,4 +1,4 @@
-import { createVerify, generateKeyPairSync } from "node:crypto";
+import { createHash, createVerify, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -238,9 +238,36 @@ describe("main", () => {
       "eyes-worker/icon-512.png",
       "eyes-worker/manifest.plist",
     ]);
-    expect(t.texts).toEqual([
-      ["+15555550101", "Eyes is ready: tap to install https://app.eyes.pictures/install"],
+    expect(t.texts).toHaveLength(1);
+    const [phone, text] = t.texts[0] ?? [];
+    expect(phone).toBe("+15555550101");
+    const code = /^Eyes is ready: tap to install https:\/\/app\.eyes\.pictures\/install#c=([\w-]{43})$/.exec(
+      text ?? "",
+    )?.[1];
+    expect(code).toBeDefined();
+    const mint = t.calls.filter((c) => c.url.endsWith("/api/database/rpc/eyes_rotate_location_token"));
+    expect(mint).toEqual([
+      {
+        method: "POST",
+        url: "https://db.test/api/database/rpc/eyes_rotate_location_token",
+        body: {
+          p_worker_id: dev(U1).worker_id,
+          p_token_hash: createHash("sha256")
+            .update(code ?? "")
+            .digest("hex"),
+        },
+      },
     ]);
+  });
+
+  it("stops before texting when the code can't be minted", async () => {
+    const t = setup([dev(U1)]);
+    const fetch: Deps["fetch"] = async (url, init) =>
+      url.includes("/rpc/") ? new Response(null, { status: 500 }) : t.deps.fetch(url, init);
+    await expect(main(["--repo", t.repo], { ...t.deps, fetch })).rejects.toThrow(
+      "InsForge rpc eyes_rotate_location_token: HTTP 500",
+    );
+    expect(t.texts).toEqual([]);
   });
 
   it("surfaces an InsForge error", async () => {

@@ -3,16 +3,18 @@
 // then texts each worker whose iPhone the build now installs on.
 // Usage: pnpm adhoc:release [--dry-run] [--repo <checkout>]   (reads .env from the current directory)
 import { execFileSync } from "node:child_process";
-import { sign } from "node:crypto";
+import { createHash, randomBytes, sign } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs as parseCli } from "node:util";
 import { createAdminClient } from "@insforge/sdk";
+import { withShortLinks } from "../apps/mcp/src/short-links.ts";
 import { createInkboxMessaging } from "../packages/comms/src/index.ts";
+import { createRpc } from "../packages/db/src/rpc.ts";
 
 const TEAM_ID = "2BPG8N4Z33";
-const INSTALL_TEXT = "Eyes is ready: tap to install https://app.eyes.pictures/install";
+const INSTALL_TEXT = "Eyes is ready: tap to install";
 const NO_KEY =
   "Create an App Store Connect API key (App Store Connect > Users and Access > Integrations > App Store Connect API > Team Keys, Admin access), save it as ~/.appstoreconnect/private_keys/AuthKey_<KEY ID>.p8, and set ASC_KEY_ID and ASC_ISSUER_ID in .env.";
 
@@ -285,8 +287,21 @@ export async function main(argv: string[], deps: Deps): Promise<void> {
     icon512: await put("icon-512.png", file(join(tmp, "icon-512.png"), "image/png")),
   };
   await put("manifest.plist", new Blob([manifestXml(urls, version)], { type: "application/xml" }));
+  // Each text carries a fresh location code (as the engine mints them), so the install page and then the app
+  // connect without the worker texting APP again. Only its hash is stored; the code rides in the fragment.
+  const web = (env.EYES_WORKER_WEB_URL ?? "https://app.eyes.pictures").replace(/\/+$/, "");
   for (const [phone, group] of texts) {
-    await deps.sendText(phone, INSTALL_TEXT);
+    const code = randomBytes(32).toString("base64url");
+    const res = await deps.fetch(`${base}/api/database/rpc/eyes_rotate_location_token`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        p_worker_id: group[0]?.worker_id,
+        p_token_hash: createHash("sha256").update(code).digest("hex"),
+      }),
+    });
+    if (!res.ok) throw new Error(`InsForge rpc eyes_rotate_location_token: HTTP ${res.status}`);
+    await deps.sendText(phone, `${INSTALL_TEXT} ${web}/install#c=${code}`);
     for (const d of group) await stamp(d, "released_at");
   }
   console.log(
@@ -319,7 +334,20 @@ if (import.meta.main) {
       return url;
     },
     sendText: (to, text) => {
-      messaging ??= createInkboxMessaging(env);
+      // Same short links as live texts: <api>/s/<id> instead of the ~80-character #c= link.
+      messaging ??= withShortLinks(
+        createInkboxMessaging(env),
+        createRpc({
+          kind: "insforge",
+          base_url: String(env.INSFORGE_BASE_URL),
+          api_key: String(env.INSFORGE_API_KEY),
+        }),
+        {
+          public_api_url: env.EYES_PUBLIC_API_URL ?? "https://api.eyes.pictures",
+          worker_web_url: env.EYES_WORKER_WEB_URL ?? "https://app.eyes.pictures",
+        },
+        () => new Date(),
+      );
       return messaging.sendText(to, text);
     },
     now: () => new Date(),

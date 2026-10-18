@@ -1,5 +1,6 @@
 // Pure logic: no Expo imports, so the root vitest run covers it.
-export const API = "https://api.eyes.pictures/w/location";
+// EXPO_PUBLIC_EYES_API is a dev-only override (simulator proof against a local server); releases leave it unset.
+export const API = `${process.env.EXPO_PUBLIC_EYES_API ?? "https://api.eyes.pictures"}/w/location`;
 export const MIN_GAP_MS = 60_000;
 
 export const isCode = (s: string) => /^[A-Za-z0-9_-]{43}$/.test(s);
@@ -8,13 +9,49 @@ export const isCode = (s: string) => /^[A-Za-z0-9_-]{43}$/.test(s);
 export const codeFromUrl = (url: string) =>
   /^eyes:\/\/connect\/?[?#](?:[^#]*[&#?])?c=([A-Za-z0-9_-]{43})(?:[&#]|$)/.exec(url)?.[1] ?? null;
 
-// "while_using": location allowed only while the app is open; Always is now a Settings change.
-export type Perm = "ask" | "while_using" | "denied" | "always";
-type Grant = { granted: boolean; canAskAgain: boolean };
-export function permOf(fg: Grant, bg: Grant): Perm {
-  if (bg.granted) return "always";
-  if ((fg.granted || fg.canAskAgain) && bg.canAskAgain) return "ask";
-  return fg.granted ? "while_using" : "denied";
+export type Grant = { granted: boolean; canAskAgain: boolean };
+
+// What the screen shows. "sharing" starts as soon as foreground ("While Using") is granted;
+// `always` false means iOS kept it to While Using: one inline hint, not a blocker.
+export type State =
+  | { view: "loading" | "code" | "ask" | "denied" | "paused" }
+  | { view: "sharing"; always: boolean };
+
+export type Env = {
+  code: () => Promise<string | null>;
+  paused: () => Promise<boolean>;
+  fg: () => Promise<Grant>;
+  askFg: () => Promise<Grant>;
+  bg: () => Promise<Grant>;
+  askBg: () => Promise<Grant>;
+  sharing: () => Promise<boolean>;
+  start: () => Promise<void>;
+  sendNow: () => Promise<void>;
+  show: (s: State) => void;
+};
+
+// One pass from "app has a code" to "sharing": ask While Using right away, start updates, send the
+// first fix, then ask Always (iOS shows that upgrade prompt once; later asks resolve with no dialog).
+// `askAlways` false skips the Always prompt (already asked this launch).
+export async function settle(e: Env, askAlways = true): Promise<State> {
+  let s: State;
+  if (!(await e.code())) s = { view: "code" };
+  else if (await e.paused()) s = { view: "paused" };
+  else {
+    let fg = await e.fg();
+    if (!fg.granted && fg.canAskAgain) fg = await e.askFg();
+    if (!fg.granted) s = { view: fg.canAskAgain ? "ask" : "denied" };
+    else {
+      if (!(await e.sharing())) await e.start();
+      let bg = await e.bg();
+      e.show({ view: "sharing", always: bg.granted });
+      await e.sendNow();
+      if (!bg.granted && bg.canAskAgain && askAlways) bg = await e.askBg();
+      s = { view: "sharing", always: bg.granted };
+    }
+  }
+  e.show(s);
+  return s;
 }
 
 export type Fix = { lat: number; lng: number; accuracy_m?: number; captured_at?: string };

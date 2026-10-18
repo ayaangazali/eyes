@@ -5,8 +5,18 @@ export const DEFAULT_MANIFEST_URL = "https://api.eyes.pictures/w/app/manifest.pl
 
 export type DeviceStatus = { profile_url: string; registered: boolean; ready: boolean };
 
-/** Ids of the page sections; exactly one is shown. */
-export type InstallStep = "not-iphone" | "missing" | "register" | "waiting" | "install" | "expired" | "error";
+/** What the page shows: a notice (not-iphone, missing, expired, error) or the steps at one current step. */
+export type InstallStep =
+  | "not-iphone"
+  | "missing"
+  | "register"
+  | "waiting"
+  | "install"
+  | "installed"
+  | "expired"
+  | "error";
+
+type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export type InstallDeps = {
   hash: string;
@@ -16,8 +26,10 @@ export type InstallDeps = {
   replaceUrl: (url: string) => void;
   send: (path: string, init: RequestInit) => Promise<unknown>;
   show: (step: InstallStep) => void;
-  setHref: (id: "profile" | "itms", href: string) => void;
+  setHref: (id: "profile" | "itms" | "open", href: string) => void;
   report: (err: unknown) => void;
+  store: Store;
+  now: number;
 };
 
 /** The location code from the URL fragment, or null when it is missing or malformed. */
@@ -25,6 +37,36 @@ export function readCode(hash: string): string | null {
   const code = new URLSearchParams(hash.slice(1)).get("c") ?? "";
   return /^[\w-]{20,200}$/.test(code) ? code : null;
 }
+
+/**
+ * The code survives the trip through Settings (the profile redirect drops the fragment) and the restart
+ * for Developer Mode, on this iPhone only: localStorage, 24 hours, removed once Eyes opens with it.
+ * It is only ever sent as the Bearer header of /w/device.
+ */
+export const SAVED_KEY = "eyes-install";
+const SAVED_MS = 24 * 3_600_000;
+export type Saved = { code: string; savedAt: number; installed?: boolean };
+
+export function loadSaved(store: Store, now: number): Saved | null {
+  let saved: Saved | null | undefined; // undefined: unparsable
+  try {
+    saved = JSON.parse(store.getItem(SAVED_KEY) ?? "null");
+  } catch {}
+  if (saved === null) return null;
+  if (saved && readCode(`#c=${saved.code}`) && saved.savedAt <= now && now - saved.savedAt < SAVED_MS)
+    return saved;
+  store.removeItem(SAVED_KEY);
+  return null;
+}
+
+/** Tapped "Install Eyes": the next visit starts at Developer Mode. */
+export function markInstalled(store: Store, now: number) {
+  const saved = loadSaved(store, now);
+  if (saved) store.setItem(SAVED_KEY, JSON.stringify({ ...saved, installed: true }));
+}
+
+/** Eyes opened with the code (the page went hidden after "Open Eyes"): the app has it now. */
+export const forgetCode = (store: Store) => store.removeItem(SAVED_KEY);
 
 /** Link that makes iOS install the ad hoc build described by the manifest. */
 export const itmsUrl = (manifest = import.meta.env.VITE_ADHOC_MANIFEST_URL || DEFAULT_MANIFEST_URL) =>
@@ -34,8 +76,9 @@ export const itmsUrl = (manifest = import.meta.env.VITE_ADHOC_MANIFEST_URL || DE
 export function deviceStep(
   status: DeviceStatus,
   registeredParam: boolean,
-): "register" | "waiting" | "install" {
-  if (status.ready) return "install";
+  installed = false,
+): "register" | "waiting" | "install" | "installed" {
+  if (status.ready) return installed ? "installed" : "install";
   return status.registered || registeredParam ? "waiting" : "register";
 }
 
@@ -44,12 +87,17 @@ export function deviceStep(
  * Authorization header, and is cleared from the address bar. Resolves to the step shown.
  */
 export async function startInstall(d: InstallDeps, manifest?: string): Promise<InstallStep> {
-  const code = readCode(d.hash);
+  const fresh = readCode(d.hash);
   if (d.hash) d.replaceUrl(d.pathname + d.search);
+  let saved = loadSaved(d.store, d.now);
+  if (fresh && fresh !== saved?.code) {
+    saved = { code: fresh, savedAt: d.now };
+    d.store.setItem(SAVED_KEY, JSON.stringify(saved));
+  }
+  const code = saved?.code ?? null;
   const registered = new URLSearchParams(d.search).get("registered") === "1";
   let step: InstallStep;
   if (!d.userAgent.includes("iPhone")) step = "not-iphone";
-  // The redirect back from the profile drops the fragment, so a bare ?registered=1 has no code.
   else if (code === null) step = registered ? "waiting" : "missing";
   else {
     try {
@@ -57,11 +105,13 @@ export async function startInstall(d: InstallDeps, manifest?: string): Promise<I
         method: "POST",
         headers: { Authorization: `Bearer ${code}` },
       })) as DeviceStatus;
-      step = deviceStep(status, registered);
+      step = deviceStep(status, registered, saved?.installed);
+      d.setHref("open", `eyes://connect#c=${code}`);
       if (step === "register") d.setHref("profile", status.profile_url);
-      if (step === "install") d.setHref("itms", itmsUrl(manifest));
+      if (step === "install" || step === "installed") d.setHref("itms", itmsUrl(manifest));
     } catch (err) {
       step = err instanceof Problem && err.status === 401 ? "expired" : "error";
+      if (step === "expired") forgetCode(d.store);
       if (step === "error") d.report(err);
     }
   }

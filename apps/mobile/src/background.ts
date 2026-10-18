@@ -8,10 +8,19 @@ export const TASK = "eyes-location";
 const KEY = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
 export const getCode = () => SecureStore.getItemAsync("code", KEY);
-// A new code starts clean: no old result, no throttle from the previous code.
+// A new code starts clean: no old result, no throttle from the previous code, not paused.
 export async function saveCode(code: string) {
   await SecureStore.setItemAsync("code", code, KEY);
   await SecureStore.deleteItemAsync("last", KEY);
+  await SecureStore.deleteItemAsync("paused", KEY);
+}
+export const isPaused = async () => (await SecureStore.getItemAsync("paused", KEY)) === "1";
+// "Stop sharing" in the app: stays off across launches until "Share again" or a new link.
+export async function pause(on: boolean) {
+  if (on) {
+    await SecureStore.setItemAsync("paused", "1", KEY);
+    await stopSharing();
+  } else await SecureStore.deleteItemAsync("paused", KEY);
 }
 export async function getLast(): Promise<Last | null> {
   return JSON.parse((await SecureStore.getItemAsync("last", KEY)) ?? "null");

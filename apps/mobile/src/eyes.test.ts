@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { codeFromUrl, type Deps, isCode, type Last, MESSAGES, onFix, permOf, postFix } from "./eyes.ts";
+import {
+  codeFromUrl,
+  type Deps,
+  type Env,
+  isCode,
+  type Last,
+  MESSAGES,
+  onFix,
+  postFix,
+  type State,
+  settle,
+} from "./eyes.ts";
 
 const CODE = `${"A".repeat(40)}-_9`;
 const fix = { lat: 37.7607, lng: -122.3857 };
@@ -135,13 +146,69 @@ describe("codeFromUrl", () => {
   });
 });
 
-describe("permOf", () => {
-  const g = (granted: boolean, canAskAgain: boolean) => ({ granted, canAskAgain });
-  it("maps foreground and background grants to the screen state", () => {
-    expect(permOf(g(true, true), g(true, false))).toBe("always");
-    expect(permOf(g(false, true), g(false, true))).toBe("ask");
-    expect(permOf(g(true, true), g(false, true))).toBe("ask");
-    expect(permOf(g(true, true), g(false, false))).toBe("while_using");
-    expect(permOf(g(false, false), g(false, false))).toBe("denied");
+describe("settle", () => {
+  const g = (granted: boolean, canAskAgain = true) => ({ granted, canAskAgain });
+  const env = (o: Partial<Env> = {}) => {
+    const calls: string[] = [];
+    const shown: State[] = [];
+    const log =
+      <T>(name: string, v: T) =>
+      async () => {
+        calls.push(name);
+        return v;
+      };
+    const e: Env = {
+      code: log("code", CODE),
+      paused: log("paused", false),
+      fg: log("fg", g(false)),
+      askFg: log("askFg", g(true)),
+      bg: log("bg", g(false)),
+      askBg: log("askBg", g(true)),
+      sharing: log("sharing", false),
+      start: log("start", undefined),
+      sendNow: log("sendNow", undefined),
+      show: (s) => void shown.push(s),
+      ...o,
+    };
+    return { e, calls, shown };
+  };
+
+  it("asks While Using, shares and sends before asking Always (one tap to sharing)", async () => {
+    const { e, calls, shown } = env();
+    expect(await settle(e)).toEqual({ view: "sharing", always: true });
+    expect(calls).toEqual(["code", "paused", "fg", "askFg", "sharing", "start", "bg", "sendNow", "askBg"]);
+    expect(shown).toEqual([
+      { view: "sharing", always: false },
+      { view: "sharing", always: true },
+    ]);
+  });
+
+  it("keeps sharing when Always is declined, and skips the Always ask when told to", async () => {
+    expect(await settle(env({ askBg: async () => g(false) }).e)).toEqual({ view: "sharing", always: false });
+    const { e, calls } = env({ fg: async () => g(true) });
+    expect(await settle(e, false)).toEqual({ view: "sharing", always: false });
+    expect(calls).not.toContain("askBg");
+    expect(calls).not.toContain("askFg");
+  });
+
+  it("does not restart running updates or re-ask a granted Always", async () => {
+    const { e, calls } = env({ fg: async () => g(true), sharing: async () => true, bg: async () => g(true) });
+    expect(await settle(e)).toEqual({ view: "sharing", always: true });
+    expect(calls).not.toContain("start");
+    expect(calls).not.toContain("askBg");
+    const never = env({ fg: async () => g(true), bg: async () => g(false, false) });
+    await settle(never.e);
+    expect(never.calls).not.toContain("askBg");
+  });
+
+  it("stops early without a code, when paused, or without foreground permission", async () => {
+    expect(await settle(env({ code: async () => null }).e)).toEqual({ view: "code" });
+    expect(await settle(env({ paused: async () => true }).e)).toEqual({ view: "paused" });
+    expect(await settle(env({ askFg: async () => g(false, false) }).e)).toEqual({ view: "denied" });
+    expect(await settle(env({ askFg: async () => g(false, true) }).e)).toEqual({ view: "ask" });
+    const denied = env({ fg: async () => g(false, false) });
+    expect(await settle(denied.e)).toEqual({ view: "denied" });
+    expect(denied.calls).not.toContain("askFg");
+    expect(denied.shown).toEqual([{ view: "denied" }]);
   });
 });

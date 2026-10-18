@@ -11,7 +11,8 @@ import Layout from "../layouts/Layout.astro";
 >
   <h1 class="ui-h1">Install the Eyes app</h1>
   <p class="ui-text-secondary">
-    Eyes installs straight from us, not from the App Store. Two steps: register this iPhone, then install the app.
+    Four steps, about 10 minutes. Eyes comes straight from us, not the App Store, so iOS asks a few extra
+    questions. Each step shows exactly what to tap.
   </p>
 
   <p id="checking" class="ui-notice" role="status"><Icon name="pending" /> Checking your iPhone…</p>
@@ -28,53 +29,264 @@ import Layout from "../layouts/Layout.astro";
 
   <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
 
-  <section id="register" class="ui-card prose" hidden>
-    <h2 class="ui-card__title">Step 1: Register this iPhone</h2>
-    <p class="ui-field__hint">This only works in Safari on the iPhone you want Eyes on.</p>
-    <a id="profile" class="ui-button ui-button--primary ui-button--block"><Icon name="shield" /> Register this iPhone</a>
-    <ol>
-      <li>Tap <b>Register this iPhone</b>, then <b>Allow</b>. Safari downloads a profile.</li>
-      <li>Open Settings, tap <b>Profile Downloaded</b> near the top, then <b>Install</b>.</li>
-      <li>
-        iOS says the profile is "Unverified". That's expected: it only reads this iPhone's device ID and installs
-        nothing.
-      </li>
-      <li>When it's done, iOS brings you back to this page.</li>
-    </ol>
-    <p class="ui-field__hint">
-      Apple lets an app from outside the App Store run only on iPhones registered by device ID.
-      <a class="ui-link" href="privacy.html">How Eyes uses it</a>
-    </p>
-  </section>
+  <ol id="steps" class="ui-steps install" hidden>
+    <li data-key="register">
+      <div class="step">
+        <h2 class="ui-h3">Register this iPhone</h2>
+        <div class="step__body">
+          <a id="profile" class="ui-button ui-button--primary ui-button--block"><Icon name="shield" /> Register this iPhone</a>
+          <ol class="screens">
+            <li>
+              Safari asks:
+              <figure class="ios" aria-label="iOS dialog">
+                <p>This website is trying to download a configuration profile. Do you want to allow this?</p>
+                <span>Ignore</span><b>Allow</b>
+              </figure>
+              Tap <b>Allow</b>, then <b>Close</b>.
+            </li>
+            <li>Open the <b>Settings</b> app. Tap <b>Profile Downloaded</b>, near the top under your name.</li>
+            <li>
+              Tap <b>Install</b> (top right), enter your iPhone passcode, then tap <b>Install</b> again. iOS calls the
+              profile "Unverified": that's expected. It only reads this iPhone's device ID and installs nothing.
+            </li>
+            <li>Safari opens this page again, at step 2.</li>
+          </ol>
+          <details class="help">
+            <summary>Didn't work?</summary>
+            <ul>
+              <li>
+                No <b>Profile Downloaded</b> in Settings? Open Settings › General › <b>VPN &amp; Device Management</b>
+                and tap the Eyes profile.
+              </li>
+              <li>Tapped Ignore, or nothing happened? Tap <b>Register this iPhone</b> again.</li>
+              <li>In Chrome or another app? Open this link in <b>Safari</b>: only Safari can register.</li>
+            </ul>
+          </details>
+          <p class="ui-field__hint">
+            Apple lets an app from outside the App Store run only on iPhones registered by device ID.{" "}
+            <a class="ui-link" href="privacy.html">How Eyes uses it</a>
+          </p>
+        </div>
+      </div>
+    </li>
 
-  <p id="waiting" class="ui-notice ui-notice--success" role="status" hidden>
-    <Icon name="check" /> Your iPhone is registered. Eyes texts you when the app is ready to install (usually within 15
-    minutes). You can close this page.
-  </p>
+    <li data-key="install">
+      <div class="step">
+        <h2 class="ui-h3">Install Eyes</h2>
+        <div class="step__body">
+          <p id="waiting" class="ui-notice ui-notice--success" role="status" hidden>
+            <Icon name="check" /> This iPhone is registered. Apple needs to add it first: Eyes texts you when the app
+            is ready, usually within 15 minutes. Tap that text to come back here.
+          </p>
+          <a id="itms" class="ui-button ui-button--primary ui-button--block" hidden><Icon name="expand" /> Install Eyes</a>
+          <ol class="screens">
+            <li>
+              iOS asks:
+              <figure class="ios" aria-label="iOS dialog">
+                <p>“app.eyes.pictures” would like to install “Eyes”</p>
+                <span>Cancel</span><b>Install</b>
+              </figure>
+              Tap <b>Install</b>. The Eyes icon appears on your Home Screen and fills in when it's done.
+            </li>
+          </ol>
+          <details class="help">
+            <summary>Didn't work?</summary>
+            <ul>
+              <li>"Unable to install Eyes"? Apple hasn't added this iPhone yet. Wait for the Eyes text, then try again.</li>
+              <li>Nothing happens? Go to your Home Screen and look for the Eyes icon: it may still be loading.</li>
+            </ul>
+          </details>
+        </div>
+      </div>
+    </li>
 
-  <div id="install" hidden>
-    <section class="ui-card prose">
-      <h2 class="ui-card__title">Step 2: Install Eyes</h2>
-      <a id="itms" class="ui-button ui-button--primary ui-button--block"><Icon name="expand" /> Install Eyes</a>
-      <ol>
-        <li>Tap <b>Install Eyes</b>, then <b>Install</b>. The Eyes icon appears on your Home Screen.</li>
-      </ol>
-    </section>
-    <section class="ui-card prose">
-      <h2 class="ui-card__title">Turn on Developer Mode (iOS 16 and later)</h2>
-      <ol>
-        <li>Open Eyes. iOS says Developer Mode is required: tap <b>OK</b>.</li>
-        <li>Open Settings &gt; Privacy &amp; Security &gt; <b>Developer Mode</b> (near the bottom) and turn it on.</li>
-        <li>Tap <b>Restart</b>. After the restart, tap <b>Turn On</b> and enter your passcode.</li>
-        <li>Open Eyes and tap the link Eyes texted you to connect.</li>
-      </ol>
-    </section>
-  </div>
+    <li data-key="installed">
+      <div class="step">
+        <h2 class="ui-h3">Turn on Developer Mode</h2>
+        <div class="step__body">
+          <ol class="screens">
+            <li>
+              Open <b>Eyes</b> from your Home Screen. iOS says <b>Developer Mode Required</b>: tap <b>OK</b>.
+            </li>
+            <li>
+              Open <b>Settings</b> › <b>Privacy &amp; Security</b>. Scroll to the bottom, tap <b>Developer Mode</b>,
+              and switch it on.
+            </li>
+            <li>
+              Tap <b>Restart</b>. After the restart, unlock your iPhone:
+              <figure class="ios" aria-label="iOS dialog">
+                <p>Turn on Developer Mode?</p>
+                <span>Cancel</span><b>Turn On</b>
+              </figure>
+              Tap <b>Turn On</b> and enter your passcode. Then come back to this page in Safari.
+            </li>
+          </ol>
+          <details class="help">
+            <summary>Didn't work?</summary>
+            <ul>
+              <li>No <b>Developer Mode</b> in Privacy &amp; Security? Open Eyes once first, then look again.</li>
+              <li>Missed the Turn On prompt? Settings › Privacy &amp; Security › Developer Mode shows it again.</li>
+            </ul>
+          </details>
+        </div>
+      </div>
+    </li>
+
+    <li data-key="open">
+      <div class="step">
+        <h2 class="ui-h3">Open Eyes</h2>
+        <div class="step__body">
+          <a id="open" class="ui-button ui-button--primary ui-button--block" hidden><Icon name="locate" /> Open Eyes</a>
+          <p id="open-fallback" class="ui-field__hint">Tap the link in the Eyes text to open the app.</p>
+          <ol class="screens">
+            <li>
+              iOS asks:
+              <figure class="ios" aria-label="iOS dialog">
+                <p>Allow “Eyes” to use your location?</p>
+                <span>Don't Allow</span><b>Allow While Using App</b>
+              </figure>
+              Tap <b>Allow While Using App</b>. Eyes shows <b>Sharing</b>: you're set.
+            </li>
+            <li>
+              iOS then asks to use your location when you're not using the app: tap <b>Change to Always Allow</b>, so
+              Eyes keeps working while it's closed.
+            </li>
+          </ol>
+          <details class="help">
+            <summary>Didn't work?</summary>
+            <ul>
+              <li>Eyes doesn't open? Finish Developer Mode (step 3) first.</li>
+              <li>Tapped Don't Allow? In Eyes, tap <b>Open Settings</b>, then Location › <b>Always</b>.</li>
+            </ul>
+          </details>
+        </div>
+      </div>
+    </li>
+  </ol>
 </Layout>
+
+<style>
+  .install > li > .step {
+    display: grid;
+    gap: var(--eyes-space-3);
+    padding: var(--eyes-space-4);
+    border-radius: var(--eyes-radius-2xl);
+    background: var(--eyes-surface);
+    box-shadow: var(--eyes-hairline);
+    transition: box-shadow var(--eyes-duration-enter) var(--eyes-ease-out);
+  }
+  .install > li::before {
+    margin-top: var(--eyes-space-4);
+  }
+  .install h2 {
+    margin: 0;
+    line-height: 1.75rem;
+  }
+  /* Done steps fold to their title; the current one carries the accent ring. */
+  .install > li[data-done] .step__body {
+    display: none;
+  }
+  .install > li[data-done] h2 {
+    color: var(--eyes-text-secondary);
+  }
+  .install > li[aria-current="step"] > .step {
+    box-shadow: 0 0 0 2px var(--eyes-accent);
+  }
+  .install > li:not([data-done], [aria-current="step"]) .step__body {
+    opacity: 0.6;
+  }
+  /* After the restart the worker comes back for step 4, which the page can't see coming: keep it bright. */
+  .install > li[data-key="installed"][aria-current="step"] + li .step__body {
+    opacity: 1;
+  }
+  .step__body {
+    display: grid;
+    gap: var(--eyes-space-3);
+  }
+  .screens {
+    display: grid;
+    gap: var(--eyes-space-3);
+    margin: 0;
+    padding-left: 1.25rem;
+    list-style: decimal;
+  }
+  .screens > li::marker {
+    color: var(--eyes-text-secondary);
+  }
+  /* A drawing of the iOS alert, with the button to tap filled. */
+  .ios {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--eyes-space-2);
+    max-width: 17rem;
+    margin: var(--eyes-space-2) 0;
+    padding: var(--eyes-space-3);
+    border-radius: var(--eyes-radius-xl);
+    background: var(--eyes-surface-secondary);
+    font-size: var(--eyes-text-sm);
+  }
+  .ios p {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-weight: var(--eyes-weight-semibold);
+    text-align: center;
+  }
+  .ios span,
+  .ios b {
+    padding: var(--eyes-space-2);
+    border-radius: var(--eyes-radius-full);
+    text-align: center;
+  }
+  .ios span {
+    background: var(--eyes-surface-tertiary);
+    color: var(--eyes-text-secondary);
+  }
+  .ios b {
+    background: var(--eyes-accent);
+    color: var(--eyes-on-accent);
+  }
+  .help summary {
+    cursor: pointer;
+    color: var(--eyes-text-secondary);
+    font-size: var(--eyes-text-sm);
+  }
+  .help ul {
+    display: grid;
+    gap: var(--eyes-space-2);
+    margin: var(--eyes-space-2) 0 0;
+    padding-left: 1.25rem;
+    font-size: var(--eyes-text-sm);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .install > li > .step {
+      transition: none;
+    }
+  }
+</style>
 
 <script>
   import { $, call, showError } from "../api.ts";
-  import { startInstall } from "../install.ts";
+  import { forgetCode, type InstallStep, markInstalled, startInstall } from "../install.ts";
+
+  const ORDER = ["register", "install", "installed", "open"];
+  const NOTICES = ["not-iphone", "missing", "expired", "error"];
+
+  function show(step: InstallStep) {
+    $("checking").hidden = true;
+    if (NOTICES.includes(step)) {
+      $(step).hidden = false;
+      return;
+    }
+    $("steps").hidden = false;
+    $("waiting").hidden = step !== "waiting";
+    $("itms").hidden = step !== "install" && step !== "installed";
+    const current = ORDER.indexOf(step === "waiting" ? "install" : step);
+    document.querySelectorAll<HTMLLIElement>("#steps > li").forEach((li, i) => {
+      li.toggleAttribute("data-done", i < current);
+      if (i === current) li.setAttribute("aria-current", "step");
+      else li.removeAttribute("aria-current");
+    });
+  }
 
   // The code arrives in the URL fragment; startInstall clears it from the address bar.
   startInstall({
@@ -84,13 +296,25 @@ import Layout from "../layouts/Layout.astro";
     userAgent: navigator.userAgent,
     replaceUrl: (url) => history.replaceState(null, "", url),
     send: call,
-    show: (id) => {
-      $("checking").hidden = true;
-      $(id).hidden = false;
-    },
+    show,
     setHref: (id, href) => {
-      $<HTMLAnchorElement>(id).href = href;
+      const a = $<HTMLAnchorElement>(id);
+      a.href = href;
+      a.hidden = false;
+      if (id === "open") $("open-fallback").hidden = true;
     },
     report: (err) => showError($("error"), err),
+    store: localStorage,
+    now: Date.now(),
+  });
+
+  $("itms").addEventListener("click", () => {
+    markInstalled(localStorage, Date.now());
+    show("installed");
+  });
+  // Eyes opening hides this page: the app has the code now, so the page forgets it.
+  $("open").addEventListener("click", () => {
+    const gone = () => document.hidden && forgetCode(localStorage);
+    document.addEventListener("visibilitychange", gone, { once: true });
   });
 </script>

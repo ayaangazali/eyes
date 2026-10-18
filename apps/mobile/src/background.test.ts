@@ -110,6 +110,21 @@ describe("sharing lifecycle", () => {
   });
 });
 
+describe("pause", () => {
+  it("Stop sharing persists and stops updates; Share again or a new code clears it", async () => {
+    vi.mocked(Location.hasStartedLocationUpdatesAsync).mockResolvedValueOnce(true);
+    expect(await bg.isPaused()).toBe(false);
+    await bg.pause(true);
+    expect(await bg.isPaused()).toBe(true);
+    expect(Location.stopLocationUpdatesAsync).toHaveBeenCalledWith(bg.TASK);
+    await bg.pause(false);
+    expect(await bg.isPaused()).toBe(false);
+    await bg.pause(true);
+    await bg.saveCode(CODE);
+    expect(await bg.isPaused()).toBe(false);
+  });
+});
+
 describe("report", () => {
   it("sends the fix with rounded-to-stored coordinates and the capture time", async () => {
     h.store.set("code", CODE);
