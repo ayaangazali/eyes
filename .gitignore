@@ -1,5 +1,6 @@
 node_modules
 dist
+.astro
 .env
 .env.*
 !.env.example
@@ -11,3 +12,18 @@ evals/ax/out/
 .DS_Store
 .claude/worktrees
 .claude/settings.local.json
+
+# InsForge & AI agent skills
+.insforge
+.agent
+.agents
+.augment
+.claude
+.cline
+.github/copilot*
+.kilocode
+.qoder
+.qwen
+.roo
+.trae
+.windsurf

@@ -23,7 +23,7 @@ export default defineConfig({
     ? [
         {
           command:
-            "pnpm --filter @eyes/web-worker build && pnpm --filter @eyes/web-worker exec vite preview --host 127.0.0.1 --port 4173 --strictPort",
+            "pnpm --filter @eyes/web-worker build && python3 -m http.server 4173 --bind 127.0.0.1 -d apps/web/worker/dist",
           url: "http://127.0.0.1:4173",
           reuseExistingServer: !process.env.CI,
           env: {
@@ -34,10 +34,14 @@ export default defineConfig({
         },
         {
           command:
-            "pnpm --filter @eyes/web-worker exec vite build --outDir dist/golden && pnpm --filter @eyes/web-worker exec vite preview --outDir dist/golden --host 127.0.0.1 --port 4174 --strictPort",
+            "pnpm --filter @eyes/web-worker build && python3 -m http.server 4174 --bind 127.0.0.1 -d apps/web/worker/dist/golden",
           url: "http://127.0.0.1:4174",
           reuseExistingServer: !process.env.CI,
-          env: { VITE_EYES_API_URL: "http://127.0.0.1:3399", VITE_LIVE_PAYOUTS: "true" },
+          env: {
+            EYES_WEB_OUT_DIR: "dist/golden",
+            VITE_EYES_API_URL: "http://127.0.0.1:3399",
+            VITE_LIVE_PAYOUTS: "true",
+          },
         },
       ]
     : [],
