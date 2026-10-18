@@ -406,8 +406,23 @@ function replay(el, cls) {
   el.classList.add(cls);
 }
 
+function resetNow() {
+  $("now").className = "";
+  shownId = null;
+  shownHeadline = null;
+  $("chip").textContent = "";
+  $("headline").textContent = "Waiting for an agent to ask";
+  $("question").textContent = "When an agent asks about a place, the task shows up here.";
+  $("cost").textContent = "";
+  $("steps").replaceChildren();
+  $("proof").hidden = true;
+}
+
 function renderNow(t, nextSeen) {
-  if (!t) return;
+  if (!t) {
+    resetNow();
+    return;
+  }
   const now = $("now");
   now.className = `s-${t.status}`;
   if (t.id !== shownId) replay(now, "enter");

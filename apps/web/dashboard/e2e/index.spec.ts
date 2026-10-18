@@ -409,6 +409,28 @@ test.describe("dashboard index.html inline script", () => {
     await expect(page.locator("#steps li.next b")).toHaveText("Photo");
   });
 
+  test("clears the active task when the feed goes empty", async ({ page }) => {
+    let calls = 0;
+    await open(page, {
+      feedFor: () =>
+        ok(
+          feed({
+            tasks: calls++ === 0 ? [task({ id: "t12", status: "claimed", claimed_at: minutesAgo(1) })] : [],
+          }),
+        ),
+    });
+    await expect(page.locator("#headline")).toHaveText("A worker is on the way to Blue Bottle Coffee");
+    await expect(page.locator("#chip")).not.toBeEmpty();
+    await expect(page.locator("#headline")).toHaveText("Waiting for an agent to ask", { timeout: 6000 });
+    await expect(page.locator("#chip")).toBeEmpty();
+    await expect(page.locator("#question")).toHaveText(
+      "When an agent asks about a place, the task shows up here.",
+    );
+    await expect(page.locator("#cost")).toBeEmpty();
+    await expect(page.locator("#steps li")).toHaveCount(0);
+    await expect(page.locator("#now")).not.toHaveClass(/s-/);
+  });
+
   test("map is replaced by a message when Leaflet cannot load", async ({ page }) => {
     await open(page, { feedFor: () => ok(feed({ tasks: [task({ id: "t11" })] })) });
     await expect(page.locator("#map")).toHaveClass(/nomap/);
