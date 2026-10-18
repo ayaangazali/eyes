@@ -7,6 +7,8 @@ import { fileURLToPath } from "node:url";
 import { inkboxRoutes, primitiveRoutes } from "@eyes/comms";
 import {
   type Agent,
+  AskEyesDraftInput,
+  AskEyesDraftOutput,
   AskEyesInput,
   AskEyesMcpOutput as AskEyesToolOutput,
   AwaitAnswerInput,
@@ -50,7 +52,7 @@ import { cors } from "hono/cors";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { MCPServer } from "mcp-use";
+import { MCPServer, type McpMiddlewareResult } from "mcp-use";
 import { z } from "zod";
 import { deviceProfile, parseDeviceAttributes } from "./device-profile.ts";
 import { oauthRoutes } from "./oauth.ts";
@@ -70,12 +72,20 @@ import {
 
 type Env = Record<string, string | undefined>;
 type AppEnv = { Variables: { agent: Agent; operator: Operator } };
+type ListedTool = McpMiddlewareResult<"tools/list">[number];
 
 const PROGRESS_INTERVAL_MS = 5000;
 const HOUR_MS = 60 * 60 * 1000;
 const PUBLIC_CALLS_PER_HOUR = 5;
 const LOGIN_CODES_PER_HOUR = 10;
 const THROTTLE_MAX_KEYS = 10_000;
+// Zod and the MCP SDK describe the same JSON wire schema with different TypeScript JSON types.
+const { $schema: _draftInputDialect, ...draftInputSchema } = z.toJSONSchema(AskEyesDraftInput, {
+  io: "input",
+}) as unknown as ListedTool["inputSchema"] & { $schema?: string };
+const { $schema: _draftOutputDialect, ...draftOutputSchema } = z.toJSONSchema(
+  AskEyesDraftOutput,
+) as unknown as NonNullable<ListedTool["outputSchema"]> & { $schema?: string };
 
 function interactive(ctx: {
   client?: { supportsViews(): boolean; info(): { name?: string } };
@@ -586,7 +596,7 @@ Next: only if status is "dispatched", call await_answer with the returned task_i
     (input, ctx) => {
       if (!interactive(ctx)) return dispatch(ctx.get("agent"), input);
       return run(
-        async (): Promise<z.output<typeof AskEyesToolOutput>> => ({
+        async (): Promise<z.output<typeof AskEyesDraftOutput>> => ({
           ...input,
           ...(await service.quoteTask(ctx.get("agent"), {
             location: input.location,
@@ -865,13 +875,15 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   // WIDGET_CALLABLE (ChatGPT: openai/widgetAccessible; MCP Apps: ui.visibility includes "app").
   server.use("mcp:tools/list", async (ctx, next) =>
     (await next()).map((listed) => {
-      const tool =
+      const tool: ListedTool =
         listed.name === "ask_eyes" && interactive(ctx)
           ? {
               ...listed,
               title: "Prepare a task for confirmation",
               description:
                 "Prepare a read-only Eyes card with the question, place, price and intent key. No task, payment or worker notification occurs. The user must press Ask in the card to confirm; never dispatch a second task after that confirmation.",
+              inputSchema: draftInputSchema,
+              outputSchema: draftOutputSchema,
               annotations: {
                 readOnlyHint: true,
                 destructiveHint: false,
