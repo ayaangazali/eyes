@@ -187,6 +187,8 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 .tbl-table .q { font-weight: var(--eyes-weight-medium); }
 .tbl-empty { margin: var(--eyes-space-4) 0; }
 .tbl-toggle { display: none; }
+/* A spacer stands in for rows out of view: only its height counts. */
+.tbl-table .tbl-spacer, .tbl-table .tbl-spacer td { padding: 0 !important; margin: 0 !important; border: 0 !important; }
 @media (max-width: 640px) {
   .tbl-bar { margin: 0 calc(-1 * var(--eyes-space-4)); }
   .tbl-bar .tbl-search { flex: 1 1 0; }

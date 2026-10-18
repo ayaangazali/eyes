@@ -258,6 +258,10 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
   const keyOf = opts.key ?? ((row: T) => String(rows.indexOf(row)));
   let first = 0;
   const win = opts.window;
+  // Measured from the rows on screen once there are some; the estimate until then.
+  let rowHeight = win?.height ?? 0;
+  // Each drawn row's real height, so a spacer replacing rows is exactly as tall as they were.
+  const heights = new Map<string, number>();
   if (win) {
     // Re-render only when the viewport moves a quarter window away from what is drawn.
     doc.defaultView?.addEventListener(
@@ -271,7 +275,7 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
   function startFor() {
     if (!win) return 0;
     const top = table.getBoundingClientRect().top;
-    return Math.max(0, Math.floor(-top / win.height) - Math.floor(win.rows / 4));
+    return Math.max(0, Math.floor(-top / rowHeight) - Math.floor(win.rows / 4));
   }
 
   function update(next: TableState) {
@@ -303,19 +307,29 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
     const active = Object.values(state.f).filter(Boolean).length;
     toggle.textContent = active ? `Filters (${active})` : "Filters";
     clear.disabled = !filtered;
+    const drawn = [...tbody.children].filter(
+      (tr) => !tr.matches(".tbl-spacer, .tbl-detail"),
+    ) as HTMLElement[];
+    // Fractional heights: rounding 200 rows to whole pixels would drift the page by tens of pixels.
+    const sizes = drawn.map((tr) => tr.getBoundingClientRect().height);
+    drawn.forEach((tr, i) => {
+      if (sizes[i]) heights.set(tr.dataset.key ?? "", sizes[i] as number);
+    });
+    const measured = sizes.reduce((sum, h) => sum + h, 0) / (drawn.length || 1);
+    if (measured > 0) rowHeight = measured;
     first = win && shown.length > win.rows ? Math.min(startFor(), shown.length - win.rows) : 0;
     const last = win ? Math.min(shown.length, first + win.rows) : shown.length;
-    const spacer = (n: number) => {
+    const spacer = (rowsIn: T[]) => {
       const tr = el("tr", "tbl-spacer");
       tr.setAttribute("aria-hidden", "true");
       const td = el("td");
       td.colSpan = columns.length;
-      td.style.height = `${n * (win?.height ?? 0)}px`;
+      td.style.height = `${rowsIn.reduce((sum, row) => sum + (heights.get(keyOf(row)) ?? rowHeight), 0)}px`;
       tr.append(td);
       return tr;
     };
     tbody.replaceChildren(
-      ...(first ? [spacer(first)] : []),
+      ...(first ? [spacer(shown.slice(0, first))] : []),
       ...shown.slice(first, last).flatMap((row) => {
         const tr = el("tr");
         for (const c of columns) {
@@ -326,6 +340,7 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
         }
         const { detail, label } = opts;
         const key = keyOf(row);
+        tr.dataset.key = key;
         const isOpen = expanded.has(key);
         const open = detail
           ? () => {
@@ -355,7 +370,7 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
         more.append(td);
         return [tr, more];
       }),
-      ...(last < shown.length ? [spacer(shown.length - last)] : []),
+      ...(last < shown.length ? [spacer(shown.slice(last))] : []),
     );
     moreButton.hidden = end !== "more";
     endText.textContent =
