@@ -297,6 +297,10 @@ for (const width of [390, 1440]) {
       await expect(page.locator("#tasks > li")).toHaveCount(1);
       expect(writes).toEqual([]);
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      // Wider platform fonts must not let an offscreen chip's absolute radio escape the scroller.
+      const fallback = await page.addStyleTag({ content: ".me-chip { font-family: monospace; }" });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      await fallback.evaluate((style) => style.remove());
       if (process.env.SHOTS) {
         await expect(app).toHaveCSS("opacity", "1");
         await page.screenshot({
