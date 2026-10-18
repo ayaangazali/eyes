@@ -782,15 +782,6 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       return c.body(null, 204);
     });
   }
-  const uploads = new Set<string>();
-  server.post("/w/offers/:token/capture", async (c) => {
-    const token = c.req.param("token");
-    if (!verifyToken(config.link_secret, token, deps.providers.clock.now()))
-      throw new EyesError("offer_invalid");
-    const offer = await service.getOffer(token);
-    if (!offer.claimed_by_you) throw new EyesError("task_already_claimed");
-    if (offer.status !== "claimed") throw new EyesError("offer_invalid", { status: offer.status });
-    if (uploads.has(token)) {
   // Ad hoc install (T6.31): the page trades the worker's code (header, never a URL) for a 1-hour
   // profile link; the iPhone posts its device ID back to the same ticket URL.
   server.post("/w/device", async (c) => {
@@ -813,6 +804,15 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     await service.addWorkerDevice(c.req.param("ticket"), device);
     return c.redirect(`${config.worker_web_url}/install?registered=1`, 301);
   });
+  const uploads = new Set<string>();
+  server.post("/w/offers/:token/capture", async (c) => {
+    const token = c.req.param("token");
+    if (!verifyToken(config.link_secret, token, deps.providers.clock.now()))
+      throw new EyesError("offer_invalid");
+    const offer = await service.getOffer(token);
+    if (!offer.claimed_by_you) throw new EyesError("task_already_claimed");
+    if (offer.status !== "claimed") throw new EyesError("offer_invalid", { status: offer.status });
+    if (uploads.has(token)) {
       throw new EyesError("rate_limited", { retry_after_s: 5 }, { fix: "Wait 5 seconds and submit again." });
     }
     uploads.add(token);
