@@ -368,12 +368,14 @@ const flight = [
   <script>
     import { gsap } from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
+    import { createFlight, wireCopy } from "../motion.ts";
 
-    const hint = document.getElementById("copied") as HTMLElement;
-    document.getElementById("copy")?.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(document.getElementById("connect")?.textContent ?? "");
-      hint.textContent = "Copied. Run it in the terminal where EYES_API_KEY is set.";
-    });
+    wireCopy(
+      document.getElementById("copy"),
+      document.getElementById("connect"),
+      document.getElementById("copied") as HTMLElement,
+      (text) => navigator.clipboard.writeText(text),
+    );
 
     /*
      * Scroll-scrubbed motion: every tween below is tied to scroll position (scrub), so scrolling back
@@ -390,23 +392,8 @@ const flight = [
     const stepList = main.querySelector(".steps") as HTMLElement;
     const steps = [...stepList.querySelectorAll<HTMLElement>(".step")];
     const last = rows.length - 1;
-    let at = last;
-
     // Discrete state: the badge label (transitions.dev "Text states swap") and the lit step.
-    const show = (n: number) => {
-      if (n === at) return;
-      at = n;
-      panel.dataset.step = String(n);
-      for (const s of steps) s.classList.toggle("is-now", s.dataset.step === rows[n].dataset.hl);
-      status.classList.add("is-exit");
-      setTimeout(() => {
-        status.textContent = rows[at].dataset.state ?? "";
-        status.classList.remove("is-exit");
-        status.classList.add("is-enter-start");
-        status.getBoundingClientRect();
-        status.classList.remove("is-enter-start");
-      }, 150);
-    };
+    const { show } = createFlight({ panel, status, steps, rows });
 
     // Task in flight, one timeline unit per state. Row n fades in over [n - 0.7, n - 0.1] and the
     // state flips at its midpoint; then the checks tick (10 Success check values) and the brackets lock.
