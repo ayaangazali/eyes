@@ -17,5 +17,6 @@ Open https://api.eyes.pictures/ops/login and enter an allowlisted phone or email
 - [`apps/mcp/src/ops-auth.ts`](../../apps/mcp/src/ops-auth.ts): login codes, session cookie, allowlist
 - [`apps/mcp/src/server.ts`](../../apps/mcp/src/server.ts): `/ops/feed`, `/ops/events`, `/ops/tickets`, task resolve routes
 - [`apps/web/dashboard/src/ops.html`](../../apps/web/dashboard/src/ops.html): dashboard page
+- [`apps/web/dashboard/src/ops-view/`](../../apps/web/dashboard/src/ops-view/): the page's script (`format.ts` helpers, `page.ts` rendering and actions), inlined into the page by `server.ts`
 - [`apps/web/dashboard/src/ops.ts`](../../apps/web/dashboard/src/ops.ts): dashboard data shaping
 - [`intent/decisions/ADR-023-ops-access-events-tickets.md`](../../intent/decisions/ADR-023-ops-access-events-tickets.md): the decision record

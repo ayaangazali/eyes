@@ -2,8 +2,9 @@ import { once } from "node:events";
 import { request } from "node:http";
 import { type AddressInfo, connect, Server } from "node:net";
 import type { Rpc } from "@eyes/db";
+import { Window } from "happy-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { createDashboardServer, dbFromEnv, startFromEnv } from "./server.ts";
+import { createDashboardServer, dbFromEnv, OPS_PAGE, startFromEnv } from "./server.ts";
 
 const FEED = {
   tasks: [],
@@ -173,3 +174,60 @@ async function getWithoutHost(path: string): Promise<number> {
   await once(socket, "end");
   return Number(raw.match(/^HTTP\/1\.[01] (\d{3})/)?.[1] ?? 0);
 }
+
+describe("OPS_PAGE", () => {
+  it("inlines the ops-view modules as the only inline script, and that script boots the page", async () => {
+    const inline = [...OPS_PAGE.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
+      ([, s = ""]) => s,
+    );
+    expect(inline).toHaveLength(1);
+    const script = inline[0] as string;
+    expect(OPS_PAGE).not.toContain("/* @eyes/ops-view */");
+    expect(script).not.toMatch(/^\s*(import|export) /m);
+    expect(script.trimEnd()).toMatch(/boot\(window\);\n}\)\(\);$/);
+
+    const happy = new Window({ url: "https://api.eyes.test/ops#money" });
+    const win = happy as unknown as globalThis.Window;
+    win.document.body.innerHTML = (/<body[^>]*>([\s\S]*)<\/body>/.exec(OPS_PAGE)?.[1] ?? "").replace(
+      /<script[\s\S]*?<\/script>/g,
+      "",
+    );
+    const replies: Record<string, unknown> = {
+      "/ops/feed": {
+        tasks: [],
+        ledger: [{ type: "fee", created_at: "2026-10-17T12:00:00Z", task_id: null, amount_cents: 75 }],
+        workers: [],
+        totals: { escrowed_cents: 0 },
+        ops: {
+          health: { uptime_s: 60, providers: {}, db: "local", classifier: "rules only", node: "v26" },
+          statuses: {},
+          partial: {},
+          money_24h: {},
+          queue: [],
+          workers: { opted_in: 0, online: 0, total: 0 },
+          errors: [],
+        },
+      },
+      "/ops/tickets": { tickets: [] },
+      "/ops/events": { source: "db", events: [] },
+      "/ops/series": {
+        source: "postgres",
+        requests: [],
+        errors: [],
+        p95_ms: [],
+        hours: [],
+        tasks: {},
+        payouts: { ok: [], failed: [] },
+      },
+    };
+    win.fetch = (async (input: RequestInfo | URL) =>
+      Response.json(replies[new URL(String(input), "https://api.eyes.test").pathname])) as typeof fetch;
+    win.setTimeout = (() => 0) as unknown as typeof setTimeout;
+    new Function("window", script)(win);
+    await vi.waitFor(() => expect(win.document.getElementById("state")?.textContent).toBe("Live"));
+    expect(win.document.getElementById("p-money")?.hidden).toBe(false);
+    expect(win.document.getElementById("ledger")?.textContent).toContain("Fee$0.75");
+    expect(win.document.getElementById("map")?.textContent).toBe("Map needs Leaflet from unpkg.com.");
+    await happy.happyDOM.close();
+  });
+});

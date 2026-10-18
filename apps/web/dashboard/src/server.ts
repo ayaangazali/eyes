@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
+import { stripTypeScriptTypes } from "node:module";
 import type { DbConfig } from "@eyes/core";
 import { createRpc, type Rpc } from "@eyes/db";
 
@@ -7,10 +8,19 @@ export const PAGE = readFileSync(new URL("./index.html", import.meta.url), "utf8
 export const UI_CSS = ["tokens.css", "components.css"]
   .map((file) => readFileSync(new URL(`../../../../packages/ui/${file}`, import.meta.url), "utf8"))
   .join("\n");
-export const OPS_PAGE = readFileSync(new URL("./ops.html", import.meta.url), "utf8").replace(
-  "/* @eyes/ui */",
-  () => UI_CSS,
-);
+// The ops page script lives in ops-view/*.ts (unit-tested). The page CSP allows one hashed inline script,
+// so the modules are inlined here: types stripped, imports and `export` dropped, wrapped in one IIFE.
+export function opsScript() {
+  const code = ["format.ts", "page.ts"]
+    .map((file) => stripTypeScriptTypes(readFileSync(new URL(`./ops-view/${file}`, import.meta.url), "utf8")))
+    .join("\n")
+    .replace(/^import [^;]*;/gm, "")
+    .replace(/^export /gm, "");
+  return `(() => {\n${code}\nboot(window);\n})();`;
+}
+export const OPS_PAGE = readFileSync(new URL("./ops.html", import.meta.url), "utf8")
+  .replace("/* @eyes/ui */", () => UI_CSS)
+  .replace("/* @eyes/ops-view */", () => opsScript());
 export {
   buildSeries,
   type ClickHouseSink,
