@@ -10,17 +10,33 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 <style>
 /* @eyes/ui */
-body { margin: 0; background: var(--eyes-surface-secondary); min-height: 100vh; }
+body { margin: 0; background: var(--eyes-surface); min-height: 100vh; }
 .bar { position: sticky; top: 0; z-index: 1000; display: flex; align-items: center; gap: var(--eyes-space-4); padding: var(--eyes-space-3) var(--eyes-space-6); background: var(--eyes-surface); box-shadow: 0 1px 0 var(--eyes-border); }
 .brand { display: inline-flex; align-items: center; gap: var(--eyes-space-2); font-weight: var(--eyes-weight-semibold); font-size: var(--eyes-heading-sm); }
 .bar .spacer { flex: 1; }
 .bar a { color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
-main { padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-10); }
+main { padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-6); }
+/* Viewport height left under the sticky chrome and main's padding; Overview and Workers fill it on wide screens. */
+:root { --fill: calc(100dvh - var(--chrome, 6.5rem) - var(--eyes-space-4) - var(--eyes-space-6)); }
 .panel { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--eyes-space-4); }
 .panel[hidden] { display: none; }
-.panel > .ui-card { max-width: none; align-content: start; }
+/* Panels are layered by color, not outlined: cards on surface-secondary over the surface page, insets on tertiary. */
+.panel > .ui-card { max-width: none; align-content: start; background: var(--eyes-surface-secondary); box-shadow: none; }
 .c3 { grid-column: span 3; } .c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c6 { grid-column: span 6; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
 @media (max-width: 1100px) { .panel > .ui-card { grid-column: span 12; } }
+@media (min-width: 1101px) {
+  /* Overview: the top row keeps its content height, Trends takes the rest. */
+  .overview { min-height: var(--fill); grid-template-rows: auto 1fr; }
+  .overview .trends { display: flex; flex-direction: column; }
+  .overview .charts { flex: 1; grid-auto-rows: 1fr; }
+  .overview .chart { grid-template-rows: auto auto auto 1fr; }
+  /* The svg is absolutely placed so its 100:40 viewBox ratio does not size the row; the plot takes the row. */
+  .overview .chart__plot { height: auto; min-height: 4.5rem; }
+  .overview .chart svg { position: absolute; inset: 0; }
+  /* Workers: the list card fills the screen and grows with the list (the page scrolls); the map card stays put. */
+  #p-workers { min-height: var(--fill); }
+  #p-workers .map-card { position: sticky; top: calc(var(--chrome, 6.5rem) + var(--eyes-space-4)); align-self: start; height: var(--fill); }
+}
 /* Tabs sit under the sticky bar; --bar-h and --chrome come from the script, since the bar wraps on phones. */
 .tabs { position: sticky; top: var(--bar-h, 3.5rem); z-index: 999; display: flex; gap: var(--eyes-space-1); overflow-x: auto; scrollbar-width: none; padding: 0 var(--eyes-space-6); background: var(--eyes-surface); border-bottom: 1px solid var(--eyes-border-subtle); }
 .tabs a { flex: none; display: inline-flex; align-items: center; gap: var(--eyes-space-1); padding: var(--eyes-space-3); color: var(--eyes-text-secondary); text-decoration: none; font-size: var(--eyes-text-sm); white-space: nowrap; border-bottom: 2px solid transparent; }
@@ -37,7 +53,7 @@ main { padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-10); }
 .sub { color: var(--eyes-text-secondary); font-size: var(--eyes-text-xs); font-weight: var(--eyes-weight-normal); }
 .big { font-size: var(--eyes-heading-xl); font-weight: var(--eyes-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--eyes-space-2); }
-.stat { padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-secondary); }
+.stat { padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); }
 .stat b { display: block; font-size: var(--eyes-heading-md); font-variant-numeric: tabular-nums; }
 .stat span { color: var(--eyes-text-secondary); font-size: var(--eyes-text-xs); }
 .flow span { font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); font-variant-numeric: tabular-nums; }
@@ -62,7 +78,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .ledger > * { padding: var(--eyes-space-1) 0; border-bottom: 1px solid var(--eyes-border-subtle); }
 .ledger .amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--eyes-weight-medium); }
 #map { height: 22rem; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); z-index: 0; }
-#map.grow { height: auto; min-height: 16rem; overflow: hidden; }
+#map.grow { height: auto; min-height: 22rem; overflow: hidden; }
 .filters.short { grid-template-columns: minmax(0, 24rem) minmax(0, 12rem); justify-content: start; }
 #map.nomap { display: grid; place-items: center; color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
 @media (prefers-color-scheme: dark) { .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9); } }
@@ -77,7 +93,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .ticket textarea { width: 100%; min-height: 2.5rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); }
 .ui-button--danger { background: var(--eyes-danger-bg); color: var(--eyes-danger-text); border-color: transparent; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; }
-.msg { margin: 0; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-secondary); white-space: pre-wrap; font-size: var(--eyes-text-sm); }
+.msg { margin: 0; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-tertiary); white-space: pre-wrap; font-size: var(--eyes-text-sm); }
 /* Overview: the three top cards share one type scale and padding, stretch to one height, and fill it. */
 .overview > .ov { display: flex; flex-direction: column; gap: var(--eyes-space-3); }
 .ov__body { display: flex; flex-direction: column; gap: var(--eyes-space-3); flex: 1; }
@@ -88,7 +104,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .svc__icons .is-off { color: var(--eyes-warning-text); }
 .svc-off { display: grid; gap: var(--eyes-space-1); margin: 0; padding: 0; list-style: none; font-size: var(--eyes-text-sm); color: var(--eyes-warning-text); }
 .svc-off li { display: flex; gap: var(--eyes-space-2); align-items: center; }
-.meta { display: grid; grid-template-columns: auto 1fr; gap: var(--eyes-space-1) var(--eyes-space-3); margin: auto 0 0; font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); }
+.meta { display: grid; grid-template-columns: auto 1fr; gap: var(--eyes-space-1) var(--eyes-space-3); margin: 0; font-size: var(--eyes-text-xs); color: var(--eyes-text-secondary); }
 .meta dt { color: var(--eyes-text-tertiary); }
 .meta dd { margin: 0; }
 .funnel { flex: 1; display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--eyes-space-3); min-height: 8rem; margin: 0; padding: 0; list-style: none; }
@@ -112,7 +128,8 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .money th { width: 3rem; padding: 3px var(--eyes-space-2) 3px 0; text-align: left; vertical-align: top; font-size: var(--eyes-text-xs); font-weight: var(--eyes-weight-medium); color: var(--eyes-text-tertiary); }
 .money td { padding: 3px 0; color: var(--eyes-text-secondary); }
 .money td.num { text-align: right; font-variant-numeric: tabular-nums; color: var(--eyes-text); font-weight: var(--eyes-weight-medium); }
-.charts { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--eyes-space-6) var(--eyes-space-5); }
+.charts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--eyes-space-6) var(--eyes-space-5); }
+@media (min-width: 1200px) { .charts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 .chart { display: grid; gap: 2px; align-content: start; }
 .chart h3 { margin: 0; font-size: var(--eyes-text-sm); font-weight: var(--eyes-weight-medium); color: var(--eyes-text-secondary); }
 .chart__now { margin: 0; font-size: var(--eyes-heading-md); font-weight: var(--eyes-weight-semibold); font-variant-numeric: tabular-nums; line-height: 1.2; }
@@ -126,7 +143,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .chart.bad .area { fill: var(--eyes-danger-text); } .chart.bad .line { stroke: var(--eyes-danger-text); }
 .chart__axis { position: absolute; left: calc(100% + var(--eyes-space-2)); font-size: 0.6875rem; line-height: 1; color: var(--eyes-text-tertiary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .chart__axis--max { top: 0; } .chart__axis--min { bottom: 0; }
-.chart__dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: color-mix(in srgb, var(--eyes-accent) 65%, var(--eyes-text)); box-shadow: 0 0 0 2px var(--eyes-surface); }
+.chart__dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: color-mix(in srgb, var(--eyes-accent) 65%, var(--eyes-text)); box-shadow: 0 0 0 2px var(--eyes-surface-secondary); }
 .chart.bad .chart__dot { background: var(--eyes-danger-text); }
 .chart__cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--eyes-border-strong); pointer-events: none; }
 .chart__tip { position: absolute; transform: translate(-50%, calc(-100% - 8px)); padding: 2px var(--eyes-space-2); border-radius: var(--eyes-radius-sm); background: var(--eyes-text); color: var(--eyes-surface); font-size: var(--eyes-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; z-index: 2; }
@@ -161,7 +178,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .checklist .bad { color: var(--eyes-text-danger, crimson); }
 /* Shared list table (ops-view/table.ts). */
 .tbl { display: grid; gap: var(--eyes-space-2); }
-.tbl-bar { position: sticky; top: var(--chrome, 6.5rem); z-index: 5; display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; margin: 0 calc(-1 * var(--eyes-space-4)); padding: var(--eyes-space-2) var(--eyes-space-4); background: var(--eyes-surface); box-shadow: 0 1px 0 var(--eyes-border-subtle); }
+.tbl-bar { position: sticky; top: var(--chrome, 6.5rem); z-index: 5; display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; margin: 0 calc(-1 * var(--eyes-space-4)); padding: var(--eyes-space-2) var(--eyes-space-4); background: var(--eyes-surface-secondary); box-shadow: 0 1px 0 var(--eyes-border-subtle); }
 .tbl-bar .ui-input { width: auto; min-height: 2.25rem; padding: 0 var(--eyes-space-3); font-size: var(--eyes-text-sm); }
 .tbl-bar .tbl-search { flex: 1 1 16rem; min-width: 10rem; }
 .tbl-range { display: inline-flex; align-items: center; gap: var(--eyes-space-1); }
@@ -181,7 +198,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 .tbl-table td:first-child { color: var(--eyes-text); }
 .tbl-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tbl-table tr.open { cursor: pointer; }
-.tbl-table tr.open:hover, .tbl-table tr.open:focus-visible { background: var(--eyes-surface-secondary); outline: none; }
+.tbl-table tr.open:hover, .tbl-table tr.open:focus-visible { background: var(--eyes-surface-tertiary); outline: none; }
 .tbl-table tr.open:focus-visible td:first-child { box-shadow: inset 2px 0 0 var(--eyes-accent); }
 .tbl-table .q { font-weight: var(--eyes-weight-medium); }
 .tbl-empty { margin: var(--eyes-space-4) 0; }
@@ -199,7 +216,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
   .tbl-table, .tbl-table tbody, .tbl-table tr, .tbl-table td { display: block; }
   .tbl-table thead tr { display: flex; flex-wrap: wrap; gap: var(--eyes-space-1); }
   .tbl-table th { border: 0; }
-  .tbl-sort { padding: var(--eyes-space-1) var(--eyes-space-2); background: var(--eyes-surface-secondary); border-radius: 999px; }
+  .tbl-sort { padding: var(--eyes-space-1) var(--eyes-space-2); background: var(--eyes-surface-tertiary); border-radius: 999px; }
   .tbl-table tr { padding: var(--eyes-space-3) 0; border-bottom: 1px solid var(--eyes-border-subtle); }
   .tbl-table td { padding: 0; border: 0; text-align: left; }
   .tbl-table td + td { display: inline-block; margin: var(--eyes-space-1) var(--eyes-space-3) 0 0; }
@@ -213,7 +230,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 #events .tbl-table td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
 #events .tbl-table td:nth-child(-n + 3) { width: 1%; white-space: nowrap; }
 .ev-sum { display: block; max-width: 0; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); color: var(--eyes-text); }
-.tbl-detail td { padding: 0 var(--eyes-space-2) var(--eyes-space-3); background: var(--eyes-surface-secondary); }
+.tbl-detail td { padding: 0 var(--eyes-space-2) var(--eyes-space-3); background: var(--eyes-surface-tertiary); }
 .ev-detail { display: grid; gap: var(--eyes-space-2); justify-items: start; padding-top: var(--eyes-space-2); }
 .ev-detail__summary { margin: 0; font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); white-space: pre-wrap; word-break: break-word; }
 .ev-detail__data { margin: 0; max-width: 100%; font-size: var(--eyes-text-xs); white-space: pre-wrap; word-break: break-word; color: var(--eyes-text-secondary); }
@@ -240,7 +257,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 .decide__note[aria-invalid="true"] { border-color: var(--eyes-danger-text); }
 .decide__hint { margin: 0; font-size: var(--eyes-text-xs); color: var(--eyes-text-tertiary); }
 .decide__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--eyes-space-2); min-height: 2.25rem; }
-.decide__row.is-confirming { padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-secondary); }
+.decide__row.is-confirming { padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-tertiary); }
 .decide__question { flex: 1 1 14rem; font-size: var(--eyes-text-sm); font-weight: var(--eyes-weight-medium); }
 .decide__menuwrap { position: relative; }
 .decide__menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 3; display: grid; min-width: 13rem; padding: var(--eyes-space-1); border-radius: var(--eyes-radius-md); background: var(--eyes-surface); box-shadow: var(--eyes-hairline), 0 8px 24px rgb(0 0 0 / 0.16); transform-origin: top left; }
@@ -264,7 +281,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 .tbl-table tr.open:hover { background: transparent; }
 @media (hover: hover) and (pointer: fine) {
   .tbl-table tr.open { transition: background-color 120ms ease; }
-  .tbl-table tr.open:hover { background: var(--eyes-surface-secondary); }
+  .tbl-table tr.open:hover { background: var(--eyes-surface-tertiary); }
 }
 /* The pill enters from where it sits (slightly above), fades and settles; leaving is instant. */
 .new-events { transition: transform 200ms var(--ease-out), opacity 200ms var(--ease-out); }
@@ -337,7 +354,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
       </div>
     </section>
 
-    <section class="ui-card c12">
+    <section class="ui-card c12 trends">
       <header class="ui-card__header"><h2 class="ui-card__title">Trends</h2><span id="series-source" class="tiny"></span></header>
       <div id="charts" class="charts"></div>
     </section>
@@ -365,10 +382,10 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
   </div>
 
   <div id="p-workers" class="panel" role="tabpanel" aria-labelledby="tab-workers" hidden>
-    <section class="ui-card c7">
+    <section class="ui-card c7 map-card fill">
       <header class="ui-card__header"><h2 class="ui-card__title">Workers</h2><span class="sub">positions rounded to about 100 m</span></header>
       <div id="worker-stats" class="stats"></div>
-      <div id="map"></div>
+      <div id="map" class="grow"></div>
     </section>
     <section class="ui-card c5">
       <header class="ui-card__header"><h2 class="ui-card__title">All workers</h2><span class="sub">the filters pick the map markers too</span></header>

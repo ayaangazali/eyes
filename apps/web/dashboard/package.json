@@ -6,7 +6,8 @@
     ".": "./src/server.ts"
   },
   "scripts": {
-    "start": "node src/server.ts"
+    "start": "node src/server.ts",
+    "build": "node --disable-warning=ExperimentalWarning ../../../scripts/build-ops-view.ts"
   },
   "dependencies": {
     "@eyes/core": "workspace:*",

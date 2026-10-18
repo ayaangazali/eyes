@@ -34,6 +34,7 @@ export default defineConfig({
         "**/node_modules/**",
         "**/.wrangler/**",
         "**/.astro/**",
+        "**/*.gen.js",
         "scripts/**",
         // Widget dev harness: a browser preview page and a Playwright screenshot script.
         "apps/web/widget-task-card/{preview,scripts}/**",

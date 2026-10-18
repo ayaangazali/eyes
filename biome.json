@@ -1,7 +1,9 @@
 {
   "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
   "vcs": { "enabled": true, "clientKind": "git", "useIgnoreFile": true },
-  "files": { "includes": ["**", "!**/node_modules", "!**/dist", "!docs/vendor", "!intent", "!**/*.md"] },
+  "files": {
+    "includes": ["**", "!**/node_modules", "!**/dist", "!docs/vendor", "!intent", "!**/*.md", "!**/*.gen.js"]
+  },
   "formatter": { "indentStyle": "space", "indentWidth": 2, "lineWidth": 110 },
   "linter": { "enabled": true, "rules": { "preset": "recommended" } },
   "css": { "parser": { "tailwindDirectives": true } },
