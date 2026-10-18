@@ -321,7 +321,7 @@ describe("signup and join throttle", () => {
 });
 
 describe("MCP tools", () => {
-  it("lists every tool with read-only and idempotent hints", async () => {
+  it("lists every tool with boolean behavior hints and the read-only and idempotent values", async () => {
     const client = await connect(setup().fetch);
     const { tools } = await client.listTools();
     expect(tools.map((t) => t.name).sort()).toEqual(Object.keys(TOOLS).sort());
@@ -335,6 +335,11 @@ describe("MCP tools", () => {
       "get_spend_policy",
     ]) {
       expect(hints[name]?.readOnlyHint, name).toBe(true);
+    }
+    for (const t of tools) {
+      for (const hint of ["readOnlyHint", "destructiveHint", "openWorldHint"] as const) {
+        expect(typeof t.annotations?.[hint], `${t.name}.${hint}`).toBe("boolean");
+      }
     }
     expect(hints.ask_eyes).toMatchObject({ readOnlyHint: false, idempotentHint: true });
     expect(tools.every((t) => t.outputSchema && (t.description ?? "").includes("Next:"))).toBe(true);
