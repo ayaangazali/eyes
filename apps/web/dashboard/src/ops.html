@@ -269,6 +269,14 @@ const after = (from, to) => {
   return s < 90 ? `+${s}s` : `+${Math.round(s / 60)}m`;
 };
 const cut = (text, n) => (text && text.length > n ? `${text.slice(0, n - 1)}…` : text || "");
+// Coordinates as a place label: rounded like the worker pages (about 100 m), never full precision.
+const COORDS = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+const nearLabel = (label) => {
+  const m = COORDS.exec(label || "");
+  return m ? `Near ${Number(m[1]).toFixed(3)}, ${Number(m[2]).toFixed(3)}` : label || "";
+};
+// Before T6.19 the photo check judged the answer; those old reasons are not moderation verdicts.
+const checkReason = (r) => (/answers? the question/i.test(r) ? `Old check: ${r}` : r);
 
 function h(tag, cls, ...kids) {
   const el = document.createElement(tag);
@@ -306,7 +314,7 @@ function taskRow(t) {
   li.append(
     h("div", "task-head", h("p", "q", cut(t.question, 160)), badge(t.status.replace("_", " "), STATUS_TONE[t.status])),
     h("div", "line",
-      h("span", null, cut(t.place_label, 70)),
+      h("span", null, cut(nearLabel(t.place_label), 70)),
       h("span", null, "bounty ", h("strong", null, usd(t.bounty_cents))),
       h("span", null, "notified ", h("strong", null, String(t.workers_notified ?? 0))),
       checks(t)),
@@ -365,7 +373,7 @@ async function openReview(id) {
       ? h("p", null, "Answer: ", h("strong", null, t.answer_text || (t.answer_bool ? "Yes" : "No")))
       : h("p", "muted", "No answer submitted."),
     h("div", "line",
-      h("span", null, cut(t.place_label, 90)),
+      h("span", null, cut(nearLabel(t.place_label), 90)),
       h("span", null, "worker ", h("strong", null, t.distance_m == null ? "?" : `${t.distance_m} m`), ` away (radius ${t.radius_m} m)`),
       h("span", null, "bounty ", h("strong", null, usd(t.bounty_cents)), ` + fee ${usd(t.fee_cents)} in escrow`)),
     t.gps_ok == null ? null : h("ul", "checklist", ...[
@@ -373,7 +381,7 @@ async function openReview(id) {
       ["Taken just now", t.fresh_ok],
       ["Photo is safe to share", t.vision_ok],
     ].map(([label, ok]) => h("li", null, h("span", ok ? "ok" : "bad", ok ? "✓ " : "✗ "), label))),
-    t.vision_reason ? h("p", "muted", `Moderation: ${t.vision_reason}`) : null,
+    t.vision_reason ? h("p", "muted", `Moderation: ${checkReason(t.vision_reason)}`) : null,
     t.dispute_reason ? h("p", "msg", `Agent's dispute: ${t.dispute_reason}`) : null,
     open
       ? h("div", "actions", note,
@@ -494,7 +502,7 @@ function renderTasks() {
 }
 
 function renderLedger() {
-  const places = new Map(last.tasks.map((t) => [t.id, t.place_label]));
+  const places = new Map(last.tasks.map((t) => [t.id, nearLabel(t.place_label)]));
   const type = $("ledger-type").value;
   const rows = type ? last.ledger.filter((r) => r.type === type) : last.ledger;
   $("ledger").replaceChildren(...(rows.length ? rows.flatMap((row) => [
@@ -570,11 +578,11 @@ function ticketRow(t) {
     h("div", "task-head", h("p", "q", `#${t.id} ${cut(t.question, 160)}`),
       h("span", "line", dispute ? badge("dispute", "warning") : null, badge(state, open ? "danger" : state === "upheld" ? "warning" : "success"))),
     h("div", "line",
-      h("span", null, cut(t.place_label, 70)),
+      h("span", null, cut(nearLabel(t.place_label), 70)),
       h("span", null, "bounty ", h("strong", null, bounty)),
       h("span", null, "worker ", h("strong", null, t.distance_m == null ? "?" : `${t.distance_m} m`), ` from the place (radius ${t.radius_m} m)`),
       checks(t)),
-    t.vision_reason ? h("p", "muted", `Photo safety: ${t.vision_reason}`) : null,
+    t.vision_reason ? h("p", "muted", `Photo safety: ${checkReason(t.vision_reason)}`) : null,
     t.answer_text ? h("p", "muted", `Answer: ${cut(t.answer_text, 300)}`) : null,
     h("p", "msg", dispute ? `Agent says: ${t.message || "(no reason)"}` : t.message || "(no message)"),
     t.reversal_owed_cents ? h("p", "muted", badge(`reversal owed ${usd(t.reversal_owed_cents)}`, "danger"), " the worker already moved the money; collect it by hand.") : null,

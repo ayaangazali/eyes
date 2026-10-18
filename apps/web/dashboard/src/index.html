@@ -323,8 +323,15 @@ function h(tag, cls, text) {
   return el;
 }
 
+// Coordinates as a place label: rounded like the worker pages (about 100 m), never full precision.
+const COORDS = /^\s*(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/;
+function nearLabel(label) {
+  const m = COORDS.exec(label || "");
+  return m ? `Near ${Number(m[1]).toFixed(3)}, ${Number(m[2]).toFixed(3)}` : label || "";
+}
+
 function headline(t) {
-  const place = t.place_label.split(",")[0];
+  const place = COORDS.test(t.place_label) ? nearLabel(t.place_label).replace(/^Near /, "") : t.place_label.split(",")[0];
   const total = money(t.bounty_cents + t.fee_cents);
   return {
     dispatched: `${notifiedText(t.workers_notified)} near ${place}`,
@@ -452,7 +459,7 @@ function renderEarlier(tasks, shown, nextSeen) {
   if (rest.length === 0) list.append(h("li", "empty", "None yet."));
   for (const t of rest) {
     const li = h("li", `row s-${t.status}`);
-    li.append(h("strong", null, t.place_label), h("time", null, clock(t.created_at)));
+    li.append(h("strong", null, nearLabel(t.place_label)), h("time", null, clock(t.created_at)));
     li.append(h("span", "phrase", PHRASE[t.status]), stepList(t, true, nextSeen));
     list.append(li);
   }
@@ -462,7 +469,7 @@ function renderMoney(feed, nextSeen) {
   $("escrowed").textContent = money(feed.totals.escrowed_cents);
   $("released").textContent = money(feed.totals.released_today_cents);
   $("paidout").textContent = money(feed.totals.paid_out_today_cents);
-  const places = new Map(feed.tasks.map((t) => [t.id, t.place_label]));
+  const places = new Map(feed.tasks.map((t) => [t.id, nearLabel(t.place_label)]));
   const list = $("ledger");
   list.replaceChildren();
   if (feed.ledger.length === 0) list.append(h("li", "empty", "No money has moved yet."));
@@ -531,7 +538,7 @@ function renderMap(feed, shown) {
     if (big) {
       const tip = h("div", `s-${t.status}`);
       tip.append(
-        h("strong", null, t.place_label),
+        h("strong", null, nearLabel(t.place_label)),
         h("span", null, t.status === "dispatched" ? notifiedText(t.workers_notified) : PHRASE[t.status]),
       );
       marker.bindTooltip(tip, { permanent: true, direction: "top", offset: [0, -16], className: "tip" });
