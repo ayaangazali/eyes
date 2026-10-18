@@ -1,0 +1,14 @@
+{
+  "name": "eyes-monitor",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "account_id": "2c040ec5bc2efe34e60ab5b1b4fd2e99",
+  "workers_dev": false,
+  "triggers": { "crons": ["* * * * *"] },
+  "kv_namespaces": [{ "binding": "EYES_MONITOR", "id": "dd0114db8cb24d46be6d69b54385d638" }],
+  "vars": {
+    "HEALTH_URL": "https://api.eyes.pictures/healthz",
+    "ALERT_PHONE": "+15109009898",
+    "SUBJECT_PREFIX": ""
+  }
+}
