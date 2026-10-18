@@ -810,6 +810,21 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     const device = parseDeviceAttributes(new Uint8Array(await c.req.arrayBuffer()));
     if (!device) throw new EyesError("invalid_input", { field: "udid" });
     await service.addWorkerDevice(c.req.param("ticket"), device);
+    // Start an ad hoc release on the build runner (i098/eyes-ios-release); its hourly run is the backstop,
+    // so a failed dispatch only logs.
+    if (env.EYES_RELEASE_DISPATCH_TOKEN) {
+      fetch("https://api.github.com/repos/i098/eyes-ios-release/dispatches", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${env.EYES_RELEASE_DISPATCH_TOKEN}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "eyes-api",
+        },
+        body: JSON.stringify({ event_type: "device-registered", client_payload: { ref: env.EYES_COMMIT } }),
+      })
+        .then((res) => res.ok || Promise.reject(new Error(`HTTP ${res.status}`)))
+        .catch((err: unknown) => console.error("release dispatch failed:", String(err)));
+    }
     return c.redirect(`${config.worker_web_url}/install?registered=1`, 301);
   });
   // The ad hoc build, served from our own HTTPS origin: iOS's itms-services install should not depend

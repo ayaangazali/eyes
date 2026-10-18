@@ -365,6 +365,47 @@ describe("worker device (ad hoc install)", () => {
     expect((await post(callback("not-a-udid"))).status).toBe(400);
     expect(calls).toHaveLength(1);
   });
+
+  it("dispatches a release to the build runner when a token is set; a failed dispatch still redirects", async () => {
+    const sent: [string, RequestInit][] = [];
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const post = (env: Record<string, string>) =>
+      setup({ addWorkerDevice: async () => {} }, env).fetch("http://eyes.test/w/device/t1", {
+        method: "POST",
+        body: new Uint8Array(callback(UDID)),
+        redirect: "manual",
+      });
+    try {
+      vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
+        sent.push([url, init]);
+        return new Response(null, { status: sent.length === 1 ? 204 : 401 });
+      });
+      expect((await post({})).status).toBe(301);
+      expect(sent).toEqual([]);
+      const env = { EYES_RELEASE_DISPATCH_TOKEN: "ghp_test", EYES_COMMIT: "abc123" };
+      expect((await post(env)).status).toBe(301);
+      await vi.waitFor(() => expect(sent).toHaveLength(1));
+      const [[url, init]] = sent as [[string, RequestInit]];
+      expect(url).toBe("https://api.github.com/repos/i098/eyes-ios-release/dispatches");
+      expect((init.headers as Record<string, string>).authorization).toBe("Bearer ghp_test");
+      expect(JSON.parse(String(init.body))).toEqual({
+        event_type: "device-registered",
+        client_payload: { ref: "abc123" },
+      });
+      expect((await post(env)).status).toBe(301);
+      await vi.waitFor(() =>
+        expect(errors).toHaveBeenCalledWith("release dispatch failed:", "Error: HTTP 401"),
+      );
+      vi.stubGlobal("fetch", async () => Promise.reject(new Error("offline")));
+      expect((await post(env)).status).toBe(301);
+      await vi.waitFor(() =>
+        expect(errors).toHaveBeenCalledWith("release dispatch failed:", "Error: offline"),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      errors.mockRestore();
+    }
+  });
 });
 
 describe("signup and join throttle", () => {

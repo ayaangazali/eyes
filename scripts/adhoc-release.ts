@@ -206,7 +206,8 @@ export async function main(argv: string[], deps: Deps): Promise<void> {
     [
       ...["-workspace", "ios/Eyes.xcworkspace", "-scheme", "Eyes", "-configuration", "Release"],
       ...["-archivePath", archive, "-destination", "generic/platform=iOS", `DEVELOPMENT_TEAM=${TEAM_ID}`],
-      ...["-allowProvisioningUpdates", ...auth, "archive"],
+      // Unsigned: the export signs with the distribution identity, so no development certificate is needed.
+      ...["CODE_SIGNING_ALLOWED=NO", "-allowProvisioningUpdates", ...auth, "archive"],
     ],
     mobile,
   );
