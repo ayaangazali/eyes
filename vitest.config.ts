@@ -25,6 +25,7 @@ export default defineConfig({
         "**/*.{contract,int,rules}.test.ts",
         "**/dist/**",
         "**/node_modules/**",
+        "**/.wrangler/**",
         "scripts/**",
         "apps/mobile/ios/**",
       ],

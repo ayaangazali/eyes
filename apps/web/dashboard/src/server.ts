@@ -67,14 +67,17 @@ export function createDashboardServer(rpc: Rpc) {
   });
 }
 
+export function dbFromEnv(env: Record<string, string | undefined>): DbConfig {
+  const { DATABASE_URL, INSFORGE_BASE_URL, INSFORGE_API_KEY } = env;
+  if (DATABASE_URL) return { kind: "postgres", url: DATABASE_URL };
+  if (INSFORGE_BASE_URL && INSFORGE_API_KEY)
+    return { kind: "insforge", base_url: INSFORGE_BASE_URL, api_key: INSFORGE_API_KEY };
+  throw new Error("Set DATABASE_URL, or INSFORGE_BASE_URL and INSFORGE_API_KEY, to read the feed.");
+}
+
 if (import.meta.main) {
-  const { DATABASE_URL, INSFORGE_BASE_URL, INSFORGE_API_KEY, PORT = "4400" } = process.env;
-  let db: DbConfig;
-  if (DATABASE_URL) db = { kind: "postgres", url: DATABASE_URL };
-  else if (INSFORGE_BASE_URL && INSFORGE_API_KEY)
-    db = { kind: "insforge", base_url: INSFORGE_BASE_URL, api_key: INSFORGE_API_KEY };
-  else throw new Error("Set DATABASE_URL, or INSFORGE_BASE_URL and INSFORGE_API_KEY, to read the feed.");
-  createDashboardServer(createRpc(db)).listen(Number(PORT), "127.0.0.1", () =>
+  const { PORT = "4400" } = process.env;
+  createDashboardServer(createRpc(dbFromEnv(process.env))).listen(Number(PORT), "127.0.0.1", () =>
     console.log(`EYES dashboard on http://127.0.0.1:${PORT}`),
   );
 }

@@ -2,8 +2,8 @@ import { once } from "node:events";
 import { request } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Rpc } from "@eyes/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createDashboardServer } from "./server.ts";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { createDashboardServer, dbFromEnv } from "./server.ts";
 
 const FEED = {
   tasks: [],
@@ -13,12 +13,13 @@ const FEED = {
 };
 
 let calls: { fn: string; args: unknown }[] = [];
-let failNext = false;
+let failNext: unknown;
 const rpc = (async (fn: string, args: Record<string, unknown>) => {
   calls.push({ fn, args });
-  if (failNext) {
-    failNext = false;
-    throw new Error("connection refused");
+  if (failNext !== undefined) {
+    const err = failNext;
+    failNext = undefined;
+    throw err;
   }
   return [FEED];
 }) as Rpc;
@@ -68,7 +69,7 @@ describe("dashboard server", () => {
   });
 
   it("answers 502 when the database call fails and keeps serving", async () => {
-    failNext = true;
+    failNext = new Error("connection refused");
     expect((await get("/feed")).status).toBe(502);
     expect((await get("/feed")).status).toBe(200);
   });
@@ -84,5 +85,35 @@ describe("dashboard server", () => {
   it("answers 404 for other paths and methods", async () => {
     expect((await get("/nope")).status).toBe(404);
     expect((await get("/feed", undefined, "POST")).status).toBe(404);
+  });
+
+  it("answers 502 for a rejection that is not an Error", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    failNext = "pool exhausted";
+    expect((await get("/feed")).status).toBe(502);
+    expect(spy).toHaveBeenCalledWith("feed failed:", "pool exhausted");
+    spy.mockRestore();
+  });
+});
+
+describe("dbFromEnv", () => {
+  it("prefers DATABASE_URL", () => {
+    expect(
+      dbFromEnv({
+        DATABASE_URL: "postgres://test",
+        INSFORGE_BASE_URL: "https://insforge.test",
+        INSFORGE_API_KEY: "key",
+      }),
+    ).toEqual({ kind: "postgres", url: "postgres://test" });
+  });
+
+  it("uses InsForge only when both of its variables are set, and refuses to start otherwise", () => {
+    expect(dbFromEnv({ INSFORGE_BASE_URL: "https://insforge.test", INSFORGE_API_KEY: "key" })).toEqual({
+      kind: "insforge",
+      base_url: "https://insforge.test",
+      api_key: "key",
+    });
+    expect(() => dbFromEnv({ INSFORGE_BASE_URL: "https://insforge.test" })).toThrow("Set DATABASE_URL");
+    expect(() => dbFromEnv({})).toThrow("to read the feed.");
   });
 });

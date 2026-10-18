@@ -104,6 +104,7 @@ describe("probe classification", () => {
       () => json({ ok: true, providers: { llm: "degraded" }, db: "insforge" }),
     ],
     ["providers not live: none reported", () => json({ ok: true, providers: {}, db: "insforge" })],
+    ["providers not live: none reported", () => json({ ok: true, db: "insforge" })],
     ["db is sqlite", () => json({ ok: true, providers: { llm: "live" }, db: "sqlite" })],
     ["db is missing", () => json({ ok: true, providers: { llm: "live" } })],
     [

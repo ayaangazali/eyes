@@ -14,6 +14,7 @@ interface El {
   textContent: string;
   className: string;
   innerHTML: string;
+  src?: string;
   listeners: Record<string, (event: unknown) => unknown>;
   addEventListener: ReturnType<typeof vi.fn>;
   replaceChildren: ReturnType<typeof vi.fn>;
@@ -189,5 +190,157 @@ describe("capture page", () => {
     await load({ camera: { getUserMedia: vi.fn(() => Promise.reject(denied)) } });
     await vi.waitFor(() => expect(byId("fallback").hidden).toBe(false));
     expect(byId("why").textContent).toContain("Camera access is blocked");
+  });
+
+  it("ignores a later GPS fix that is less accurate than the best so far", async () => {
+    await load();
+    const [onFix] = await waitForWatch();
+    onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 80 } });
+    onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 60 } });
+    onFix({ coords: { latitude: 37.9, longitude: -122.9, accuracy: 90 } });
+    expect(byId("gps").textContent).toBe(
+      "GPS within 60 m. You are 0 m from the place. Getting your location...",
+    );
+  });
+
+  it("keeps sending off while the best GPS fix is still wider than 50 m", async () => {
+    await load();
+    const [onFix] = await waitForWatch();
+    onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 80 } });
+    expect(byId("todo").textContent).toBe("Waiting for GPS...");
+    expect(byId("send").disabled).toBe(true);
+  });
+
+  it("keeps searching after a GPS error that is not a permission denial", async () => {
+    await load();
+    const [, onError] = await waitForWatch();
+    onError({ code: 2, PERMISSION_DENIED: 1 });
+    expect(byId("relocate").hidden).toBe(true);
+    expect(byId("send").disabled).toBe(true);
+  });
+
+  it("gives up after 15 s without a fix and offers Try location again", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      await load();
+      await waitForWatch();
+      vi.advanceTimersByTime(15_000);
+      expect(byId("relocate").hidden).toBe(false);
+      expect(byId("error").hidden).toBe(false);
+      expect(byId("gps").textContent).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("counts the deadline down as m:ss", async () => {
+    await load({ offer: makeOffer({ deadline_at: new Date(Date.now() + 125_500).toISOString() }) });
+    await vi.waitFor(() => expect(byId("deadline").textContent).toMatch(/ left$/));
+    expect(byId("deadline").textContent).toMatch(/^2:0[45] left$/);
+  });
+
+  it("shows a coordinate place label as a rounded Near line that links to the map", async () => {
+    await load({ offer: makeOffer({ place_label: "37.774929, -122.419416" }) });
+    await vi.waitFor(() => expect(byId("place").replaceChildren).toHaveBeenCalled());
+    const link = byId("place").replaceChildren.mock.calls.at(-1)?.[0];
+    expect(link).toMatchObject({
+      textContent: "Near 37.775, -122.419 (map)",
+      href: "https://www.google.com/maps/search/?api=1&query=37.77,-122.42",
+    });
+  });
+
+  it("marks each failed check on the result card and drops the repeated title", async () => {
+    await load({
+      result: {
+        status: "needs_review",
+        message: "Sent, needs a quick review. Photo is unclear.",
+        verification: { gps_ok: true, fresh_ok: false, vision_ok: false, vision_reason: "Blurry photo." },
+      },
+    });
+    const [onFix] = await waitForWatch();
+    onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 12.4 } });
+    await byId("capture").listeners.submit?.({ preventDefault: vi.fn() });
+    const items = byId("checks").replaceChildren.mock.calls.at(-1) as El[];
+    expect(items.map((li) => li.className)).toEqual([
+      "ui-check ui-check--pass",
+      "ui-check ui-check--fail",
+      "ui-check ui-check--fail",
+    ]);
+    expect(items[1]?.append.mock.calls[0]?.[0]).toMatchObject({ textContent: "Photo taken in time: failed" });
+    expect(byId("message").textContent).toBe("Photo is unclear.");
+    expect(byId("reason").textContent).toBe("Blurry photo.");
+  });
+
+  // Loads the page with a GPS fix, so the form can submit.
+  async function withFix() {
+    await load();
+    const [onFix] = await waitForWatch();
+    onFix({ coords: { latitude: 37.77, longitude: -122.42, accuracy: 12.4 } });
+  }
+
+  function submit() {
+    return byId("capture").listeners.submit?.({ preventDefault: vi.fn() });
+  }
+
+  it("shows the server's reason and keeps the form open after a 422", async () => {
+    await withFix();
+    fetchMock.mockResolvedValueOnce(json({ error: "invalid_input" }, 422));
+    await submit();
+    const [strong, , fix] = byId("error").replaceChildren.mock.calls.at(-1) as [El, unknown, string];
+    expect(strong.textContent).toBe("Eyes could not accept that.");
+    expect(fix).toBe("Check what you entered, then try again.");
+    expect(byId("error").hidden).toBe(false);
+    expect(byId("capture").hidden).toBe(false);
+    expect(byId("send").disabled).toBe(false);
+  });
+
+  it("hides the form when the server says the task was claimed by someone else", async () => {
+    await withFix();
+    fetchMock.mockResolvedValueOnce(json({ error: "task_already_claimed" }, 409));
+    await submit();
+    expect(byId("capture").hidden).toBe(true);
+    expect(byId("deadline").hidden).toBe(true);
+    expect(byId("error").hidden).toBe(false);
+    expect(byId("send").disabled).toBe(true);
+  });
+
+  it("closes quietly with the already-sent message when the photo was sent before", async () => {
+    await withFix();
+    fetchMock.mockResolvedValueOnce(json({ error: "offer_invalid", status: "submitted" }, 404));
+    await submit();
+    expect(byId("closed").textContent).toBe("A photo was already sent for this task. Nothing else to do.");
+    expect(byId("closed").hidden).toBe(false);
+    expect(byId("error").hidden).toBe(true);
+  });
+
+  it("says Eyes could not be reached and leaves sending available", async () => {
+    await withFix();
+    fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await submit();
+    const [strong, , fix] = byId("error").replaceChildren.mock.calls.at(-1) as [El, unknown, string];
+    expect(strong.textContent).toBe("Could not reach Eyes.");
+    expect(fix).toBe("Check your signal, then try again.");
+    expect(byId("send").disabled).toBe(false);
+  });
+
+  it("shows a picked photo as the preview", async () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:photo");
+    await load();
+    const file = new File(["jpeg"], "shop.jpg", { type: "image/jpeg" });
+    byId("file").listeners.change?.({ currentTarget: { files: [file] } });
+    expect(createObjectURL).toHaveBeenCalledWith(file);
+    expect(byId("preview").src).toBe("blob:photo");
+    expect(byId("preview").hidden).toBe(false);
+    expect(byId("video").hidden).toBe(true);
+    expect(byId("shutter").textContent).toBe("Retake photo");
+    createObjectURL.mockRestore();
+  });
+
+  it("ignores a file change when no file was picked", async () => {
+    const createObjectURL = vi.spyOn(URL, "createObjectURL");
+    await load();
+    byId("file").listeners.change?.({ currentTarget: { files: [] } });
+    expect(createObjectURL).not.toHaveBeenCalled();
+    createObjectURL.mockRestore();
   });
 });

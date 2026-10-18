@@ -199,6 +199,19 @@ describe("join form", () => {
     expect(shown()[1]).toBe("Move near a window or step outside, then tap Try location again.");
   });
 
+  it("clears the marks from the last attempt before checking again", async () => {
+    await submitForm("A", "(415) 555-0123");
+    const name = byId("name");
+    expect(name.attrs["aria-invalid"]).toBe("true");
+    byId("join").querySelectorAll.mockReturnValueOnce([name]);
+    await submitForm("Ada", "(012) 555-0123");
+    expect(name.removeAttribute).toHaveBeenCalledWith("aria-invalid");
+    expect(name.removeAttribute).toHaveBeenCalledWith("aria-describedby");
+    expect(name.attrs).toEqual({});
+    expect(byId("phone").attrs["aria-invalid"]).toBe("true");
+    expect(shown()[0]).toBe("That phone number does not look right.");
+  });
+
   it("posts name, phone and location, then shows the text-to-start step", async () => {
     gpsOk();
     fetchMock.mockResolvedValue(json({ inkbox_number: "+14155550199" }));
