@@ -1,0 +1,32 @@
+{
+  "as_of": "2026-10-17T18:06:00Z",
+  "sandbox": true,
+  "kind": "cached",
+  "ask": {
+    "question": "How long is the line at Blue Bottle right now?",
+    "location": "Blue Bottle Coffee, Mint Plaza, San Francisco",
+    "task_type": "line_length",
+    "bounty_usd": 3,
+    "deadline_minutes": 30,
+    "require_photo": true
+  },
+  "fee_usd": 0.5,
+  "checked_at": "2026-10-17T18:02:00Z",
+  "answer": {
+    "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b",
+    "answer_text": "Short line, about 4 people",
+    "answer_bool": null,
+    "photo_url": "fixture:line-photo",
+    "captured_at": "2026-10-17T18:01:00Z",
+    "worker_distance_m": 38,
+    "verification": {
+      "gps_ok": true,
+      "fresh_ok": true,
+      "vision_ok": true,
+      "vision_reason": "The photo shows a short line of about 4 people at the counter."
+    },
+    "confidence": 0.92,
+    "worker_rating": 4.8,
+    "cost_usd": 3.5
+  }
+}
