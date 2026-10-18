@@ -4,6 +4,10 @@ export const MIN_GAP_MS = 60_000;
 
 export const isCode = (s: string) => /^[A-Za-z0-9_-]{43}$/.test(s);
 
+// eyes://connect#c=<code> (the code rides in the fragment); ?c= is accepted too.
+export const codeFromUrl = (url: string) =>
+  /^eyes:\/\/connect\/?[?#](?:[^#]*[&#?])?c=([A-Za-z0-9_-]{43})(?:[&#]|$)/.exec(url)?.[1] ?? null;
+
 export type Fix = { lat: number; lng: number; accuracy_m?: number; captured_at?: string };
 export type Result = "sent" | "stopped" | "rate_limited" | "failed";
 export type Last = { at: number; result: Result; lat: number; lng: number };

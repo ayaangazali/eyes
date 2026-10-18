@@ -8,7 +8,11 @@ export const TASK = "eyes-location";
 const KEY = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
 export const getCode = () => SecureStore.getItemAsync("code", KEY);
-export const saveCode = (code: string) => SecureStore.setItemAsync("code", code, KEY);
+// A new code starts clean: no old result, no throttle from the previous code.
+export async function saveCode(code: string) {
+  await SecureStore.setItemAsync("code", code, KEY);
+  await SecureStore.deleteItemAsync("last", KEY);
+}
 export async function getLast(): Promise<Last | null> {
   return JSON.parse((await SecureStore.getItemAsync("last", KEY)) ?? "null");
 }

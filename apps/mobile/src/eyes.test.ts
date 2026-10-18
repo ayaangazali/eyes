@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type Deps, isCode, type Last, onFix, postFix } from "./eyes.ts";
+import { codeFromUrl, type Deps, isCode, type Last, onFix, postFix } from "./eyes.ts";
 
 const CODE = `${"A".repeat(40)}-_9`;
 const fix = { lat: 37.7607, lng: -122.3857 };
@@ -81,5 +81,24 @@ describe("onFix", () => {
     const { d, log } = deps({ code: null, fetch: f });
     expect(await onFix(fix, d)).toBeNull();
     expect([bodies.length, log.stopped]).toEqual([0, 1]);
+  });
+});
+
+describe("codeFromUrl", () => {
+  it("reads the code from the fragment or the query", () => {
+    expect(codeFromUrl(`eyes://connect#c=${CODE}`)).toBe(CODE);
+    expect(codeFromUrl(`eyes://connect/#c=${CODE}`)).toBe(CODE);
+    expect(codeFromUrl(`eyes://connect?c=${CODE}`)).toBe(CODE);
+    expect(codeFromUrl(`eyes://connect?x=1&c=${CODE}&y=2`)).toBe(CODE);
+    expect(codeFromUrl(`eyes://connect#v=1&c=${CODE}`)).toBe(CODE);
+  });
+
+  it("rejects other hosts, schemes and malformed codes", () => {
+    expect(codeFromUrl(`eyes://other#c=${CODE}`)).toBeNull();
+    expect(codeFromUrl(`https://connect#c=${CODE}`)).toBeNull();
+    expect(codeFromUrl(`eyes://connect#c=${CODE}A`)).toBeNull();
+    expect(codeFromUrl(`eyes://connect#c=${CODE.slice(1)}`)).toBeNull();
+    expect(codeFromUrl(`eyes://connect#xc=${CODE}`)).toBeNull();
+    expect(codeFromUrl("eyes://connect")).toBeNull();
   });
 });

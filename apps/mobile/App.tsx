@@ -23,7 +23,7 @@ import {
   stopSharing,
   TASK,
 } from "./src/background.ts";
-import { isCode, type Last, MESSAGES } from "./src/eyes.ts";
+import { codeFromUrl, isCode, type Last, MESSAGES } from "./src/eyes.ts";
 
 // packages/ui/tokens.css
 const YELLOW = "#ffd60a";
@@ -40,6 +40,7 @@ export default function App() {
   const [sharing, setSharing] = useState(false);
   const [last, setLast] = useState<Last | null>(null);
   const [busy, setBusy] = useState(false);
+  const [connected, setConnected] = useState(false);
 
   const refresh = useCallback(async () => {
     setCode(await getCode());
@@ -67,15 +68,27 @@ export default function App() {
     setSharing(true);
   }
 
-  async function save() {
-    await saveCode(draft.trim());
-    setDraft("");
-    setCode(draft.trim());
-    if (perm === "always") {
-      await startSharing();
-      setSharing(true);
-    }
-  }
+  const save = useCallback(
+    async (next: string) => {
+      await saveCode(next);
+      setDraft("");
+      if ((await Location.getBackgroundPermissionsAsync()).granted) await startSharing();
+      await refresh();
+    },
+    [refresh],
+  );
+
+  useEffect(() => {
+    const open = async (url?: string | null) => {
+      const next = url && codeFromUrl(url);
+      if (!next) return;
+      await save(next);
+      setConnected(true);
+    };
+    Linking.getInitialURL().then(open);
+    const sub = Linking.addEventListener("url", (e) => open(e.url));
+    return () => sub.remove();
+  }, [save]);
 
   async function toggle(on: boolean) {
     await (on ? startSharing() : stopSharing());
@@ -112,7 +125,7 @@ export default function App() {
       <>
         <Text style={[s.h1, t]}>Paste your Eyes code</Text>
         {stopped && <Text style={{ color: c.danger }}>{MESSAGES.stopped}</Text>}
-        <Text style={muted}>Text AUTO to Eyes. The second text is your code.</Text>
+        <Text style={muted}>Text APP to Eyes to get your link. Or paste a code here.</Text>
         <TextInput
           style={[s.field, t, { backgroundColor: c.field }]}
           value={draft}
@@ -131,12 +144,13 @@ export default function App() {
           onPress={async () => setDraft((await Clipboard.getStringAsync()).trim())}
           c={c}
         />
-        <Button label="Save" primary disabled={!valid} onPress={save} c={c} />
+        <Button label="Save" primary disabled={!valid} onPress={() => save(draft.trim())} c={c} />
       </>
     );
   } else if (code && perm !== "always") {
     body = (
       <>
+        {connected && <Text style={muted}>Connected</Text>}
         <Text style={[s.h1, t]}>Allow location</Text>
         <Text style={t}>
           Eyes texts you paid tasks near you. Your spot is sent when you move, even with the app closed.
@@ -154,6 +168,7 @@ export default function App() {
   } else if (code) {
     body = (
       <>
+        {connected && <Text style={muted}>Connected</Text>}
         <View style={s.row}>
           <Text style={[s.h1, t, { flex: 1 }]}>Sharing your location</Text>
           <Switch value={sharing} onValueChange={toggle} trackColor={{ true: YELLOW }} />
