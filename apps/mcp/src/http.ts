@@ -17,6 +17,8 @@ const LOGGED_ROUTES = [
   "/topup/done",
   "/topup/cancel",
   "/w/connect/done",
+  "/w/location",
+  "/v1/worker/location",
   ...Object.values(HTTP_ROUTES).map((route) => route.slice(route.indexOf("/"))),
 ].map((path) => ({
   pattern: new RegExp(`^${path.replaceAll(".", "\\.").replace(/:\w+/g, "[^/]+")}$`),
