@@ -821,6 +821,26 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     await service.addWorkerDevice(c.req.param("ticket"), device);
     return c.redirect(`${config.worker_web_url}/install?registered=1`, 301);
   });
+  // The ad hoc build, served from our own HTTPS origin: iOS's itms-services install should not depend
+  // on following storage's redirect to its CDN. The bucket object is replaced on every release.
+  for (const [file, type, cache] of [
+    ["manifest.plist", "application/xml", "no-cache"],
+    ["Eyes.ipa", "application/octet-stream", "public, max-age=300"],
+  ] as const) {
+    server.get(`/w/app/${file}`, async () => {
+      const base = env.INSFORGE_BASE_URL?.replace(/\/+$/, "");
+      const res = base ? await fetch(`${base}/api/storage/buckets/apps/objects/eyes-worker/${file}`) : null;
+      if (!res?.ok || !res.body) return new Response("No ad hoc build uploaded yet.", { status: 404 });
+      const length = res.headers.get("content-length");
+      return new Response(res.body, {
+        headers: {
+          "content-type": type,
+          "cache-control": cache,
+          ...(length && { "content-length": length }),
+        },
+      });
+    });
+  }
   const uploads = new Set<string>();
   server.post("/w/offers/:token/capture", async (c) => {
     const token = c.req.param("token");

@@ -127,6 +127,7 @@ describe("main", () => {
     const calls: Call[] = [];
     const execs: string[][] = [];
     const uploads: string[] = [];
+    const manifests: string[] = [];
     const texts: [string, string][] = [];
     const write = (path: string, text: string) => {
       mkdirSync(dirname(path), { recursive: true });
@@ -156,14 +157,15 @@ describe("main", () => {
           write(args.at(-1) ?? "", profileXml(...(opts.profile ?? devices.map((d) => d.udid))));
         if (cmd === "sips") write(args.at(-1) ?? "", "png");
       },
-      upload: async (key) => {
+      upload: async (key, body) => {
         uploads.push(key);
-        return `https://db.test/api/storage/buckets/apps/objects/${key}`;
+        if (key.endsWith("manifest.plist")) manifests.push(await body.text());
+        return `https://db.test/api/storage/buckets/apps/objects/${key.replace("/", "%2F")}?v=abc`;
       },
       sendText: async (to, text) => void texts.push([to, text]),
       now: () => new Date("2026-10-18T00:00:00Z"),
     };
-    return { deps, repo, calls, execs, uploads, texts };
+    return { deps, repo, calls, execs, uploads, texts, manifests };
   }
 
   it("needs InsForge settings", async () => {

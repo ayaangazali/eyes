@@ -270,8 +270,11 @@ export async function main(argv: string[], deps: Deps): Promise<void> {
   }
   const put = (name: string, body: Blob) => deps.upload(`eyes-worker/${name}`, body);
   const file = (path: string, type: string) => new Blob([readFileSync(path)], { type });
+  // iOS fetches the .ipa from the API (no redirect); ?v= from storage makes each build a new URL.
+  const ipaVersion = new URL(await put("Eyes.ipa", file(ipa, "application/octet-stream"))).search;
+  const api = (env.EYES_PUBLIC_API_URL ?? "https://api.eyes.pictures").replace(/\/+$/, "");
   const urls = {
-    ipa: await put("Eyes.ipa", file(ipa, "application/octet-stream")),
+    ipa: `${api}/w/app/Eyes.ipa${ipaVersion}`,
     icon57: await put("icon-57.png", file(join(tmp, "icon-57.png"), "image/png")),
     icon512: await put("icon-512.png", file(join(tmp, "icon-512.png"), "image/png")),
   };

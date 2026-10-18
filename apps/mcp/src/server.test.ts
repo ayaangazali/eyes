@@ -272,6 +272,41 @@ describe("worker location", () => {
 });
 
 describe("worker device (ad hoc install)", () => {
+  it("serves the ad hoc manifest and .ipa from storage without a redirect; 404 before any upload", async () => {
+    const upstream: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      upstream.push(url);
+      return url.endsWith("Eyes.ipa")
+        ? new Response(new Uint8Array([80, 75, 3, 4]), { headers: { "content-length": "4" } })
+        : new Response("<plist/>");
+    });
+    try {
+      const { fetch } = setup({}, { INSFORGE_BASE_URL: "https://x.insforge.test/" });
+      const ipa = await fetch("http://eyes.test/w/app/Eyes.ipa?v=abc");
+      expect([ipa.status, ipa.headers.get("location"), ipa.headers.get("content-type")]).toEqual([
+        200,
+        null,
+        "application/octet-stream",
+      ]);
+      expect([ipa.headers.get("content-length"), (await ipa.arrayBuffer()).byteLength]).toEqual(["4", 4]);
+      const manifest = await fetch("http://eyes.test/w/app/manifest.plist");
+      expect([manifest.headers.get("content-type"), manifest.headers.get("cache-control")]).toEqual([
+        "application/xml",
+        "no-cache",
+      ]);
+      expect(await manifest.text()).toBe("<plist/>");
+      expect(upstream).toEqual([
+        "https://x.insforge.test/api/storage/buckets/apps/objects/eyes-worker/Eyes.ipa",
+        "https://x.insforge.test/api/storage/buckets/apps/objects/eyes-worker/manifest.plist",
+      ]);
+      vi.stubGlobal("fetch", async () => new Response("missing", { status: 404 }));
+      expect((await fetch("http://eyes.test/w/app/Eyes.ipa")).status).toBe(404);
+      expect((await setup().fetch("http://eyes.test/w/app/manifest.plist")).status).toBe(404);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   const UDID = "00008110-001A2B3C4D5E801E";
   const callback = (udid: string) =>
     Buffer.concat([

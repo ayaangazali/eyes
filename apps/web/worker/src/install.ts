@@ -1,7 +1,7 @@
 import { Problem } from "./api.ts";
 
-export const DEFAULT_MANIFEST_URL =
-  "https://pagp38bu.us-west.insforge.app/api/storage/buckets/apps/objects/eyes-worker/manifest.plist";
+// Served by the API (no redirect): iOS reads it for the itms-services install.
+export const DEFAULT_MANIFEST_URL = "https://api.eyes.pictures/w/app/manifest.plist";
 
 export type DeviceStatus = { profile_url: string; registered: boolean; ready: boolean };
 

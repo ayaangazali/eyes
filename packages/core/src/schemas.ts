@@ -526,6 +526,8 @@ export const HTTP_ROUTES = {
   worker_device: "POST /w/device",
   worker_device_profile: "GET /w/device/profile/:ticket",
   worker_device_register: "POST /w/device/:ticket",
+  worker_app_manifest: "GET /w/app/manifest.plist",
+  worker_app_ipa: "GET /w/app/Eyes.ipa",
   webhook_inkbox: "POST /webhooks/inkbox",
   webhook_primitive: "POST /webhooks/primitive",
   webhook_stripe: "POST /webhooks/stripe",
