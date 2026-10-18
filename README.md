@@ -20,8 +20,8 @@ Agents can read the internet but cannot see the street. Eyes is an MCP server th
 
 ## Features
 
-- **[MCP tools](docs/features/mcp-tools.md):** quote, ask, wait, show task cards and manage tasks and money; also REST.
-- **[ChatGPT and Claude apps](docs/features/chatgpt-claude-apps.md):** OAuth sign-in with a Copy key button; answers show as photo cards.
+- **[MCP tools](docs/features/mcp-tools.md):** 13 tools to quote, ask, wait, accept answers, review classifier refusals and manage tasks and money; also REST.
+- **[ChatGPT and Claude apps](docs/features/chatgpt-claude-apps.md):** configured at the dedicated MCP host; OAuth **Continue** hands a new key to the client automatically. Saving it is optional for direct API use.
 - **[iMessage dispatch](docs/features/imessage-dispatch.md):** the 3 nearest workers get a text; first YES wins.
 - **[Email channel](docs/features/email-channel.md):** reply EMAIL in your existing Eyes iMessage conversation for a link to send your first email; offers, links and sign-in by email, with mobile still required.
 - **[Photo checks](docs/features/photo-checks.md):** GPS within 150 m, taken live and narrowly moderated; no answer-correctness judgment.
@@ -53,7 +53,9 @@ Agents can read the internet but cannot see the street. Eyes is an MCP server th
 
 Prefer the Manufact CLI? `npx -y mcp-use@2.10.1 client connect eyes https://mcp.eyes.pictures/mcp --protocol legacy -H "Authorization: Bearer $EYES_API_KEY"`. To be a worker, open https://app.eyes.pictures on an iPhone. Until workers have opted in near a place, `ask_eyes` there returns `no_workers_nearby` and charges nothing. https://api.eyes.pictures/status says which parts are live.
 
-**MCP is ready at `https://mcp.eyes.pictures/mcp`.** OAuth issuer and card origins match each host. REST signup, balance, uploads and webhooks stay at `https://api.eyes.pictures`; existing `api.eyes.pictures/mcp` connectors remain supported. Migration is manual: change the connector URL and reconnect. For ChatGPT and Claude, follow the [OAuth setup](docs/CONNECT.md). DNS negative caches can linger; see [verified readiness and migration](docs/CONNECT.md#dedicated-mcp-domain-ready-for-connector-migration).
+**MCP is live at `https://mcp.eyes.pictures/mcp`, with ChatGPT and Claude configured there.** OAuth issuer and card origins match each host. REST signup, balance, uploads and webhooks stay at `https://api.eyes.pictures`; legacy `api.eyes.pictures/mcp` connectors remain supported. This does not mean every third-party connector has migrated. See [OAuth setup](docs/CONNECT.md).
+
+Stripe's provider integration is live, but payments and the $20 signup credit are test-only: no real money moves. Marketplace version 1.0.3 is a configured draft with preflight complete, not submitted or published; legal owner attestations and test-mode limits remain. The new ChatGPT card protocol and live API are verified, but fresh in-chat ChatGPT and Claude visual checks are quota-blocked.
 
 ## How it works
 
@@ -126,14 +128,14 @@ Every outside provider and service Eyes uses, and how. "Live" means the deployed
 | Stripe | Checkout top-ups, Connect Express onboarding, $3 transfers on verified answers, transfer reversals on confirmed fraud, signed webhooks | [packages/payments](packages/payments) | test mode |
 | Inkbox | Shared iMessage line: inbound webhook, offer and paid texts, START/STOP/HELP/HERE replies, texts with location codes and the app link; uptime alerts; first-contact owner/ops email fallback when Primitive refuses delivery | [packages/comms/src/inkbox.ts](packages/comms/src/inkbox.ts) | live |
 | Inkbox (limitation) | An iMessage "Share My Location" arrives as a lone U+FFFD, so Eyes replies with a HERE link instead ([ADR-024](intent/decisions/ADR-024-worker-location.md)) | [packages/comms](packages/comms) | live |
-| Primitive | Each agent's private email inbox ([ADR-007](intent/decisions/ADR-007-agent-email-identity.md)), inbound webhooks, normal email replies and worker mail; first-contact owner/ops delivery falls back to Inkbox | [packages/comms/src/primitive.ts](packages/comms/src/primitive.ts) | live |
+| Primitive | Outbound DNS verified and one owner Gmail delivery confirmed; unrestricted sending is still off, first-contact fallback uses Inkbox, and external custom-alias SPF remains unresolved | [packages/comms/src/primitive.ts](packages/comms/src/primitive.ts) | limited live verification |
 | Anthropic Claude | Fallback for task-safety or photo provider failures only; used alone without Cloudflare | [packages/safety](packages/safety), [packages/verify](packages/verify) | live |
 | OpenStreetMap Nominatim | Geocodes place names in `quote_task` and `ask_eyes` | [apps/mcp/src/geo.ts](apps/mcp/src/geo.ts) | live |
 | OpenStreetMap tiles + Leaflet (unpkg) | Maps on the ops dashboard and live map | [apps/web/dashboard](apps/web/dashboard) | live |
 | Apple Maps / Google Maps links | Reads coordinates from map links a worker texts in; the capture page links to Google Maps directions | [packages/core/src/util.ts](packages/core/src/util.ts), [apps/web/worker/src/capture.ts](apps/web/worker/src/capture.ts) | live |
 | mcp-use | MCP server framework for tools and widgets; Manufact CLI connect path on the landing page | [apps/mcp](apps/mcp), [apps/web/landing](apps/web/landing) | live |
 | OpenAI Apps SDK / MCP Apps | ChatGPT app and Claude connector cards (quote, task, balance) with host-matched OAuth and card origins | [apps/mcp](apps/mcp), [docs/CONNECT.md](docs/CONNECT.md) | supported |
-| Expo / React Native + Apple | iPhone app that sends background location; TestFlight distribution paused, not removed; [ad-hoc installation](docs/DEPLOY.md#ad-hoc-releases-iphone-app) still works | [apps/mobile](apps/mobile) | TestFlight paused; ad hoc available |
+| Expo / React Native + Apple | iPhone app with persistent connection across task photos; current distribution is [ad hoc](docs/DEPLOY.md#ad-hoc-releases-iphone-app), not TestFlight | [apps/mobile](apps/mobile) | ad hoc |
 | ClickHouse | Optional copy of the ops event log and Trends charts; Postgres stays the source of truth | [apps/web/dashboard/src/clickhouse.ts](apps/web/dashboard/src/clickhouse.ts) | optional, off on the host |
 | Astro, Tailwind, GSAP | Landing and worker web; Better-T-Stack conventions | [apps/web](apps/web) | live |
 | Playwright, Vitest, Biome | E2E, unit/contract/safety/integration tests, lint and format | [e2e](e2e), [vitest.config.ts](vitest.config.ts), [biome.json](biome.json) | test |

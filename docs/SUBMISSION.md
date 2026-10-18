@@ -2,6 +2,8 @@
 
 Draft text for the hackathon submission form. Lines marked **TODO** need facts that only exist once the vendor keys land and the live demo has run; fill them from [STATUS.md](../STATUS.md) "Live verification" and never ahead of it. Anything not live-verified there must say "on fakes in CI".
 
+Current publication status: Marketplace 1.0.3 is a configured draft with preflight complete, **not submitted or published**. Legal owner attestations and test-mode limits remain. ChatGPT and Claude are configured at the dedicated MCP host; current in-chat visual checks are quota-blocked, so do not claim a newly recorded visual pass.
+
 ## Name
 
 Eyes
@@ -13,7 +15,7 @@ Agents can read the internet but cannot see the street; Eyes lets any AI agent p
 ## Links
 
 - Repo: https://github.com/ayaangazali/eyes
-- Current MCP server: https://api.eyes.pictures/mcp — dedicated `https://mcp.eyes.pictures/mcp` is [prepared, not active](CONNECT.md#dedicated-mcp-domain-prepared-not-active); existing connectors remain unchanged.
+- Live MCP server: https://mcp.eyes.pictures/mcp — ChatGPT and Claude use this host; legacy `https://api.eyes.pictures/mcp` remains supported. REST, uploads and webhooks stay on `https://api.eyes.pictures`.
 - Worker JOIN page: https://app.eyes.pictures
 - **TODO** demo video: `<link>`
 - **TODO** backup video (recorded during Phase 4): `<link>`
@@ -29,17 +31,19 @@ Eyes is an MCP server where the agent is the customer and a nearby human is the 
 1. The agent calls `quote_task` to check coverage and price, then `ask_eyes` with a question, a place, a bounty (default $3) and a deadline. Eyes runs a safety check and escrows the bounty plus a $0.50 fee from the agent's prepaid balance.
 2. Eyes texts up to three nearby workers over iMessage. The first to reply YES gets a capture link that opens the camera and reads GPS.
 3. Eyes verifies the capture: within 150 m of the place, photo taken live before the deadline, and photo moderation rejects only confirmed graphic gore or explicit sexual/adult content. Ordinary public photos and incidental faces are allowed; uncertain content alone passes, while provider failures require review. Eyes does not judge whether the answer is correct; the agent evaluates the answer and can dispute it.
-4. The agent's `await_answer` call returns the answer, photo URL, distance, checks and a confidence score. The worker is paid $3 through Stripe Connect. If nobody answers, or the agent cancels before a claim, the full amount is refunded.
+4. The agent's `await_answer` call returns the answer, photo URL, distance and checks. `accept_answer` records the user's positive feedback; it is not required for payment and does not move money. Stripe's provider integration is live, but payments and the $20 signup credit are test-only: no real money moves.
 
 The agent's human stays in control: per-key max bounty, daily cap and allowed task types, a top-up link, and an owner console the agent never sees, where they change the limits, freeze spending, add funds or replace a leaked API key. An agent that lost a `task_id` finds it with `list_tasks` instead of paying twice, `quote_task` suggests a bounty `ask_eyes` will accept, and the server's `/status` page says which parts are simulated.
 
 Workers reply YES to claim, NO to give a claimed task back (it is offered again to idle workers), STOP and START to opt out and back in, and HELP for a reply with a private link to their page: setup steps and every task they did, with totals and search.
 
+Current task safety is Clef-first with Claude fallback on provider failure. The following paragraph records the historical 2026-10-17 safety measurement, not the current classifier implementation:
+
 Tasks about private people, homes, vehicles or anything that identifies a person are refused with an error that tells the agent how to rephrase: deterministic rules catch homes and home addresses, and a Claude classifier handles the subtler cases. Both are live on the deployed server: on 2026-10-17 it refused "the woman in the red jacket" and "whether my ex is working the register" with reasons the classifier wrote. In `pnpm safety:eval` (also run in CI), the same rules and classifier blocked all 106 unsafe tasks among 200 labelled ones (recall 1.000, precision 0.946; 6 safe tasks over-blocked). Agents that live in an inbox can email their private Eyes address and get the answer back in the same thread with the photo attached.
 
 ## How we built it
 
-- **Stack.** TypeScript in one pnpm workspace. The actual MCP/API server uses the mcp-use SDK (Manufact's framework) and is hosted on Manufact Cloud as `eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare's `eyes-api` Worker only forwards the public API and ops domains; the public MCP URL stays https://api.eyes.pictures/mcp. Cloudflare hosts the static landing and worker app. InsForge hosts Postgres and photo storage. Every money transition (escrow, release, refund, payout, fee) is one plpgsql function, so it is one transaction, and all amounts are integer cents.
+- **Stack.** TypeScript in one pnpm workspace. The actual MCP/API server uses the mcp-use SDK and is hosted on Manufact Cloud as `eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare forwards `mcp.eyes.pictures`, `api.eyes.pictures` and the ops host; it hosts the static landing and worker app. The public MCP URL is https://mcp.eyes.pictures/mcp; REST stays at https://api.eyes.pictures. InsForge hosts Postgres and photo storage. Every money transition is one plpgsql function, and amounts are integer cents.
 - **Agent-first surface.** Thirteen tools (twelve plus `show_task`, which draws the task as an MCP App card), including `accept_answer` for persisted positive feedback and `report_classifier` and `get_classifier_report` for internal review of incorrect blocks. Every error carries a `fix` the agent can act on. `await_answer` long-polls in 55-second calls because agents cannot receive events in the background and some MCP clients time out long calls.
 - **Built by an agent team with receipts.** One orchestrator ran builder and verifier agents, each builder in its own git worktree with a fixed set of files. Builders never graded their own work: spec, test, security and AX verifiers returned PASS or FAIL with evidence. Every merged PR has at least one verdict file. Every code file maps to an intent file that says why it exists and how it was verified, and CI fails a PR without one. Architecture decisions are 20 ADRs in `intent/decisions/`, including the ten places where vendor docs overrode our plan.
 - **Adversarial review where money moves.** Verifiers write race and retry tests that try to make the money paths pay twice. Payout recovery (PR #57) failed two rounds, on an unknown transfer outcome and on a rate-limit answer read as a refusal, and passed the third after 1315 retry sequences with no double pay outside one accepted case. ADR-010 decides what blocks a merge (money, auth and secrets, data integrity, the safety classifier, the demo path); everything else merges with a tracked follow-up issue, because four early PRs had each failed three rounds, about half of it on defense-in-depth edges.
@@ -50,14 +54,14 @@ Tasks about private people, homes, vehicles or anything that identifies a person
 
 ### Manufact: Best MCP Server for Agents
 
-The whole product is the MCP server: agents are the only customer, and the tool surface is the interface. It is built on mcp-use 2.10 (Manufact's framework) with bearer auth, tool annotations, progress notifications during `await_answer`, and a REST mirror of the same capabilities. The actual server is hosted on Manufact Cloud (`eyes-prod`, `https://warm-spark-aocdd.run.mcp-use.com`), not merely connected through a gateway. Cloudflare's `eyes-api` Worker forwards `api.eyes.pictures` and `internal.eyes.pictures` to that server: MCP, REST, webhooks, the worker API, agent docs, owner console, `/status` and the ops dashboard run on Manufact. The optional `dark-steel-ofaoa` gateway is a separate proxy for the public MCP endpoint. Earlier smoke results remain in STATUS; OAuth protected-resource metadata normalization and the permanent Manufact deploy path are pending verification after the current cutover.
+The product is the MCP server, built with mcp-use and hosted on Manufact Cloud at `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare forwards the dedicated MCP, REST and ops hosts; it is not the application host. ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`; REST, uploads and webhooks remain at `https://api.eyes.pictures`. The optional gateway stays separate. Current host metadata/API verification does not claim fresh quota-blocked in-chat visuals.
 
 - Live fact (2026-10-17 10:27 PT): Claude (claude-sonnet-5-5, through the Anthropic API's MCP connector) ran quote_task, get_spend_policy, ask_eyes and await_answer against the Manufact URL with live vision, safety and storage. No phone was on hand, so the worker side was a stand-in that sent signed webhooks; Claude got the needs_review result and told its user the answer was unconfirmed.
 - **TODO** live fact: Manufact dashboard shows `<n>` sessions.
 
 ### InsForge: Agent-Native Cloud
 
-InsForge is the backend for persistent application data. Postgres holds the escrow ledger, the race-safe first-YES claim, the release when a worker says NO and the re-offer to idle workers, the per-task payout lease and task expiry as plpgsql functions called over InsForge RPC, with RLS on every table. Each RPC is its own transaction on InsForge, so every step that must be atomic is one function. The photos land in an InsForge storage bucket, and a photo the vision check rejects for showing a face is deleted from it. The JOIN and capture pages now run at https://app.eyes.pictures on Cloudflare; earlier InsForge Sites verification is recorded in STATUS.
+InsForge is the backend for persistent application data. Postgres holds escrow, claims, re-offers, payout leases and task expiry in transactional functions with RLS. Photos land in InsForge storage; faces alone do not cause rejection or deletion. Current moderation rejects confirmed graphic gore or explicit sexual content, separately from task-request privacy rules. The worker app is https://app.eyes.pictures on Cloudflare; earlier Sites and face-deletion observations below are historical, not the current policy.
 
 - Live fact (2026-10-17): the first live capture (from the stand-in worker, a Wikimedia Commons photo) was stored in the `photos` bucket at 10:24 PT, and at 10:27 PT a photo the vision check rejected for showing a face was deleted from it (no object left under that task).
 
@@ -70,6 +74,8 @@ An agent can go from nothing to a verified answer without a human dashboard: `PO
 ### Primitive: Best Agent Communication Setup with Primitive.dev
 
 Each agent gets its own Eyes email address at signup, a capability address with an HMAC in the local part, so knowing the address is the authorization and a spoofed From header is not. An agent emails a question (with a `Location:` line), Eyes posts the task and replies in the same thread when the verified answer arrives, with the worker's photo attached. Only DMARC-verified senders are processed and replies go only to the authenticated From address, so Eyes cannot be used as an open relay. Each agent address handles at most 20 emails an hour, and the owner emails Eyes sends name the agent only by its id, so no agent-chosen text rides along in mail to a human.
+
+Current outbound evidence is limited: Primitive DNS is verified and one owner Gmail delivery succeeded. Unrestricted domain sending remains disabled, first-contact delivery can fall back to Inkbox, and external custom-alias SPF remains unresolved.
 
 - **TODO** live fact: an agent emailed its Eyes address and received a threaded reply with the photo attached on `<date/time>`.
 

@@ -11,26 +11,26 @@ Run from the repo root. Keys go in `.env` (never committed). Names are in `.env.
 
 ## 2. MCP server on Manufact Cloud
 
-Current production (2026-10-18): the actual MCP/API server runs on **Manufact Cloud**, server `eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`, deployment `7f7de08a-5412-47c3-b2d7-4a63c9e251c3`, API source `17ba6b9131d9f7ee916a1503d735422c4f209253`. The public MCP URL remains `https://api.eyes.pictures/mcp`.
+Current production: the MCP/API application runs on **Manufact Cloud**, server `eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`. New MCP connections use `https://mcp.eyes.pictures/mcp`; `https://api.eyes.pictures/mcp` remains supported for legacy clients, and REST/uploads/webhooks stay at `https://api.eyes.pictures`.
 
-Cloudflare's `eyes-api` Worker is a thin forwarder for both `api.eyes.pictures` and `internal.eyes.pictures`. Keep its `ORIGIN` set to `https://warm-spark-aocdd.run.mcp-use.com`. The optional Manufact gateway `https://dark-steel-ofaoa.run.mcp-use.com/mcp` is a separate proxy, not the server host. The landing site and worker app remain on Cloudflare.
+Cloudflare's `eyes-api` Worker forwards `mcp.eyes.pictures`, `api.eyes.pictures` and `internal.eyes.pictures` to the same Manufact `ORIGIN`. The optional Manufact gateway is a separate proxy, not the application host. Landing and worker pages remain on Cloudflare.
 
 ### Dedicated MCP domain staging
 
-`https://mcp.eyes.pictures/mcp` is **ready for connector migration; existing connectors have not been switched**. It uses the same Manufact server. `https://api.eyes.pictures` remains the REST, upload and webhook base, and its `/mcp` connector remains supported; `internal.eyes.pictures` remains the ops host. The domain owner provisioned `mcp.eyes.pictures` on the existing Cloudflare `eyes-api` Worker with the same Manufact `ORIGIN`. Cloudflare provides the edge and static sites, not the MCP/API application host.
+`https://mcp.eyes.pictures/mcp` is **live, with ChatGPT and Claude configured there**. The current registry has 13 tools, including `show_task`, `accept_answer`, `report_classifier` and `get_classifier_report`. The shared card resource is `ui://eyes/card.html`; the legacy React-view build is removed. Not every third-party connector has migrated; existing API-host and gateway configurations remain supported.
 
 The verified deployment sets optional `EYES_PUBLIC_MCP_URL=https://mcp.eyes.pictures/mcp`; keep `EYES_PUBLIC_API_URL=https://api.eyes.pictures`. It separates MCP/OAuth/card metadata from REST URLs. The normalized, trusted edge host selects the matching metadata: existing API-host connectors retain their API issuer and card origins. Provisioning and deployment belong to the domain owner, not this documentation change.
 
-Domain-owner verification (2026-10-18 11:07 UTC): **29/29 checks passed** on deployed source `d6c40a58565f49a912405870f31af148eb8b12e3`. Evidence: `/Users/xiao/tmp/mcp-domain-public-dns-runtime-evidence.json`; DNS context: `/Users/xiao/tmp/mcp-domain-dns-evidence.json`. The earlier 10:48 provisioning-only result is superseded.
+Historical domain-owner verification (2026-10-18 11:07 UTC): **29/29 checks passed** on deployed source `d6c40a58565f49a912405870f31af148eb8b12e3`. Evidence: `/Users/xiao/tmp/mcp-domain-public-dns-runtime-evidence.json`; DNS context: `/Users/xiao/tmp/mcp-domain-dns-evidence.json`. This predates the current 13-tool registry and is not a fresh client-visual check.
 
-Verified readiness:
+Earlier verified readiness (same 11:07 UTC snapshot):
 
 1. Both hosts passed TLS/health, OAuth registration and PKCE token exchange; both expose all 12 tools and a free quote leaves the balance unchanged.
 2. New-host discovery advertises resource `https://mcp.eyes.pictures/mcp`, issuer `https://mcp.eyes.pictures`, and authorize/token/registration URLs on that host; the 401 challenge points to its metadata.
 3. Widget metadata from `resources/list` and `resources/read` matches the new connector's ChatGPT origin and Claude hash. Existing API-host OAuth and card metadata remain unchanged. This verifies server resources, not an actual ChatGPT or Claude client migration.
 4. API unauthenticated REST/upload/webhook rejection checks passed. No existing connector or optional gateway configuration was changed.
 
-DNS caveat: the verifier used live public DNS lookups through `1.1.1.1` with the original Host/SNI and TLS validation, without hardcoded IPs or a TLS bypass. The local macOS system resolver still returned `ENOTFOUND`, and Google `8.8.8.8` returned `NXDOMAIN` in the DNS evidence snapshot. This does not establish universal DNS propagation. The old-host post-deploy checks below remain a compatibility baseline.
+At that verification time, public DNS lookup preserved the original Host/SNI and TLS validation without hardcoded IPs or a TLS bypass; local macOS and Google resolvers still held negative results. This is historical DNS evidence, not a current outage claim. Current ChatGPT card protocol/live API checks are verified; fresh in-chat ChatGPT and Claude visual checks remain quota-blocked.
 
 ### Permanent operator deployment
 
@@ -49,7 +49,7 @@ Server secrets belong in the Manufact environment, not in committed files. Keep 
 3. Confirm OAuth discovery names `https://api.eyes.pictures/mcp` as the protected resource and `https://api.eyes.pictures` as the authorization server, not the Manufact origin.
 4. Confirm `https://internal.eyes.pictures/login` still reaches the ops sign-in page.
 
-Verified on 2026-10-18: both public protected-resource metadata paths return the public `/mcp` resource without `_original_resource`, including actual gzip responses; authorization-server metadata and the authentication challenge name the public host. Migration 034 was applied before API boot. Authenticated settings save/read returned 200 and persisted the operator's live cutoff `0.99`; the source default remains `0.95`. Edge version `81c8edb5-a943-414a-a9fa-bc1e64b12aea` forwards to Manufact, with the Cloudflare container inactive. Ops login returned 200; MCP initialization, 10 tools, free quote and widget domains passed. Latest keyed smoke: 12 PASS, signup and paid ask skipped; earlier unkeyed smoke: 13 PASS. Sanitized evidence is in `/Users/xiao/tmp/eyes-hosting-evidence` and the operator run logs `/Users/xiao/tmp/eyes-deployer/runs/17ba6b9131d9.{manual,finish}.log`.
+Earlier hosting verification (before the current 13-tool registry): protected-resource metadata and authentication challenge matched the public host; the Cloudflare edge forwarded to Manufact with its container inactive. Ops sign-in, MCP initialization, the then-current 10 tools, free quote and widget domains passed. The dated evidence is historical, not a current full-client visual result.
 
 Historical hosting note: the API ran on Cloudflare Containers before this cutover. The 2026-10-18 Cloudflare rollout measurement was about two minutes; that is not a Manufact deployment timing or verification result. The legacy container path remains in `apps/edge/api`, but is not the current server host.
 
@@ -59,7 +59,7 @@ Ops and ClickHouse settings (any host):
 
 ## 3. Static worker web and landing on Cloudflare
 
-1. Build the worker app with `VITE_EYES_API_URL=https://api.eyes.pictures` and the existing private environment values. The operator deployer uses `VITE_INKBOX_CONNECT="connect @eyes-dispatch"` and `VITE_LIVE_PAYOUTS=true` for the current deployment; only enable live-payout copy when the server has Stripe configured.
+1. Build the worker app with `VITE_EYES_API_URL=https://api.eyes.pictures` and existing private environment values. The current dispatcher is `connect @eyes-dispatch`. A live Stripe provider or `VITE_LIVE_PAYOUTS=true` is not proof of real payments: the deployment still uses test payments and a $20 test credit.
 2. The deployer builds with `pnpm --filter @eyes/web-worker build`, then runs `env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler@4 deploy` from `apps/web/worker`. This serves `https://app.eyes.pictures`.
 3. For the landing page, it runs `pnpm --filter @eyes/web-landing build`, then the same Wrangler command from `apps/web/landing`. This serves `https://eyes.pictures`.
 
@@ -71,17 +71,19 @@ For this section, `<public>` remains `https://api.eyes.pictures`; the MCP-domain
 
 - Inkbox (iMessage line, chosen for cost): subscribe identity `eyes-dispatch` to `imessage.received` at `<public>/webhooks/inkbox`; put the signing key in `INKBOX_WEBHOOK_SIGNING_KEY`. Worker phones must be iPhones. If the console gives a shared router number plus a connect command instead of a dedicated number (the free plan: `inkbox.imessages.getTriageNumber()` returns it, and `inkbox.imessages.listNumbers()` is empty), set `INKBOX_PHONE_NUMBER` to the router number and build the worker web with `VITE_INKBOX_CONNECT`; each worker texts the connect command to the router first, then START. Cold first messages are limited to 159 chars with no links (our offers comply). Inkbox caps agent-initiated conversations at 10 new recipients per hour and 40 per 24 h, but "recipients who message the line first do not consume these first-contact slots": every worker texts START first, so the cap does not apply to Eyes.
 - Stripe: two event destinations to `<public>/webhooks/stripe`: "Your account" with `checkout.session.completed` (`STRIPE_WEBHOOK_SECRET`) and "Connected accounts" with `account.updated` (`STRIPE_CONNECT_WEBHOOK_SECRET`). Fund the platform: `node --env-file=.env packages/payments/scripts/fund-platform.ts 100`.
-- Primitive: HTTP endpoint webhook to `<public>/webhooks/primitive` (`PRIMITIVE_WEBHOOK_SECRET`); note the assigned domain as `PRIMITIVE_DOMAIN`. A new Primitive org can only send to Primitive-managed domains, its own members and addresses that emailed it first, so agent answers go out but an owner's control-link email to a normal domain (gmail.com) is refused with `403 recipient_not_allowed`; so Eyes sends what the gate refuses (owner links, ops sign-in codes, worker email) from the Inkbox dispatcher mailbox instead (`INKBOX_API_KEY` + `INKBOX_AGENT_HANDLE`, no extra setting; Inkbox allows 100 new recipients a day per org and adds a "Sent via Inkbox" footer on the free plan), and `/status` shows Email as "live (first contact via Inkbox …)". Without Inkbox those sends fail, Eyes notes it once per agent as an info event in the ops log (never the Errors tab), and `/status` says "replies only". Once Primitive grants the org `send_to_any_domain` (check `npx -y primitive account show`, field `entitlements`), set `PRIMITIVE_SEND_ANY_DOMAIN=1` and redeploy.
+- Primitive: signed inbound webhook remains at `<public>/webhooks/primitive`, with `PRIMITIVE_WEBHOOK_SECRET` and `PRIMITIVE_DOMAIN`. Outbound DNS and one owner Gmail delivery are verified; unrestricted domain sending remains disabled. First-contact owner/ops/worker delivery can fall back to Inkbox. External custom-alias SPF remains unresolved; do not claim all email delivery paths work.
 
 ## 5. Live smoke checklist (G1, then G2)
 1. `GET <public>/healthz`: every provider `live`, db `insforge`.
 2. Each worker phone (iPhone, with Settings > Messages > Send & Receive > Start New Conversations From set to the phone number, not an Apple ID email): JOIN at `<worker web>/`, text START, receive the payout setup link, finish Stripe test onboarding (SMS code 000-000, SSN 222222222, routing 110000000, account 000123456789).
-3. Agent: `claude mcp add --transport http eyes <public>/mcp --header "Authorization: Bearer $EYES_API_KEY"` (key from `POST <public>/v1/signup`).
+3. Agent: connect to `https://mcp.eyes.pictures/mcp` with an existing key or the web OAuth flow; signup and all REST calls remain under `https://api.eyes.pictures`.
 4. Ask about the demo cafe; a nearby phone gets the offer text, replies YES, gets the capture link, takes the photo; Claude's `await_answer` returns the verified answer with `photo_url`.
 5. G2: the Stripe dashboard shows the top-up, then the transfer to the worker's connected account; `get_balance` drops by 3.50; "Photograph the house at 123 Oak St" is refused with `unsafe_task`.
 6. Record each result in STATUS.md "Live verification" with the time and what was seen.
 
 ## Ad hoc releases (iPhone app)
+
+Current iPhone distribution is ad hoc, not TestFlight. The native app remains connected across task photos. The worker page's three-second post-install fill/disabled timer is a grace period, not OS installation detection. Email setup is optional: **Use iMessage only** skips it.
 - `i098/eyes-ios-release` (public) runs `pnpm adhoc:release` from `ayaangazali/eyes` on a GitHub macOS runner. It registers the UDIDs with Apple, builds, uploads `Eyes.ipa` and `manifest.plist` to the `apps` bucket and texts the workers.
 - Trigger: GitHub never started the workflow's 5-minute schedule, so the `eyes-monitor` Worker (see Alerts) starts it. Each minute it counts `worker_devices` rows with `released_at` null; when there are any, no release run is queued or running, and it has not dispatched in the last 10 minutes, it sends `repository_dispatch` (`device-registered`). Worker secrets: `RELEASE_DISPATCH_TOKEN` (fine-grained, i098, Contents read and write on that repo only, expires 2027-10-18) and `INSFORGE_API_KEY`; without the token it skips this.
 - Release repo secrets: `RELEASE_ENV` (InsForge, Inkbox, App Store Connect key and issuer ids), `ASC_P8`, `DIST_P12` + `P12_PASSWORD` (Apple Distribution certificate). Rotate `RELEASE_ENV` whenever those `.env` values change.
@@ -96,9 +98,9 @@ For this section, `<public>` remains `https://api.eyes.pictures`; the MCP-domain
 - InsForge migrations must be applied in strictly increasing version order: the API rejects any version older than the latest applied one (`DATABASE_MIGRATION_ALREADY_EXISTS`, "Migration version must be newer than the latest applied migration"). If `007_*` merges before `006_*`, do not run `scripts/insforge-migrate.ts` until `006` is on main, or `006` can never be applied. Applied so far (2026-10-17): 001-020.
 - Never set `EYES_FAKE_WEBHOOKS=1` on a deployed server. It exists only so local tests can send fake-signed Stripe webhooks; on a deploy with fake payments it would let anyone credit balances and mark workers onboarded (fixed in PR #56, which closes the route unless this flag is set).
 
-## Roll back to the Mac
+## Historical rollback-to-Mac procedure
 
-Use this when the container is broken and a fix is not quick. It runs the server on this Mac again and sends `api.eyes.pictures` (and with it every provider webhook, all of which point at `https://api.eyes.pictures/webhooks/<x>`) to the Inkbox tunnel. Each process runs in its own session (`os.setsid`), so it outlives the shell that started it. Agents share one uid, so stop processes by verified PID only, never `pkill -f`.
+The procedure below predates current Manufact hosting. It is retained as history, not the current recovery command. Restore the last verified Manufact deployment with operator approval; do not silently move the API, MCP host or webhooks to a local tunnel.
 
 1. Start the server on `:3000` (first check `lsof -nP -iTCP:3000 -sTCP:LISTEN` is empty, or `kill` that PID):
    ```sh
