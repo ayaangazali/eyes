@@ -159,30 +159,28 @@ export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START
           "Update my spot",
           s.here_url,
         ),
-    app.last_at && app.sending
+    app.connected
       ? {
           id: "app",
           state: "done",
-          title: "Eyes app is on",
-          detail: `App sent your spot ${ago(app.last_at, now)}`,
+          title: "Eyes app connected",
+          detail: "Your app is connected to this account.",
           action: null,
         }
       : // Location codes work only for opted-in workers: the install POST answers 401 until START.
         s.opted_in
         ? todo(
             "app",
-            "Get the Eyes app",
-            app.last_at
-              ? `App last sent your spot ${ago(app.last_at, now)}`
-              : "It keeps your spot fresh for you.",
-            "Install / open Eyes app",
+            "Connect the Eyes app",
+            "Open the app once to connect it to this account.",
+            "Open / connect Eyes app",
             null,
           )
         : {
             id: "app",
             state: "todo",
-            title: "Get the Eyes app",
-            detail: "Text START first, then install the app.",
+            title: "Connect the Eyes app",
+            detail: "Text START first, then open the app.",
             action: null,
           },
     payouts.set_up

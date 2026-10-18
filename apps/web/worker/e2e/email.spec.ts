@@ -8,7 +8,7 @@ const MASKED = "a…@example.com";
 const base = {
   opted_in: true,
   spot: { at: new Date().toISOString(), fresh: true, max_age_h: 24 },
-  app: { last_at: new Date().toISOString(), sending: true },
+  app: { connected: true, last_at: new Date().toISOString(), sending: true },
   payouts: { set_up: true, live: true, setup_url: null },
   here_url: "https://app.eyes.test/here.html?t=h.t",
 };
@@ -16,6 +16,7 @@ const withEmail = (email_status: string, email_masked: string | null = MASKED, o
   ...base,
   email_status,
   email_masked,
+  email_skipped: false,
   ...over,
 });
 
@@ -66,7 +67,13 @@ for (const width of [390, 1440]) {
       await expect(row).toContainText(
         "Send from an address your mail provider verifies; custom aliases need SPF/DKIM.",
       );
-      await expect(row.getByRole("button")).toHaveText(state === "none" ? [] : ["Remove"]);
+      const actions =
+        state === "verified"
+          ? ["Remove"]
+          : state === "pending"
+            ? ["Use iMessage only", "Remove"]
+            : ["Use iMessage only"];
+      await expect(row.getByRole("button")).toHaveText(actions);
       await expect(row.getByRole("link")).toHaveCount(0);
       await expect(
         row.locator("[data-act=add], [data-act=resend], [data-act=change], [data-act=copy]"),
@@ -86,12 +93,98 @@ for (const width of [390, 1440]) {
   }
 }
 
+for (const width of [390, 1440]) {
+  test(`/me at ${width}px: iMessage-only choice is saved, survives reload and can resume email later`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    const setup = withEmail("none", null, { app: { connected: true, last_at: null, sending: false } });
+    const writes: { method: string; body: unknown; auth?: string }[] = [];
+    let finish!: () => void;
+    const save = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    await page.route("**/api/w/me/email/skip", async (route) => {
+      writes.push({
+        method: route.request().method(),
+        body: route.request().postDataJSON(),
+        auth: route.request().headers().authorization,
+      });
+      await save;
+      setup.email_skipped = true;
+      await route.fulfill({ json: setup });
+    });
+    const emailWrites = await mockMe(page, setup);
+    const button = emailRow(page).getByRole("button", { name: "Use iMessage only" });
+    await button.click();
+    await expect(button).toHaveAttribute("aria-busy", "true");
+    await expect(button).toBeDisabled();
+    finish();
+    await expect(emailRow(page)).toHaveClass(/ui-check--pass/);
+    await expect(emailRow(page)).toContainText("Email optional — skipped");
+    await expect(emailRow(page)).toContainText(instruction);
+    await expect(emailRow(page).getByRole("button")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "You're set up" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Open \/ connect Eyes app/ })).toHaveCount(0);
+    expect(writes).toEqual([{ method: "POST", body: {}, auth: `Bearer ${code}` }]);
+    expect(emailWrites).toEqual([]);
+
+    // Reload the signed setup link with no browser storage: the mocked server owns the saved choice.
+    await page.evaluate((token) => {
+      localStorage.clear();
+      sessionStorage.clear();
+      history.replaceState(null, "", `${location.pathname}#c=${token}`);
+    }, code);
+    await page.reload();
+    await expect(emailRow(page)).toHaveClass(/ui-check--pass/);
+    await expect(emailRow(page)).toContainText("Email optional — skipped");
+    await expect(emailRow(page)).toContainText(instruction);
+    expect(writes).toHaveLength(1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+    if (process.env.SHOTS) {
+      await expect(emailRow(page)).toHaveCSS("opacity", "1");
+      await page.screenshot({ path: `${process.env.SHOTS}/setup-skipped-${width}.png`, fullPage: true });
+    }
+  });
+}
+
+test("/me: failed iMessage-only save stays unchecked and can be retried", async ({ page }) => {
+  let attempts = 0;
+  const setup = withEmail("none", null);
+  await page.route("**/api/w/me/email/skip", (route) => {
+    if (++attempts === 1)
+      return route.fulfill({
+        status: 503,
+        json: { message: "Could not save your choice.", fix: "Try again." },
+      });
+    return route.fulfill({ json: { ...setup, email_skipped: true } });
+  });
+  await mockMe(page, setup);
+  await emailRow(page).getByRole("button", { name: "Use iMessage only" }).click();
+  await expect(emailRow(page).getByRole("alert")).toContainText("Could not save your choice.");
+  await expect(emailRow(page)).not.toHaveClass(/ui-check--pass/);
+  const retry = emailRow(page).getByRole("button", { name: "Use iMessage only" });
+  await expect(retry).toBeEnabled();
+  await retry.click();
+  await expect(emailRow(page)).toContainText("Email optional — skipped");
+  expect(attempts).toBe(2);
+});
+
+test("/me: expired iMessage-only save shows the expired-link state", async ({ page }) => {
+  await page.route("**/api/w/me/email/skip", (route) =>
+    route.fulfill({ status: 401, json: { error: "unauthorized" } }),
+  );
+  await mockMe(page, withEmail("none", null));
+  await emailRow(page).getByRole("button", { name: "Use iMessage only" }).click();
+  await expect(page.getByText("This link has expired.")).toBeVisible();
+});
+
 test("/me before START: still gives text-first email instructions without an onboarding button", async ({
   page,
 }) => {
   await mockMe(page, withEmail("none", null, { opted_in: false }));
   await expect(emailRow(page)).toContainText(instruction);
-  await expect(emailRow(page).getByRole("button")).toHaveCount(0);
+  await expect(emailRow(page).getByRole("button", { name: "Use iMessage only" })).toBeVisible();
 });
 
 test("/me pending: Remove asks first; Keep it backs out, Remove email removes", async ({ page }) => {

@@ -1,16 +1,17 @@
 import type { WorkerSetup } from "@eyes/core";
 import { describe, expect, it, vi } from "vitest";
 import { Problem } from "./api.ts";
-import { emailOn, emailRow, removeEmail, sendLink, signIn, validEmail } from "./email.ts";
+import { emailOn, emailRow, removeEmail, sendLink, signIn, skipEmail, validEmail } from "./email.ts";
 
 // No email fields by default: what an API that predates worker email sends.
 const setup = (over: Partial<WorkerSetup> = {}) =>
   ({
     opted_in: true,
     spot: { at: null, fresh: false, max_age_h: 24 },
-    app: { last_at: null, sending: false },
+    app: { connected: false, last_at: null, sending: false },
     payouts: { set_up: false, live: false, setup_url: null },
     here_url: "https://app.eyes.test/here.html?t=h.t",
+    email_skipped: false,
     ...over,
   }) as WorkerSetup;
 
@@ -61,17 +62,37 @@ describe("emailRow", () => {
       title: "Get tasks by email too",
       detail: instruction,
       removable: false,
+      skipped: false,
     });
     expect(emailRow(setup({ opted_in, email_status: "pending", email_masked: "a…@example.com" }))).toEqual({
       status: "pending",
       title: "Finish adding your email",
       detail: instruction,
       removable: true,
+      skipped: false,
     });
     expect(emailRow(setup({ opted_in, email_status: "verified", email_masked: "a…@example.com" }))).toEqual({
       status: "verified",
       title: "Email on",
       detail: `Tasks also go to a…@example.com. ${instruction}`,
+      removable: true,
+      skipped: false,
+    });
+  });
+
+  it.each(["none", "pending"] as const)(
+    "acknowledges skipped %s email without calling it verified",
+    (email_status) => {
+      const row = emailRow(setup({ email_status, email_skipped: true }));
+      expect(row).toMatchObject({ status: email_status, title: "Email optional — skipped", skipped: true });
+      expect(row?.detail).toContain("Reply EMAIL");
+    },
+  );
+
+  it("keeps verified email and Remove even if an older skip flag is present", () => {
+    expect(emailRow(setup({ email_status: "verified", email_skipped: true }))).toMatchObject({
+      status: "verified",
+      skipped: false,
       removable: true,
     });
   });
@@ -108,6 +129,26 @@ describe("removeEmail", () => {
     await expect(removeEmail("c.d", vi.fn().mockRejectedValue(plain))).rejects.toBe(plain);
     const boom = new TypeError("boom");
     await expect(removeEmail("c.d", vi.fn().mockRejectedValue(boom))).rejects.toBe(boom);
+  });
+});
+
+describe("skipEmail", () => {
+  it("persists only the signed iMessage-only choice and returns the server's setup", async () => {
+    const next = setup({ email_status: "none", email_skipped: true });
+    const send = vi.fn().mockResolvedValue(next);
+    expect(await skipEmail("c.d", send)).toBe(next);
+    expect(send).toHaveBeenCalledExactlyOnceWith("/w/me/email/skip", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: "Bearer c.d" },
+      body: "{}",
+    });
+  });
+
+  it("keeps the server error message and status for retry", async () => {
+    await expect(skipEmail("c.d", refuse(401, { message: "Link expired." }))).rejects.toMatchObject({
+      status: 401,
+      message: "Link expired.",
+    });
   });
 });
 

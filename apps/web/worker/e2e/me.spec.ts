@@ -9,7 +9,7 @@ const CONNECT = "https://connect.stripe.test/setup/abc";
 const allDone = {
   opted_in: true,
   spot: { at: minAgo(12), fresh: true, max_age_h: 24 },
-  app: { last_at: minAgo(5), sending: true },
+  app: { connected: true, last_at: minAgo(5), sending: true },
   payouts: { set_up: true, live: true, setup_url: null },
   here_url: HERE,
 };
@@ -17,7 +17,7 @@ const allDone = {
 const partial = {
   ...allDone,
   spot: { at: minAgo(3 * 24 * 60), fresh: false, max_age_h: 24 },
-  app: { last_at: null, sending: false },
+  app: { connected: false, last_at: null, sending: false },
   payouts: { set_up: false, live: true, setup_url: CONNECT },
 };
 
@@ -132,7 +132,9 @@ test("/me sends the fragment code only as a Bearer header, clears it, and shows 
   expect(urls.filter((u) => u.includes(code))).toEqual([]);
   await expect(page.locator("#checks > li.ui-check--pass")).toHaveCount(4);
   await expect(page.getByText("Updated 12 min ago")).toBeVisible();
-  await expect(page.getByText("App sent your spot 5 min ago")).toBeVisible();
+  await expect(page.locator("#checks > li").filter({ hasText: "Eyes app connected" })).toHaveClass(
+    /ui-check--pass/,
+  );
   await expect(page.locator("#checks").getByRole("button")).toHaveCount(0);
   const first = page.locator("#tasks > li").first();
   await expect(first).toContainText("$3.00");
@@ -201,7 +203,7 @@ test("/me shows what is left to do, with one primary action", async ({ page }) =
   const spot = page.getByRole("link", { name: "Update my spot" });
   await expect(spot).toHaveAttribute("href", HERE);
   await expect(spot).toHaveClass(/ui-button--primary/);
-  await expect(page.getByRole("button", { name: "Install / open Eyes app" })).not.toHaveClass(/--primary/);
+  await expect(page.getByRole("button", { name: "Open / connect Eyes app" })).not.toHaveClass(/--primary/);
   await expect(page.getByRole("link", { name: "Set up payouts" })).toHaveAttribute("href", CONNECT);
   await expect(page.locator("#checks .ui-button--primary")).toHaveCount(1);
   await expect(page.getByText("No tasks yet. Eyes texts you when one is near.")).toBeVisible();
@@ -220,7 +222,7 @@ test("/me install button posts with the code and opens the install link", async 
   });
   await page.route("https://app.eyes.test/**", (route) => route.fulfill({ body: "install page" }));
   await page.goto(`/me.html#c=${code}`);
-  await page.getByRole("button", { name: "Install / open Eyes app" }).click();
+  await page.getByRole("button", { name: "Open / connect Eyes app" }).click();
   await expect(page).toHaveURL(installUrl);
   expect(installAuth).toBe(`Bearer ${code}`);
 });
@@ -257,3 +259,51 @@ test("/me shows a notice on a network error and loads on Try again", async ({ pa
   await page.getByRole("button", { name: "Try again" }).click();
   await expect(page.getByRole("heading", { name: "You're set up" })).toBeVisible();
 });
+
+for (const width of [390, 1440]) {
+  for (const fresh of [true, false]) {
+    test(`/me at ${width}px: completing a photo task keeps app connected with spot fresh=${fresh}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 1000 });
+      // Synthetic API state after capture replaced the latest GPS source; not a native-device proof.
+      const setup = {
+        ...allDone,
+        app: { connected: true, last_at: null, sending: false },
+        spot: { at: minAgo(fresh ? 1 : 3 * 24 * 60), fresh, max_age_h: 24 },
+        email_status: "none",
+        email_masked: null,
+        email_skipped: true,
+      };
+      const writes: string[] = [];
+      page.on("request", (request) => {
+        if (request.method() === "POST") writes.push(request.url());
+      });
+      await mockMe(page, () => ({ json: setup }), makeTasks(1));
+      await page.goto(`/me.html#c=${code}`);
+      const app = page.locator("#checks > li").filter({ hasText: "Eyes app connected" });
+      const spot = page
+        .locator("#checks > li")
+        .filter({ hasText: fresh ? "Spot is fresh" : "Update your spot" });
+      await expect(app).toHaveClass(/ui-check--pass/);
+      await expect(app.getByRole("button")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /Install|Open \/ connect Eyes app/ })).toHaveCount(0);
+      await expect(page.locator("#checks > li.me-email")).toHaveClass(/ui-check--pass/);
+      await expect(
+        page.getByRole("heading", { name: fresh ? "You're set up" : "Finish setting up" }),
+      ).toBeVisible();
+      if (fresh) await expect(spot).toHaveClass(/ui-check--pass/);
+      else await expect(spot.getByRole("link", { name: "Update my spot" })).toBeVisible();
+      await expect(page.locator("#tasks > li")).toHaveCount(1);
+      expect(writes).toEqual([]);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(width);
+      if (process.env.SHOTS) {
+        await expect(app).toHaveCSS("opacity", "1");
+        await page.screenshot({
+          path: `${process.env.SHOTS}/setup-after-photo-${fresh ? "fresh" : "stale"}-${width}.png`,
+          fullPage: true,
+        });
+      }
+    });
+  }
+}

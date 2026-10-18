@@ -28,11 +28,12 @@ function setup(over: Partial<WorkerSetup> = {}): WorkerSetup {
   return {
     opted_in: true,
     spot: { at: minAgo(12), fresh: true, max_age_h: 24 },
-    app: { last_at: minAgo(5), sending: true },
+    app: { connected: true, last_at: minAgo(5), sending: true },
     payouts: { set_up: true, live: true, setup_url: null },
     here_url: HERE,
     email_masked: null,
     email_status: "none",
+    email_skipped: false,
     ...over,
   };
 }
@@ -127,8 +128,8 @@ describe("checklist", () => {
       {
         id: "app",
         state: "done",
-        title: "Eyes app is on",
-        detail: "App sent your spot 5 min ago",
+        title: "Eyes app connected",
+        detail: "Your app is connected to this account.",
         action: null,
       },
       {
@@ -176,27 +177,33 @@ describe("checklist", () => {
     });
   });
 
-  it("offers the install button (no href: it mints a link first) when the app is not sending", () => {
-    expect(row({ app: { last_at: minAgo(2 * 24 * 60), sending: false } }, "app")).toEqual({
-      id: "app",
+  it("offers installation only when the app has not connected", () => {
+    expect(row({ app: { connected: false, last_at: null, sending: false } }, "app")).toMatchObject({
       state: "todo",
-      title: "Get the Eyes app",
-      detail: "App last sent your spot 2 days ago",
-      action: { label: "Install / open Eyes app", href: null, primary: true },
-    });
-    expect(row({ app: { last_at: null, sending: false } }, "app")).toMatchObject({
-      detail: "It keeps your spot fresh for you.",
+      action: { href: null },
     });
   });
 
-  it("hides the install button and asks for START first when texts are off", () => {
-    expect(row({ opted_in: false, app: { last_at: null, sending: false } }, "app")).toEqual({
-      id: "app",
-      state: "todo",
-      title: "Get the Eyes app",
-      detail: "Text START first, then install the app.",
-      action: null,
+  it.each([true, false])("keeps app completion independent of spot freshness=%j", (fresh) => {
+    const summary = setup({
+      app: { connected: true, last_at: null, sending: false },
+      spot: { at: minAgo(3 * 24 * 60), fresh, max_age_h: 24 },
     });
+    const checks = checklist(summary, NOW);
+    expect(checks.find((r) => r.id === "app")).toMatchObject({ state: "done", action: null });
+    expect(checks.find((r) => r.id === "spot")?.state).toBe(fresh ? "done" : "todo");
+  });
+
+  it("hides the install button and asks for START first when texts are off", () => {
+    expect(row({ opted_in: false, app: { connected: false, last_at: null, sending: false } }, "app")).toEqual(
+      {
+        id: "app",
+        state: "todo",
+        title: "Connect the Eyes app",
+        detail: "Text START first, then open the app.",
+        action: null,
+      },
+    );
   });
 
   it("links to payout setup when payouts are live and not set up", () => {
@@ -226,7 +233,7 @@ describe("checklist", () => {
     const actions = rows({
       opted_in: false,
       spot: { at: null, fresh: false, max_age_h: 24 },
-      app: { last_at: null, sending: false },
+      app: { connected: false, last_at: null, sending: false },
       payouts: { set_up: false, live: true, setup_url: CONNECT },
     }).map((r) => r.action?.primary);
     expect(actions).toEqual([true, false, undefined, false]);

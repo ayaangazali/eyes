@@ -9,6 +9,7 @@ export type EmailRow = {
   title: string;
   detail: string;
   removable: boolean;
+  skipped: boolean;
 };
 
 export const validEmail = (s: string) => s.length <= 254 && /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/.test(s);
@@ -40,6 +41,15 @@ const instruction =
 
 export function emailRow(s: WorkerSetup): EmailRow | null {
   const masked = s.email_masked ?? "your email";
+  if (s.email_skipped && s.email_status !== "verified") {
+    return {
+      status: s.email_status,
+      title: "Email optional — skipped",
+      detail: instruction,
+      removable: s.email_status === "pending",
+      skipped: true,
+    };
+  }
   // An API that predates worker email sends neither field: show no row.
   switch (s.email_status) {
     case "none":
@@ -48,6 +58,7 @@ export function emailRow(s: WorkerSetup): EmailRow | null {
         title: "Get tasks by email too",
         detail: instruction,
         removable: false,
+        skipped: false,
       };
     case "pending":
       return {
@@ -55,6 +66,7 @@ export function emailRow(s: WorkerSetup): EmailRow | null {
         title: "Finish adding your email",
         detail: instruction,
         removable: true,
+        skipped: false,
       };
     case "verified":
       return {
@@ -62,6 +74,7 @@ export function emailRow(s: WorkerSetup): EmailRow | null {
         title: "Email on",
         detail: `Tasks also go to ${masked}. ${instruction}`,
         removable: true,
+        skipped: false,
       };
     default:
       return null;
@@ -72,6 +85,15 @@ export function emailRow(s: WorkerSetup): EmailRow | null {
 export async function removeEmail(code: string, send: Send): Promise<WorkerSetup> {
   try {
     return (await send("/w/me/email", post({ email: null }, code))) as WorkerSetup;
+  } catch (err) {
+    throw worded(err);
+  }
+}
+
+/** Records the worker's choice to use iMessage only; does not connect an email or send mail. */
+export async function skipEmail(code: string, send: Send): Promise<WorkerSetup> {
+  try {
+    return (await send("/w/me/email/skip", post({}, code))) as WorkerSetup;
   } catch (err) {
     throw worded(err);
   }

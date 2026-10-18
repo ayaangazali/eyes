@@ -92,7 +92,7 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
     </li>
   </template>
 
-  <!-- Email onboarding starts in the existing iMessage thread; only removal happens here. -->
+  <!-- Email remains optional: workers can acknowledge iMessage-only setup or remove a saved address. -->
   <template id="email-row">
     <li class="ui-check me-row me-email">
       <span class="ui-check__mark"><Icon name="mail" /></span>
@@ -102,6 +102,7 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
         <span class="ui-text-sm ui-text-secondary">Send from an address your mail provider verifies; custom aliases need SPF/DKIM.</span>
       </span>
       <div class="me-email__actions" data-mode="idle">
+        <button type="button" class="ui-button" data-act="skip">Use iMessage only</button>
         <button type="button" class="ui-button ui-button--ghost" data-act="remove">Remove</button>
       </div>
       <div class="me-email__confirm" data-mode="confirm" role="group" aria-label="Remove email" hidden>
@@ -400,11 +401,12 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
 
 <script>
   import { $, call, Problem, showError } from "../api.ts";
-  import { type EmailRow, emailRow, removeEmail } from "../email.ts";
+  import { type EmailRow, removeEmail, skipEmail } from "../email.ts";
   import {
     FILTERS,
     type Filter,
     type MeView,
+    meView,
     openInstall,
     type Row,
     showMe,
@@ -468,27 +470,33 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
 
   function emailEl(row: EmailRow, i: number): HTMLElement {
     const li = ($<HTMLTemplateElement>("email-row").content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
-    li.classList.add(row.status === "verified" ? "ui-check--pass" : "me-row--todo", "me-enter");
+    const complete = row.status === "verified" || row.skipped;
+    li.classList.add(complete ? "ui-check--pass" : "me-row--todo", "me-enter");
     li.style.setProperty("--i", String(i));
-    if (row.status !== "verified") part(li, ".ui-check__mark").replaceChildren();
+    if (!complete) part(li, ".ui-check__mark").replaceChildren();
+    else if (row.skipped) part(li, "use").setAttribute("href", "#i-check");
     part(li, "strong").textContent = row.title;
     part(li, ".ui-check__detail").textContent = row.detail;
-    part(li, ".me-email__actions[data-mode]").hidden = !row.removable;
+    const skip = part(li, "[data-act=skip]");
+    skip.hidden = complete;
+    part(li, "[data-act=remove]").hidden = !row.removable;
+    part(li, ".me-email__actions[data-mode]").hidden = complete && !row.removable;
     const error = part(li, ".me-email__error");
     const mode = (m: "idle" | "confirm") => {
       for (const el of li.querySelectorAll<HTMLElement>(":scope > [data-mode]")) el.hidden = el.dataset.mode !== m;
       error.hidden = true;
       if (m === "confirm") part(li, "[data-act=confirm-remove]").focus();
     };
-    const remove = async (button: HTMLElement) => {
+    const save = async (button: HTMLElement, action: typeof removeEmail) => {
+      error.hidden = true;
       button.setAttribute("aria-busy", "true");
+      for (const control of li.querySelectorAll<HTMLButtonElement>("button")) control.disabled = true;
       try {
-        const next = emailRow(await removeEmail(code as string, call));
-        const fresh = next && emailEl(next, 0);
-        li.replaceWith(...(fresh ? [fresh] : []));
+        show(meView(await action(code as string, call), Date.now()));
         $("title").focus();
       } catch (err) {
         button.removeAttribute("aria-busy");
+        for (const control of li.querySelectorAll<HTMLButtonElement>("button")) control.disabled = false;
         if (err instanceof Problem && err.status === 401) return show({ step: "expired" });
         showError(error, err);
       }
@@ -498,8 +506,9 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
       const act = button?.dataset.act;
       if (!button || button.hasAttribute("aria-busy")) return;
       if (act === "remove") mode("confirm");
-      else if (act === "confirm-remove") void remove(button);
+      else if (act === "confirm-remove") void save(button, removeEmail);
       else if (act === "cancel") mode("idle");
+      else if (act === "skip") void save(button, skipEmail);
     });
     return li;
   }
