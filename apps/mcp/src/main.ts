@@ -10,6 +10,7 @@ import { createClaudeVision, verifySubmission } from "@eyes/verify";
 import { z } from "zod";
 import { createNominatimGeo } from "./geo.ts";
 import { toNodeListener } from "./http.ts";
+import { createSandboxService } from "./sandbox.ts";
 import { createServer, liveProviders } from "./server.ts";
 
 const EXPIRE_EVERY_MS = 30_000;
@@ -35,6 +36,12 @@ const parsed = AppConfig.safeParse({
 if (!parsed.success) exit(`Invalid EYES_* environment (see .env.example):\n${z.prettifyError(parsed.error)}`);
 const config = parsed.data;
 
+const sandbox = env.EYES_SANDBOX === "1";
+if (sandbox && (env.EYES_PROVIDERS === "live" || env.EYES_FAKE_WEBHOOKS || env.ANTHROPIC_API_KEY)) {
+  exit(
+    "EYES_SANDBOX=1 gives an agent with play money to anyone who calls without a key, and its simulated worker answers every task, so it runs only with every provider fake and no billed key: unset EYES_PROVIDERS=live, EYES_FAKE_WEBHOOKS and ANTHROPIC_API_KEY. Never set EYES_SANDBOX on the live server.",
+  );
+}
 if (env.EYES_PROVIDERS === "live" && !env.ANTHROPIC_API_KEY) {
   exit(
     "EYES_PROVIDERS=live needs ANTHROPIC_API_KEY: without it the safety classifier and photo verification are off. Set ANTHROPIC_API_KEY, or run with EYES_PROVIDERS=fake.",
@@ -73,13 +80,8 @@ for (const name of Object.keys(live) as (keyof typeof live)[])
   console.log(`provider ${name}: ${providers[name] === fakes[name] ? "FAKE" : "live"}`);
 console.log(`db: ${db.kind}`);
 
-const service = createEyesService({
-  db,
-  providers,
-  assessTask: createAssessTask(env),
-  verifySubmission,
-  config,
-});
+const engine = { db, providers, assessTask: createAssessTask(env), verifySubmission, config };
+const service = sandbox ? createSandboxService(engine) : createEyesService(engine);
 
 setInterval(() => {
   service.expireOverdue().catch((err) => console.error("expireOverdue failed", err));
