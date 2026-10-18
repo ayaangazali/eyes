@@ -96,6 +96,7 @@ const SETUP_LINK_INVALID = {
   fix: "Text HELP to the Eyes number for a fresh link.",
 };
 const HOUR_MS = 3_600_000;
+const APP_SENDING_MS = 24 * HOUR_MS; // the app sent a fix this recently: no "Get the app" step
 const PING_MAX = 5;
 const PING_WAIT_MS = 30_000;
 const PING_IN_INPUT = /Eyes ping ([0-9a-f]{8})/i;
@@ -254,17 +255,36 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const installUrl = (code: string) => `${config.worker_web_url}/install#c=${code}`;
   const appUrl = (code: string) =>
     config.testflight_url ? `${config.worker_web_url}/app#c=${code}` : installUrl(code);
-  // The hub text (START, HELP): links for everything, so YES and STOP are the only words to remember.
-  const hubText = (workerId: string, steps: string[]) =>
-    [
-      "Eyes texts you paid photo tasks near you.",
-      ...steps.map((s, i) => `${i + 1}. ${s}`),
-      ...(config.live_payouts ? [] : [SIMULATED_PAY]),
-      `Your setup: ${meUrl(workerId)}`,
-      "When a task comes, reply YES to take it. Reply STOP anytime to pause.",
-    ].join("\n");
   // ponytail: in memory (one server instance); a restart allows one extra code on the next START.
   const appLinkSentAt = new Map<string, number>();
+  // The hub text (START, HELP): links for everything, so YES and STOP are the only words to remember.
+  // Only open steps are listed, numbered when there are two or more; none left: "You're all set".
+  async function hubReply(worker: Worker & { location_source: string | null }): Promise<string> {
+    const t = now().getTime();
+    const steps: string[] = [];
+    const appSending =
+      worker.location_source === "app" && t - Date.parse(worker.location_at ?? "") <= APP_SENDING_MS;
+    // Again within the hour (a retry, a double tap) mints no second code; /me has the button.
+    const last = appLinkSentAt.get(worker.id);
+    if (!appSending && (last === undefined || t - last >= HOUR_MS)) {
+      appLinkSentAt.set(worker.id, t);
+      steps.push(`Get the app (keeps your spot fresh): ${appUrl(await mintLocationCode(worker.id))}`);
+    }
+    const fixAt = worker.lat === null ? 0 : Date.parse(worker.location_at ?? worker.created_at);
+    if (t - fixAt > config.location_max_age_h * HOUR_MS)
+      steps.push(`Update your spot: ${hereUrl(worker.id)}`);
+    if (config.live_payouts) {
+      const e = await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: worker.id });
+      if (!e?.payouts_set_up) steps.push(`Set up payouts: ${connectUrl(worker.id)}`);
+    }
+    return [
+      `${steps.length ? "You're in." : "You're all set."} Eyes texts you paid photo tasks near you.`,
+      ...(steps.length > 1 ? steps.map((s, i) => `${i + 1}. ${s}`) : steps),
+      ...(config.live_payouts ? [] : [SIMULATED_PAY]),
+      `Your setup: ${meUrl(worker.id)}`,
+      "When a task comes, reply YES to take it. Reply STOP anytime to pause.",
+    ].join("\n");
+  }
 
   const newApiKey = () =>
     `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
@@ -1009,7 +1029,10 @@ export function createEyesService(deps: EngineDeps): EyesService {
     },
 
     async handleWorkerReply({ phone, intent, text }) {
-      const worker = await maybe<Worker>("eyes_worker", { p_worker_id: null, p_phone: phone });
+      const worker = await maybe<Worker & { location_source: string | null }>("eyes_worker", {
+        p_worker_id: null,
+        p_phone: phone,
+      });
       if (!worker) {
         if (intent === "stop") return;
         await messaging.sendText(
@@ -1027,22 +1050,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       const reply: Record<ReplyIntent, () => Promise<unknown>> = {
         start: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: true });
-          const steps: string[] = [];
-          // START again within the hour (a retry, a double tap) mints no second code; /me has the button.
-          const last = appLinkSentAt.get(worker.id);
-          if (last === undefined || now().getTime() - last >= HOUR_MS) {
-            appLinkSentAt.set(worker.id, now().getTime());
-            steps.push(`Get the app (keeps your spot fresh): ${appUrl(await mintLocationCode(worker.id))}`);
-          }
-          const fixAt = worker.lat === null ? 0 : Date.parse(worker.location_at ?? worker.created_at);
-          if (now().getTime() - fixAt > config.location_max_age_h * HOUR_MS) {
-            steps.push(`Update your spot: ${hereUrl(worker.id)}`);
-          }
-          if (config.live_payouts) {
-            const e = await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: worker.id });
-            if (!e?.payouts_set_up) steps.push(`Set up payouts: ${connectUrl(worker.id)}`);
-          }
-          await messaging.sendText(phone, `You're in. ${hubText(worker.id, steps)}`);
+          await messaging.sendText(phone, await hubReply(worker));
         },
         stop: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false });
@@ -1118,7 +1126,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
             phone,
             ticket
               ? `Eyes: ticket #${ticket.id} opened. Someone will check your answer by hand and text you the outcome. Reply here to add details.`
-              : hubText(worker.id, []),
+              : await hubReply(worker),
           );
         },
         unknown: async () => {

@@ -289,21 +289,25 @@ describe.skipIf(!url)("engine on Postgres", () => {
     ]);
   });
 
-  it("HELP is the hub text: the worker's setup page, YES and STOP, nothing else to remember", async () => {
+  it("HELP is the hub text: the open steps, the worker's setup page, YES and STOP", async () => {
     const { phone } = await worker(somewhere());
     await service.handleWorkerReply({ phone, intent: "help", text: "HELP" });
     const help = String(outbox.findLast((m) => m.to === phone)?.payload).split("\n");
+    // START sent the app link within the hour and the spot is fresh: payouts is the one step, unnumbered.
     expect(help).toEqual([
-      "Eyes texts you paid photo tasks near you.",
+      "You're in. Eyes texts you paid photo tasks near you.",
+      expect.stringMatching(/^Set up payouts: \S+\/w\/connect\/\S+$/),
       expect.stringMatching(/^Your setup: https:\/\/w\.eyes\.test\/me#c=[\w-]+\.[\w-]+$/),
       "When a task comes, reply YES to take it. Reply STOP anytime to pause.",
     ]);
-    expect(await service.workerSetup(meToken(help[1]))).toMatchObject({ opted_in: true, tasks: [] });
+    expect(await service.workerSetup(meToken(help[2]))).toMatchObject({ opted_in: true, tasks: [] });
   });
 
   describe("worker setup page (ADR-028)", () => {
     const setupToken = (phone: string) =>
-      meToken(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You're in."))?.payload);
+      meToken(
+        outbox.findLast((m) => m.to === phone && /^You're (in|all set)\./.test(String(m.payload)))?.payload,
+      );
     const fixToken = (workerId: string) =>
       signToken(deps.config.link_secret, `l:${workerId}`, new Date(providers.clock.now().getTime() + 60_000));
     const refused = {
@@ -382,6 +386,59 @@ describe.skipIf(!url)("engine on Postgres", () => {
           spot: { at: providers.clock.now().toISOString(), fresh: true },
           app: { last_at: null, sending: false },
         });
+      } finally {
+        providers.clock.set(start);
+      }
+    });
+
+    it("START and HELP list only open steps: numbered for 2+, unnumbered for 1, 'You're all set' for none", async () => {
+      const at = somewhere();
+      const w = await worker(at); // its START sent the app link, so the next hour has no app step
+      const hub = async (intent: "start" | "help") => {
+        await service.handleWorkerReply({ phone: w.phone, intent, text: intent.toUpperCase() });
+        return String(outbox.findLast((m) => m.to === w.phone)?.payload).split("\n");
+      };
+      const head = "Eyes texts you paid photo tasks near you.";
+      const tail = [
+        expect.stringMatching(/^Your setup: https:\/\/w\.eyes\.test\/me#c=\S+$/),
+        "When a task comes, reply YES to take it. Reply STOP anytime to pause.",
+      ];
+      const hour = 3_600_000;
+      const start = providers.clock.now();
+      try {
+        providers.clock.advance(hour + 1);
+        expect(await hub("start")).toEqual([
+          `You're in. ${head}`,
+          expect.stringMatching(/^1\. Get the app \(keeps your spot fresh\): \S+$/),
+          expect.stringMatching(/^2\. Set up payouts: \S+$/),
+          ...tail,
+        ]);
+
+        // The app sent a fix: no app step even past the hour, so payouts is the one step, unnumbered.
+        providers.clock.advance(31_000);
+        await service.updateWorkerLocation(fixToken(w.worker_id), { ...north(at, 10), source: "app" });
+        providers.clock.advance(hour + 1);
+        for (const intent of ["start", "help"] as const) {
+          expect(await hub(intent)).toEqual([
+            `You're in. ${head}`,
+            expect.stringMatching(/^Set up payouts: \S+\/w\/connect\/\S+$/),
+            ...tail,
+          ]);
+        }
+
+        await service.workerConnectUrl(connectToken(w.phone));
+        for (const intent of ["start", "help"] as const) {
+          expect(await hub(intent)).toEqual([`You're all set. ${head}`, ...tail]);
+        }
+
+        // The app's last fix is over 24 h old: get the app and update the spot again.
+        providers.clock.advance(24 * hour);
+        expect(await hub("help")).toEqual([
+          `You're in. ${head}`,
+          expect.stringMatching(/^1\. Get the app \(keeps your spot fresh\): /),
+          expect.stringMatching(/^2\. Update your spot: /),
+          ...tail,
+        ]);
       } finally {
         providers.clock.set(start);
       }
@@ -900,11 +957,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
     );
     await sim.handleWorkerReply({ phone, intent: "start", text: "START" });
     const texts = outbox.filter((m) => m.to === phone && m.kind === "text").map((m) => m.payload);
-    // One text: no payout step on a test server, the simulated note instead.
+    // One text: no payout step on a test server, the simulated note instead; the app is the one step.
     const lines = String(texts.at(-1)).split("\n");
     expect(lines.slice(0, 3)).toEqual([
       "You're in. Eyes texts you paid photo tasks near you.",
-      expect.stringMatching(/^1\. Get the app \(keeps your spot fresh\): /),
+      expect.stringMatching(/^Get the app \(keeps your spot fresh\): /),
       simulated,
     ]);
     expect(String(texts.at(-1))).not.toContain("/w/connect/");
@@ -1399,7 +1456,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       for (const { w, task_id } of [verified, old]) {
         await service.handleWorkerReply({ phone: w.phone, intent: "help", text: "HELP" });
         expect(String(outbox.findLast((m) => m.to === w.phone)?.payload)).toMatch(
-          /^Eyes texts you paid photo tasks near you\.\nYour setup: /,
+          /^You're (in|all set)\. Eyes texts you paid photo tasks near you\.\n[\s\S]*Your setup: /,
         );
         await service.handleWorkerReply({ phone: w.phone, intent: "unknown", text: "hello?" });
         expect(outbox.findLast((m) => m.to === w.phone)?.payload).toMatch(

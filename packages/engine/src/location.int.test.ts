@@ -58,7 +58,9 @@ describe.skipIf(!url)("worker location on Postgres", () => {
   const hereToken = (text: string) =>
     new URL(/https:\S+here\.html\S+/.exec(text)?.[0] ?? "x:").searchParams.get("t") ?? "";
   const welcome = (phone: string) =>
-    String(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You're in."))?.payload);
+    String(
+      outbox.findLast((m) => m.to === phone && /^You're (in|all set)\./.test(String(m.payload)))?.payload,
+    );
   const row = async (phone: string) => (await sql`select * from workers where phone = ${phone}`)[0];
 
   async function worker(at: LatLng) {
@@ -195,7 +197,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     const before = sent();
     await say(w.phone, "start", "START");
     expect(sent()).toBe(before + 1);
-    expect(lastText(w.phone)).toContain("You're in.");
+    expect(lastText(w.phone)).toMatch(/^You're all set\./); // no steps left: app link sent, spot fresh
     expect(await codes()).toBe(1);
 
     // APP mints even within the hour, as one text.
@@ -206,8 +208,12 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     expect(sent()).toBe(before + 2);
     expect(await codes()).toBe(2);
 
-    // An hour after the last link, START sends a new one.
+    // An hour after the last link, START sends none while the app keeps sending (the fix above)...
     providers.clock.advance(61 * 60_000);
+    await say(w.phone, "start", "START");
+    expect(appCode(lastText(w.phone))).toBe("");
+    // ...and a new one once the app's last fix is over 24 hours old.
+    providers.clock.advance(24 * HOUR);
     await say(w.phone, "start", "START");
     expect(appCode(lastText(w.phone))).not.toBe("");
     expect(await codes()).toBe(3);
