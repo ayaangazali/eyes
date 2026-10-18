@@ -469,7 +469,7 @@ async function act(b) {
         throw new Error("The quote was incomplete. Check availability again; nothing was charged.");
       if (b.dataset.act === "again") {
         retry = { args: structuredClone(retryContext(original)), fromTask: original.task_id };
-        askKey = null;
+        askKey = crypto.randomUUID();
         submitted = null;
         completed = null;
         edited = {};

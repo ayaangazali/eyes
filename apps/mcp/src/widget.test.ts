@@ -1018,6 +1018,29 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
     expect(completed.invoke).not.toHaveBeenCalled();
   });
 
+  it("restores an intentional Ask Again draft without posting until fresh confirmation", async () => {
+    const context = {
+      question: "Check the north entrance again",
+      location: { label: "Ferry Building north entrance", lat: 37.7956, lng: -122.3933 },
+      task_type: "is_open", bounty_usd: 4.25,
+    };
+    const w = setup(async () => ({ structuredContent: QUOTE }));
+    w.update({ ...TASK, status: "disputed", retry_context: context });
+    w.button("again").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenCalledExactlyOnceWith("quote_task", {
+      location: context.location, task_type: "is_open",
+    });
+    const restored = setup(async () => ({ structuredContent: TASK }), w.snapshot());
+    expect(restored.field("question").value).toBe(context.question);
+    expect(restored.invoke).not.toHaveBeenCalled();
+    restored.button("ask").click();
+    await restored.settle();
+    expect(restored.invoke).toHaveBeenCalledExactlyOnceWith("confirm_ask", {
+      ...context, idempotency_key: "key-1",
+    });
+  });
+
   it("publishes confirmed task context without a follow-up or another paid call", async () => {
     const invoke = vi.fn(async () => ({ structuredContent: TASK }));
     const setWidgetState = vi.fn();
