@@ -68,7 +68,8 @@ export function agentIdFromEmailAddress(secret: string, address: string): string
 
 const URLISH = /(?:https?:\/\/)?(?:[\w-]+\.)+[a-z]{2,}(?:[/?]\S*)?/gi;
 const PAIR = /^(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)/;
-const PLAIN_PAIR = /(?<![\w.-])-?\d{1,3}\.\d+\s*,\s*-?\d{1,3}\.\d+(?![\w.])/;
+// Copied coordinates have 4-6 decimals; 3+ keeps prices like "4.50, 3.20" from moving a spot.
+const PLAIN_PAIR = /(?<![\w.-])-?\d{1,3}\.\d{3,}\s*,\s*-?\d{1,3}\.\d{3,}(?![\w.])/;
 
 // Same checks as POST /w/location: in range, and not 0,0.
 function pin(value: string | null | undefined): LatLng | null {

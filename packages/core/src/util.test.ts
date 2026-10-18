@@ -26,11 +26,13 @@ describe("parseMapLink", () => {
     "\ufffd",
     "YES",
     "I got 12, 34 of them",
+    "It was 4.50, 3.20 with tax",
+    "37.76, -122.386",
     "https://maps.apple.com/?address=1%20Main%20St",
     "https://example.com/?ll=37.761,-122.386",
     "https://maps.apple.com/?ll=95.0,-122.386",
     "https://www.google.com/maps/@37.761,-190.5,15z",
-    "0.0, 0.0",
+    "0.000, 0.000",
     "https://maps.apple.com/?ll=0,0",
   ])("ignores %j", (text) => {
     expect(parseMapLink(text)).toBeNull();
