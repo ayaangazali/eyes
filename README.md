@@ -11,7 +11,7 @@
 
 [Site](https://eyes.pictures) · [Worker app](https://app.eyes.pictures) · [Connect](docs/CONNECT.md) · [Deploy](docs/DEPLOY.md) · [Status](STATUS.md)
 
-<img src="apps/web/landing/public/images/storefront.webp" alt="A corner cafe on 18th St with an OPEN sign on the door and a chalkboard menu on the sidewalk" width="720">
+<img src="https://eyes.pictures/images/storefront.webp" alt="A corner cafe on 18th St with an OPEN sign on the door and a chalkboard menu on the sidewalk" width="720">
 
 *The kind of photo Eyes returns: is the cafe open right now? The sign says yes.*
 
