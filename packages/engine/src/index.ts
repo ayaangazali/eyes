@@ -1162,10 +1162,10 @@ export function createEyesService(deps: EngineDeps): EyesService {
             : settled.status === "paid"
               ? `Verified and paid. ${amount} is on its way to your account. Thank you!`
               : worker.stripe_account_id
-                ? `Verified. Your ${amount} payout did not go through yet; it will be retried.`
+                ? `Your ${amount} payout did not go through yet; it will be retried.`
                 : worker.opted_in
-                  ? `Verified. We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`
-                  : `Verified. To get your ${amount}, set up payouts here: ${connectUrl(worker.id)}`;
+                  ? `We texted you a link to set up payouts; your ${amount} is sent automatically once that is done.`
+                  : `To get your ${amount}, set up payouts here: ${connectUrl(worker.id)}`;
       return {
         task_id: settled.id,
         status: settled.status,
