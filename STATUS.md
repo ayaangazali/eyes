@@ -1,6 +1,6 @@
 # STATUS
 
-Updated: 2026-10-17 09:50 PT by orchestrator. 49 PRs merged in total, 0 open. Live: Manufact 00682482 (main 8c0ae15, restarted with Inkbox env) + InsForge (DB 001-014, Sites) + ops dashboard. Two security sweeps and two fresh-eyes audits done. What is left needs vendor keys, a person, or a product decision: docs/PLAN.md §4 and 'Needs from humans'.
+Updated: 2026-10-17 09:50 PT by orchestrator. 49 PRs merged in total, 1 open (#75). Live: Manufact c1824102 (main 8c0ae15, EYES_PROVIDERS=live: Inkbox texting, Claude vision + classifier, InsForge storage, geo live; Stripe and Primitive simulated), Sites 6ac27658 (JOIN open, shared line) + InsForge (DB 001-014, Sites) + ops dashboard. Two security sweeps and two fresh-eyes audits done. What is left needs vendor keys, a person, or a product decision: docs/PLAN.md §4 and 'Needs from humans'.
 
 ## Task board
 
@@ -115,7 +115,8 @@ Earlier verifier minors (non-blocking by severity) are in each task's intent Kno
 | Primitive inbound + threaded reply | no | |
 | Owner console (ADR-011, Stripe user control) | **yes** (2026-10-17 02:55 PT) | Migration 005 applied to InsForge (201; anon gets 404 on both functions). Deploy e444ec99 (main c8b4af8): owner link from `scripts/owner-link.ts` -> GET 200 with `cache-control: no-store`, `referrer-policy: no-referrer`; form POST max $2 / cap $5 / 2 types -> 303; the agent's `GET /v1/spend-policy` shows the new limits; the agent's next $3 ask -> `bounty_exceeds_max` with fix "Lower bounty_usd to 2 or less"; refund copy on the page; malformed token -> 404. |
 | Safety gate, rules layer | **yes** (2026-10-17 02:33 PT) | Deploy 9e99b696 (main 433b76a): live `POST /v1/tasks` "Photograph the house at 12 Pine St." -> 422 `unsafe_task` / private_residence with a fix; live `POST /v1/quote` for the Ferry Building -> 200 (`allowed: true`); a safe ask -> 409 `no_workers_nearby`, nothing charged. Classifier layer not live (no ANTHROPIC_API_KEY). |
-| Claude vision verification | no | |
+| Safety gate, AI classifier | **yes** (2026-10-17 10:05 PT) | Deploy c1824102, `EYES_PROVIDERS=live`: `POST /v1/tasks` refused "the woman in the red jacket ..." (identifiable_people) and "whether my ex is working the register ..." (following) with classifier-written reasons. `pnpm safety:eval` with the key: 200 fixtures, precision 0.946, recall 1.000 (6 over-blocks, 0 misses); CI `safety-llm-eval` run 39050905675 success |
+| Claude vision verification | wired, not yet exercised (2026-10-17 10:05 PT): `/healthz` vision live on deploy c1824102; first real photo comes with G1 | |
 | Armature analytics | no | |
 
 ## Needs from humans (G0)
