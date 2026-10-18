@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Eyes",
+    "slug": "eyes-worker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["ios"],
+    "ios": {
+      "bundleIdentifier": "pictures.eyes.worker",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Eyes sends your approximate spot to the Eyes server so it can text you paid tasks near you.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Eyes sends your approximate spot to the Eyes server when you move, even with the app closed, so it can text you paid tasks near you. Turn it off in the app anytime.",
+        "UIBackgroundModes": ["location"],
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "plugins": ["expo-secure-store"]
+  }
+}

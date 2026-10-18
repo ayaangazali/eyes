@@ -3,5 +3,6 @@ packages:
   - apps/web/*
   - packages/*
   - cli
+  - "!apps/mobile"
 allowBuilds:
   esbuild: true
