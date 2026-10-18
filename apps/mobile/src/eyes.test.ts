@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeFromUrl, type Deps, isCode, type Last, onFix, postFix } from "./eyes.ts";
+import { codeFromUrl, type Deps, isCode, type Last, MESSAGES, onFix, postFix } from "./eyes.ts";
 
 const CODE = `${"A".repeat(40)}-_9`;
 const fix = { lat: 37.7607, lng: -122.3857 };
@@ -11,11 +11,11 @@ const fakeFetch = (...statuses: number[]) => {
   }) as typeof fetch;
   return { f, bodies };
 };
-const deps = (over: Partial<Deps>) => {
+type Over = Partial<Omit<Deps, "load">> & { code?: string | null; last?: Last | null };
+const deps = ({ code = CODE, last = null, ...over }: Over) => {
   const log = { saved: [] as Last[], stopped: 0 };
   const d: Deps = {
-    code: CODE,
-    last: null,
+    load: async () => ({ code, last }),
     save: async (l) => void log.saved.push(l),
     stop: async () => void log.stopped++,
     now: 1_000_000,
@@ -59,15 +59,46 @@ describe("postFix", () => {
 });
 
 describe("onFix", () => {
-  it("throttles to one post per 60 s unless forced, and 429 just records", async () => {
-    const { f, bodies } = fakeFetch(429, 204);
+  it("skips a send within 60 s of the last success; failures do not hold it back", async () => {
+    const { f, bodies } = fakeFetch(204, 204);
     const last: Last = { at: 1_000_000 - 59_000, result: "sent", lat: 0, lng: 0 };
     expect(await onFix(fix, deps({ last, fetch: f }).d)).toBeNull();
+    expect(await onFix(fix, deps({ last: { ...last, result: "rate_limited" }, fetch: f }).d)).toBeNull();
     expect(bodies).toHaveLength(0);
-    const { d, log } = deps({ last: { ...last, at: 1_000_000 - 60_000 }, fetch: f });
-    expect((await onFix(fix, d))?.result).toBe("rate_limited");
+    expect((await onFix(fix, deps({ last: { ...last, at: 1_000_000 - 60_000 }, fetch: f }).d))?.result).toBe(
+      "sent",
+    );
+    expect((await onFix(fix, deps({ last: { ...last, result: "failed" }, fetch: f }).d))?.result).toBe(
+      "sent",
+    );
+  });
+
+  it("429 is 'Up to date', keeps the last success time, so the next update retries", async () => {
+    const last: Last = { at: 1_000_000 - 120_000, result: "sent", lat: 0, lng: 0 };
+    const { d, log } = deps({ last, fetch: fakeFetch(429).f });
+    const next = await onFix(fix, d);
+    expect(next).toMatchObject({ at: last.at, result: "rate_limited" });
+    expect(MESSAGES.rate_limited).toBe("Up to date");
     expect(log.stopped).toBe(0);
-    expect((await onFix(fix, deps({ last, fetch: f }).d, true))?.result).toBe("sent");
+    const retry = fakeFetch(204);
+    expect((await onFix(fix, deps({ last: next, fetch: retry.f }).d))?.result).toBe("sent");
+  });
+
+  it("skips a send while another is in flight", async () => {
+    const entered = Promise.withResolvers<void>();
+    const gate = Promise.withResolvers<void>();
+    const slow = (async () => {
+      entered.resolve();
+      await gate.promise;
+      return new Response(null, { status: 204 });
+    }) as typeof fetch;
+    const { f, bodies } = fakeFetch(204);
+    const first = onFix(fix, deps({ fetch: slow }).d);
+    await entered.promise;
+    expect(await onFix(fix, deps({ fetch: f }).d)).toBeNull();
+    gate.resolve();
+    expect((await first)?.result).toBe("sent");
+    expect(bodies).toHaveLength(0);
   });
 
   it("401 stops updates and saves a rounded place", async () => {

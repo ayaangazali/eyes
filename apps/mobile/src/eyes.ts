@@ -12,10 +12,11 @@ export type Fix = { lat: number; lng: number; accuracy_m?: number; captured_at?:
 export type Result = "sent" | "stopped" | "rate_limited" | "failed";
 export type Last = { at: number; result: Result; lat: number; lng: number };
 
+// A 429 means the server stored a fix for this worker seconds ago (1 per 30 s), so the spot is fresh.
 export const MESSAGES: Record<Result, string> = {
   sent: "Sent",
   stopped: "Code stopped working: text AUTO to Eyes for a new one",
-  rate_limited: "Too many updates, will retry",
+  rate_limited: "Up to date",
   failed: "Not sent, will retry",
 };
 
@@ -39,31 +40,41 @@ export async function postFix(code: string, fix: Fix, fetchFn: typeof fetch = fe
 }
 
 export type Deps = {
-  code: string | null;
-  last: Last | null;
+  load: () => Promise<{ code: string | null; last: Last | null }>;
   save: (last: Last) => Promise<void>;
   stop: () => Promise<void>;
   fetch?: typeof fetch;
   now?: number;
 };
 
-// Returns null when nothing was sent (no code, or throttled).
-export async function onFix(fix: Fix, d: Deps, force = false): Promise<Last | null> {
-  const now = d.now ?? Date.now();
-  if (!d.code) {
-    await d.stop();
-    return null;
+let inFlight = false;
+
+// Returns null when nothing was sent: no code, a send already in flight, or a success < 60 s ago.
+// `at` is the time of the last success; failures keep it, so the next update retries.
+export async function onFix(fix: Fix, d: Deps): Promise<Last | null> {
+  if (inFlight) return null;
+  inFlight = true;
+  try {
+    const now = d.now ?? Date.now();
+    const { code, last } = await d.load();
+    if (!code) {
+      await d.stop();
+      return null;
+    }
+    const ok = last?.result === "sent" || last?.result === "rate_limited";
+    // ponytail: a throttled fix is dropped, not queued (no timers in a background wake).
+    if (ok && last && now - last.at < MIN_GAP_MS) return null;
+    const result = await postFix(code, fix, d.fetch);
+    const next = {
+      at: result === "sent" || !ok || !last ? now : last.at,
+      result,
+      lat: Math.round(fix.lat * 100) / 100,
+      lng: Math.round(fix.lng * 100) / 100,
+    };
+    await d.save(next);
+    if (result === "stopped") await d.stop();
+    return next;
+  } finally {
+    inFlight = false;
   }
-  // ponytail: a throttled fix is dropped, not queued (no timers in a background wake).
-  if (!force && d.last && now - d.last.at < MIN_GAP_MS) return null;
-  const result = await postFix(d.code, fix, d.fetch);
-  const last = {
-    at: now,
-    result,
-    lat: Math.round(fix.lat * 100) / 100,
-    lng: Math.round(fix.lng * 100) / 100,
-  };
-  await d.save(last);
-  if (result === "stopped") await d.stop();
-  return last;
 }

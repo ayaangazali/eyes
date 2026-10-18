@@ -39,7 +39,6 @@ export default function App() {
   const [perm, setPerm] = useState<Perm>("unknown");
   const [sharing, setSharing] = useState(false);
   const [last, setLast] = useState<Last | null>(null);
-  const [busy, setBusy] = useState(false);
   const [connected, setConnected] = useState(false);
 
   const refresh = useCallback(async () => {
@@ -53,11 +52,23 @@ export default function App() {
     else setPerm("denied");
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const sub = AppState.addEventListener("change", (s) => s === "active" && refresh());
-    return () => sub.remove();
+  // One automatic send (60 s throttle applies) whenever sharing is on and the app is in front.
+  // Sharing on implies a code and "Always" permission: start is only called with both.
+  const sendAuto = useCallback(async () => {
+    if (!(await Location.hasStartedLocationUpdatesAsync(TASK))) return;
+    try {
+      await report(await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }));
+    } catch {
+      return; // no fix right now; background updates keep trying
+    }
+    await refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    refresh().then(sendAuto);
+    const sub = AppState.addEventListener("change", (s) => s === "active" && refresh().then(sendAuto));
+    return () => sub.remove();
+  }, [refresh, sendAuto]);
 
   async function allow() {
     const fg = await Location.requestForegroundPermissionsAsync();
@@ -66,6 +77,7 @@ export default function App() {
     setPerm("always");
     await startSharing();
     setSharing(true);
+    await sendAuto();
   }
 
   const save = useCallback(
@@ -74,8 +86,9 @@ export default function App() {
       setDraft("");
       if ((await Location.getBackgroundPermissionsAsync()).granted) await startSharing();
       await refresh();
+      await sendAuto();
     },
-    [refresh],
+    [refresh, sendAuto],
   );
 
   useEffect(() => {
@@ -93,20 +106,6 @@ export default function App() {
   async function toggle(on: boolean) {
     await (on ? startSharing() : stopSharing());
     setSharing(on);
-  }
-
-  async function sendNow() {
-    setBusy(true);
-    try {
-      const sent = await report(
-        await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-        true,
-      );
-      await refresh();
-      if (sent) setLast(sent);
-    } finally {
-      setBusy(false);
-    }
   }
 
   async function remove() {
@@ -184,7 +183,6 @@ export default function App() {
             </Text>
           </>
         )}
-        <Button label={busy ? "Sending…" : "Send now"} primary disabled={busy} onPress={sendNow} c={c} />
         <Button label="Remove code" onPress={remove} c={c} />
       </>
     );

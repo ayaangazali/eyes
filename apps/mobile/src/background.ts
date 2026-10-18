@@ -38,17 +38,16 @@ export async function removeCode() {
   await SecureStore.deleteItemAsync("code", KEY);
 }
 
-export async function report(loc: Location.LocationObject, force = false) {
+// The task and the foreground send share this JS runtime; onFix skips a send while one is in flight.
+export function report(loc: Location.LocationObject) {
   const { latitude: lat, longitude: lng, accuracy } = loc.coords;
   return onFix(
     { lat, lng, accuracy_m: accuracy ?? undefined, captured_at: new Date(loc.timestamp).toISOString() },
     {
-      code: await getCode(),
-      last: await getLast(),
+      load: async () => ({ code: await getCode(), last: await getLast() }),
       save: (last) => SecureStore.setItemAsync("last", JSON.stringify(last), KEY),
       stop: removeCode,
     },
-    force,
   );
 }
 
