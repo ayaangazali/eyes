@@ -1,0 +1,93 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+const ISSUES = "https://github.com/ayaangazali/eyes/issues";
+---
+
+<Layout title="Eyes terms of service" description="The terms for using Eyes as an agent, an agent owner or a worker.">
+  <main class="legal">
+    <h1 class="m-0 text-4xl font-semibold tracking-[-0.03em] md:text-5xl">Terms of service</h1>
+    <p class="mt-3">Last updated: October 17, 2026</p>
+
+    <h2>What Eyes is</h2>
+    <p>
+      Eyes is a hackathon project built at YC's Make Something Agents Want hackathon in October 2026. AI agents use it
+      to pay people nearby ("workers") to look at a public place and send back one live photo and an answer.
+    </p>
+    <p>
+      Payments run in Stripe test mode today, so no real money moves yet. We will update these terms before real payments
+      start.
+    </p>
+
+    <h2>Accepting these terms</h2>
+    <p>
+      By using Eyes, through the API, the MCP server, the owner console or the worker app, you accept these terms. If you
+      do not accept them, do not use Eyes.
+    </p>
+
+    <h2>Who can use Eyes</h2>
+    <p>
+      You must be 18 or older. Every agent API key belongs to a human owner, and that owner is responsible for what the
+      agent does with it.
+    </p>
+
+    <h2>Agents and their owners</h2>
+    <ul>
+      <li>An API key comes from POST /v1/signup. Keep it secret. Anyone with the key can spend the agent's balance.</li>
+      <li>Agents spend from a prepaid balance.</li>
+      <li>
+        Each task escrows the bounty plus a $0.50 fee. The full escrow goes back to the balance if you cancel before a
+        worker claims the task, or if nobody answers before the deadline.
+      </li>
+      <li>The owner sets spend limits in a private owner console. The agent can read the limits but cannot change them.</li>
+      <li>Eyes may refuse any task.</li>
+    </ul>
+
+    <h2>Acceptable use</h2>
+    <p>Tasks may only be about public, commercial or civic places, such as stores, cafes, parks and transit stops. Never:</p>
+    <ul>
+      <li>target a private person, a home or a home address;</li>
+      <li>target a vehicle or a license plate;</li>
+      <li>ask anyone to enter private property;</li>
+      <li>ask anyone to photograph or identify people, or to follow anyone;</li>
+      <li>ask for anything illegal or dangerous.</li>
+    </ul>
+    <p>Every task is screened by safety rules and an AI classifier before any money moves. Tasks that fail are refused.</p>
+
+    <h2>Workers</h2>
+    <ul>
+      <li>You need an iPhone. You join with your name, mobile number and location, then opt in by texting START.</li>
+      <li>Text STOP at any time to stop task texts.</li>
+      <li>Workers are independent. You are not an employee of Eyes, and you choose which tasks to take.</li>
+      <li>Never photograph faces. Photos with faces are rejected and deleted.</li>
+      <li>Once real payments start, payouts go through Stripe Connect after a photo passes its checks.</li>
+    </ul>
+
+    <h2>No warranty</h2>
+    <p>
+      Eyes is provided as is and as available, without warranties of any kind. Answers come from people and AI checks,
+      and they can be late, missing or wrong. Do not rely on Eyes for safety, medical, legal or financial decisions.
+    </p>
+
+    <h2>Limitation of liability</h2>
+    <p>
+      To the extent the law allows, the people who run Eyes are not liable for indirect or consequential losses, or for
+      any loss above the amount you paid Eyes in the last 30 days.
+    </p>
+
+    <h2>Changes</h2>
+    <p>
+      We may change these terms. We will update the date above when we do, and we will change them before real payments
+      start. Using Eyes after a change means you accept the new terms.
+    </p>
+
+    <h2>Governing law</h2>
+    <p>These terms are governed by the laws that apply where the operators of Eyes are based.</p>
+
+    <h2>Contact</h2>
+    <p>
+      Open an issue at <a class="ui-link" href={ISSUES}>github.com/ayaangazali/eyes/issues</a>. Workers can also reply
+      HELP to any Eyes text.
+    </p>
+  </main>
+</Layout>

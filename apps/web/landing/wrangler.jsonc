@@ -1,0 +1,9 @@
+{
+  "name": "eyes-landing",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist" },
+  "routes": [
+    { "pattern": "eyes.pictures", "custom_domain": true },
+    { "pattern": "www.eyes.pictures", "custom_domain": true }
+  ]
+}
