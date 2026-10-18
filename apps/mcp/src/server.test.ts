@@ -1447,3 +1447,405 @@ describe("OAuth for connectors", () => {
     );
   });
 });
+
+describe("ops data routes", () => {
+  const T = { id: TASK_ID, lat: 37.78, lng: -122.4 };
+  function opsServer(rpc: (fn: string, args: Record<string, unknown>) => unknown, extra: object = {}) {
+    const events = createEventLog();
+    const calls: { fn: string; args: Record<string, unknown> }[] = [];
+    const server = createServer({
+      service: {} as EyesService,
+      providers: fakeProviders(),
+      config: AppConfig.parse({
+        public_api_url: "http://api.eyes.test",
+        worker_web_url: "http://worker.eyes.test",
+        link_secret: SECRET,
+      }),
+      env: { EYES_OPS_KEY: OPS_KEY },
+      rpc: (async (fn: string, args: Record<string, unknown>) => {
+        calls.push({ fn, args });
+        return rpc(fn, args);
+      }) as Rpc,
+      events,
+      ...extra,
+    });
+    const fetch = (url: string, init?: RequestInit) => server.fetch(new Request(url, init));
+    const cookie = async () => {
+      const signin = await fetch(`http://eyes.test/ops/${OPS_KEY}`);
+      return (signin.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+    };
+    const get = async (path: string) =>
+      fetch(`http://eyes.test${path}`, { headers: { cookie: await cookie() } });
+    const post = async (path: string, body: unknown) =>
+      fetch(`http://eyes.test${path}`, {
+        method: "POST",
+        headers: {
+          cookie: await cookie(),
+          origin: "http://api.eyes.test",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+    return { get, post, calls, events };
+  }
+
+  it("serves time series from ClickHouse when it answers, with its drop count", async () => {
+    const queries: string[] = [];
+    const { get } = opsServer(() => [], {
+      clickhouse: {
+        query: async (sql: string) => {
+          queries.push(sql);
+          return [];
+        },
+        dropped: () => 3,
+      },
+    });
+    const body = await (await get("/ops/series")).json();
+    expect(body).toMatchObject({ source: "clickhouse", dropped: 3 });
+    expect(queries.length).toBeGreaterThan(0);
+  });
+
+  it("falls back to Postgres series when ClickHouse fails, and to an empty feed when Postgres fails too", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const ch = {
+      query: async () => {
+        throw new Error("ch down");
+      },
+      dropped: () => 1,
+    };
+    const ok = opsServer(() => [{ tasks: [], ledger: [] }], { clickhouse: ch });
+    expect(await (await ok.get("/ops/series")).json()).toMatchObject({ source: "postgres", dropped: 1 });
+    expect(errors).toHaveBeenCalledWith("ops series: clickhouse read failed:", "ch down");
+    const ch2 = { query: () => Promise.reject("raw"), dropped: () => 0 };
+    const down = opsServer(
+      () => {
+        throw new Error("db down");
+      },
+      { clickhouse: ch2 },
+    );
+    expect(await (await down.get("/ops/series")).json()).toMatchObject({ source: "postgres", dropped: 0 });
+    expect(errors).toHaveBeenCalledWith("ops series: clickhouse read failed:", "raw");
+    const plain = opsServer(() => null);
+    expect(await (await plain.get("/ops/series")).json()).toMatchObject({ source: "postgres", dropped: 0 });
+    errors.mockRestore();
+  });
+
+  it("reads the event log from the database with sanitised filters", async () => {
+    const { get, calls } = opsServer(() => [{ id: 1, kind: "call", summary: "x" }]);
+    const res = await get(`/ops/events?kind=call&level=warn&q=%20boom%20&task_id=${TASK_ID}&before=42`);
+    expect(await res.json()).toEqual({ source: "database", events: [{ id: 1, kind: "call", summary: "x" }] });
+    expect(calls.at(-1)).toEqual({
+      fn: "eyes_events",
+      args: { p_limit: 200, p_kind: "call", p_level: "warn", p_q: "boom", p_task_id: TASK_ID, p_before: 42 },
+    });
+    await get("/ops/events?task_id=not-a-uuid&before=4x&q=%20");
+    expect(calls.at(-1)?.args).toMatchObject({
+      p_kind: null,
+      p_level: null,
+      p_q: null,
+      p_task_id: null,
+      p_before: null,
+    });
+  });
+
+  it("filters the in-memory ring when the database read fails", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { get, events } = opsServer(() => {
+      throw new Error("db down");
+    });
+    events.log({ kind: "call", level: "warn", task_id: TASK_ID, summary: "get_task task_not_found" });
+    events.log({
+      kind: "call",
+      level: "info",
+      task_id: TASK_ID,
+      summary: "get_task ok",
+      data: { Needle: 1 },
+    });
+    events.log({ kind: "text", level: "info", task_id: null, summary: "offer sent" });
+    const summaries = async (query: string) => {
+      const body = await (await get(`/ops/events${query}`)).json();
+      expect(body.source).toBe("memory");
+      return body.events.map((e: { summary: string }) => e.summary).sort();
+    };
+    expect(await summaries("")).toEqual(
+      expect.arrayContaining(["break-glass login", "get_task ok", "get_task task_not_found", "offer sent"]),
+    );
+    expect(await summaries("?kind=call")).toEqual(["get_task ok", "get_task task_not_found"]);
+    expect(await summaries("?kind=call&level=warn")).toEqual(["get_task task_not_found"]);
+    expect(await summaries(`?task_id=${TASK_ID}&q=NEEDLE`)).toEqual(["get_task ok"]);
+    expect(errors).toHaveBeenCalledWith("ops events: database read failed:", "db down");
+    const raw = opsServer(() => Promise.reject("raw"));
+    expect((await (await raw.get("/ops/events")).json()).source).toBe("memory");
+    expect(errors).toHaveBeenCalledWith("ops events: database read failed:", "raw");
+    errors.mockRestore();
+  });
+
+  it("lists tickets without worker ids, with the submission distance when there is one", async () => {
+    const { get, calls } = opsServer(() => [
+      { ...T, ticket_id: 1, worker_id: "w1", submission_lat: 37.78, submission_lng: -122.4 },
+      { ...T, ticket_id: 2, worker_id: "w2", submission_lat: null, submission_lng: -122.4 },
+      { ...T, ticket_id: 3, worker_id: "w3", submission_lat: 37.78, submission_lng: null },
+    ]);
+    const { tickets } = await (await get("/ops/tickets")).json();
+    expect(tickets).toEqual([
+      { ...T, ticket_id: 1, distance_m: 0 },
+      { ...T, ticket_id: 2, distance_m: null },
+      { ...T, ticket_id: 3, distance_m: null },
+    ]);
+    expect(calls).toEqual([{ fn: "eyes_tickets", args: { p_limit: 50 } }]);
+  });
+
+  it("reports Claude as the classifier, a non-Error db failure, and works without an event log", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { get } = opsServer(() => Promise.reject("socket closed"), {
+      env: { EYES_OPS_KEY: OPS_KEY, ANTHROPIC_API_KEY: "sk-ant-test" },
+      events: undefined,
+    });
+    const feed = await (await get("/ops/feed")).json();
+    expect(feed.ops.health).toMatchObject({ classifier: "Claude", db_error: "socket closed" });
+    expect(feed.ops.errors).toEqual([]);
+    expect(await (await get("/ops/series")).json()).toMatchObject({ source: "postgres" });
+    expect(await (await get("/ops/events?q=x")).json()).toEqual({ source: "memory", events: [] });
+    errors.mockRestore();
+  });
+
+  it("rethrows a resolve failure that is not an already-resolved task", async () => {
+    const errors = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failures = [new Error("db down"), new EyesError("invalid_input", { status: "dispatched" })];
+    const { post } = opsServer(() => [], {
+      service: {
+        resolveTask: async () => {
+          throw failures.shift();
+        },
+      },
+    });
+    expect((await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "release" })).status).toBe(500);
+    const res = await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "refund" });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: "invalid_input" });
+    errors.mockRestore();
+  });
+
+  it("logs a dispute decision as a warning when the reversal is owed, and marks a repeat click", async () => {
+    const outcome = (reversal: string, already_resolved: boolean) => ({
+      ticket_id: 7,
+      task_id: TASK_ID,
+      reversal,
+      already_resolved,
+    });
+    const { post, events } = opsServer(() => [], {
+      service: {
+        confirmFraud: async () => outcome("owed", false),
+        rejectDispute: async () => outcome("none", true),
+      },
+    });
+    expect(await (await post("/ops/tickets/7/confirm_fraud", { note: "fake photo" })).json()).toMatchObject({
+      reversal: "owed",
+    });
+    await post("/ops/tickets/7/reject_dispute", { note: "answer stands" });
+    const ops = events.recent().filter((e) => e.kind === "ops");
+    expect(ops.map((e) => [e.level, e.summary]).sort()).toEqual([
+      ["info", "ticket #7 reject_dispute by break-glass (already resolved)"],
+      ["warn", "ticket #7 confirm_fraud by break-glass"],
+    ]);
+  });
+
+  it("shows task detail with or without a submission, and 404s unknown or malformed ids without querying", async () => {
+    const task = { ...T, question: "q", place_label: "p", radius_m: 50, status: "paid", bounty_cents: 300 };
+    const submission = {
+      lat: 37.78,
+      lng: -122.4,
+      photo_url: "https://storage.eyes.test/p.jpg",
+      answer_text: "short",
+      answer_bool: true,
+      gps_ok: true,
+      fresh_ok: true,
+      vision_ok: false,
+      vision_reason: "blurry",
+      confidence: 0.8,
+      created_at: "2026-10-17T19:05:00.000Z",
+    };
+    let rows: unknown[] = [{ task, submission }];
+    const { get, calls } = opsServer(() => rows);
+    expect(await (await get(`/ops/tasks/${TASK_ID}`)).json()).toMatchObject({
+      id: TASK_ID,
+      status: "paid",
+      photo_url: submission.photo_url,
+      answer_bool: true,
+      vision_ok: false,
+      submitted_at: submission.created_at,
+      distance_m: 0,
+    });
+    rows = [{ task, submission: null }];
+    expect(await (await get(`/ops/tasks/${TASK_ID}`)).json()).toMatchObject({
+      photo_url: null,
+      answer_text: null,
+      answer_bool: null,
+      gps_ok: null,
+      fresh_ok: null,
+      vision_ok: null,
+      vision_reason: null,
+      confidence: null,
+      submitted_at: null,
+      distance_m: null,
+    });
+    rows = [];
+    expect((await get(`/ops/tasks/${TASK_ID}`)).status).toBe(404);
+    const before = calls.length;
+    const bad = await get("/ops/tasks/nope");
+    expect(bad.status).toBe(404);
+    expect(await bad.json()).toMatchObject({ error: "task_not_found", message: "No task with this id." });
+    expect(calls.length).toBe(before);
+  });
+});
+
+describe("agent tools and REST mirrors forward the agent and parsed input", () => {
+  const recorder = () => {
+    const seen: { method: string; agent: unknown; input: unknown }[] = [];
+    const fail =
+      (method: string) =>
+      async (agent: unknown, input?: unknown): Promise<never> => {
+        seen.push({ method, agent: (agent as Agent).id, input });
+        throw new EyesError("task_not_found");
+      };
+    const overrides = Object.fromEntries(
+      ["listTasks", "cancelTask", "disputeAnswer", "getBalance", "getSpendPolicy", "awaitAnswer"].map((m) => [
+        m,
+        fail(m),
+      ]),
+    ) as Partial<EyesService>;
+    return { seen, ...setup(overrides) };
+  };
+
+  it("runs list_tasks, cancel_task, dispute_answer, get_balance and get_spend_policy as tools", async () => {
+    const { fetch, seen } = recorder();
+    const client = await connect(fetch);
+    const calls = [
+      ["list_tasks", { status: "dispatched", limit: 5 }],
+      ["cancel_task", { task_id: TASK_ID }],
+      ["dispute_answer", { task_id: TASK_ID, reason: "The photo shows a different cafe." }],
+      ["get_balance", {}],
+      ["get_spend_policy", {}],
+    ] as const;
+    for (const [name, args] of calls) {
+      const result = await client.callTool({ name, arguments: args });
+      expect(result.isError, name).toBe(true);
+      expect(parseText(result)).toMatchObject({ error: "task_not_found" });
+    }
+    expect(seen.map((s) => [s.method, s.agent])).toEqual([
+      ["listTasks", AGENT.id],
+      ["cancelTask", AGENT.id],
+      ["disputeAnswer", AGENT.id],
+      ["getBalance", AGENT.id],
+      ["getSpendPolicy", AGENT.id],
+    ]);
+    expect(seen[0]?.input).toMatchObject({ status: "dispatched", limit: 5 });
+    expect(seen[2]?.input).toMatchObject({ task_id: TASK_ID, reason: "The photo shows a different cafe." });
+  });
+
+  it("serves await, cancel, dispute and spend-policy over REST with the path task id", async () => {
+    const { fetch, seen } = recorder();
+    const headers = { authorization: `Bearer ${KEY}` };
+    const post = (path: string, body?: unknown) =>
+      fetch(`http://eyes.test${path}`, {
+        method: "POST",
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    for (const res of [
+      await post(`/v1/tasks/${TASK_ID}/await`, { timeout_seconds: 5 }),
+      await post(`/v1/tasks/${TASK_ID}/cancel`),
+      await post(`/v1/tasks/${TASK_ID}/dispute`, { reason: "Wrong place entirely." }),
+      await fetch("http://eyes.test/v1/spend-policy", { headers }),
+    ]) {
+      expect(res.status).toBe(404);
+      expect(await res.json()).toMatchObject({ error: "task_not_found" });
+    }
+    expect(seen.map((s) => [s.method, s.input])).toEqual([
+      ["awaitAnswer", expect.objectContaining({ task_id: TASK_ID, timeout_seconds: 5 })],
+      ["cancelTask", { task_id: TASK_ID }],
+      ["disputeAnswer", { task_id: TASK_ID, reason: "Wrong place entirely." }],
+      ["getSpendPolicy", undefined],
+    ]);
+  });
+
+  it("refuses a body that is not JSON and treats an empty body as {}", async () => {
+    const { fetch, seen } = recorder();
+    const headers = { authorization: `Bearer ${KEY}` };
+    const bad = await fetch(`http://eyes.test/v1/tasks/${TASK_ID}/dispute`, {
+      method: "POST",
+      headers,
+      body: "{nope",
+    });
+    expect(bad.status).toBe(400);
+    expect(await bad.json()).toMatchObject({
+      error: "invalid_input",
+      issues: [{ path: "", message: "Request body is not valid JSON." }],
+    });
+    const empty = await fetch(`http://eyes.test/v1/tasks/${TASK_ID}/dispute`, {
+      method: "POST",
+      headers,
+      body: " ",
+    });
+    expect(empty.status).toBe(400);
+    expect((await empty.json()).fix).toContain("reason");
+    expect(seen).toEqual([]);
+  });
+});
+
+describe("await_answer progress and startup checks", () => {
+  it("reports progress every 5 s while waiting, and not at all without a progress token", async () => {
+    const held: (() => void)[] = [];
+    const release = async () => {
+      await vi.waitFor(() => expect(held.length).toBe(1));
+      held.pop()?.();
+    };
+    const { fetch } = setup({
+      awaitAnswer: async (_agent, input) => {
+        await new Promise<void>((r) => held.push(r));
+        return {
+          task_id: input.task_id,
+          status: "dispatched",
+          answered: false,
+          answer: null,
+          next_step: "Call again.",
+        };
+      },
+    });
+    const client = await connect(fetch);
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      const progress: unknown[] = [];
+      const call = client.callTool(
+        { name: "await_answer", arguments: { task_id: TASK_ID, timeout_seconds: 30 } },
+        { onprogress: (p) => progress.push(p) },
+      );
+      await vi.waitFor(() => expect(held.length).toBe(1));
+      await vi.advanceTimersByTimeAsync(10_000);
+      await release();
+      await call;
+      await vi.waitFor(() => expect(progress.length).toBe(3));
+      expect(progress[0]).toMatchObject({
+        progress: 0,
+        total: 30,
+        message: "Waiting for a worker to answer",
+      });
+      expect(vi.getTimerCount()).toBe(0);
+
+      const quiet = client.callTool({
+        name: "await_answer",
+        arguments: { task_id: TASK_ID, timeout_seconds: 30 },
+      });
+      await release();
+      expect((await quiet).structuredContent).toMatchObject({ answered: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses to start with an EYES_OAUTH_SECRET under 32 characters", () => {
+    expect(() => setup({}, { EYES_OAUTH_SECRET: "short" })).toThrow(
+      "EYES_OAUTH_SECRET must be at least 32 characters.",
+    );
+  });
+});
