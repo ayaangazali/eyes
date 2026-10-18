@@ -1,12 +1,13 @@
 // The /ops page: DOM rendering, polling, the review panel and ticket actions. server.ts inlines this file
 // (types stripped, imports dropped) after format.ts into ops.html and calls boot(window).
+
+import { type Action, actionArea, createToaster, type Outcome } from "./actions.ts";
 import {
   after,
   ago,
   checkReason,
   cut,
   eventQuery,
-  filterTickets,
   LEDGER_LABEL,
   nearLabel,
   nextTab,
@@ -215,15 +216,6 @@ export function boot(win: OpsWindow) {
     return photo;
   }
 
-  function noteAndStatus(placeholder: string) {
-    const note = h("textarea", "ui-input");
-    note.placeholder = placeholder;
-    note.maxLength = 500;
-    const out = h("span", "tiny");
-    out.setAttribute("role", "status");
-    return { note, out };
-  }
-
   function taskRow(t: Task) {
     const li = h("li");
     li.append(
@@ -278,24 +270,24 @@ export function boot(win: OpsWindow) {
       return;
     }
     const open = t.status === "needs_review" || t.status === "disputed";
-    const { note, out } = noteAndStatus("Note (optional), saved with the decision");
-    const decide = (outcome: string) => async () => {
-      const r = await fetch(`/tasks/${t.id}/resolve`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ outcome, note: note.value.trim() || undefined }),
-      });
-      const body = await json<Reply>(r);
-      if (!r.ok) {
-        out.textContent = `Failed: ${body.message || body.error || r.status}`;
-        return false;
-      }
-      out.textContent = body.already_resolved
-        ? `Already ${body.status}; no money moved.`
-        : `Done: ${body.status}. It leaves the queue on the next refresh.`;
-      for (const b of review.querySelectorAll<HTMLButtonElement>(".actions button")) b.disabled = true;
-      return true;
-    };
+    const bounty = t.bounty_cents ?? 0;
+    const resolve =
+      (outcome: "release" | "refund") =>
+      async (note: string): Promise<Outcome> => {
+        const r = await fetch(`/tasks/${t.id}/resolve`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ outcome, note: note || undefined }),
+        });
+        const body = await json<Reply>(r);
+        if (!r.ok) return { ok: false, message: `Failed: ${body.message || body.error || r.status}` };
+        return {
+          ok: true,
+          message: body.already_resolved
+            ? `Already ${body.status}; no money moved.`
+            : `Done: ${body.status}. It leaves the queue on the next refresh.`,
+        };
+      };
     const checklist: [string, boolean | null | undefined][] = [
       ["At the place (GPS)", t.gps_ok],
       ["Taken just now", t.fresh_ok],
@@ -346,24 +338,27 @@ export function boot(win: OpsWindow) {
         t.vision_reason ? h("p", "muted", `Moderation: ${checkReason(t.vision_reason)}`) : null,
         t.dispute_reason ? h("p", "msg", `Agent's dispute: ${t.dispute_reason}`) : null,
         open
-          ? h(
-              "div",
-              "actions",
-              note,
-              confirmButton(
-                "Release (pay the worker)",
-                `Confirm: pay the worker ${usd(t.bounty_cents)}`,
-                "primary",
-                decide("release"),
-              ),
-              confirmButton(
-                "Refund (return to the agent)",
-                `Confirm: refund ${usd((t.bounty_cents ?? 0) + t.fee_cents)}`,
-                "ghost",
-                decide("refund"),
-              ),
-              out,
-            )
+          ? actionArea(document, {
+              id: `task-${t.id}`,
+              primary: {
+                label: "Release to the worker",
+                confirm: `Pay the worker ${usd(bounty)}? The task is marked verified.`,
+                verb: `Release ${usd(bounty)}`,
+                tone: "primary",
+                run: resolve("release"),
+              },
+              more: [
+                {
+                  label: "Refund the agent",
+                  confirm: `Return ${usd(bounty + t.fee_cents)} to the agent? The worker is not paid.`,
+                  verb: `Refund ${usd(bounty + t.fee_cents)}`,
+                  tone: "danger",
+                  run: resolve("refund"),
+                },
+              ],
+              note: { label: "Note (optional)", hint: "Saved with the decision.", required: false },
+              toast,
+            })
           : h("p", "muted", `Settled: ${t.status.replace("_", " ")}.`),
         h("span", "tiny", t.id),
       ].filter((x) => x != null),
@@ -539,193 +534,211 @@ export function boot(win: OpsWindow) {
   }
 
   // Two clicks: the first arms the button for 5 s and says what will happen, the second does it.
-  // A decided action stays disabled; a failed one can be tried again.
-  function confirmButton(label: string, armed: string, tone: string, act: () => Promise<boolean>) {
-    const b = h("button", `ui-button ui-button--sm ui-button--${tone}`, label);
-    b.type = "button";
-    let timer = 0;
-    b.addEventListener("click", async () => {
-      if (!b.dataset.armed) {
-        b.dataset.armed = "1";
-        b.textContent = armed;
-        timer = win.setTimeout(() => {
-          delete b.dataset.armed;
-          b.textContent = label;
-        }, 5000);
-        return;
-      }
-      win.clearTimeout(timer);
-      b.disabled = true;
-      b.textContent = "Working";
-      let done = false;
-      try {
-        done = await act();
-      } finally {
-        b.disabled = done;
-        delete b.dataset.armed;
-        b.textContent = label;
-      }
-    });
-    return b;
-  }
+  // Ticket decisions. Dispute actions (confirm_fraud, reject_dispute) take only a note; the others also send the task id.
+  const decideTicket =
+    (t: Ticket, action: string) =>
+    async (note: string): Promise<Outcome> => {
+      const res = await fetch(`/tickets/${t.id}/${action}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(t.kind === "dispute" ? { note } : { task_id: t.task_id, note }),
+      });
+      const body = await json<Reply>(res);
+      if (!res.ok) return { ok: false, message: `Failed: ${body.message || body.error || res.status}` };
+      loadTickets();
+      countOpenTickets();
+      return {
+        ok: true,
+        message: body.already_resolved
+          ? `Already ${body.dispute_status || "resolved"}; no money moved.`
+          : action === "confirm_fraud"
+            ? `Done: agent refunded ${usd(body.agent_refund_cents as number)}, transfer ${body.reversal === "owed" ? `reversal owed ${usd(body.reversal_owed_cents as number)}` : body.reversal}, worker banned.`
+            : `Done: ticket #${t.id} ${action.replace("_", " ")}.`,
+      };
+    };
 
-  // Dispute actions (confirm_fraud, reject_dispute) take only a note; the others also send the task id.
-  async function act(t: Ticket, action: string, note: HTMLTextAreaElement, out: HTMLElement) {
-    if (!note.value.trim()) {
-      out.textContent =
-        t.kind === "dispute"
-          ? "Write a note first; it is kept with the decision."
-          : "Write a note first; it is texted to the worker.";
-      return false;
-    }
-    const res = await fetch(`/tickets/${t.id}/${action}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(
-        t.kind === "dispute" ? { note: note.value } : { task_id: t.task_id, note: note.value },
-      ),
-    });
-    const body = await json<Reply>(res);
-    if (!res.ok) {
-      out.textContent = `Failed: ${body.message || body.error || res.status}`;
-      return false;
-    }
-    out.textContent = body.already_resolved
-      ? `Already ${body.dispute_status || "resolved"}; no money moved.`
-      : action === "confirm_fraud"
-        ? `Done: agent refunded ${usd(body.agent_refund_cents as number)}, transfer ${body.reversal === "owed" ? `reversal owed ${usd(body.reversal_owed_cents as number)}` : body.reversal}, worker banned.`
-        : `Done: ticket #${t.id} ${action.replace("_", " ")}.`;
-    await loadTickets();
-    return true;
-  }
-
-  function ticketRow(t: Ticket) {
-    const dispute = t.kind === "dispute";
-    const open = ticketOpen(t);
-    const { note, out } = noteAndStatus(
-      dispute ? "Note, kept with the decision" : "Note, texted to the worker",
-    );
+  /** One clear primary action per ticket state; the rest in the menu. */
+  function ticketActions(t: Ticket) {
     const bounty = usd(t.bounty_cents);
-    const state = dispute ? t.dispute_status || "open" : open ? "open" : "resolved";
-    const body = h(
-      "div",
-      null,
-      h(
-        "div",
-        "task-head",
-        h("p", "q", `#${t.id} ${cut(t.question, 160)}`),
-        h(
-          "span",
-          "line",
-          dispute ? badge("dispute", "warning") : null,
-          badge(state, open ? "danger" : state === "upheld" ? "warning" : "success"),
-        ),
-      ),
-      h(
-        "div",
-        "line",
-        h("span", null, cut(nearLabel(t.place_label), 70)),
-        h("span", null, "bounty ", h("strong", null, bounty)),
-        h(
-          "span",
-          null,
-          "worker ",
-          h("strong", null, t.distance_m == null ? "?" : `${t.distance_m} m`),
-          ` from the place (radius ${t.radius_m} m)`,
-        ),
-        checks(t),
-      ),
-      t.vision_reason ? h("p", "muted", `Photo safety: ${checkReason(t.vision_reason)}`) : null,
-      t.answer_text ? h("p", "muted", `Answer: ${cut(t.answer_text, 300)}`) : null,
-      h("p", "msg", dispute ? `Agent says: ${t.message || "(no reason)"}` : t.message || "(no message)"),
-      t.reversal_owed_cents
-        ? h(
-            "p",
-            "muted",
-            badge(`reversal owed ${usd(t.reversal_owed_cents)}`, "danger"),
-            " the worker already moved the money; collect it by hand.",
-          )
-        : null,
-      t.worker_banned ? h("p", "muted", "Worker banned.") : null,
-      h("span", "tiny", `task ${t.task_id}, ${t.task_status}, opened ${stamp(t.created_at)}`),
-    );
+    if (t.kind === "dispute")
+      return actionArea(document, {
+        id: `ticket-${t.id}`,
+        primary: {
+          label: "Reject the dispute",
+          confirm: "Reject the dispute? The answer stands and the worker keeps the pay.",
+          verb: "Reject dispute",
+          tone: "primary",
+          run: decideTicket(t, "reject_dispute"),
+        },
+        more: [
+          {
+            label: "Confirm fraud",
+            confirm: "Confirm fraud? The agent is refunded, the payout reversed and the worker banned.",
+            verb: "Confirm fraud",
+            tone: "danger",
+            run: decideTicket(t, "confirm_fraud"),
+          },
+        ],
+        note: { label: "Note", hint: "Kept with the decision.", required: true },
+        toast,
+      });
     const held = t.task_status === "needs_review" || t.task_status === "disputed";
-    if (open && dispute) {
-      body.append(
-        note,
-        h(
-          "div",
-          "actions",
-          confirmButton(
-            "Confirm fraud: ban + refund",
-            "Confirm: refund the agent, reverse the payout, ban the worker",
-            "danger",
-            () => act(t, "confirm_fraud", note, out),
-          ),
-          confirmButton("Reject", "Confirm: reject, the worker keeps the pay", "ghost", () =>
-            act(t, "reject_dispute", note, out),
-          ),
-          out,
-        ),
-      );
-    } else if (open) {
-      body.append(
-        note,
-        h(
-          "div",
-          "actions",
-          held
-            ? confirmButton("Release", `Confirm: pay worker ${bounty}`, "primary", () =>
-                act(t, "release", note, out),
-              )
-            : null,
-          held
-            ? confirmButton("Refund", "Confirm: refund the agent", "ghost", () => act(t, "refund", note, out))
-            : null,
-          confirmButton("Resolve with note", "Confirm: close, no money moves", "ghost", () =>
-            act(t, "close", note, out),
-          ),
-          out,
-        ),
-      );
-    } else {
-      body.append(h("p", "muted", `Resolved ${stamp(t.resolved_at)}: ${t.note || ""}`));
-    }
-    return h("li", "ticket", photoOf(t), body);
+    const close: Action = {
+      label: "Resolve with note",
+      confirm: "Close the ticket? No money moves; the worker gets your note.",
+      verb: "Resolve",
+      tone: held ? "ghost" : "primary",
+      run: decideTicket(t, "close"),
+    };
+    return actionArea(document, {
+      id: `ticket-${t.id}`,
+      primary: held
+        ? {
+            label: "Release to the worker",
+            confirm: `Pay the worker ${bounty}? They get your note by text.`,
+            verb: `Release ${bounty}`,
+            tone: "primary",
+            run: decideTicket(t, "release"),
+          }
+        : close,
+      more: held
+        ? [
+            {
+              label: "Refund the agent",
+              confirm: "Refund the agent? The worker is not paid and gets your note by text.",
+              verb: "Refund the agent",
+              tone: "danger",
+              run: decideTicket(t, "refund"),
+            },
+            close,
+          ]
+        : [],
+      note: { label: "Note to the worker", hint: "Texted to the worker.", required: true },
+      toast,
+    });
   }
 
-  let ticketsText = "";
+  const ticketState = (t: Ticket) =>
+    t.kind === "dispute" ? t.dispute_status || "open" : ticketOpen(t) ? "open" : "resolved";
+  const stateTone = (state: string) =>
+    state === "open" ? "danger" : state === "upheld" ? "warning" : "success";
+  function openTicket(t: Ticket) {
+    const panel = $<HTMLDialogElement>("review-panel");
+    const close = h("button", "ui-button ui-button--ghost ui-button--sm", "Close");
+    close.type = "button";
+    close.addEventListener("click", () => panel.close());
+    const dispute = t.kind === "dispute";
+    const state = ticketState(t);
+    panel.replaceChildren(
+      ...[
+        h(
+          "div",
+          "task-head",
+          h("h2", "ui-card__title", `Ticket #${t.id}`),
+          h("span", "line", dispute ? badge("dispute", "warning") : null, badge(state, stateTone(state))),
+          close,
+        ),
+        h("p", "q", cut(t.question, 200)),
+        photoOf(t),
+        h(
+          "div",
+          "line",
+          h("span", null, cut(nearLabel(t.place_label), 90)),
+          h(
+            "span",
+            null,
+            "answer taken ",
+            h("strong", null, t.distance_m == null ? "?" : `${t.distance_m} m`),
+            ` from the place (radius ${t.radius_m} m)`,
+          ),
+          h("span", null, "bounty ", h("strong", null, usd(t.bounty_cents))),
+          checks(t),
+        ),
+        t.vision_reason ? h("p", "muted", `Photo safety: ${checkReason(t.vision_reason)}`) : null,
+        t.answer_text ? h("p", "muted", `Answer: ${cut(t.answer_text, 300)}`) : null,
+        h("p", "msg", dispute ? `Agent says: ${t.message || "(no reason)"}` : t.message || "(no message)"),
+        t.reversal_owed_cents
+          ? h(
+              "p",
+              "muted",
+              badge(`reversal owed ${usd(t.reversal_owed_cents)}`, "danger"),
+              " the worker already moved the money; collect it by hand.",
+            )
+          : null,
+        t.worker_banned ? h("p", "muted", "Worker banned.") : null,
+        h("span", "tiny", `task ${t.task_id}, ${t.task_status}, opened ${stamp(t.created_at)}`),
+        state === "open"
+          ? ticketActions(t)
+          : h("p", "muted", `Resolved ${stamp(t.resolved_at)}${t.note ? `: ${t.note}` : ""}`),
+      ].filter((x) => x != null),
+    );
+    if (!panel.open) panel.showModal();
+  }
+
+  // Support tickets: server-paged; each poll refreshes the first page and keeps older pages loaded.
   let tickets: Ticket[] = [];
-  let ticketPages = 1;
-  const TICKETS_PER_PAGE = 50;
-  async function loadTickets() {
-    const res = await fetch("/tickets", { cache: "no-store" });
+  let ticketCursor: string | null = null;
+  let ticketTotal: number | null = null;
+  let ticketGen = 0;
+  let ticketsQuery = "";
+  let loadingTickets = false;
+  // Older pages were loaded under the current filters.
+  let paged = false;
+  const ticketQuery = () => {
+    const st = support.state();
+    const p = new URLSearchParams();
+    if (st.q.trim()) p.set("q", st.q.trim());
+    if (st.f.state) p.set("state", st.f.state);
+    if (st.f.kind) p.set("kind", st.f.kind);
+    return p;
+  };
+  async function loadTickets(older = false) {
+    if (older && (loadingTickets || !ticketCursor)) return;
+    const gen = older ? ticketGen : ++ticketGen;
+    const query = ticketQuery();
+    const filters = String(query);
+    query.set("limit", "50");
+    if (older) {
+      loadingTickets = true;
+      query.set("cursor", ticketCursor as string);
+      support.setEnd("loading");
+    }
+    const res = await fetch(`/tickets?${query}`, { cache: "no-store" });
+    if (older) loadingTickets = false;
+    if (gen !== ticketGen) return;
+    if (!res.ok) {
+      support.setEnd(ticketCursor ? "more" : "end");
+      return;
+    }
+    const body = (await res.json()) as { tickets: Ticket[]; total: number; next_cursor: string | null };
+    ticketTotal = body.total;
+    if (older) {
+      tickets = [...tickets, ...body.tickets.filter((t) => !tickets.some((x) => x.id === t.id))];
+      ticketCursor = body.next_cursor;
+      paged = true;
+    } else {
+      // A poll with the same filters keeps the older pages already loaded.
+      const kept = filters === ticketsQuery && paged;
+      const oldest = body.tickets.at(-1)?.created_at ?? "";
+      const tail = kept ? tickets.filter((t) => (t.created_at ?? "") < oldest) : [];
+      tickets = [...body.tickets, ...tail];
+      if (!kept) {
+        ticketCursor = body.next_cursor;
+        paged = false;
+      }
+      ticketsQuery = filters;
+    }
+    support.setRows(tickets);
+    support.setEnd(ticketCursor ? "more" : "end");
+  }
+  // The tab and header counts are open tickets of any kind, whatever the list filters.
+  async function countOpenTickets() {
+    const res = await fetch("/tickets?state=open&limit=1", { cache: "no-store" });
     if (!res.ok) return;
-    const text = await res.text();
-    if (text === ticketsText) return;
-    ticketsText = text;
-    tickets = JSON.parse(text).tickets;
-    const open = tickets.filter(ticketOpen).length;
+    const open = Number(((await res.json()) as { total: number }).total);
     $("tickets-count").textContent = `${open} open`;
     $("tickets-count").className = `ui-badge ${open ? "ui-badge--danger" : "ui-badge--success"}`;
     count("n-support", open, true);
-    renderTickets();
-  }
-
-  function renderTickets() {
-    const shown = filterTickets(tickets, value("t-q"), value("t-status"));
-    $("tickets-list").replaceChildren(
-      ...(shown.length
-        ? shown.slice(0, ticketPages * TICKETS_PER_PAGE).map(ticketRow)
-        : [
-            empty(
-              tickets.length
-                ? "No tickets match."
-                : "No tickets. A worker opens one by texting HELP after an answer is held for review.",
-            ),
-          ]),
-    );
-    $("t-more").hidden = shown.length <= ticketPages * TICKETS_PER_PAGE;
   }
 
   // Logs: server-paged by cursor, newest first. Live events wait behind a pill instead of moving the list.
@@ -831,7 +844,7 @@ export function boot(win: OpsWindow) {
       if (res.status === 401) return location.assign(`${base}/login`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       render(await res.json());
-      await Promise.all([loadTickets(), pollEvents(), loadSeries()]);
+      await Promise.all([loadTickets(), countOpenTickets(), pollEvents(), loadSeries()]);
       state.className = "ui-badge ui-badge--success";
       state.textContent = "Live";
       $("updated").textContent = `updated ${new Date().toLocaleTimeString()}, every ${POLL_MS / 1000} s`;
@@ -847,18 +860,6 @@ export function boot(win: OpsWindow) {
   });
   $("task-status").addEventListener("change", renderTasks);
   $("ledger-type").addEventListener("change", renderLedger);
-  $("t-status").addEventListener("change", () => {
-    ticketPages = 1;
-    renderTickets();
-  });
-  $("t-q").addEventListener("input", () => {
-    ticketPages = 1;
-    renderTickets();
-  });
-  $("t-more").addEventListener("click", () => {
-    ticketPages++;
-    renderTickets();
-  });
 
   const later = (fn: () => void, ms: number) => {
     const id = win.setTimeout(fn, ms);
@@ -869,7 +870,7 @@ export function boot(win: OpsWindow) {
   const restore: Record<string, (params: URLSearchParams) => void> = {};
   const tableFor = <T>(
     tab: string,
-    options: Omit<TableOptions<T>, "onChange" | "later"> & { onState?: () => void },
+    options: Omit<TableOptions<T>, "onChange" | "later"> & { onState?: () => void; initial?: TableState },
   ) => {
     const table = createTable<T>(document, {
       ...options,
@@ -881,6 +882,10 @@ export function boot(win: OpsWindow) {
         options.onState?.();
       },
     });
+    if (options.initial) {
+      remembered[tab] = options.initial;
+      table.setState(options.initial);
+    }
     restore[tab] = (params) => {
       const state = params.size ? stateFrom(params, options.filters) : remembered[tab];
       if (!state) return;
@@ -1017,6 +1022,79 @@ export function boot(win: OpsWindow) {
     ],
   });
   $("events").replaceChildren(logs.el);
+
+  const support = tableFor<Ticket>("support", {
+    name: "tickets",
+    empty: "No tickets. A worker opens one by texting HELP after an answer is held for review.",
+    remote: { noun: "tickets", more: () => loadTickets(true), total: () => ticketTotal },
+    initial: { q: "", sort: "", f: { state: "open" } },
+    key: (t) => String(t.id),
+    label: (t) => `Ticket ${t.id}: ${cut(t.question, 80)}`,
+    open: openTicket,
+    onState: () => String(ticketQuery()) !== ticketsQuery && loadTickets(),
+    columns: [
+      {
+        key: "ticket",
+        label: "Ticket",
+        text: (t) => `#${t.id} ${cut(t.question, 120)}`,
+        sort: (t) => t.id,
+        cell: (t) => h("p", "q", h("span", "tiny", `#${t.id} `), cut(t.question, 120)),
+      },
+      { key: "kind", label: "Kind", text: (t) => (t.kind === "dispute" ? "Dispute" : "Help") },
+      {
+        key: "state",
+        label: "State",
+        text: ticketState,
+        cell: (t) => badge(ticketState(t), stateTone(ticketState(t))),
+      },
+      { key: "place", label: "Place", text: (t) => cut(nearLabel(t.place_label), 60) },
+      {
+        key: "bounty",
+        label: "Bounty",
+        num: true,
+        desc: true,
+        text: (t) => usd(t.bounty_cents),
+        sort: (t) => t.bounty_cents ?? 0,
+      },
+      {
+        key: "distance",
+        label: "Answer distance",
+        num: true,
+        text: (t) => (t.distance_m == null ? "?" : `${t.distance_m} m`),
+        sort: (t) => t.distance_m ?? -1,
+      },
+      {
+        key: "opened",
+        label: "Opened",
+        num: true,
+        desc: true,
+        text: (t) => ago(t.created_at ?? "", Date.now()),
+        sort: (t) => -(Date.parse(t.created_at ?? "") || 0),
+      },
+    ],
+    filters: [
+      {
+        kind: "select",
+        key: "state",
+        label: "States",
+        options: [
+          ["open", "Open"],
+          ["resolved", "Resolved"],
+        ],
+      },
+      {
+        kind: "select",
+        key: "kind",
+        label: "Kinds",
+        options: [
+          ["manual_review", "Help"],
+          ["dispute", "Dispute"],
+        ],
+      },
+    ],
+  });
+  $("tickets").replaceChildren(support.el);
+  const toast = createToaster(document, later);
 
   function showTab() {
     const name = tabFor(location.hash);
