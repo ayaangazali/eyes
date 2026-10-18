@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { start } from "./main.ts";
 
 const MAIN = fileURLToPath(new URL("./main.ts", import.meta.url));
@@ -58,10 +58,15 @@ describe("start", () => {
   };
   const logs: string[] = [];
   const stops: (() => unknown)[] = [];
+  // The booted event log flushes to an unreachable database on a timer that outlives each test and
+  // reports to stderr; keep that noise out of the run for the whole file.
+  beforeAll(() => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  });
   afterEach(() => {
     for (const stop of stops.splice(0)) stop();
     logs.length = 0;
-    vi.restoreAllMocks();
+    vi.mocked(console.log).mockRestore();
   });
   const run = (env: Record<string, string | undefined>) => {
     vi.spyOn(console, "log").mockImplementation((line: string) => void logs.push(line));

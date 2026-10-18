@@ -1,4 +1,4 @@
-import { AppConfig, EyesError, type EyesService, fakeProviders } from "@eyes/core";
+import { AppConfig, EyesError, type EyesService, fakeProviders, signToken } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
 import { createEventLog } from "@eyes/web-dashboard";
 import { describe, expect, it, vi } from "vitest";
@@ -14,7 +14,7 @@ type Code = { identifier: string; code_hash: string; expires_at: string; attempt
 type Args = Record<string, string>;
 
 /** ops_allowlist and ops_codes in memory, with the same semantics as the SQL functions in 015. */
-function setup(values = [PHONE, EMAIL]) {
+function setup(values = [PHONE, EMAIL], env: Record<string, string> = { EYES_OPS_KEY: OPS_KEY }) {
   const allowlist: Entry[] = values.map((value, i) => ({
     id: `entry-${i}`,
     kind: value.includes("@") ? "email" : "phone",
@@ -88,7 +88,7 @@ function setup(values = [PHONE, EMAIL]) {
       worker_web_url: "http://worker.eyes.test",
       link_secret: "x".repeat(32),
     }),
-    env: { EYES_OPS_KEY: OPS_KEY },
+    env,
     rpc,
     events,
   });
@@ -365,5 +365,160 @@ describe("ops review panel", () => {
       throw new EyesError("invalid_input", { status: "dispatched" });
     });
     expect((await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "refund" }, { cookie })).status).toBe(400);
+  });
+});
+
+describe("ops sign-in and allowlist from a browser form", () => {
+  const form = (fetch: ReturnType<typeof setup>["fetch"], path: string, fields: Args, headers: Args = {}) =>
+    fetch(path, {
+      method: "POST",
+      headers: {
+        origin: ORIGIN,
+        accept: "text/html",
+        "content-type": "application/x-www-form-urlencoded",
+        "cf-connecting-ip": "203.0.113.9",
+        ...headers,
+      },
+      body: new URLSearchParams(fields),
+    });
+
+  it("walks login page → code → wrong code → right code → allowlist → add → remove → logout in HTML", async () => {
+    const { fetch, codeFor, allowlist } = setup();
+    const login = await fetch("/ops/login");
+    expect(login.status).toBe(200);
+    expect(await login.text()).toContain('action="/ops/login/code"');
+
+    const sent = await form(fetch, "/ops/login/code", { identifier: PHONE });
+    expect(sent.status).toBe(200);
+    const sentPage = await sent.text();
+    expect(sentPage).toContain('action="/ops/login/verify"');
+    expect(sentPage).toContain(`value="${PHONE}"`);
+
+    const code = codeFor(PHONE);
+    const wrong = await form(fetch, "/ops/login/verify", {
+      identifier: PHONE,
+      code: code === "000000" ? "1" : "0",
+    });
+    expect(wrong.status).toBe(401);
+    expect(await wrong.text()).toContain('role="alert"');
+
+    const ok = await form(fetch, "/ops/login/verify", { identifier: PHONE, code });
+    expect(ok.status).toBe(303);
+    expect(ok.headers.get("location")).toBe("/ops");
+    const cookie = (ok.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
+
+    const page = await fetch("/ops/allowlist", { headers: { cookie, accept: "text/html" } });
+    const html = await page.text();
+    expect(html).toContain("***0100");
+    expect(html).toContain("***@example.com");
+    expect(html).not.toContain(PHONE);
+    expect(html.match(/<button[^>]* disabled>Remove/g)).toHaveLength(1);
+
+    const bad = await form(fetch, "/ops/allowlist", { identifier: "nope" }, { cookie });
+    expect(bad.status).toBe(400);
+    expect(await bad.text()).toContain("Enter a phone number with its country code");
+    const added = await form(fetch, "/ops/allowlist", { identifier: "+14155550123" }, { cookie });
+    expect([added.status, added.headers.get("location")]).toEqual([303, "/ops/allowlist"]);
+    const gone = await form(fetch, "/ops/allowlist/remove", { id: "missing" }, { cookie });
+    expect(gone.status).toBe(400);
+    expect(await gone.text()).toContain("No allowlist entry with this id.");
+    const removed = await form(fetch, "/ops/allowlist/remove", { id: "entry-2" }, { cookie });
+    expect([removed.status, removed.headers.get("location")]).toEqual([303, "/ops/allowlist"]);
+    expect(allowlist.map((e) => e.value)).toEqual([PHONE, EMAIL]);
+
+    const out = await form(fetch, "/ops/logout", {}, { cookie });
+    expect([out.status, out.headers.get("location")]).toEqual([303, "/ops/login"]);
+    expect(out.headers.get("set-cookie")).toContain("__Host-eyes_ops=;");
+  });
+
+  it("answers logout over JSON and shows the rate-limit page in HTML", async () => {
+    const { fetch, post } = setup();
+    expect(await (await post("/ops/logout", {})).json()).toEqual({ ok: true });
+    for (let i = 0; i < 10; i++)
+      await form(fetch, "/ops/login/verify", { identifier: PHONE, code: "123456" });
+    const limited = await form(fetch, "/ops/login/verify", { identifier: PHONE, code: "123456" });
+    expect(limited.status).toBe(429);
+    expect(await limited.text()).toMatch(/Too many sign-in tries\. Wait \d+ minutes/);
+  });
+
+  it("treats unparseable or non-string identifiers as invalid without telling strangers apart", async () => {
+    const { fetch, post, calls } = setup();
+    // A form body that cannot be parsed reads as empty: the same "code sent" page as anyone else.
+    const broken = await fetch("/ops/login/code", {
+      method: "POST",
+      headers: {
+        origin: ORIGIN,
+        "content-type": "multipart/form-data",
+        "x-forwarded-for": "10.0.0.1, 198.51.100.4",
+      },
+      body: "--x\r\nnot a form",
+    });
+    expect(broken.status).toBe(200);
+    expect(await broken.text()).toContain('action="/ops/login/verify"');
+    expect(await (await post("/ops/login/code", { identifier: 15555550100 })).json()).toMatchObject({
+      ok: true,
+    });
+    expect((await post("/ops/login/verify", { identifier: "nobody", code: "123456" })).status).toBe(401);
+    expect(calls).not.toContain("eyes_ops_code_put");
+    expect(calls).not.toContain("eyes_ops_code_attempt");
+  });
+
+  it("keys the limit on the last X-Forwarded-For hop, or on nothing, when Cloudflare sends no client IP", async () => {
+    const { fetch } = setup();
+    const send = (headers: Args) =>
+      fetch("/ops/login/code", {
+        method: "POST",
+        headers: { origin: ORIGIN, "content-type": "application/json", ...headers },
+        body: JSON.stringify({ identifier: "+14155550123" }),
+      });
+    for (let i = 0; i < 10; i++) await send({ "x-forwarded-for": `10.0.0.${i}, 198.51.100.4` });
+    expect((await send({ "x-forwarded-for": "198.51.100.4" })).status).toBe(429);
+    expect((await send({})).status).toBe(429);
+  });
+
+  it("reads a bodiless or non-object JSON post as empty, and answers a session-less HTML post 401", async () => {
+    const { fetch, post } = setup();
+    const bare = await fetch("/ops/login/code", { method: "POST", headers: { origin: ORIGIN } });
+    expect(bare.status).toBe(200);
+    expect(await bare.text()).toContain('action="/ops/login/verify"');
+    expect(await (await post("/ops/login/code", null)).json()).toMatchObject({ ok: true });
+    const denied = await form(fetch, "/ops/allowlist", { identifier: "+14155550123" });
+    expect(denied.status).toBe(401);
+    expect(await denied.json()).toEqual({ error: "unauthorized" });
+  });
+
+  it("forgets rate-limit keys an hour old", async () => {
+    const { post, providers } = setup();
+    for (let i = 0; i < 10; i++) await post("/ops/login/code", { identifier: "+14155550123" });
+    expect((await post("/ops/login/code", { identifier: "+14155550123" })).status).toBe(429);
+    providers.clock.advance(60 * 60 * 1000 + 1);
+    expect((await post("/ops/login/code", { identifier: "+14155550123" })).status).toBe(200);
+  });
+
+  it("logs a send failure that is not an Error by its type", async () => {
+    const { post, providers, events } = setup();
+    providers.messaging.sendText = () => Promise.reject("busy");
+    await post("/ops/login/code", { identifier: PHONE });
+    await vi.waitFor(() =>
+      expect(events.recent()).toContainEqual(
+        expect.objectContaining({
+          summary: "login code send failed",
+          data: expect.objectContaining({ error: "string" }),
+        }),
+      ),
+    );
+  });
+
+  it("drops a session whose allowlist entry is gone, or a break-glass session once the key is unset", async () => {
+    const { fetch, signIn, allowlist } = setup();
+    const cookie = await signIn(EMAIL);
+    allowlist.splice(1, 1);
+    expect((await fetch("/ops/feed", { headers: { cookie } })).status).toBe(401);
+
+    const token = signToken("x".repeat(32), "ops:break-glass", new Date(Date.parse("2026-10-18T00:00:00Z")));
+    const off = setup([PHONE], {});
+    expect((await off.fetch("/ops/feed", { headers: { cookie: `__Host-eyes_ops=${token}` } })).status).toBe(
+      401,
+    );
   });
 });
