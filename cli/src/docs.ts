@@ -1,5 +1,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import {
+  AskEyesDraftInput,
+  AskEyesDraftOutput,
   AskEyesMcpOutput,
   ERRORS,
   FAKE_PLACES,
@@ -58,7 +60,7 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
   ask_eyes: {
     title: "Ask a human to check",
     summary:
-      "Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. idempotency_key is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the original task instead of charging again. Only public, commercial or civic places. Next: call await_answer with the returned task_id immediately.",
+      "For REST and non-UI MCP dispatch, pay a nearby human to look at a public place and answer your question, usually with a live photo. bounty_usd (default 3) plus a 0.50 USD fee is escrowed on dispatch, paid to the worker only after a verified answer, and refunded in full if nobody answers before deadline_minutes or you cancel before a worker claims it. idempotency_key is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the original task instead of charging again. Only public, commercial or civic places. After dispatch, call await_answer with the returned task_id immediately. Interactive MCP instead prepares the read-only draft documented below; payment requires a later card confirmation.",
     tags: ["physical-world", "human-verification", "real-time"],
     example: {
       question: "How many people are waiting in line right now?",
@@ -169,7 +171,7 @@ function toolOp(name: ToolName, route: Documented): Op {
     id: name,
     tag: "agent",
     summary: title,
-    description: `${summary} Same as the MCP tool ${name}.`,
+    description: `${summary} Same as ${name === "ask_eyes" ? "non-UI" : "the"} MCP tool ${name}.`,
     auth: true,
     params: Object.fromEntries(params.map((p) => [p, props[p] as Json])),
     query,
@@ -357,8 +359,9 @@ function llmsFull(llms: string): string {
       ...(name === "ask_eyes"
         ? [
             "",
-            "Interactive MCP output (status confirmation_required; no task, escrow or messages). The card confirms the same intent with confirm_ask. Never follow its success with a new paid ask.",
-            ...jsonBlock("Interactive MCP output", schema(AskEyesMcpOutput)),
+            "Interactive MCP preparation uses the draft input and output below (status confirmation_required; no task, escrow or messages). The card confirms the same intent with confirm_ask. Never follow its success with a new paid ask.",
+            ...jsonBlock("Interactive MCP input", schema(AskEyesDraftInput, "input")),
+            ...jsonBlock("Interactive MCP output", schema(AskEyesDraftOutput)),
           ]
         : []),
     );

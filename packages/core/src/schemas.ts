@@ -258,6 +258,29 @@ export const AskEyesOutput = z.object({
   next_step: z.string(),
 });
 
+export const AskEyesDraftInput = AskEyesInput.extend({
+  bounty_usd: AskEyesInput.shape.bounty_usd.describe(
+    "Proposed payment to the human who answers. Only after the user confirms in the card, this bounty plus a $0.50 fee is escrowed and refunded if nobody answers. Preparing this draft charges nothing.",
+  ),
+  deadline_minutes: AskEyesInput.shape.deadline_minutes.describe(
+    "Minutes from confirmed dispatch until the task expires and the escrow is refunded. Preparing this draft does not start the deadline.",
+  ),
+  idempotency_key: AskEyesInput.shape.idempotency_key.describe(
+    "Required unique key for this draft intent. The card passes the same key and exact confirmed parameters to confirm_ask; retries reuse them, while an intentional new Ask uses a new key.",
+  ),
+});
+export const AskEyesDraftOutput = AskEyesDraftInput.extend({
+  ...QuoteTaskOutput.shape,
+  suggested_bounty_usd: QuoteTaskOutput.shape.suggested_bounty_usd.describe(
+    "Suggested bounty for a later confirmed task, limited by this API key's limits and balance after the $0.50 fee. No money is reserved by this draft; confirm_ask rechecks limits before dispatch.",
+  ),
+  allowed: QuoteTaskOutput.shape.allowed.describe(
+    "Whether this place, task type, balance and spend limits currently permit a task. This quote does not check the question; confirmed dispatch rechecks question safety and spending before creating a task.",
+  ),
+  status: z.literal("confirmation_required"),
+  next_step: z.string(),
+});
+
 // MCP-only envelope. REST and programmatic core callers keep AskEyesOutput unchanged.
 export const AskEyesMcpOutput = z.object({
   ...AskEyesInput.partial().shape,

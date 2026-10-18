@@ -108,6 +108,33 @@ describe.skipIf(!url)("confirmed task intents over HTTP and PostgreSQL", () => {
       const ask = { ...request(), deadline_minutes: 45, require_photo: false };
       const balanceBefore = await service.getBalance(actor);
       const before = providers.messaging.outbox.length;
+      const { tools } = await model.listTools();
+      const prepared = tools.find((tool) => tool.name === "ask_eyes");
+      expect(prepared?.annotations?.readOnlyHint).toBe(true);
+      expect(prepared?.outputSchema?.properties).toMatchObject({
+        status: { const: "confirmation_required" },
+      });
+      for (const field of [
+        "task_id",
+        "workers_notified",
+        "escrowed_usd",
+        "charged_usd",
+        "deadline_at",
+        "reason",
+        "message",
+        "fix",
+      ]) {
+        expect(prepared?.outputSchema?.properties).not.toHaveProperty(field);
+      }
+      const confirmation = tools.find((tool) => tool.name === "confirm_ask");
+      expect(confirmation?.annotations?.readOnlyHint).toBe(false);
+      expect(confirmation?.outputSchema?.properties).toHaveProperty("task_id");
+      expect(tools.find((tool) => tool.name === "confirm_ask")?._meta).toMatchObject({
+        ui: { visibility: ["app"] },
+        "openai/visibility": "private",
+        "openai/widgetAccessible": true,
+      });
+      // Listing first makes the real MCP client validate each draft against its advertised output schema.
       const draft = await call(model, "ask_eyes", ask);
       expect(draft).toMatchObject({
         status: "confirmation_required",
@@ -116,12 +143,6 @@ describe.skipIf(!url)("confirmed task intents over HTTP and PostgreSQL", () => {
       expect(await effects(actor.id)).toEqual({ tasks: 0, escrows: 0, offers: 0 });
       expect(await service.getBalance(actor)).toEqual(balanceBefore);
       expect(providers.messaging.outbox).toHaveLength(before);
-      const { tools } = await model.listTools();
-      expect(tools.find((tool) => tool.name === "confirm_ask")?._meta).toMatchObject({
-        ui: { visibility: ["app"] },
-        "openai/visibility": "private",
-        "openai/widgetAccessible": true,
-      });
 
       const raced = await Promise.all([
         call(widget, "confirm_ask", ask),
@@ -157,6 +178,10 @@ describe.skipIf(!url)("confirmed task intents over HTTP and PostgreSQL", () => {
     async (name) => {
       const signup = await service.signupAgent({ name: "Synthetic automation agent" });
       const client = await connect(name, signup.api_key);
+      const { tools } = await client.listTools();
+      const direct = tools.find((tool) => tool.name === "ask_eyes");
+      expect(direct?.annotations?.readOnlyHint).toBe(false);
+      expect(direct?.outputSchema?.properties).toHaveProperty("task_id");
       const ask = request();
       const mcp = await call(client, "ask_eyes", ask);
       expect(mcp.status).toBe("dispatched");
