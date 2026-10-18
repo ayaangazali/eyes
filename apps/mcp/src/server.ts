@@ -878,6 +878,11 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
                 idempotentHint: true,
                 openWorldHint: true,
               },
+              _meta: {
+                ...listed._meta,
+                "openai/toolInvocation/invoking": "Preparing draft",
+                "openai/toolInvocation/invoked": "Review confirmation",
+              },
             }
           : listed;
       const card = tool._meta?.["openai/outputTemplate"] === WIDGET_URI;
