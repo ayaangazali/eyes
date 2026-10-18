@@ -23,20 +23,18 @@ import {
   stopSharing,
   TASK,
 } from "./src/background.ts";
-import { codeFromUrl, isCode, type Last, MESSAGES } from "./src/eyes.ts";
+import { codeFromUrl, isCode, type Last, MESSAGES, type Perm, permOf } from "./src/eyes.ts";
 
 // packages/ui/tokens.css
 const YELLOW = "#ffd60a";
 const LIGHT = { text: "#0d0d0d", text2: "#5d5d5d", bg: "#ffffff", field: "#f3f3f3", danger: "#ba2623" };
 const DARK = { text: "#ffffff", text2: "#afafaf", bg: "#181818", field: "#212121", danger: "#fa423e" };
 
-type Perm = "unknown" | "ask" | "denied" | "always";
-
 export default function App() {
   const c = useColorScheme() === "dark" ? DARK : LIGHT;
   const [code, setCode] = useState<string | null | undefined>(undefined);
   const [draft, setDraft] = useState("");
-  const [perm, setPerm] = useState<Perm>("unknown");
+  const [perm, setPerm] = useState<Perm | "unknown">("unknown");
   const [sharing, setSharing] = useState(false);
   const [last, setLast] = useState<Last | null>(null);
   const [connected, setConnected] = useState(false);
@@ -45,11 +43,9 @@ export default function App() {
     setCode(await getCode());
     setLast(await getLast());
     setSharing(await Location.hasStartedLocationUpdatesAsync(TASK));
-    const fg = await Location.getForegroundPermissionsAsync();
-    const bg = await Location.getBackgroundPermissionsAsync();
-    if (bg.granted) setPerm("always");
-    else if ((fg.granted || fg.canAskAgain) && bg.canAskAgain) setPerm("ask");
-    else setPerm("denied");
+    setPerm(
+      permOf(await Location.getForegroundPermissionsAsync(), await Location.getBackgroundPermissionsAsync()),
+    );
   }, []);
 
   // One automatic send (60 s throttle applies) whenever sharing is on and the app is in front.
@@ -73,7 +69,7 @@ export default function App() {
   async function allow() {
     const fg = await Location.requestForegroundPermissionsAsync();
     const bg = fg.granted ? await Location.requestBackgroundPermissionsAsync() : null;
-    if (!bg?.granted) return setPerm("denied");
+    if (!bg?.granted) return setPerm(fg.granted ? "while_using" : "denied");
     setPerm("always");
     await startSharing();
     setSharing(true);
@@ -154,13 +150,17 @@ export default function App() {
         <Text style={t}>
           Eyes texts you paid tasks near you. Your spot is sent when you move, even with the app closed.
         </Text>
-        {perm === "denied" ? (
+        {perm === "ask" || perm === "unknown" ? (
+          <Button label="Allow location" primary onPress={allow} c={c} />
+        ) : (
           <>
-            <Text style={muted}>Set Location to "Always" in Settings.</Text>
+            <Text style={muted}>
+              {perm === "while_using"
+                ? "Choose Always in Settings so Eyes works when the app is closed."
+                : 'Set Location to "Always" in Settings.'}
+            </Text>
             <Button label="Open Settings" primary onPress={() => Linking.openSettings()} c={c} />
           </>
-        ) : (
-          <Button label="Allow location" primary onPress={allow} c={c} />
         )}
       </>
     );
@@ -180,6 +180,16 @@ export default function App() {
             </Text>
             <Text style={muted}>
               Near {last.lat.toFixed(2)}, {last.lng.toFixed(2)}
+            </Text>
+          </>
+        )}
+        {sharing && (
+          <>
+            <Text style={[s.allSet, t]}>
+              All set. You can leave the app now. It keeps sharing your location in the background.
+            </Text>
+            <Text style={[s.small, muted]}>
+              Don't swipe Eyes away in the app switcher: iOS stops it until you open it again.
             </Text>
           </>
         )}
@@ -223,4 +233,6 @@ const s = StyleSheet.create({
   field: { borderRadius: 12, padding: 14, fontSize: 16 },
   button: { borderRadius: 999, paddingVertical: 14, alignItems: "center" },
   buttonText: { fontSize: 17, fontWeight: "600" },
+  allSet: { fontSize: 17, fontWeight: "600", marginTop: 8 },
+  small: { fontSize: 13 },
 });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { codeFromUrl, type Deps, isCode, type Last, MESSAGES, onFix, postFix } from "./eyes.ts";
+import { codeFromUrl, type Deps, isCode, type Last, MESSAGES, onFix, permOf, postFix } from "./eyes.ts";
 
 const CODE = `${"A".repeat(40)}-_9`;
 const fix = { lat: 37.7607, lng: -122.3857 };
@@ -132,5 +132,16 @@ describe("codeFromUrl", () => {
     expect(codeFromUrl(`eyes://connect#c=${CODE.slice(1)}`)).toBeNull();
     expect(codeFromUrl(`eyes://connect#xc=${CODE}`)).toBeNull();
     expect(codeFromUrl("eyes://connect")).toBeNull();
+  });
+});
+
+describe("permOf", () => {
+  const g = (granted: boolean, canAskAgain: boolean) => ({ granted, canAskAgain });
+  it("maps foreground and background grants to the screen state", () => {
+    expect(permOf(g(true, true), g(true, false))).toBe("always");
+    expect(permOf(g(false, true), g(false, true))).toBe("ask");
+    expect(permOf(g(true, true), g(false, true))).toBe("ask");
+    expect(permOf(g(true, true), g(false, false))).toBe("while_using");
+    expect(permOf(g(false, false), g(false, false))).toBe("denied");
   });
 });

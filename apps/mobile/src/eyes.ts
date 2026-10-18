@@ -8,6 +8,15 @@ export const isCode = (s: string) => /^[A-Za-z0-9_-]{43}$/.test(s);
 export const codeFromUrl = (url: string) =>
   /^eyes:\/\/connect\/?[?#](?:[^#]*[&#?])?c=([A-Za-z0-9_-]{43})(?:[&#]|$)/.exec(url)?.[1] ?? null;
 
+// "while_using": location allowed only while the app is open; Always is now a Settings change.
+export type Perm = "ask" | "while_using" | "denied" | "always";
+type Grant = { granted: boolean; canAskAgain: boolean };
+export function permOf(fg: Grant, bg: Grant): Perm {
+  if (bg.granted) return "always";
+  if ((fg.granted || fg.canAskAgain) && bg.canAskAgain) return "ask";
+  return fg.granted ? "while_using" : "denied";
+}
+
 export type Fix = { lat: number; lng: number; accuracy_m?: number; captured_at?: string };
 export type Result = "sent" | "stopped" | "rate_limited" | "failed";
 export type Last = { at: number; result: Result; lat: number; lng: number };
