@@ -116,7 +116,7 @@ test("capture sends a live photo with GPS and shows the verification", async ({ 
 
   await expect(page.getByRole("heading", { name: "Verified", exact: true })).toBeVisible();
   await expect(page.locator("#message")).toHaveText(okBody);
-  await expect(page.getByText("Photo answers the question: passed")).toBeVisible();
+  await expect(page.getByText("Photo is safe to share: passed")).toBeVisible();
   await expect(page.getByText(okResult.verification.vision_reason)).toBeVisible();
   await expect(page.getByText(/\d+:\d\d left/)).toBeHidden();
 

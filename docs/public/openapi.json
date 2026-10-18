@@ -660,16 +660,20 @@
                               "type": "object",
                               "properties": {
                                 "gps_ok": {
-                                  "type": "boolean"
+                                  "type": "boolean",
+                                  "description": "The worker was within about 150 m of the place."
                                 },
                                 "fresh_ok": {
-                                  "type": "boolean"
+                                  "type": "boolean",
+                                  "description": "The photo was taken live, before the deadline."
                                 },
                                 "vision_ok": {
-                                  "type": "boolean"
+                                  "type": "boolean",
+                                  "description": "The photo is safe to share (no prominent faces, private spaces, personal details or explicit content, and a real photo). It does not mean the answer is correct."
                                 },
                                 "vision_reason": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "description": "Why the photo is or is not safe to share."
                                 }
                               },
                               "required": ["gps_ok", "fresh_ok", "vision_ok", "vision_reason"],
@@ -848,16 +852,20 @@
                               "type": "object",
                               "properties": {
                                 "gps_ok": {
-                                  "type": "boolean"
+                                  "type": "boolean",
+                                  "description": "The worker was within about 150 m of the place."
                                 },
                                 "fresh_ok": {
-                                  "type": "boolean"
+                                  "type": "boolean",
+                                  "description": "The photo was taken live, before the deadline."
                                 },
                                 "vision_ok": {
-                                  "type": "boolean"
+                                  "type": "boolean",
+                                  "description": "The photo is safe to share (no prominent faces, private spaces, personal details or explicit content, and a real photo). It does not mean the answer is correct."
                                 },
                                 "vision_reason": {
-                                  "type": "string"
+                                  "type": "string",
+                                  "description": "Why the photo is or is not safe to share."
                                 }
                               },
                               "required": ["gps_ok", "fresh_ok", "vision_ok", "vision_reason"],

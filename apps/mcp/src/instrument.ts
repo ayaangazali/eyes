@@ -60,10 +60,10 @@ export function instrumentProviders(p: Providers, log: Log): Providers {
         const v = await p.vision.judge(i);
         log({
           kind: "vision",
-          level: v.answers_question ? "info" : "warn",
-          summary: `${v.answers_question ? "answers" : "does not answer"} the question (${Math.round(v.confidence * 100)}%): ${v.reason}`,
+          level: v.allowed ? "info" : "warn",
+          summary: `${v.allowed ? "safe to share" : "blocked"} (${Math.round(v.confidence * 100)}%): ${v.reason}`,
           data: {
-            answers_question: v.answers_question,
+            allowed: v.allowed,
             confidence: v.confidence,
             prominent_faces: v.prominent_faces,
           },

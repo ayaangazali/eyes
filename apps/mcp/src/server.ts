@@ -127,7 +127,7 @@ const PROVIDER_LINES = {
   email: ["Agent email", "Questions agents email in and the threaded answers (Primitive)."],
   payments: ["Payments", "Agent top-ups and payouts to workers (Stripe)."],
   storage: ["Photo storage", "Where answer photos are kept (InsForge)."],
-  vision: ["Photo checks", "The AI check that a photo answers the question (Cloudflare clef, or Claude)."],
+  vision: ["Photo checks", "The AI check that a photo is safe to share (Cloudflare clef, or Claude)."],
   geo: ["Place lookup", "Turning place names into map points (OpenStreetMap)."],
 } as const;
 const SIMULATED = {
@@ -217,7 +217,7 @@ function clientKey(forwardedFor: string | undefined) {
     .join(":")}::/64`;
 }
 
-const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns a verified answer with a live photo.
+const INSTRUCTIONS = `Eyes pays a nearby human to check something in the physical world right now (is it open, how long is the line, is it in stock, how crowded is it) and returns their answer with a live photo. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call dispute_answer if it is wrong.
 Golden path: 1) quote_task to check coverage and price. 2) ask_eyes with an idempotency_key. 3) Call await_answer immediately with the task_id and keep calling it until answered is true or the status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer.
 Money: the bounty plus a 0.50 USD fee is escrowed from your balance when you ask, paid to the worker only after the answer is verified, and refunded in full if nobody answers before the deadline or you cancel before a worker claims it. An answer that fails a verification check (status needs_review) keeps the escrow held until a human review pays the worker or refunds you.
 Final statuses: expired: nobody answered before the deadline; your escrow was refunded. refunded: you cancelled; your escrow was refunded. disputed: your dispute is under human review.
@@ -445,7 +445,7 @@ Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same loc
     {
       name: "ask_eyes",
       title: "Ask a human to check",
-      description: `Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site, and Eyes verifies it (GPS within about 150 m, photo taken live before the deadline, vision check) before you receive it.
+      description: `Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site. Eyes checks location (GPS within about 150 m), freshness (photo taken live before the deadline) and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call dispute_answer if it is wrong.
 Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now. The worker is paid only after a verified answer. If nobody answers before deadline_minutes (default 30), or you cancel_task before a worker claims it, everything is refunded.
 Only public, commercial or civic places: stores, cafes, parks, transit stops, venues. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
 idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
@@ -483,8 +483,8 @@ Next: if status is "dispatched", immediately call await_answer with the returned
       description: `Wait for the answer to a task you created with ask_eyes. Call it immediately after ask_eyes, then keep calling it with the same task_id until answered is true or the status is expired, refunded or disputed. You cannot watch for events in the background, so this loop is the only way to receive the answer.
 Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the answer arrives. A task usually takes 5 to 20 minutes. deadline_at (from ask_eyes) is the latest time a worker can still answer; a human review outcome can come later.
 How to read the result:
-- answered true: stop calling. answer holds answer_text, answer_bool, photo_url, captured_at, worker_distance_m, verification, confidence and cost_usd. Show your user the answer and photo_url. If confidence is below 0.7, hedge when you relay it.
-- Then check answer.verification. If gps_ok, fresh_ok and vision_ok are all true, the answer is verified (status verified or paid). If any is false, status is needs_review: a worker answered but a check failed (vision_reason says why). Your escrow stays held until a human review settles it, either paid to the worker or refunded to you. Tell your user, check get_task later, and if the answer is wrong call dispute_answer to add your reason to that review.
+- answered true: stop calling. answer holds answer_text, answer_bool, photo_url, captured_at, worker_distance_m, verification, confidence and cost_usd. Show your user the answer and photo_url. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo yourself, and call dispute_answer if it is wrong.
+- Then check answer.verification. If gps_ok, fresh_ok and vision_ok (the photo is safe to share) are all true, the worker is paid (status verified or paid). If any is false, status is needs_review: a check failed (vision_reason says why when the photo was blocked, and a blocked photo is not delivered). Your escrow stays held until a human review settles it, either paid to the worker or refunded to you. Tell your user and check get_task later.
 - answered false with status dispatched, claimed or submitted: call await_answer again right away, and give your user a one-line progress update about every other call.
 - status expired: nobody answered before the deadline; your escrow was refunded. Stop calling; ask again later, at a busier place or with a higher bounty_usd.
 - status refunded: you cancelled the task and the escrow was refunded. Stop calling.

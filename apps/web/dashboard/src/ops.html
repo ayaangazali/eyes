@@ -209,7 +209,7 @@ function uptime(s) {
 function checks(t) {
   if (t.gps_ok == null) return null;
   const mark = (ok, label) => badge(`${ok ? "✓" : "✗"} ${label}`, ok ? "success" : "danger");
-  return h("span", "flow-checks", mark(t.gps_ok, "GPS"), " ", mark(t.fresh_ok, "fresh"), " ", mark(t.vision_ok, "photo"),
+  return h("span", "flow-checks", mark(t.gps_ok, "GPS"), " ", mark(t.fresh_ok, "fresh"), " ", mark(t.vision_ok, "safe photo"),
     t.confidence != null ? h("span", "tiny", ` ${Math.round(t.confidence * 100)}% sure`) : null);
 }
 
@@ -380,7 +380,7 @@ function ticketRow(t) {
       h("span", null, "bounty ", h("strong", null, bounty)),
       h("span", null, "worker ", h("strong", null, t.distance_m == null ? "?" : `${t.distance_m} m`), ` from the place (radius ${t.radius_m} m)`),
       checks(t)),
-    t.vision_reason ? h("p", "muted", `Vision: ${t.vision_reason}`) : null,
+    t.vision_reason ? h("p", "muted", `Photo safety: ${t.vision_reason}`) : null,
     t.answer_text ? h("p", "muted", `Answer: ${cut(t.answer_text, 300)}`) : null,
     h("p", "msg", t.message || "(no message)"),
     h("span", "tiny", `task ${t.task_id}, ${t.task_status}, opened ${stamp(t.created_at)}`),

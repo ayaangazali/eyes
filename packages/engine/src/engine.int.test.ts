@@ -53,10 +53,10 @@ describe.skipIf(!url)("engine on Postgres", () => {
     db: { kind: "postgres", url: url ?? "" },
     providers,
     assessTask: async () => safety,
-    verifySubmission: async ({ task, submission: s, vision }) => {
+    verifySubmission: async ({ submission: s, vision }) => {
       if (!s.photo_url) return PASS;
-      const v = await vision.judge({ ...task, ...s, photo_url: s.photo_url });
-      const vision_ok = v.answers_question && !v.prominent_faces;
+      const v = await vision.judge({ photo_url: s.photo_url });
+      const vision_ok = v.allowed && !v.prominent_faces;
       return vision_ok ? PASS : { ...PASS, vision_ok, vision_reason: v.reason, auto_approve: false };
     },
     config: AppConfig.parse({
@@ -71,7 +71,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
   beforeAll(() => migrate(url ?? ""));
   afterAll(() => sql.end());
-  afterEach(() => providers.vision.setVerdict({ answers_question: true, prominent_faces: false }));
+  afterEach(() => providers.vision.setVerdict({ allowed: true, prominent_faces: false }));
 
   const somewhere = (): LatLng => ({ lat: 10 + Math.random() * 40, lng: -120 + Math.random() * 60 });
   const north = (p: LatLng, meters: number): LatLng => ({ lat: p.lat + meters / 111_320, lng: p.lng });
@@ -684,11 +684,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(verified.result).toMatchObject({ status: "verified", message: `Verified. ${simulated}` });
     expect(last("paid")).toMatchObject({ task_id: verified.task_id, live_payouts: false });
 
-    providers.vision.setVerdict({ answers_question: false, reason: "No line in the photo." });
+    providers.vision.setVerdict({ allowed: false, reason: "A screen shows personal details." });
     const review = await capture();
     expect(review.result).toMatchObject({
       status: "needs_review",
-      message: `Thanks, we got it. Your answer needs a quick manual check (No line in the photo.). ${simulated} To request a manual review, reply HELP to the Eyes text.`,
+      message: `Thanks, we got it. Your answer needs a quick manual check (A screen shows personal details.). ${simulated} To request a manual review, reply HELP to the Eyes text.`,
     });
     expect(outbox.some((m) => m.to === phone && JSON.stringify(m.payload).includes("/w/connect/"))).toBe(
       false,
@@ -1061,15 +1061,17 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect((await service.getTask(a, { task_id })).answer?.photo_url).toBeNull();
   });
 
-  it("keeps the photo of a capture without prominent faces, approved or sent to review", async () => {
-    for (const answers_question of [true, false]) {
-      providers.vision.setVerdict({ answers_question });
+  it("keeps the photo without prominent faces, delivering it only when moderation allows it", async () => {
+    for (const allowed of [true, false]) {
+      providers.vision.setVerdict({ allowed });
       const at = somewhere();
       const { a, task_id, token } = await claimed(at);
-      await capture(token, at);
+      const { status } = await capture(token, at);
+      expect(status === "needs_review").toBe(!allowed);
       const [key] = stored(task_id);
+      expect(key).toBeDefined();
       expect((await service.getTask(a, { task_id })).answer?.photo_url).toBe(
-        `https://storage.fake.test/photos/${key}`,
+        allowed ? `https://storage.fake.test/photos/${key}` : null,
       );
     }
   });
@@ -1101,12 +1103,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
   it("HELP after a held answer opens a ticket, a free-text reply adds to it, and resolving it texts the worker", async () => {
     const at = somewhere();
-    providers.vision.setVerdict({ answers_question: false, reason: "No line in the photo." });
+    providers.vision.setVerdict({ allowed: false, reason: "A screen shows personal details." });
     const { task_id, token, w } = await claimed(at);
     expect(await capture(token, at)).toMatchObject({
       status: "needs_review",
       message:
-        "Thanks, we got it. Your answer needs a quick manual check (No line in the photo.). You will be paid once it is approved. To request a manual review, reply HELP to the Eyes text.",
+        "Thanks, we got it. Your answer needs a quick manual check (A screen shows personal details.). You will be paid once it is approved. To request a manual review, reply HELP to the Eyes text.",
     });
     const last = () => outbox.findLast((m) => m.to === w.phone)?.payload;
 
@@ -1147,7 +1149,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const at = somewhere();
     const verified = await claimed(at);
     await capture(verified.token, at);
-    providers.vision.setVerdict({ answers_question: false });
+    providers.vision.setVerdict({ allowed: false });
     const oldAt = somewhere();
     const old = await claimed(oldAt);
     await capture(old.token, oldAt);

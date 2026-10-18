@@ -142,10 +142,14 @@ const TaskId = Id.describe("The task_id returned by ask_eyes.");
 const Usd = z.number();
 
 export const Verification = z.object({
-  gps_ok: z.boolean(),
-  fresh_ok: z.boolean(),
-  vision_ok: z.boolean(),
-  vision_reason: z.string(),
+  gps_ok: z.boolean().describe("The worker was within about 150 m of the place."),
+  fresh_ok: z.boolean().describe("The photo was taken live, before the deadline."),
+  vision_ok: z
+    .boolean()
+    .describe(
+      "The photo is safe to share (no prominent faces, private spaces, personal details or explicit content, and a real photo). It does not mean the answer is correct.",
+    ),
+  vision_reason: z.string().describe("Why the photo is or is not safe to share."),
 });
 export type Verification = z.infer<typeof Verification>;
 

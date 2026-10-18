@@ -100,17 +100,12 @@ export interface Storage {
   deletePhoto(i: { key: string }): Promise<void>;
 }
 
-export type VisionJudgeInput = {
-  question: string;
-  task_type: TaskType;
-  place_label: string;
-  photo_url: string;
-  answer_text: string | null;
-  answer_bool: boolean | null;
-};
+// Moderation only: the photo is judged on whether it is safe to share, never on whether it
+// answers the question (ADR-025).
+export type VisionJudgeInput = { photo_url: string };
 
 export type VisionVerdict = {
-  answers_question: boolean;
+  allowed: boolean;
   reason: string;
   prominent_faces: boolean;
   confidence: number;

@@ -183,7 +183,7 @@ function showResult({ status, message, verification: v }: CaptureResult) {
   const checks = [
     ["Location matches the place", v.gps_ok],
     ["Photo taken in time", v.fresh_ok],
-    ["Photo answers the question", v.vision_ok],
+    ["Photo is safe to share", v.vision_ok],
   ] as const;
   $("checks").replaceChildren(
     ...checks.map(([label, ok]) => {

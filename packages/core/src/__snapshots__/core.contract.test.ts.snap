@@ -201,15 +201,19 @@ exports[`tool schemas > match the committed snapshot 1`] = `
                   "additionalProperties": false,
                   "properties": {
                     "fresh_ok": {
+                      "description": "The photo was taken live, before the deadline.",
                       "type": "boolean",
                     },
                     "gps_ok": {
+                      "description": "The worker was within about 150 m of the place.",
                       "type": "boolean",
                     },
                     "vision_ok": {
+                      "description": "The photo is safe to share (no prominent faces, private spaces, personal details or explicit content, and a real photo). It does not mean the answer is correct.",
                       "type": "boolean",
                     },
                     "vision_reason": {
+                      "description": "Why the photo is or is not safe to share.",
                       "type": "string",
                     },
                   },
@@ -513,15 +517,19 @@ exports[`tool schemas > match the committed snapshot 1`] = `
                   "additionalProperties": false,
                   "properties": {
                     "fresh_ok": {
+                      "description": "The photo was taken live, before the deadline.",
                       "type": "boolean",
                     },
                     "gps_ok": {
+                      "description": "The worker was within about 150 m of the place.",
                       "type": "boolean",
                     },
                     "vision_ok": {
+                      "description": "The photo is safe to share (no prominent faces, private spaces, personal details or explicit content, and a real photo). It does not mean the answer is correct.",
                       "type": "boolean",
                     },
                     "vision_reason": {
+                      "description": "Why the photo is or is not safe to share.",
                       "type": "string",
                     },
                   },

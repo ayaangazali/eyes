@@ -163,7 +163,7 @@ function answerText(a: Answer): string {
   return [
     `Answer for task ${a.task_id}: ${a.answer_text}`,
     ...(a.answer_bool === null ? [] : [`Yes/no: ${a.answer_bool ? "yes" : "no"}`]),
-    `Verification: GPS ${check(a.verification.gps_ok)}, fresh photo ${check(a.verification.fresh_ok)}, vision ${check(a.verification.vision_ok)} (${a.verification.vision_reason})`,
+    `Verification: GPS ${check(a.verification.gps_ok)}, fresh photo ${check(a.verification.fresh_ok)}, photo safe to share ${check(a.verification.vision_ok)} (${a.verification.vision_reason})`,
     `The worker was ${Math.round(a.worker_distance_m)} m from the place. Confidence ${a.confidence.toFixed(2)}. Cost ${usd(a.cost_usd)}.`,
     `Captured at ${a.captured_at}.${a.photo_url ? ` Photo attached, also at ${a.photo_url}` : ""}`,
   ].join("\n");

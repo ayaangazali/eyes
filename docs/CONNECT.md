@@ -16,7 +16,7 @@ curl -s -X POST https://api.eyes.pictures/v1/signup \
 In ChatGPT and Claude, `quote_task`, `ask_eyes`, `await_answer`, `get_task` and `get_balance` show a card:
 
 - a quote with workers nearby, ETA and price;
-- the live task: status steps, the worker's photo, the answer and the three checks (on site, fresh photo, answers the question);
+- the live task: status steps, the worker's photo, the answer and the three checks (on site, fresh photo, photo is safe to share);
 - your balance, with a Top up button.
 
 The other tools answer in text.

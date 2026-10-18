@@ -115,7 +115,7 @@ function answerBlock(a, status) {
     '<ul class="ui-checks">' +
     check(v.gps_ok, "On site", Math.round(a.worker_distance_m) + " m away") +
     check(v.fresh_ok, "Fresh photo", "taken " + time(a.captured_at)) +
-    check(v.vision_ok, "Answers the question", v.vision_ok ? Math.round(a.confidence * 100) + "% sure" : v.vision_reason) +
+    check(v.vision_ok, "Photo is safe to share", v.vision_ok ? "" : v.vision_reason) +
     "</ul>" +
     (status === "needs_review" ? '<div class="ui-notice ui-notice--warning">' + icon("alert") + "<span>A check failed. A person reviews it before the worker is paid; your escrow stays held.</span></div>" : "") +
     '<dl class="ui-kv"><dt>' + icon("cash") + "Cost</dt><dd>" + usd(a.cost_usd) + "</dd></dl>";

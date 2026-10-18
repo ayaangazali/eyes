@@ -169,7 +169,8 @@ function answerOf({ task, submission, worker_rating }: Detail): Answer | null {
     task_id: task.id,
     answer_text: submission.answer_text ?? fallback,
     answer_bool: submission.answer_bool,
-    photo_url: submission.photo_url,
+    // A photo that failed moderation (vision_ok false) is never delivered; ops still sees it.
+    photo_url: submission.vision_ok ? submission.photo_url : null,
     captured_at: iso(submission.captured_at),
     worker_distance_m: Math.round(distanceMeters(task, submission)),
     verification: {

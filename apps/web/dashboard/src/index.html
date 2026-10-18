@@ -434,7 +434,7 @@ function renderNow(t, nextSeen) {
   for (const [label, ok] of [
     ["At the place (GPS)", t.gps_ok],
     ["Taken just now", t.fresh_ok],
-    ["Photo answers it", t.vision_ok],
+    ["Photo is safe to share", t.vision_ok],
   ]) {
     const li = h("li", null, label);
     li.append(h("span", ok ? "ok" : "bad", ok ? "✓" : "✗"));

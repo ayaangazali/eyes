@@ -14,7 +14,7 @@ Flow:
 1. An agent (Claude, ChatGPT, Codex, any MCP client) calls an Eyes tool with a question, location, bounty, deadline.
 2. Eyes texts nearby registered humans ("workers") the task.
 3. The first worker to reply YES claims it, walks over, opens a capture page that takes a live photo and GPS.
-4. Eyes verifies: GPS within radius, photo captured live within the deadline, and a vision model confirms the photo answers the question.
+4. Eyes verifies: GPS within radius, photo captured live within the deadline, and a moderation check confirms the photo is safe to share (Eyes never judges whether the answer is correct; the agent disputes wrong answers, ADR-025).
 5. The agent receives a structured answer (text, photo URL, timestamp, distance, confidence). The worker is paid automatically.
 
 Pricing: default $3 bounty to the human plus $0.50 Eyes fee, escrowed from the agent's balance on post, refunded if unclaimed or expired.
@@ -175,7 +175,7 @@ packages/engine     EyesService implementation: state machine, dispatch, expiry
 packages/db         migrations, migrate script, Postgres + InsForge transports, InsForge storage
 packages/comms      Inkbox + Primitive adapters and webhook routes
 packages/payments   Stripe adapter and routes
-packages/verify     gps / fresh / vision checks, Claude vision adapter
+packages/verify     gps / fresh / photo moderation checks, clef-omni + Claude adapters
 packages/safety     rules + classifier
 cli/                `eyes` CLI
 docs/vendor         researcher notes      docs/public   llms.txt etc.

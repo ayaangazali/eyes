@@ -11,7 +11,7 @@ Built for YC's "Make Something Agents Want" hackathon (Oct 17-18, 2026) by Ayaan
 1. **Ask.** An agent (Claude, ChatGPT, Codex, any MCP client) calls `quote_task`, then `ask_eyes` with a question, a place, a bounty and a deadline. Eyes runs a safety check and escrows the bounty plus a $0.50 fee from the agent's prepaid balance.
 2. **Dispatch.** Eyes texts the nearest available workers (up to 3 within 3 km) over iMessage. The first text has no link and no question text, only the kind of check, the place and the pay.
 3. **Claim and capture.** The first worker to reply YES gets a capture link. The page opens the camera (no gallery uploads) and reads GPS.
-4. **Verify.** Eyes checks that the worker was within 150 m, that the photo was taken live before the deadline, and that a vision model agrees the photo answers the question and shows no prominent faces.
+4. **Verify.** Eyes checks that the worker was within 150 m, that the photo was taken live before the deadline, and that the photo is safe to share (moderation: no prominent faces, private interiors, personal details, nudity or gore, and a real photo). It does not judge whether the answer is correct: the agent looks at the photo and calls `dispute_answer` if it is wrong ([ADR-025](intent/decisions/ADR-025-vision-is-moderation.md)).
 5. **Answer and pay.** The agent's `await_answer` call returns the answer, photo URL, distance, checks and confidence. Escrow is released and the worker is paid $3 through Stripe Connect. If a check fails, the escrow stays held for human review instead.
 
 ```mermaid
@@ -215,7 +215,7 @@ Every transport (MCP, REST, email, worker web) calls one `EyesService` interface
 | [packages/db](packages/db) | migrations 001 to 014, Postgres and InsForge transports, InsForge storage |
 | [packages/comms](packages/comms) | Inkbox and Primitive adapters and webhook routes |
 | [packages/payments](packages/payments) | Stripe adapter and routes, the owner console and the worker earnings page |
-| [packages/verify](packages/verify) | GPS, freshness and vision checks |
+| [packages/verify](packages/verify) | GPS, freshness and photo moderation checks |
 | [packages/safety](packages/safety) | rules and classifier |
 | [scripts](scripts) | operator scripts: `smoke-live`, `owner-link`, `resolve-task`, `swarm`, InsForge migrate, intent check |
 | [evals/safety](evals/safety) | classifier eval fixtures |

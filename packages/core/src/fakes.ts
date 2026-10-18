@@ -103,8 +103,8 @@ export function fakeStorage() {
 
 export function fakeVision(initial: Partial<VisionVerdict> = {}) {
   let verdict: VisionVerdict = {
-    answers_question: true,
-    reason: "Photo clearly shows the place and answers the question.",
+    allowed: true,
+    reason: "The photo is safe to share.",
     prominent_faces: false,
     confidence: 0.9,
     ...initial,

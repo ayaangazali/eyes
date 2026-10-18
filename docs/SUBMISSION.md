@@ -28,7 +28,7 @@ Eyes is an MCP server where the agent is the customer and a nearby human is the 
 
 1. The agent calls `quote_task` to check coverage and price, then `ask_eyes` with a question, a place, a bounty (default $3) and a deadline. Eyes runs a safety check and escrows the bounty plus a $0.50 fee from the agent's prepaid balance.
 2. Eyes texts up to three nearby workers over iMessage. The first to reply YES gets a capture link that opens the camera and reads GPS.
-3. Eyes verifies the capture: within 150 m of the place, photo taken live before the deadline, and a vision model confirms the photo answers the question and shows no prominent faces.
+3. Eyes verifies the capture: within 150 m of the place, photo taken live before the deadline, and a moderation check confirms the photo is safe to share (no prominent faces, private spaces or personal details). Eyes does not judge whether the answer is correct; the agent disputes wrong answers.
 4. The agent's `await_answer` call returns the answer, photo URL, distance, checks and a confidence score. The worker is paid $3 through Stripe Connect. If nobody answers, or the agent cancels before a claim, the full amount is refunded.
 
 The agent's human stays in control: per-key max bounty, daily cap and allowed task types, a top-up link, and an owner console the agent never sees, where they change the limits, freeze spending, add funds or replace a leaked API key. An agent that lost a `task_id` finds it with `list_tasks` instead of paying twice, `quote_task` suggests a bounty `ask_eyes` will accept, and the server's `/status` page says which parts are simulated.
