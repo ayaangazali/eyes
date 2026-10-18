@@ -7,7 +7,6 @@
 [![CI](https://img.shields.io/github/actions/workflow/status/ayaangazali/eyes/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=CI)](https://github.com/ayaangazali/eyes/actions/workflows/ci.yml)
 [![Live](https://img.shields.io/badge/live-eyes.pictures-2563eb?style=for-the-badge)](https://eyes.pictures)
 [![MCP](https://img.shields.io/badge/MCP-api.eyes.pictures%2Fmcp-0d9488?style=for-the-badge)](docs/CONNECT.md)
-[![Stars](https://img.shields.io/github/stars/ayaangazali/eyes?style=for-the-badge&logo=github&color=d97706)](https://github.com/ayaangazali/eyes/stargazers)
 
 [Site](https://eyes.pictures) · [Worker app](https://app.eyes.pictures) · [Connect](docs/CONNECT.md) · [Deploy](docs/DEPLOY.md) · [Status](STATUS.md)
 
@@ -21,15 +20,15 @@ Agents can read the internet but cannot see the street. Eyes is an MCP server th
 
 ## Features
 
-- **[9 MCP tools](apps/mcp/src/server.ts):** `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `cancel_task`, `dispute_answer`, `get_balance`, `get_spend_policy`, `list_tasks`, plus the same calls over REST at `/v1/*`.
-- **[ChatGPT and Claude apps](docs/CONNECT.md):** OAuth sign-in, and quote, task and balance results render as cards with the worker's photo.
-- **[iMessage dispatch](packages/comms/src/inkbox.ts):** the nearest free workers (up to 3 within 3 km) get a text; the first YES gets the capture link.
-- **[Three checks per photo](packages/verify):** GPS within 150 m, taken live before the deadline, and safe to share (no prominent faces, private interiors or personal details).
-- **[Escrow in integer cents](intent/decisions/ADR-001-integer-cents.md):** bounty plus a $0.50 fee is held on ask, paid to the worker on a verified answer, refunded on expiry or cancel.
-- **[Safety before money moves](packages/safety):** rules, then an AI classifier; homes, specific people, vehicles and faces are refused.
-- **[Owner controls](intent/decisions/ADR-011-owner-console.md):** a private console sets max bounty, daily cap and allowed task types, and can replace a leaked API key.
-- **[Worker location](intent/decisions/ADR-024-worker-location.md):** HERE links, an iOS Shortcut, the iPhone app and each capture keep a worker's spot current.
-- **[Ops dashboard](intent/decisions/ADR-023-ops-access-events-tickets.md):** `/ops` behind an operator allowlist: tasks, money, review queue, support tickets, event log and a live map.
+- **[MCP tools](docs/features/mcp-tools.md):** 9 tools to quote, ask, wait and pay; also REST.
+- **[ChatGPT and Claude apps](docs/features/chatgpt-claude-apps.md):** OAuth sign-in; answers show as photo cards.
+- **[iMessage dispatch](docs/features/imessage-dispatch.md):** the 3 nearest workers get a text; first YES wins.
+- **[Photo checks](docs/features/photo-checks.md):** GPS within 150 m, taken live, safe to share.
+- **[Escrow](docs/features/escrow.md):** bounty plus $0.50 fee held on ask; refunded if no answer.
+- **[Safety](docs/features/safety.md):** rules, then an AI check; homes, people, cars, faces refused.
+- **[Owner controls](docs/features/owner-controls.md):** spend caps, allowed task types, key rotation.
+- **[Worker location](docs/features/worker-location.md):** HERE links, a Shortcut or the iPhone app.
+- **[Ops dashboard](docs/features/ops-dashboard.md):** `/ops`: tasks, money, reviews, tickets, live map.
 
 ## Quick start
 
@@ -76,15 +75,15 @@ sequenceDiagram
 
 ## Repository layout
 
-- [`apps/mcp/`](apps/mcp/): the API server: MCP tools, REST mirror, webhooks, OAuth, `/status`, composition root.
-- [`apps/edge/`](apps/edge/): Cloudflare Workers: `api` (Container front, Durable Object, cron) and `monitor` (uptime alerts).
-- [`apps/web/`](apps/web/): `landing` (eyes.pictures), `worker` (app.eyes.pictures: JOIN, capture, earnings) and `dashboard` (`/ops`).
-- [`apps/mobile/`](apps/mobile/): the Expo iPhone app that sends background location.
-- [`packages/`](packages/): `core` (schemas, errors, fakes), `engine`, `db`, `comms`, `payments`, `safety`, `verify`, `ui`.
-- [`cli/`](cli/): the `eyes` CLI and the generated `llms-full.txt`, `openapi.json` and agent card.
-- [`scripts/`](scripts/): `smoke-live`, `owner-link`, `resolve-task`, `swarm`, migrations, the intent check.
-- [`evals/`](evals/), [`e2e/`](e2e/): safety and agent-experience evals, Playwright golden path.
-- [`intent/`](intent/): why every file exists ([INDEX](intent/INDEX.md)), ADRs and verifier verdicts.
+- [`apps/mcp/`](apps/mcp/): API server: MCP tools, REST, webhooks, OAuth, `/status`.
+- [`apps/edge/`](apps/edge/): Cloudflare Workers: API front, cron, uptime monitor.
+- [`apps/web/`](apps/web/): landing site, worker app and the `/ops` dashboard.
+- [`apps/mobile/`](apps/mobile/): Expo iPhone app that sends background location.
+- [`packages/`](packages/): core, engine, db, comms, payments, safety, verify, ui.
+- [`cli/`](cli/): the `eyes` CLI and generated agent docs (`llms-full.txt`, OpenAPI).
+- [`scripts/`](scripts/): live smoke, owner link, task resolve, migrations, intent check.
+- [`evals/`](evals/), [`e2e/`](e2e/): safety evals and the Playwright golden path.
+- [`intent/`](intent/): why each file exists ([INDEX](intent/INDEX.md)), ADRs, verdicts.
 
 ## More docs
 
@@ -134,13 +133,3 @@ Every outside provider and service Eyes uses, and how. "Live" means the deployed
 | GitHub | Code, PRs, issues; Actions run CI, live smoke and the safety LLM eval | [.github/workflows](.github/workflows) | live |
 
 `.env.example` also lists keys for Armature analytics and Blaxel sandboxes; no code uses them yet.
-
-## Star history
-
-<a href="https://star-history.com/#ayaangazali/eyes&Date">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=ayaangazali/eyes&type=Date&theme=dark">
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=ayaangazali/eyes&type=Date">
-    <img alt="Star history chart for ayaangazali/eyes" src="https://api.star-history.com/svg?repos=ayaangazali/eyes&type=Date">
-  </picture>
-</a>
