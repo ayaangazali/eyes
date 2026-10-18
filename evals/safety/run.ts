@@ -31,7 +31,16 @@ for (const f of fixtures) {
 }
 
 const ratio = (n: number, d: number) => (d === 0 ? "n/a" : (n / d).toFixed(3));
-const mode = process.env.ANTHROPIC_API_KEY ? "rules + classifier" : "rules only (ANTHROPIC_API_KEY not set)";
+const clef = process.env.CLOUDFLARE_ACCOUNT_ID && process.env.CLOUDFLARE_API_TOKEN;
+const claude = process.env.ANTHROPIC_API_KEY;
+const mode =
+  clef && claude
+    ? "rules + clef, unsure escalated to Claude"
+    : clef
+      ? "rules + clef, unsure refused (ANTHROPIC_API_KEY not set)"
+      : claude
+        ? "rules + Claude classifier"
+        : "rules only (no classifier key set)";
 console.log(`mode: ${mode}`);
 console.log(`fixtures: ${fixtures.length}  (positive class = block)`);
 if (unavailable > 0) {

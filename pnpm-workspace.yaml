@@ -3,3 +3,5 @@ packages:
   - apps/web/*
   - packages/*
   - cli
+allowBuilds:
+  esbuild: true
