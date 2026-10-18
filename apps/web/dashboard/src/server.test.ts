@@ -176,6 +176,12 @@ async function getWithoutHost(path: string): Promise<number> {
 }
 
 describe("OPS_PAGE", () => {
+  it("draws the header logo with the shared viewfinder mark from @eyes/ui, not a local square", () => {
+    expect(OPS_PAGE).toContain('<span class="ui-mark" aria-hidden="true"></span>Eyes ops');
+    expect(OPS_PAGE).toMatch(/\.ui-mark \{[^}]*radial-gradient/);
+    expect(OPS_PAGE).not.toMatch(/^\.mark \{/m);
+  });
+
   it("inlines the ops-view modules as the only inline script, and that script boots the page", async () => {
     const inline = [...OPS_PAGE.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(
       ([, s = ""]) => s,
