@@ -1,6 +1,6 @@
 import { distanceMeters, fakeVision, type Task, type VerifyInput, type Vision } from "@eyes/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createClaudeVision, verifySubmission } from "./index.ts";
+import { createClaudeVision, createClefVision, verifySubmission } from "./index.ts";
 
 const task: Task = {
   id: "00000000-0000-4000-8000-000000000001",
@@ -249,5 +249,45 @@ describe("createClaudeVision", () => {
     await expect(createClaudeVision({ ANTHROPIC_API_KEY: "test" }).judge(judgeInput)).rejects.toThrow(
       /refusal/,
     );
+  });
+});
+
+describe("createClefVision", () => {
+  const env = { CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_API_TOKEN: "cf-test" };
+  const stub = (answers: number, faces: number) => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      calls.push(String(url));
+      if (String(url) === judgeInput.photo_url) {
+        return new Response(new Uint8Array([0xff, 0xd8]), { headers: { "content-type": "image/jpeg" } });
+      }
+      return Response.json({
+        result: { answers: { answers_question: { noul: answers }, prominent_faces: { noul: faces } } },
+      });
+    });
+    return calls;
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns clef's verdict when it is sure, sending the photo bytes", async () => {
+    const calls = stub(0.95, 0.05);
+    const v = await createClefVision(env).judge(judgeInput);
+    expect(v).toMatchObject({ answers_question: true, prominent_faces: false, confidence: 0.95 });
+    expect(calls).toEqual([
+      judgeInput.photo_url,
+      expect.stringContaining("/ai/run/@cf/cloudflare/clef-omni"),
+    ]);
+  });
+
+  it("sends an unsure photo to human review when Claude is not configured", async () => {
+    stub(0.6, 0.05);
+    expect(await createClefVision(env).judge(judgeInput)).toMatchObject({
+      answers_question: false,
+      prominent_faces: false,
+      reason: expect.stringContaining("a person will review it"),
+    });
   });
 });
