@@ -152,7 +152,6 @@ export function toNodeListener(fetch: Fetch) {
       await pipeline(Readable.fromWeb(response.body as ReadableStream), res).catch(() => undefined);
     } catch (err) {
       console.error(`request failed: ${err instanceof Error ? err.name : "unknown error"}`);
-      if (res.headersSent) return void res.destroy();
       res.statusCode = 500;
       res.setHeader("content-type", "application/json");
       res.end(JSON.stringify(new EyesError("internal_error").toBody()));
