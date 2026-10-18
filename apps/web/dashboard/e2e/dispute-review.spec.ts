@@ -165,7 +165,7 @@ for (const viewport of [
     await expect(panel.getByText("earned $3.00 in 1 payout", { exact: true })).toBeVisible();
     await expect(panel.getByRole("button", { name: "Review and lift temporary hold" })).toHaveCount(0);
     await panel.getByRole("button", { name: "Close", exact: true }).click();
-    await expect(page.locator("#workers")).not.toContainText("Paused: dispute review");
+    await expect(page.locator("#workers tbody")).not.toContainText("Paused: dispute review");
     await page.getByRole("tab", { name: "Overview", exact: true }).click();
     await expect(page.getByRole("slider")).toHaveValue("0.95");
   });

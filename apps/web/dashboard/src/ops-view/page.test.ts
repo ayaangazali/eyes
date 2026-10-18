@@ -1959,7 +1959,7 @@ describe("ops workers map, story and worker panel", () => {
     it(`reviews only the temporary hold with a required note (${root ? "internal host" : "/ops"})`, async () => {
       const page = await withDisputeReview({ root });
       const { panel, button, click, requests } = page;
-      expect(page.text("workers")).toContain("Paused: dispute review");
+      expect(page.$("workers").querySelector("tbody")?.textContent).toContain("Paused: dispute review");
       expect(panel.textContent).toContain("3 distinct disputed tasks since last review");
       expect(panel.querySelectorAll(".worker-disputes a")).toHaveLength(3);
       expect(panel.querySelector(".worker-disputes script")).toBeNull();
@@ -1993,7 +1993,7 @@ describe("ops workers map, story and worker panel", () => {
       expect(panel.textContent).toContain("No temporary dispute hold.");
       expect(panel.textContent).toContain("reviewer@example.test");
       expect(panel.textContent).toContain("Reviewed all three tasks");
-      expect(page.text("workers")).not.toContain("Paused: dispute review");
+      expect(page.$("workers").querySelector("tbody")?.textContent).not.toContain("Paused: dispute review");
       expect(panel.textContent).toContain("earned $3.00 in 1 payout");
       expect(panel.querySelector(".decide")).toBeNull();
     });
@@ -2011,8 +2011,8 @@ describe("ops workers map, story and worker panel", () => {
     await click(button(panel, "Review and lift temporary hold"));
     await click(button(panel, "Lift temporary hold"));
     expect(panel.querySelector(".task-head .ui-badge")?.textContent).toBe("Banned");
-    expect(page.text("workers")).toContain("Banned");
-    expect(page.text("workers")).not.toContain("Paused: dispute review");
+    expect(page.$("workers").querySelector("tbody")?.textContent).toContain("Banned");
+    expect(page.$("workers").querySelector("tbody")?.textContent).not.toContain("Paused: dispute review");
     expect(panel.textContent).toContain("No temporary dispute hold.");
   });
 
@@ -2070,7 +2070,7 @@ describe("ops workers map, story and worker panel", () => {
     finish(ok({ error: "worker_not_held" }, 409));
     await page.settle();
     expect(panel.textContent).toContain("Close and reopen the worker to refresh");
-    expect(page.text("workers")).toContain("Paused: dispute review");
+    expect(page.$("workers").querySelector("tbody")?.textContent).toContain("Paused: dispute review");
     expect(button(panel, "Close").disabled).toBe(false);
     expect(note.value).toBe("Reviewed all three tasks");
   });
