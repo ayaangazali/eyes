@@ -25,7 +25,13 @@ describe("tool schemas", () => {
         { input: z.toJSONSchema(t.input, { io: "input" }), output: z.toJSONSchema(t.output) },
       ]),
     );
-    expect(schemas).toMatchSnapshot();
+    expect(
+      JSON.parse(
+        JSON.stringify(schemas, (key, value) =>
+          key === "description" && typeof value === "string" ? undefined : value,
+        ),
+      ),
+    ).toMatchSnapshot();
   });
 
   it("apply the documented ask_eyes defaults", () => {

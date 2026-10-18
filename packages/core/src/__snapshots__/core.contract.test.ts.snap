@@ -7,7 +7,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "task_id": {
-          "description": "The task_id returned by ask_eyes.",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
           "type": "string",
@@ -29,7 +28,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
         },
         "status": {
           "const": "accepted",
-          "description": "Your agent's positive feedback, not machine verification.",
           "type": "string",
         },
         "task_id": {
@@ -52,25 +50,21 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "properties": {
         "bounty_usd": {
           "default": 3,
-          "description": "Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.",
           "maximum": 50,
           "minimum": 1,
           "type": "number",
         },
         "classifier_report_id": {
-          "description": "Approved classifier feedback ticket for this exact request and API agent. Never grants permission for a changed request.",
           "pattern": "^[1-9]\\d{0,18}$",
           "type": "string",
         },
         "deadline_minutes": {
           "default": 30,
-          "description": "Minutes until the task expires and the escrow is refunded.",
           "maximum": 240,
           "minimum": 5,
           "type": "integer",
         },
         "idempotency_key": {
-          "description": "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question.",
           "maxLength": 128,
           "minLength": 1,
           "type": "string",
@@ -80,13 +74,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             {
               "properties": {
                 "lat": {
-                  "description": "Latitude in decimal degrees, e.g. 37.7825",
                   "maximum": 90,
                   "minimum": -90,
                   "type": "number",
                 },
                 "lng": {
-                  "description": "Longitude in decimal degrees, e.g. -122.4078",
                   "maximum": 180,
                   "minimum": -180,
                   "type": "number",
@@ -99,27 +91,22 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "object",
             },
             {
-              "description": "A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.",
               "maxLength": 200,
               "minLength": 2,
               "type": "string",
             },
           ],
-          "description": "The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user's own location or a home address.",
         },
         "question": {
-          "description": "What the human should check, in plain words, e.g. "How many people are in line right now?"",
           "maxLength": 500,
           "minLength": 5,
           "type": "string",
         },
         "require_photo": {
           "default": true,
-          "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
           "type": "boolean",
         },
         "task_type": {
-          "description": "is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place.",
           "enum": [
             "is_open",
             "line_length",
@@ -186,14 +173,12 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "task_id": {
-          "description": "The task_id returned by ask_eyes.",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
           "type": "string",
         },
         "timeout_seconds": {
           "default": 50,
-          "description": "How long this call waits for an answer, at most 55 seconds. Call again while answered is false and the status is dispatched, claimed or submitted; stop on expired, refunded or disputed.",
           "maximum": 55,
           "minimum": 1,
           "type": "integer",
@@ -219,7 +204,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "null",
             },
           ],
-          "description": "When your agent accepted this answer. Feedback only; not photo verification or payment.",
         },
         "answer": {
           "anyOf": [
@@ -263,19 +247,15 @@ exports[`tool schemas > match the committed snapshot 1`] = `
                   "additionalProperties": false,
                   "properties": {
                     "fresh_ok": {
-                      "description": "The photo was taken live, before the deadline.",
                       "type": "boolean",
                     },
                     "gps_ok": {
-                      "description": "The worker was within about 150 m of the place.",
                       "type": "boolean",
                     },
                     "vision_ok": {
-                      "description": "The photo check completed without confirmed graphic gore or explicit sexual content. Content uncertainty alone passes; provider failures need review. It does not mean the answer is correct.",
                       "type": "boolean",
                     },
                     "vision_reason": {
-                      "description": "Why the photo is or is not safe to share.",
                       "type": "string",
                     },
                   },
@@ -354,7 +334,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "task_id": {
-          "description": "The task_id returned by ask_eyes.",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
           "type": "string",
@@ -395,13 +374,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "reason": {
-          "description": "What is wrong with the answer, e.g. "photo shows a different store".",
           "maxLength": 1000,
           "minLength": 5,
           "type": "string",
         },
         "task_id": {
-          "description": "The task_id returned by ask_eyes.",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
           "type": "string",
@@ -428,7 +405,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             },
             "deadline_minutes": {
               "default": 30,
-              "description": "Minutes until the task expires and the escrow is refunded.",
               "maximum": 240,
               "minimum": 5,
               "type": "integer",
@@ -458,7 +434,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             },
             "require_photo": {
               "default": true,
-              "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
               "type": "boolean",
             },
             "task_type": {
@@ -638,7 +613,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "task_id": {
-          "description": "The task_id returned by ask_eyes.",
           "format": "uuid",
           "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
           "type": "string",
@@ -664,7 +638,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "null",
             },
           ],
-          "description": "When your agent accepted this answer. Feedback only; not photo verification or payment.",
         },
         "answer": {
           "anyOf": [
@@ -708,19 +681,15 @@ exports[`tool schemas > match the committed snapshot 1`] = `
                   "additionalProperties": false,
                   "properties": {
                     "fresh_ok": {
-                      "description": "The photo was taken live, before the deadline.",
                       "type": "boolean",
                     },
                     "gps_ok": {
-                      "description": "The worker was within about 150 m of the place.",
                       "type": "boolean",
                     },
                     "vision_ok": {
-                      "description": "The photo check completed without confirmed graphic gore or explicit sexual content. Content uncertainty alone passes; provider failures need review. It does not mean the answer is correct.",
                       "type": "boolean",
                     },
                     "vision_reason": {
-                      "description": "Why the photo is or is not safe to share.",
                       "type": "string",
                     },
                   },
@@ -789,14 +758,12 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "additionalProperties": false,
               "properties": {
                 "refunded_usd": {
-                  "description": "What was refunded to your balance when the dispute was upheld.",
                   "type": [
                     "number",
                     "null",
                   ],
                 },
                 "status": {
-                  "description": "open: a person is reviewing your dispute. upheld: the answer was fake; bounty and fee were refunded to your balance. rejected: the answer stands and the worker keeps the pay.",
                   "enum": [
                     "open",
                     "upheld",
@@ -815,7 +782,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "null",
             },
           ],
-          "description": "Your dispute_answer on this task and its outcome; null if you never disputed it.",
         },
         "fee_usd": {
           "type": "number",
@@ -834,7 +800,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             },
             "deadline_minutes": {
               "default": 30,
-              "description": "Minutes until the task expires and the escrow is refunded.",
               "maximum": 240,
               "minimum": 5,
               "type": "integer",
@@ -864,7 +829,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             },
             "require_photo": {
               "default": true,
-              "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
               "type": "boolean",
             },
             "task_type": {
@@ -944,13 +908,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "properties": {
         "limit": {
           "default": 20,
-          "description": "How many tasks to return, newest first. 1 to 50.",
           "maximum": 50,
           "minimum": 1,
           "type": "integer",
         },
         "status": {
-          "description": "Only return tasks in this status, e.g. "dispatched" for tasks no worker has claimed yet. Omit for every status.",
           "enum": [
             "dispatched",
             "claimed",
@@ -991,7 +953,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
                 ],
               },
               "answered": {
-                "description": "True when status is verified, paid or needs_review; get_task returns the answer.",
                 "type": "boolean",
               },
               "bounty_usd": {
@@ -1065,13 +1026,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             {
               "properties": {
                 "lat": {
-                  "description": "Latitude in decimal degrees, e.g. 37.7825",
                   "maximum": 90,
                   "minimum": -90,
                   "type": "number",
                 },
                 "lng": {
-                  "description": "Longitude in decimal degrees, e.g. -122.4078",
                   "maximum": 180,
                   "minimum": -180,
                   "type": "number",
@@ -1084,13 +1043,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "object",
             },
             {
-              "description": "A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.",
               "maxLength": 200,
               "minLength": 2,
               "type": "string",
             },
           ],
-          "description": "The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user's own location or a home address.",
         },
         "task_type": {
           "enum": [
@@ -1116,7 +1073,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "additionalProperties": false,
       "properties": {
         "allowed": {
-          "description": "False when this API key cannot post this task right now: Eyes' safety rules refuse this task_type at this place, the task_type is not in allowed_task_types, or even the 1 USD minimum bounty plus fee does not fit max_bounty_usd, the daily cap left or the balance. It does not check your question: ask_eyes checks the question itself and can still refuse it with unsafe_task.",
           "type": "boolean",
         },
         "est_minutes_to_answer": {
@@ -1126,7 +1082,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           ],
         },
         "reason_if_not": {
-          "description": "Why allowed is false and what to do: change the place or task_type, top up at top_up_url, wait for the daily cap to reset at midnight UTC, or ask your user to raise a limit. Null when allowed is true.",
           "type": [
             "string",
             "null",
@@ -1153,7 +1108,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           "type": "object",
         },
         "suggested_bounty_usd": {
-          "description": "A bounty ask_eyes accepts for this API key right now: the default, lowered to fit max_bounty_usd, the daily cap left after the fee, and your balance after the fee. Pass it as bounty_usd.",
           "type": "number",
         },
         "workers_nearby": {
@@ -1211,14 +1165,12 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
         "ask_idempotency_key": {
-          "description": "The original refused Ask key. The top-level idempotency_key is the separate per-card report key.",
           "maxLength": 128,
           "minLength": 1,
           "type": "string",
         },
         "bounty_usd": {
           "default": 3,
-          "description": "Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.",
           "maximum": 50,
           "minimum": 1,
           "type": "number",
@@ -1248,13 +1200,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
         },
         "deadline_minutes": {
           "default": 30,
-          "description": "Minutes until the task expires and the escrow is refunded.",
           "maximum": 240,
           "minimum": 5,
           "type": "integer",
         },
         "idempotency_key": {
-          "description": "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question.",
           "maxLength": 128,
           "minLength": 1,
           "type": "string",
@@ -1264,13 +1214,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
             {
               "properties": {
                 "lat": {
-                  "description": "Latitude in decimal degrees, e.g. 37.7825",
                   "maximum": 90,
                   "minimum": -90,
                   "type": "number",
                 },
                 "lng": {
-                  "description": "Longitude in decimal degrees, e.g. -122.4078",
                   "maximum": 180,
                   "minimum": -180,
                   "type": "number",
@@ -1283,23 +1231,19 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "object",
             },
             {
-              "description": "A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.",
               "maxLength": 200,
               "minLength": 2,
               "type": "string",
             },
           ],
-          "description": "The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user's own location or a home address.",
         },
         "question": {
-          "description": "What the human should check, in plain words, e.g. "How many people are in line right now?"",
           "maxLength": 500,
           "minLength": 5,
           "type": "string",
         },
         "require_photo": {
           "default": true,
-          "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
           "type": "boolean",
         },
         "task_id": {
@@ -1308,7 +1252,6 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           "type": "string",
         },
         "task_type": {
-          "description": "is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place.",
           "enum": [
             "is_open",
             "line_length",

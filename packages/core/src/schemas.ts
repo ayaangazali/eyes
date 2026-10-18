@@ -326,7 +326,9 @@ export const ClassifierReportOutput = z.object({
 export const ReportClassifierOutput = ClassifierReportOutput.extend({ created: z.boolean() });
 
 export const AwaitAnswerInput = z.object({
-  task_id: TaskId,
+  task_id: TaskId.describe(
+    "Existing task_id from confirmed dispatch or a task lookup. Not a draft idempotency_key.",
+  ),
   timeout_seconds: z
     .int()
     .min(1)

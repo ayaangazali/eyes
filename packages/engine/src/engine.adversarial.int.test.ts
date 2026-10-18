@@ -552,6 +552,12 @@ describe.skipIf(!url)("engine under races and guards", () => {
     const w = await worker(north(at, 100));
     const a = await agent();
     const { task_id } = await ask(a, at);
+    const beforeWait = {
+      task: await task(task_id),
+      ledger: await rows(task_id),
+      balance: await service.getBalance(a),
+      messages: outbox.length,
+    };
 
     let t0 = Date.now();
     const timedOut = await service.awaitAnswer(a, { task_id, timeout_seconds: 1 });
@@ -571,6 +577,12 @@ describe.skipIf(!url)("engine under races and guards", () => {
     t0 = Date.now();
     await service.awaitAnswer(a, { task_id, timeout_seconds: 50 }, AbortSignal.abort());
     expect(Date.now() - t0).toBeLessThan(500);
+    expect({
+      task: await task(task_id),
+      ledger: await rows(task_id),
+      balance: await service.getBalance(a),
+      messages: outbox.length,
+    }).toEqual(beforeWait);
 
     await expect(service.awaitAnswer(a, { task_id, timeout_seconds: 56 })).rejects.toMatchObject({
       code: "invalid_input",
