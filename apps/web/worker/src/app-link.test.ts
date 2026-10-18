@@ -129,13 +129,40 @@ describe("openApp", () => {
     expect(d.reveal).not.toHaveBeenCalled();
   });
 
-  it("falls back to nothing when the page loses focus (iOS 'Open in Eyes?' prompt)", () => {
+  it("pauses on blur and cancels when the confirmed app hides the page (iOS 'Open in Eyes?' prompt)", () => {
     const d = fakeDeps({ testflightUrl: TESTFLIGHT });
     openApp(DEEP, d);
+    vi.advanceTimersByTime(1000);
     d.win.dispatchEvent(new Event("blur"));
-    vi.advanceTimersByTime(5000);
+    vi.advanceTimersByTime(10_000);
+    expect(d.navigate).toHaveBeenCalledTimes(1);
+    d.doc.hidden = true;
+    d.doc.dispatchEvent(new Event("visibilitychange"));
+    d.win.dispatchEvent(new Event("focus"));
+    vi.advanceTimersByTime(10_000);
     expect(d.navigate).toHaveBeenCalledTimes(1);
     expect(d.reveal).not.toHaveBeenCalled();
+  });
+
+  it("resumes after a dismissed dialog (iOS 'cannot open' alert) and falls back on the remaining time", () => {
+    const d = fakeDeps();
+    openApp(DEEP, d);
+    vi.advanceTimersByTime(1000);
+    d.win.dispatchEvent(new Event("blur"));
+    d.win.dispatchEvent(new Event("blur"));
+    vi.advanceTimersByTime(10_000);
+    expect(d.reveal).not.toHaveBeenCalled();
+    d.win.dispatchEvent(new Event("focus"));
+    d.win.dispatchEvent(new Event("focus"));
+    vi.advanceTimersByTime(1499);
+    expect(d.reveal).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(d.reveal).toHaveBeenCalledTimes(1);
+    expect(d.reveal).toHaveBeenCalledWith("review");
+    d.win.dispatchEvent(new Event("blur"));
+    d.win.dispatchEvent(new Event("focus"));
+    vi.advanceTimersByTime(10_000);
+    expect(d.reveal).toHaveBeenCalledTimes(1);
   });
 
   it("goes to TestFlight when the page still shows after 2.5 s", () => {

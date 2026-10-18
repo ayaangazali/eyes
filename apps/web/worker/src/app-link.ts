@@ -25,19 +25,44 @@ export type AppPageDeps = {
 export type OpenAppDeps = Pick<AppPageDeps, "reveal" | "navigate" | "doc" | "win" | "testflightUrl">;
 
 /**
- * Opens the app, or installs it when it is missing. An opened app hides the page, and iOS's "Open in Eyes?"
- * prompt blurs it; a page still showing and focused after 2.5 s means no app, so go to TestFlight, or say
- * the app is in review while there is no TestFlight link.
+ * Opens the app, or installs it when it is missing. An opened app hides the page (cancel). iOS's
+ * "Open in Eyes?" prompt and its "cannot open" alert both blur the page, so blur pauses the 2.5 s clock and
+ * focus resumes it: confirming the prompt hides the page, dismissing either dialog lets the fallback run.
+ * When the clock runs out: TestFlight, or the in-review notice while there is no TestFlight link.
  */
 export function openApp(deep: string, d: OpenAppDeps): void {
   d.navigate(deep);
-  const timer = setTimeout(() => (d.testflightUrl ? d.navigate(d.testflightUrl) : d.reveal("review")), 2500);
-  const cancel = () => clearTimeout(timer);
+  let left = 2500;
+  let started = Date.now();
+  let done = false;
+  let paused = false;
+  const fallback = () => {
+    done = true;
+    if (d.testflightUrl) d.navigate(d.testflightUrl);
+    else d.reveal("review");
+  };
+  let timer = setTimeout(fallback, left);
   d.doc.addEventListener("visibilitychange", () => {
-    if (d.doc.hidden) cancel();
+    if (!d.doc.hidden) return;
+    done = true;
+    clearTimeout(timer);
   });
-  d.win.addEventListener("pagehide", cancel);
-  d.win.addEventListener("blur", cancel);
+  d.win.addEventListener("pagehide", () => {
+    done = true;
+    clearTimeout(timer);
+  });
+  d.win.addEventListener("blur", () => {
+    if (done || paused) return;
+    paused = true;
+    clearTimeout(timer);
+    left -= Date.now() - started;
+  });
+  d.win.addEventListener("focus", () => {
+    if (done || !paused) return;
+    paused = false;
+    started = Date.now();
+    timer = setTimeout(fallback, left);
+  });
 }
 
 /**
