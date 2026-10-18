@@ -90,10 +90,12 @@ async function send(env, subject, text) {
     body: JSON.stringify({ to: env.ALERT_PHONE, text: `${env.SUBJECT_PREFIX}${subject}\n${text}` }),
     signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
   });
-  const body = await res.json().catch(() => ({}));
-  const msg = body.message ?? {};
+  const body = await res.json().catch(() => null);
+  const msg = body?.message ?? {};
   if (!res.ok || ["error", "declined"].includes(msg.status)) {
     throw new Error(`alert not sent: Inkbox HTTP ${res.status} ${msg.errorCode ?? msg.status ?? ""}`.trim());
   }
+  // A 2xx with no message id (a non-JSON body included) is not a sent alert, so the tick retries.
+  if (!msg.id) throw new Error(`alert not sent: Inkbox HTTP ${res.status} no message id`);
   console.log(`alert sent: "${subject}" id=${msg.id} status=${msg.status}`);
 }

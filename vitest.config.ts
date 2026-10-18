@@ -18,5 +18,16 @@ export default defineConfig({
       },
       { test: { name: "safety", include: ["{packages,evals}/**/*.rules.test.ts"], exclude: ignore } },
     ],
+    coverage: {
+      include: ["apps/**/*.{ts,js}", "packages/**/*.{ts,js}", "cli/**/*.{ts,js}"],
+      exclude: [
+        "**/*.test.ts",
+        "**/*.{contract,int,rules}.test.ts",
+        "**/dist/**",
+        "**/node_modules/**",
+        "scripts/**",
+        "apps/mobile/ios/**",
+      ],
+    },
   },
 });

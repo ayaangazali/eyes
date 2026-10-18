@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createInsforgeStorage } from "./storage.ts";
 
 const env = { INSFORGE_BASE_URL: "https://eyes.us-west.insforge.app", INSFORGE_API_KEY: "ik_test_key" };
+const base = env.INSFORGE_BASE_URL;
+const strategyUrl = `${base}/api/storage/buckets/photos/upload-strategy`;
+const photo = { key: "task-1/a.jpg", bytes: new Uint8Array([1, 2, 3]), content_type: "image/jpeg" };
 
 function stubFetch(status: number, body: unknown) {
   const fetch = vi.fn(
@@ -10,6 +13,10 @@ function stubFetch(status: number, body: unknown) {
   );
   vi.stubGlobal("fetch", fetch);
   return fetch;
+}
+
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
 describe("createInsforgeStorage().deletePhoto", () => {
@@ -30,6 +37,88 @@ describe("createInsforgeStorage().deletePhoto", () => {
     stubFetch(404, { error: "STORAGE_NOT_FOUND", message: "Object not found", statusCode: 404 });
     await expect(createInsforgeStorage(env).deletePhoto({ key: "task-1/gone.jpg" })).rejects.toThrow(
       "Object not found",
+    );
+  });
+});
+
+describe("createInsforgeStorage().putPhoto", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("refuses to build without the InsForge base URL and key", () => {
+    expect(() => createInsforgeStorage({ INSFORGE_API_KEY: "ik_test_key" })).toThrow(
+      "INSFORGE_BASE_URL and INSFORGE_API_KEY are required for photo storage",
+    );
+    expect(() => createInsforgeStorage({ INSFORGE_BASE_URL: base })).toThrow(
+      "INSFORGE_BASE_URL and INSFORGE_API_KEY are required for photo storage",
+    );
+  });
+
+  it("uploads through a presigned URL and returns the public object URL", async () => {
+    const s3 = "https://s3.example.test/upload";
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url === strategyUrl) {
+        return json({ method: "presigned", uploadUrl: s3, key: photo.key, fields: { policy: "p1" } });
+      }
+      if (url === s3) return new Response(null, { status: 204 });
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const out = await createInsforgeStorage(env).putPhoto(photo);
+
+    expect(out).toEqual({ url: `${base}/api/storage/buckets/photos/objects/task-1%2Fa.jpg` });
+    const s3Call = fetch.mock.calls.find(([url]) => url === s3);
+    const body = s3Call?.[1]?.body;
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get("policy")).toBe("p1");
+  });
+
+  it("uploads directly when InsForge asks for a direct PUT and returns the URL it reports", async () => {
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url === strategyUrl) return json({ method: "direct" });
+      if (url === `${base}/api/storage/buckets/photos/objects/task-1%2Fa.jpg`) {
+        return json({ url: "https://cdn.example.test/a.jpg" });
+      }
+      throw new Error(`unexpected ${url}`);
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const out = await createInsforgeStorage(env).putPhoto(photo);
+
+    expect(out).toEqual({ url: "https://cdn.example.test/a.jpg" });
+    const put = fetch.mock.calls.find(([, init]) => init?.method === "PUT");
+    expect(put?.[1]?.body).toBeInstanceOf(FormData);
+  });
+
+  it("throws when the presigned storage upload is refused", async () => {
+    const s3 = "https://s3.example.test/upload";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        if (url === strategyUrl) return json({ method: "presigned", uploadUrl: s3, key: photo.key });
+        return new Response("denied", { status: 403, statusText: "Forbidden" });
+      }),
+    );
+    await expect(createInsforgeStorage(env).putPhoto(photo)).rejects.toThrow(
+      "Upload to storage failed: Forbidden",
+    );
+  });
+
+  it("throws when InsForge will not issue an upload strategy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ message: "storage quota exceeded" }, 507)),
+    );
+    await expect(createInsforgeStorage(env).putPhoto(photo)).rejects.toThrow();
+  });
+
+  it("throws on an upload method the SDK does not know", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => json({ method: "carrier-pigeon" })),
+    );
+    await expect(createInsforgeStorage(env).putPhoto(photo)).rejects.toThrow(
+      "Unsupported upload method: carrier-pigeon",
     );
   });
 });

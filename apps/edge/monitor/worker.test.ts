@@ -1,0 +1,299 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+// @ts-expect-error untyped worker module; the Workers types are not in this package.
+import worker from "./worker.js";
+
+const HEALTH_URL = "https://api.eyes.pictures/healthz";
+const MIN = 60_000;
+
+interface Call {
+  url: string;
+  init?: RequestInit;
+}
+
+// Plain object standing in for the KV namespace.
+function fakeKv(state?: unknown) {
+  const store = new Map<string, string>();
+  if (state !== undefined) store.set("state", JSON.stringify(state));
+  return {
+    store,
+    get: vi.fn(async (key: string) => {
+      const raw = store.get(key);
+      return raw === undefined ? null : JSON.parse(raw);
+    }),
+    put: vi.fn(async (key: string, value: string) => {
+      store.set(key, value);
+    }),
+  };
+}
+
+type Kv = ReturnType<typeof fakeKv>;
+
+function stored(kv: Kv): unknown {
+  const raw = kv.store.get("state");
+  return raw === undefined ? undefined : JSON.parse(raw);
+}
+
+function fakeEnv(kv: Kv, overrides: Record<string, string> = {}) {
+  return {
+    EYES_MONITOR: kv,
+    HEALTH_URL,
+    SUBJECT_PREFIX: "",
+    ALERT_PHONE: "+15550100",
+    INKBOX_API_KEY: "test-key",
+    INKBOX_AGENT_HANDLE: "eyes-agent",
+    ...overrides,
+  };
+}
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+const healthy = () => json({ ok: true, providers: { llm: "live" }, db: "insforge" });
+const bad503 = () => new Response("down", { status: 503 });
+
+function timeoutError(): Error {
+  const err = new Error("The operation was aborted due to timeout");
+  err.name = "TimeoutError";
+  return err;
+}
+
+// Route each fetch: the health probe, the Inkbox identity lookup, and the iMessage send.
+// Any other URL is a test bug, so it throws.
+function routeFetch(health: () => Response, sendStatus = "sent", identityOk = true): Call[] {
+  const calls: Call[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      if (url === HEALTH_URL) return health();
+      if (url.includes("/identities/"))
+        return identityOk ? json({ id: "ident-1" }) : json({ error: "nope" }, 500);
+      if (url.includes("/imessage/messages")) return json({ message: { id: "m1", status: sendStatus } });
+      throw new Error(`unexpected fetch: ${url}`);
+    }),
+  );
+  return calls;
+}
+
+// Subject is the first line of each alert text.
+function alertSubjects(calls: Call[]): string[] {
+  return calls
+    .filter((c) => c.url.includes("/imessage/messages"))
+    .map((c) => String(JSON.parse(String(c.init?.body)).text).split("\n")[0] ?? "");
+}
+
+// One failed check away from the "down" alert.
+function oneBadCheck(): Kv {
+  return fakeKv({ fails: 1, down: false, since: Date.now() - MIN });
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe("probe classification", () => {
+  it.each<[string, () => Response]>([
+    ["HTTP 503", bad503],
+    ["body is not JSON", () => new Response("<html>", { status: 200 })],
+    ["ok is not true", () => json({ ok: false, providers: { llm: "live" }, db: "insforge" })],
+    [
+      "providers not live: llm degraded",
+      () => json({ ok: true, providers: { llm: "degraded" }, db: "insforge" }),
+    ],
+    ["providers not live: none reported", () => json({ ok: true, providers: {}, db: "insforge" })],
+    ["db is sqlite", () => json({ ok: true, providers: { llm: "live" }, db: "sqlite" })],
+    ["db is missing", () => json({ ok: true, providers: { llm: "live" } })],
+    [
+      "no answer in 10 s",
+      () => {
+        throw timeoutError();
+      },
+    ],
+    [
+      "request failed (socket hang up)",
+      () => {
+        throw new Error("socket hang up");
+      },
+    ],
+  ])("classifies %s as a failed check", async (reason, health) => {
+    const kv = oneBadCheck();
+    const calls = routeFetch(health);
+
+    await worker.scheduled({}, fakeEnv(kv));
+
+    expect(alertSubjects(calls)).toEqual([`Eyes API is down: ${reason}`]);
+    expect(stored(kv)).toMatchObject({ fails: 2, down: true, reason });
+  });
+});
+
+describe("state transitions", () => {
+  it("a single failure writes state and sends nothing", async () => {
+    const kv = fakeKv();
+    const calls = routeFetch(bad503);
+
+    await worker.scheduled({}, fakeEnv(kv));
+
+    expect(alertSubjects(calls)).toEqual([]);
+    expect(stored(kv)).toMatchObject({ fails: 1, down: false, reason: "HTTP 503" });
+  });
+
+  it("two failures in a row send one down alert, and later failures send no repeats", async () => {
+    const kv = fakeKv();
+    const calls = routeFetch(bad503);
+
+    await worker.scheduled({}, fakeEnv(kv));
+    await worker.scheduled({}, fakeEnv(kv));
+    await worker.scheduled({}, fakeEnv(kv));
+
+    expect(alertSubjects(calls)).toEqual(["Eyes API is down: HTTP 503"]);
+    expect(stored(kv)).toMatchObject({ fails: 3, down: true });
+  });
+
+  it("recovery sends one back-up alert with the outage length", async () => {
+    const kv = fakeKv({ fails: 3, down: true, since: Date.now() - 12 * MIN, reason: "HTTP 503" });
+    const calls = routeFetch(healthy);
+
+    await worker.scheduled({}, fakeEnv(kv));
+
+    expect(alertSubjects(calls)).toEqual(["Eyes API is back up (down 12 min)"]);
+    expect(stored(kv)).toEqual({ fails: 0, down: false, since: 0 });
+  });
+
+  it("recovery reports at least one minute", async () => {
+    const kv = fakeKv({ fails: 2, down: true, since: Date.now() - 10_000, reason: "HTTP 503" });
+    const calls = routeFetch(healthy);
+
+    await worker.scheduled({}, fakeEnv(kv));
+
+    expect(alertSubjects(calls)).toEqual(["Eyes API is back up (down 1 min)"]);
+  });
+
+  it("the healthy steady state sends nothing", async () => {
+    const kv = fakeKv({ fails: 0, down: false, since: 0 });
+    const calls = routeFetch(healthy);
+
+    await worker.scheduled({}, fakeEnv(kv));
+
+    expect(alertSubjects(calls)).toEqual([]);
+    expect(stored(kv)).toEqual({ fails: 0, down: false, since: 0 });
+  });
+
+  it("prefixes the subject and sends to ALERT_PHONE", async () => {
+    const kv = oneBadCheck();
+    const calls = routeFetch(bad503);
+
+    await worker.scheduled({}, fakeEnv(kv, { SUBJECT_PREFIX: "[dev] " }));
+
+    const send = calls.find((c) => c.url.includes("/imessage/messages"));
+    const body = JSON.parse(String(send?.init?.body));
+    expect(body.to).toBe("+15550100");
+    expect(body.text.split("\n")[0]).toBe("[dev] Eyes API is down: HTTP 503");
+  });
+});
+
+describe("send failures", () => {
+  it("an identity lookup failure rejects and leaves state unchanged, so the next tick retries", async () => {
+    const kv = oneBadCheck();
+    routeFetch(bad503, "sent", false);
+
+    await expect(worker.scheduled({}, fakeEnv(kv))).rejects.toThrow(
+      "alert not sent: Inkbox identity lookup HTTP 500",
+    );
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(stored(kv)).toMatchObject({ fails: 1, down: false });
+  });
+
+  it("a declined recovery alert rejects and keeps the down state", async () => {
+    const kv = fakeKv({ fails: 2, down: true, since: Date.now() - 5 * MIN, reason: "HTTP 503" });
+    routeFetch(healthy, "declined");
+
+    await expect(worker.scheduled({}, fakeEnv(kv))).rejects.toThrow(
+      "alert not sent: Inkbox HTTP 200 declined",
+    );
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(stored(kv)).toMatchObject({ fails: 2, down: true });
+  });
+});
+
+describe("send response fallbacks", () => {
+  // Health fails, so a down alert is due. The identity and send responses come from the caller.
+  function stubAlert(identity: () => Response, send: () => Response) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url === HEALTH_URL) return bad503();
+        if (url.includes("/identities/")) return identity();
+        if (url.includes("/imessage/messages")) return send();
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+  }
+
+  it("a non-JSON identity response is reported with its HTTP status", async () => {
+    const kv = oneBadCheck();
+    stubAlert(
+      () => new Response("<html>", { status: 200 }),
+      () => json({}),
+    );
+
+    await expect(worker.scheduled({}, fakeEnv(kv))).rejects.toThrow(
+      "alert not sent: Inkbox identity lookup HTTP 200",
+    );
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it("a non-JSON send failure is reported with its HTTP status", async () => {
+    const kv = oneBadCheck();
+    stubAlert(
+      () => json({ id: "ident-1" }),
+      () => new Response("<html>", { status: 500 }),
+    );
+
+    await expect(worker.scheduled({}, fakeEnv(kv))).rejects.toThrow("alert not sent: Inkbox HTTP 500");
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it("a send error reports the Inkbox error code", async () => {
+    const kv = oneBadCheck();
+    stubAlert(
+      () => json({ id: "ident-1" }),
+      () => json({ message: { status: "error", errorCode: "bad_number" } }, 422),
+    );
+
+    await expect(worker.scheduled({}, fakeEnv(kv))).rejects.toThrow(
+      "alert not sent: Inkbox HTTP 422 bad_number",
+    );
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+
+  it("a 200 with a non-JSON body is not counted as sent, so the tick retries", async () => {
+    const kv = oneBadCheck();
+    stubAlert(
+      () => json({ id: "ident-1" }),
+      () => new Response("<html>", { status: 200 }),
+    );
+
+    await expect(worker.scheduled({}, fakeEnv(kv))).rejects.toThrow(
+      "alert not sent: Inkbox HTTP 200 no message id",
+    );
+    expect(kv.put).not.toHaveBeenCalled();
+    expect(stored(kv)).toMatchObject({ fails: 1, down: false });
+  });
+
+  it("a 200 with JSON but no message id is not counted as sent", async () => {
+    const kv = oneBadCheck();
+    stubAlert(
+      () => json({ id: "ident-1" }),
+      () => json({ message: { status: "sent" } }),
+    );
+
+    await expect(worker.scheduled({}, fakeEnv(kv))).rejects.toThrow(
+      "alert not sent: Inkbox HTTP 200 no message id",
+    );
+    expect(kv.put).not.toHaveBeenCalled();
+  });
+});
