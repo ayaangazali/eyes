@@ -295,4 +295,87 @@ describe("createClefVision", () => {
     vi.stubGlobal("fetch", async () => new Response("down", { status: 503 }));
     await expect(createClefVision(env).judge(judgeInput)).rejects.toThrow();
   });
+
+  it("refuses to construct without both Cloudflare variables", () => {
+    expect(() => createClefVision({ CLOUDFLARE_ACCOUNT_ID: "acct" })).toThrow(/must both be set/);
+  });
+
+  it("labels a photo served without a content type as JPEG", async () => {
+    const bodies: { images: { content_type: string }[] }[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url === judgeInput.photo_url) return new Response(new Uint8Array([1, 2]));
+      bodies.push(JSON.parse(String(init?.body)));
+      return Response.json({
+        result: { answers: { safe_to_share: { noul: 1 }, prominent_faces: { noul: 0 } } },
+      });
+    });
+    await createClefVision(env).judge(judgeInput);
+    expect(bodies[0]?.images[0]?.content_type).toBe("image/jpeg");
+  });
+
+  it.each([
+    ["the photo fetch fails", () => new Response("gone", { status: 404 }), null, "photo fetch HTTP 404"],
+    ["clef answers an HTTP error", null, () => new Response("err", { status: 500 }), "clef HTTP 500"],
+    [
+      "clef answers without both scores",
+      null,
+      () => Response.json({ result: { answers: {} } }),
+      "clef returned no verdict",
+    ],
+  ] as const)("fails closed when %s and Claude is not configured", async (_, photo, clef, message) => {
+    vi.stubGlobal("fetch", async (url: string) =>
+      url === judgeInput.photo_url
+        ? (photo?.() ?? new Response(new Uint8Array([1]), { headers: { "content-type": "image/png; q=1" } }))
+        : (clef?.() ?? Response.json({})),
+    );
+    await expect(createClefVision(env).judge(judgeInput)).rejects.toThrow(message);
+  });
+
+  describe("with Claude configured", () => {
+    const verdict = { allowed: true, reason: "Claude says safe.", prominent_faces: false, confidence: 0.7 };
+    const claudeEnv = { ...env, ANTHROPIC_API_KEY: "test" };
+    const route = (clef: () => Response | Promise<Response>) => {
+      const hits: string[] = [];
+      vi.stubGlobal("fetch", async (url: string) => {
+        hits.push(url.includes("anthropic") ? "claude" : url === judgeInput.photo_url ? "photo" : "clef");
+        if (url.includes("anthropic")) return message([{ type: "text", text: JSON.stringify(verdict) }]);
+        if (url === judgeInput.photo_url) return new Response(new Uint8Array([1]));
+        return clef();
+      });
+      return hits;
+    };
+
+    it("asks Claude when clef is unsure", async () => {
+      const hits = route(() =>
+        Response.json({
+          result: { answers: { safe_to_share: { noul: 0.9 }, prominent_faces: { noul: 0.55 } } },
+        }),
+      );
+      await expect(createClefVision(claudeEnv).judge(judgeInput)).resolves.toEqual(verdict);
+      expect(hits).toEqual(["photo", "clef", "claude"]);
+    });
+
+    it("asks Claude when clef fails, logging only the failure message", async () => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      route(() => new Response("down", { status: 503 }));
+      await expect(createClefVision(claudeEnv).judge(judgeInput)).resolves.toEqual(verdict);
+      route(() => Promise.reject("socket hang up"));
+      await expect(createClefVision(claudeEnv).judge(judgeInput)).resolves.toEqual(verdict);
+      expect(log.mock.calls).toEqual([
+        ["verify: clef failed, asking Claude: clef HTTP 503"],
+        ["verify: clef failed, asking Claude: socket hang up"],
+      ]);
+      log.mockRestore();
+    });
+  });
+});
+
+describe("verifySubmission vision failure that is not an Error", () => {
+  it("logs the thrown value's type only", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await verifySubmission(input({}, { judge: () => Promise.reject("secret detail") }));
+    expect(r).toMatchObject({ vision_ok: false, auto_approve: false });
+    expect(log).toHaveBeenCalledWith("verifySubmission: vision check failed", "string");
+    log.mockRestore();
+  });
 });
