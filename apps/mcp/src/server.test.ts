@@ -955,6 +955,7 @@ describe("signup and join throttle", () => {
 describe("MCP tools", () => {
   it("lists every tool with boolean behavior hints and the read-only and idempotent values", async () => {
     const client = await connect(setup().fetch);
+    expect(client.getInstructions()).toBeUndefined();
     const { tools } = await client.listTools();
     const modelTools = tools.filter((tool) => tool._meta?.["openai/visibility"] !== "private");
     expect(modelTools.map((t) => t.name).sort()).toEqual([...Object.keys(TOOLS), "show_task"].sort());

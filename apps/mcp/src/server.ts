@@ -299,13 +299,6 @@ function clientKey(forwardedFor: string | undefined) {
     .join(":")}::/64`;
 }
 
-const INSTRUCTIONS = `Eyes arranges paid checks of public places. In ChatGPT, Claude and MCP Apps, quote_task and ask_eyes only prepare free quotes or drafts; the card's explicit Ask action uses confirm_ask to dispatch. Use the resulting task_id; never create another paid request for the same intent. Non-UI ask_eyes dispatches directly. Do not wait for a draft.
-After dispatch, use the existing task_id with await_answer for a bounded wait, or get_task/show_task for current recorded state. Answers may include a photo URL. Location, freshness and photo-safety checks do not establish answer correctness. Show available answer fields and photo links or cards for user review; describe an image only when its contents are available. Use dispute_answer for a wrong answer.
-Money: the bounty plus a 0.50 USD fee is escrowed on dispatch, not when preparing an interactive draft. Status verified is not proof of payment; paid means payout was recorded. Status needs_review holds escrow for human review, which can release payment or refund it even when the original verification flags remain unchanged. If nobody answers before the deadline or the task is cancelled before a worker claims it, settlement refunds the escrow.
-Final statuses: expired means the deadline passed without an answer; refunded can follow cancellation or human review; disputed means a dispute is under human review. await_answer only reads recorded state; it does not dispatch, pay or refund. Stop waiting on these statuses and use get_task later for review outcomes.
-Only public, commercial or civic places; never private people, homes or vehicles.
-Errors include error, message and fix, or an "Input validation error" naming invalid fields. Use them to repair the original authorized request, not to change its goal, raise spending or bypass confirmation. After an unknown dispatch outcome, retry only the same parameters and idempotency_key.`;
-
 export function liveProviders(env: Env) {
   const live = env.EYES_PROVIDERS === "live";
   return {
@@ -433,7 +426,6 @@ export function createServer(
     title: "Eyes",
     version: "0.1.0",
     description: `${sandbox ? `${SANDBOX} ` : ""}Pay a nearby human a few dollars to check something in the physical world right now.`,
-    instructions: note(INSTRUCTIONS),
     logging: { enabled: false },
   });
 
@@ -586,6 +578,7 @@ Only public, commercial or civic places (stores, cafes, parks, transit stops, ve
 idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
 In ChatGPT, Claude and MCP Apps, this returns status "confirmation_required" and a read-only quote with the request's idempotency_key. Nothing is sent or charged until the user confirms in the card. Keep that intent key; never follow a successful card confirmation with another paid ask.
+Errors include error, message and fix, or an "Input validation error" naming invalid fields. Use them to repair the original authorized request, not to change its goal, raise spending or bypass confirmation. After an unknown dispatch outcome, retry only the same parameters and idempotency_key.
 For non-UI automation, this dispatches directly. If no worker is nearby, nothing is created or charged: status "not_sent", reason "no_workers_nearby", charged_usd 0, message and fix, and no task_id.
 Next: only if status is "dispatched", call await_answer with the returned task_id. For "confirmation_required", wait for the card confirmation. For "not_sent", show the explanation.`),
       inputSchema: TOOLS.ask_eyes.input,
@@ -879,8 +872,9 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
           ? {
               ...listed,
               title: "Prepare a task for confirmation",
-              description:
-                "Prepare a read-only Eyes card with the question, place, price and intent key. No task, payment or worker notification occurs. The user must press Ask in the card to confirm; never dispatch a second task after that confirmation.",
+              description: note(
+                "Prepare a read-only Eyes card with the question, place, price and intent key. No task, payment or worker notification occurs. The user must press Ask in the card to confirm; never dispatch a second task after that confirmation. Errors include error, message and fix, or an Input validation error naming invalid fields. Use them to repair the original authorized request, not to change its goal, raise spending or bypass confirmation. After an unknown dispatch outcome, retry only the same parameters and idempotency_key.",
+              ),
               inputSchema: draftInputSchema,
               outputSchema: draftOutputSchema,
               annotations: {
