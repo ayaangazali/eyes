@@ -84,6 +84,16 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
   .filters { grid-template-columns: 1fr 1fr; }
   .filters > :first-child { grid-column: span 2; }
 }
+.rows > li.open { cursor: pointer; }
+.rows > li.open:hover, .rows > li.open:focus-visible { background: var(--eyes-surface-tertiary); outline: none; }
+#review { width: min(40rem, calc(100vw - 1.5rem)); max-height: calc(100vh - 1.5rem); overflow: auto; padding: var(--eyes-space-5); border: 1px solid var(--eyes-border-subtle); border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-primary, Canvas); color: inherit; }
+#review::backdrop { background: rgb(0 0 0 / 0.4); }
+#review > * + * { margin-top: var(--eyes-space-3); }
+#review img, #review .nophoto { display: grid; place-items: center; width: 100%; max-height: 22rem; object-fit: contain; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); color: var(--eyes-text-tertiary); min-height: 6rem; }
+#review textarea { width: 100%; min-height: 2.5rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); }
+.checklist { display: grid; gap: var(--eyes-space-1); margin: 0; padding: 0; list-style: none; }
+.checklist .ok { color: var(--eyes-text-success, green); }
+.checklist .bad { color: var(--eyes-text-danger, crimson); }
 </style>
 </head>
 <body class="ui">
@@ -172,6 +182,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
     <button id="older" class="ui-button ui-button--ghost ui-button--sm" type="button" hidden>Load older</button>
   </section>
 </main>
+<dialog id="review" aria-label="Review task"></dialog>
 <script>
 const POLL_MS = 10000;
 const $ = (id) => document.getElementById(id);
@@ -221,7 +232,7 @@ function flow(t) {
     h("span", null, i === 0 ? `${label} ${stamp(at)}` : `${label} ${after(t.created_at, at)}`)));
 }
 
-function taskRow(t, withCommands) {
+function taskRow(t) {
   const li = h("li");
   li.append(
     h("div", "task-head", h("p", "q", cut(t.question, 160)), badge(t.status.replace("_", " "), STATUS_TONE[t.status])),
@@ -233,8 +244,76 @@ function taskRow(t, withCommands) {
     flow(t),
     h("span", "tiny", t.id),
   );
-  if (withCommands) li.append(h("code", "cmd", t.commands.refund), h("code", "cmd", t.commands.release));
+  if (t.status === "needs_review" || t.status === "disputed") {
+    // The review panel replaces the old `pnpm resolve-task` commands.
+    li.className = "open";
+    li.tabIndex = 0;
+    li.setAttribute("role", "button");
+    li.setAttribute("aria-label", `Review: ${cut(t.question, 80)}`);
+    li.addEventListener("click", () => openReview(t.id));
+    li.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openReview(t.id); } });
+  }
   return li;
+}
+
+// Release or refund a needs_review / disputed task. Same server path as `pnpm resolve-task` (resolveTask).
+async function openReview(id) {
+  const review = $("review");
+  const close = h("button", "ui-button ui-button--ghost ui-button--sm", "Close");
+  close.type = "button";
+  close.addEventListener("click", () => review.close());
+  const res = await fetch(`/ops/tasks/${id}`, { cache: "no-store" });
+  const t = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    review.replaceChildren(h("p", null, `Could not load the task: ${t.message || t.error || res.status}`), close);
+    if (!review.open) review.showModal();
+    return;
+  }
+  const open = t.status === "needs_review" || t.status === "disputed";
+  const photo = t.photo_url ? h("img") : h("div", "nophoto", "No photo");
+  if (t.photo_url) { photo.src = t.photo_url; photo.alt = "Worker photo"; photo.referrerPolicy = "no-referrer"; }
+  const note = h("textarea", "ui-input");
+  note.placeholder = "Note (optional), saved with the decision";
+  note.maxLength = 500;
+  const out = h("span", "tiny");
+  out.setAttribute("role", "status");
+  const decide = (outcome) => async () => {
+    const r = await fetch(`/ops/tasks/${t.id}/resolve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ outcome, note: note.value.trim() || undefined }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { out.textContent = `Failed: ${body.message || body.error || r.status}`; return; }
+    out.textContent = body.already_resolved ? `Already ${body.status}; no money moved.` : `Done: ${body.status}. It leaves the queue on the next refresh.`;
+    for (const b of review.querySelectorAll(".actions button")) b.disabled = true;
+  };
+  review.replaceChildren(
+    h("div", "task-head", h("h2", "ui-card__title", cut(t.question, 200)), badge(t.status.replace("_", " "), STATUS_TONE[t.status]), close),
+    photo,
+    t.answer_text || t.answer_bool != null
+      ? h("p", null, "Answer: ", h("strong", null, t.answer_text || (t.answer_bool ? "Yes" : "No")))
+      : h("p", "muted", "No answer submitted."),
+    h("div", "line",
+      h("span", null, cut(t.place_label, 90)),
+      h("span", null, "worker ", h("strong", null, t.distance_m == null ? "?" : `${t.distance_m} m`), ` away (radius ${t.radius_m} m)`),
+      h("span", null, "bounty ", h("strong", null, usd(t.bounty_cents)), ` + fee ${usd(t.fee_cents)} in escrow`)),
+    t.gps_ok == null ? null : h("ul", "checklist", ...[
+      ["At the place (GPS)", t.gps_ok],
+      ["Taken just now", t.fresh_ok],
+      ["Photo is safe to share", t.vision_ok],
+    ].map(([label, ok]) => h("li", null, h("span", ok ? "ok" : "bad", ok ? "✓ " : "✗ "), label))),
+    t.vision_reason ? h("p", "muted", `Moderation: ${t.vision_reason}`) : null,
+    t.dispute_reason ? h("p", "msg", `Agent's dispute: ${t.dispute_reason}`) : null,
+    open
+      ? h("div", "actions", note,
+          confirmButton("Release (pay the worker)", `Confirm: pay the worker ${usd(t.bounty_cents)}`, "primary", decide("release")),
+          confirmButton("Refund (return to the agent)", `Confirm: refund ${usd(t.bounty_cents + t.fee_cents)}`, "ghost", decide("refund")),
+          out)
+      : h("p", "muted", `Settled: ${t.status.replace("_", " ")}.`),
+    h("span", "tiny", t.id),
+  );
+  if (!review.open) review.showModal();
 }
 
 let map = null;
@@ -307,10 +386,10 @@ function render(feed) {
 
   $("queue-count").textContent = String(o.queue.length);
   $("queue-count").className = `ui-badge${o.queue.length ? " ui-badge--danger" : " ui-badge--success"}`;
-  $("queue").replaceChildren(...(o.queue.length ? o.queue.map((t) => taskRow(t, true))
-    : [empty("Nothing needs a decision. Tasks in needs_review or disputed show here with the command to settle them.")]));
+  $("queue").replaceChildren(...(o.queue.length ? o.queue.map(taskRow)
+    : [empty("Nothing needs a decision. Tasks in needs_review or disputed show here; click one to release or refund it.")]));
 
-  $("tasks").replaceChildren(...(feed.tasks.length ? feed.tasks.map((t) => taskRow(t, false)) : [empty("No tasks yet.")]));
+  $("tasks").replaceChildren(...(feed.tasks.length ? feed.tasks.map(taskRow) : [empty("No tasks yet.")]));
 
   const w = o.workers;
   $("workers").replaceChildren(

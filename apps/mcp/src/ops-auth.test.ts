@@ -1,4 +1,4 @@
-import { AppConfig, type EyesService, fakeProviders } from "@eyes/core";
+import { AppConfig, EyesError, type EyesService, fakeProviders } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
 import { createEventLog } from "@eyes/web-dashboard";
 import { describe, expect, it, vi } from "vitest";
@@ -318,5 +318,52 @@ describe("ops ticket actions", () => {
     expect(events.recent()).toContainEqual(
       expect.objectContaining({ kind: "ops", level: "warn", summary: "ticket #9 confirm_fraud by ***0100" }),
     );
+  });
+});
+
+describe("ops review panel", () => {
+  it("resolve needs a session and the right origin", async () => {
+    const { post, signIn, resolveTask } = setup();
+    expect((await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "release" })).status).toBe(401);
+    const cookie = await signIn();
+    const evil = { cookie, origin: "https://evil.test" };
+    expect((await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "release" }, evil)).status).toBe(403);
+    expect((await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "pay" }, { cookie })).status).toBe(400);
+    expect(resolveTask).not.toHaveBeenCalled();
+  });
+
+  it("releases once; a second click finds it paid, moves no money and says so", async () => {
+    const { post, signIn, resolveTask, events } = setup();
+    const cookie = await signIn();
+    resolveTask
+      .mockImplementationOnce(async () => ({ task_id: TASK_ID, status: "paid" }))
+      .mockImplementationOnce(async () => {
+        throw new EyesError("invalid_input", { status: "paid" });
+      });
+    const first = await post(
+      `/ops/tasks/${TASK_ID}/resolve`,
+      { outcome: "release", note: "Sign is visible." },
+      { cookie },
+    );
+    expect(await first.json()).toEqual({ task_id: TASK_ID, status: "paid", already_resolved: false });
+    const again = await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "refund" }, { cookie });
+    expect(again.status).toBe(200);
+    expect(await again.json()).toEqual({ task_id: TASK_ID, status: "paid", already_resolved: true });
+    expect(resolveTask.mock.calls).toEqual([
+      [TASK_ID, "release", "Sign is visible."],
+      [TASK_ID, "refund", "refund from the ops review panel by ***0100"],
+    ]);
+    expect(events.recent().map((e) => e.summary)).toEqual(
+      expect.arrayContaining(["task release by ***0100", "task refund by ***0100 (already resolved)"]),
+    );
+  });
+
+  it("passes other failures through instead of calling them resolved", async () => {
+    const { post, signIn, resolveTask } = setup();
+    const cookie = await signIn();
+    resolveTask.mockImplementationOnce(async () => {
+      throw new EyesError("invalid_input", { status: "dispatched" });
+    });
+    expect((await post(`/ops/tasks/${TASK_ID}/resolve`, { outcome: "refund" }, { cookie })).status).toBe(400);
   });
 });

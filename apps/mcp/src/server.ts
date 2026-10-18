@@ -21,6 +21,8 @@ import {
   QuoteTaskInput,
   type RouteDeps,
   SignupInput,
+  type Submission,
+  type Task,
   TOOLS,
   verifyToken,
   type WorkerLocationInput,
@@ -118,6 +120,13 @@ const DisputeAction = z.object({
   ticket_id: z.coerce.number().int().positive(),
   note: z.string().trim().min(1).max(500),
 });
+const TaskResolve = z.object({
+  task_id: z.uuid(),
+  outcome: z.enum(["release", "refund"]),
+  note: z.string().trim().max(500).optional(),
+});
+// What resolveTask leaves behind: a second click finds one of these and moves no money.
+const RESOLVED = ["verified", "paid", "refunded"];
 type Ticket = {
   worker_id: string;
   lat: number;
@@ -943,6 +952,62 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
             : Math.round(distanceMeters(t, { lat: submission_lat, lng: submission_lng })),
       }));
       return c.json({ tickets }, 200, FEED_HEADERS);
+    });
+    server.app.get("/ops/tasks/:id", ops.operator, async (c) => {
+      const id = c.req.param("id");
+      const [row] = UUID.test(id)
+        ? await rpc<{ task: Task; submission: Submission | null }>("eyes_task_detail", { p_task_id: id })
+        : [];
+      if (!row) throw new EyesError("task_not_found", { task_id: id }, { message: "No task with this id." });
+      const { task: t, submission: s } = row;
+      return c.json(
+        {
+          id: t.id,
+          question: t.question,
+          place_label: t.place_label,
+          radius_m: t.radius_m,
+          status: t.status,
+          bounty_cents: t.bounty_cents,
+          fee_cents: t.fee_cents,
+          dispute_reason: t.dispute_reason,
+          created_at: t.created_at,
+          photo_url: s?.photo_url ?? null,
+          answer_text: s?.answer_text ?? null,
+          answer_bool: s?.answer_bool ?? null,
+          gps_ok: s?.gps_ok ?? null,
+          fresh_ok: s?.fresh_ok ?? null,
+          vision_ok: s?.vision_ok ?? null,
+          vision_reason: s?.vision_reason ?? null,
+          confidence: s?.confidence ?? null,
+          submitted_at: s?.created_at ?? null,
+          distance_m: s ? Math.round(distanceMeters(t, s)) : null,
+        },
+        200,
+        FEED_HEADERS,
+      );
+    });
+    server.app.post("/ops/tasks/:id/resolve", ops.sameOrigin, ops.operator, async (c) => {
+      const body = parse(TaskResolve, { ...(await readJson(c)), task_id: c.req.param("id") });
+      const operator = c.get("operator").label;
+      let result: { task_id: string; status: string; already_resolved: boolean };
+      try {
+        const note = body.note || `${body.outcome} from the ops review panel by ${operator}`;
+        result = {
+          ...(await service.resolveTask(body.task_id, body.outcome, note)),
+          already_resolved: false,
+        };
+      } catch (err) {
+        const status = err instanceof EyesError && err.code === "invalid_input" ? err.context.status : null;
+        if (typeof status !== "string" || !RESOLVED.includes(status)) throw err;
+        result = { task_id: body.task_id, status, already_resolved: true };
+      }
+      log({
+        kind: "ops",
+        task_id: body.task_id,
+        summary: `task ${body.outcome} by ${operator}${result.already_resolved ? " (already resolved)" : ""}`,
+        data: { action: body.outcome, operator, ...result },
+      });
+      return c.json(result, 200, FEED_HEADERS);
     });
     // Dispute tickets (ADR-026): confirm fraud (refund + reverse + ban) or reject. Each runs once;
     // a second click returns the same shape with already_resolved true and moves no money.
