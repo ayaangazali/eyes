@@ -123,13 +123,16 @@ function answerBlock(a, status) {
 
 function quote(q) {
   const type = TYPES[input.task_type] ?? "";
+  const nobody = q.allowed && q.workers_nearby === 0;
   const head = '<header class="ui-card__header"><h3 class="ui-card__title">' + esc(q.resolved_location.label) + "</h3>" +
-    (q.allowed ? '<span class="ui-badge ui-badge--success">' + icon("check") + "Can ask</span>" : '<span class="ui-badge ui-badge--danger">' + icon("x") + "Can't ask</span>") + "</header>";
+    (!q.allowed ? '<span class="ui-badge ui-badge--danger">' + icon("x") + "Can't ask</span>"
+      : nobody ? '<span class="ui-badge ui-badge--warning">' + icon("pending") + "No one nearby</span>"
+      : '<span class="ui-badge ui-badge--success">' + icon("check") + "Can ask</span>") + "</header>";
   const meta = '<ul class="ui-meta">' +
     "<li>" + icon("eye") + "<strong>" + q.workers_nearby + "</strong> worker" + (q.workers_nearby === 1 ? "" : "s") + " nearby</li>" +
     (q.est_minutes_to_answer ? "<li>" + icon("clock") + "about <strong>" + Math.round(q.est_minutes_to_answer) + " min</strong></li>" : "") +
     (q.allowed ? "<li>" + icon("cash") + "<strong>" + usd(q.suggested_bounty_usd) + "</strong> + $0.50 fee</li>" : "") + "</ul>";
-  const why = q.allowed ? (q.workers_nearby === 0 ? '<div class="ui-notice">' + icon("info") + "<span>Nobody is nearby right now. Try a busier place or ask later.</span></div>" : "")
+  const why = q.allowed ? (nobody ? '<div class="ui-notice">' + icon("info") + "<span>Nobody is nearby right now. Try a busier place or ask later.</span></div>" : "")
     : '<div class="ui-notice ui-notice--danger">' + icon("alert") + "<span>" + esc(q.reason_if_not) + "</span></div>";
   const act = q.allowed && q.workers_nearby > 0
     ? '<footer class="ui-card__actions"><button class="ui-button ui-button--primary" data-act="ask">Ask for ' + usd(q.suggested_bounty_usd) + "</button></footer>" : "";
@@ -163,10 +166,21 @@ function balance(b) {
     (b.top_up_url ? '<footer class="ui-card__actions"><button class="ui-button' + (b.balance_usd < 1.5 ? " ui-button--primary" : "") + '" data-act="topup">Top up</button></footer>' : "") + "</article>";
 }
 
+function notSent(n) {
+  const title = input.question ?? "Your question";
+  const place = typeof input.location === "string" ? input.location : input.location?.label ?? "";
+  return '<article class="ui-card"><header class="ui-card__header"><h3 class="ui-card__title">' + esc(title) + "</h3>" +
+    '<span class="ui-badge ui-badge--warning">' + icon("pending") + "Not sent</span></header>" +
+    (place ? '<p class="ui-place">' + icon("pin") + '<span class="ui-place__name">' + esc(place) + "</span></p>" : "") +
+    '<div class="ui-notice">' + icon("info") + "<span>Not sent: no one nearby. Nothing was charged. Try a busier place or ask later.</span></div>" +
+    '<dl class="ui-kv"><dt>' + icon("cash") + "Charged</dt><dd>" + usd(n.charged_usd) + "</dd></dl></article>";
+}
+
 function render(out) {
   if (!out || typeof out !== "object") return;
   last = out;
-  root.innerHTML = "workers_nearby" in out ? quote(out) : "balance_usd" in out ? balance(out) : "task_id" in out ? task(out) : "";
+  root.innerHTML = "workers_nearby" in out ? quote(out) : "balance_usd" in out ? balance(out)
+    : out.status === "not_sent" ? notSent(out) : "task_id" in out ? task(out) : "";
   for (const b of root.querySelectorAll("[data-act]")) b.onclick = () => {
     if (b.dataset.act === "topup") openLink(last.top_up_url);
     if (b.dataset.act === "ask") say("Ask Eyes about " + last.resolved_location.label + " (" + (input.task_type ?? "other_public") + ") for " + usd(last.suggested_bounty_usd) + ".");

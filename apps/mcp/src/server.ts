@@ -60,6 +60,25 @@ const PROGRESS_INTERVAL_MS = 5000;
 const HOUR_MS = 60 * 60 * 1000;
 const PUBLIC_CALLS_PER_HOUR = 5;
 const THROTTLE_MAX_KEYS = 10_000;
+// ask_eyes over MCP: the REST result, or "not_sent" when no worker is nearby. One object (MCP tool
+// outputSchema roots must be type object), so the dispatched-only fields are optional.
+const dispatched = TOOLS.ask_eyes.output.shape;
+const AskEyesToolOutput = z.object({
+  status: z
+    .enum(["dispatched", "not_sent"])
+    .describe(
+      '"dispatched": workers were texted and the escrow is held. "not_sent": nobody nearby, nothing created or charged.',
+    ),
+  task_id: dispatched.task_id.optional(),
+  workers_notified: dispatched.workers_notified.optional(),
+  escrowed_usd: dispatched.escrowed_usd.optional(),
+  deadline_at: dispatched.deadline_at.optional(),
+  next_step: dispatched.next_step.optional(),
+  reason: z.literal("no_workers_nearby").optional(),
+  charged_usd: z.number().optional(),
+  message: z.string().optional(),
+  fix: z.string().optional(),
+});
 const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
 const AGENT_CARD = "/.well-known/agent-card.json";
 const DOCS = {
@@ -428,13 +447,30 @@ Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance 
 Only public, commercial or civic places: stores, cafes, parks, transit stops, venues. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
 idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
-Next: immediately call await_answer with the returned task_id and keep calling it until answered is true.`,
+If no worker is near the place right now, nothing is created or charged: the result has status "not_sent", reason "no_workers_nearby", charged_usd 0, message and fix, and no task_id.
+Next: if status is "dispatched", immediately call await_answer with the returned task_id and keep calling it until answered is true. If status is "not_sent", tell your user nobody is nearby and follow fix (a busier place, or later).`,
       inputSchema: TOOLS.ask_eyes.input,
-      outputSchema: TOOLS.ask_eyes.output,
+      outputSchema: AskEyesToolOutput,
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
       _meta: widgetToolMeta("Texting nearby workers", "Task posted"),
     },
-    (input, ctx) => run(() => service.askEyes(ctx.get("agent"), input)),
+    // MCP only: no workers nearby is an answer, not a tool failure (nothing created or charged), so
+    // hosts do not show "Failed". REST /v1/tasks keeps the 409 error.
+    (input, ctx) =>
+      run(async (): Promise<z.output<typeof AskEyesToolOutput>> => {
+        try {
+          return await service.askEyes(ctx.get("agent"), input);
+        } catch (err) {
+          if (!(err instanceof EyesError && err.code === "no_workers_nearby")) throw err;
+          return {
+            status: "not_sent",
+            reason: "no_workers_nearby",
+            charged_usd: 0,
+            message: err.message,
+            fix: err.fix,
+          };
+        }
+      }),
   );
 
   server.tool(

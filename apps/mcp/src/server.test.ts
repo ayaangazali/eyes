@@ -425,6 +425,36 @@ describe("MCP tools", () => {
     expect(body.fix).toContain("https://eyes.test/topup/abc");
   });
 
+  it("answers ask_eyes with no workers nearby as not_sent, not an error; REST keeps the 409", async () => {
+    const { fetch } = setup({
+      askEyes: async () => {
+        throw new EyesError("no_workers_nearby");
+      },
+    });
+    const args = {
+      question: "How long is the line?",
+      location: "Ferry Building, San Francisco",
+      task_type: "line_length",
+      idempotency_key: "k2",
+    };
+    const result = await (await connect(fetch)).callTool({ name: "ask_eyes", arguments: args });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({
+      status: "not_sent",
+      reason: "no_workers_nearby",
+      charged_usd: 0,
+      message: ERRORS.no_workers_nearby.message,
+      fix: ERRORS.no_workers_nearby.fix,
+    });
+    const rest = await fetch("http://eyes.test/v1/tasks", {
+      method: "POST",
+      headers: { authorization: `Bearer ${KEY}` },
+      body: JSON.stringify(args),
+    });
+    expect(rest.status).toBe(409);
+    expect(await rest.json()).toMatchObject({ error: "no_workers_nearby" });
+  });
+
   it("does not leak the message of an unexpected error", async () => {
     const client = await connect(setup().fetch);
     const result = await client.callTool({ name: "get_task", arguments: { task_id: TASK_ID } });
