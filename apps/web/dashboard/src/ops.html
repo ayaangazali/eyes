@@ -156,6 +156,10 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .ticket img, .ticket .nophoto { width: 9rem; height: 9rem; object-fit: cover; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); }
 .ticket .nophoto { display: grid; place-items: center; color: var(--eyes-text-tertiary); font-size: var(--eyes-text-xs); }
 .ticket textarea { width: 100%; min-height: 2.5rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); }
+.classifier-review__text, .classifier-review__details { overflow-wrap: anywhere; min-width: 0; }
+.classifier-review__text.q { display: block; }
+.classifier-review__details summary { cursor: pointer; font-size: var(--eyes-text-sm); }
+.classifier-review__details pre { white-space: pre-wrap; max-height: 18rem; overflow: auto; margin-top: var(--eyes-space-2); }
 .ui-button--danger { background: var(--eyes-danger-bg); color: var(--eyes-danger-text); border-color: transparent; }
 .actions { display: flex; flex-wrap: wrap; gap: var(--eyes-space-2); align-items: center; }
 .msg { margin: 0; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-tertiary); white-space: pre-wrap; font-size: var(--eyes-text-sm); }

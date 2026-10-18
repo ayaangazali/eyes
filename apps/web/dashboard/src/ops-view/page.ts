@@ -116,6 +116,14 @@ export type Ticket = Checked &
     note?: string | null;
     reversal_owed_cents?: number | null;
     worker_banned?: boolean;
+    classifier_status?: "open" | "approved" | "rejected" | "expired" | "consumed";
+    agent_id?: string;
+    request?: Record<string, unknown> | null;
+    reported_context?: unknown;
+    request_fingerprint?: string;
+    decision_by?: string | null;
+    decision_at?: string | null;
+    approval_expires_at?: string | null;
   };
 export type Worker = {
   id: string;
@@ -829,19 +837,30 @@ export function boot(win: OpsWindow) {
     if (tab === "money") ledgerPager.load();
   }
 
-  // Ticket decisions. Dispute actions (confirm_fraud, reject_dispute) take only a note; the others also send the task id.
+  // Classifier and dispute decisions send only a note; task support also sends the task id.
   const decideTicket =
     (t: Ticket, action: string) =>
     async (note: string): Promise<Outcome> => {
       const res = await fetch(`/tickets/${t.id}/${action}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(t.kind === "dispute" ? { note } : { task_id: t.task_id, note }),
+        body: JSON.stringify(
+          t.kind === "dispute" || t.kind === "classifier_feedback" ? { note } : { task_id: t.task_id, note },
+        ),
       });
       const body = await json<Reply>(res);
       if (!res.ok) return { ok: false, message: `Failed: ${body.message || body.error || res.status}` };
       loadTickets();
       countOpenTickets();
+      if (t.kind === "classifier_feedback")
+        return {
+          ok: true,
+          message: `${body.already_resolved ? "Already" : "Decision saved:"} ${body.status}. ${
+            body.status === "approved"
+              ? "Only the same agent may explicitly retry this exact request within 24 hours."
+              : "No new retry authorization."
+          } No task dispatched, charge made or worker messaged.`,
+        };
       return {
         ok: true,
         message: body.already_resolved
@@ -854,6 +873,36 @@ export function boot(win: OpsWindow) {
 
   /** One clear primary action per ticket state; the rest in the menu. */
   function ticketActions(t: Ticket) {
+    if (t.kind === "classifier_feedback")
+      return actionArea(document, {
+        id: `ticket-${t.id}`,
+        primary: {
+          label: "Approve",
+          confirm:
+            "Allow the same agent to explicitly retry this exact request within 24 hours? This does not dispatch a task or charge.",
+          verb: "Approve retry",
+          tone: "primary",
+          run: decideTicket(t, "approve_classifier"),
+        },
+        more: [
+          {
+            label: "Reject",
+            confirm:
+              "Keep this request blocked? Your note, or “Classifier block upheld by operator.”, is saved as the rejection reason.",
+            verb: "Reject report",
+            tone: "danger",
+            run: (note) =>
+              decideTicket(t, "reject_classifier")(note || "Classifier block upheld by operator."),
+          },
+        ],
+        inlineMore: true,
+        note: {
+          label: "Decision note (optional)",
+          hint: "Kept with this review; not sent to a worker. If rejected without a note: “Classifier block upheld by operator.”",
+          required: false,
+        },
+        toast,
+      });
     const bounty = usd(t.bounty_cents);
     if (t.kind === "dispute")
       return actionArea(document, {
@@ -914,7 +963,13 @@ export function boot(win: OpsWindow) {
   }
 
   const ticketState = (t: Ticket) =>
-    t.kind === "dispute" ? t.dispute_status || "open" : ticketOpen(t) ? "open" : "resolved";
+    t.kind === "classifier_feedback"
+      ? t.classifier_status || (ticketOpen(t) ? "open" : "resolved")
+      : t.kind === "dispute"
+        ? t.dispute_status || "open"
+        : ticketOpen(t)
+          ? "open"
+          : "resolved";
   const stateTone = (state: string) =>
     state === "open" ? "danger" : state === "upheld" ? "warning" : "success";
   function openTicket(t: Ticket) {
@@ -924,6 +979,59 @@ export function boot(win: OpsWindow) {
     close.addEventListener("click", () => panel.close());
     const dispute = t.kind === "dispute";
     const state = ticketState(t);
+    if (t.kind === "classifier_feedback") {
+      const context = h(
+        "details",
+        "classifier-review__details",
+        h("summary", null, "Client-reported classifier decision and reason (untrusted)"),
+        h("pre", "msg", JSON.stringify(t.reported_context ?? null, null, 2)),
+      );
+      context.open = true;
+      panel.replaceChildren(
+        h(
+          "div",
+          "task-head",
+          h("h2", "ui-card__title", `Classifier review #${t.id}`),
+          badge(state === "open" ? "Pending review" : state, stateTone(state)),
+          close,
+        ),
+        h("h3", "tiny", "Original question"),
+        h("p", "q classifier-review__text", t.question || "(not supplied)"),
+        h("h3", "tiny", "Original place"),
+        h("p", "classifier-review__text", t.place_label || JSON.stringify(t.request?.location ?? null)),
+        h("p", "muted classifier-review__text", `Agent: ${t.agent_id || "(not supplied)"}`),
+        context,
+        h("p", "msg classifier-review__text", t.message || "(no report message)"),
+        h(
+          "details",
+          "classifier-review__details",
+          h("summary", null, "Exact request and server fingerprint"),
+          h("pre", "msg", JSON.stringify(t.request ?? null, null, 2)),
+          h("p", "tiny classifier-review__text", t.request_fingerprint || "(not supplied)"),
+        ),
+        h(
+          "p",
+          "muted",
+          "Approval only unlocks the same exact request for the same agent to retry explicitly within 24 hours. No task is dispatched, no charge is made and no worker is messaged.",
+        ),
+        h("p", "tiny", `Opened ${stamp(t.created_at)}`),
+        ...(state === "open" && ticketOpen(t)
+          ? [ticketActions(t)]
+          : [
+              h(
+                "p",
+                "muted",
+                `Decision: ${state}. ${t.decision_by || ""} ${stamp(t.decision_at || t.resolved_at)}`,
+              ),
+              ...(t.note ? [h("p", "msg classifier-review__text", `Decision reason: ${t.note}`)] : []),
+              ...(t.approval_expires_at
+                ? [h("p", "muted", `Approval expires ${stamp(t.approval_expires_at)}`)]
+                : []),
+            ]),
+      );
+      if (!panel.open) panel.showModal();
+      return;
+    }
     panel.replaceChildren(
       ...[
         h(
@@ -1373,7 +1481,7 @@ export function boot(win: OpsWindow) {
 
   const support = tableFor<Ticket>("support", {
     name: "tickets",
-    empty: "No tickets. A worker opens one by texting HELP after an answer is held for review.",
+    empty: "No tickets. Workers can request help; agents can report a classifier decision for review.",
     remote: {
       noun: "tickets",
       more: () => loadTickets(true),
@@ -1392,7 +1500,12 @@ export function boot(win: OpsWindow) {
         sort: (t) => t.id,
         cell: (t) => h("p", "q", h("span", "tiny", `#${t.id} `), cut(t.question, 120)),
       },
-      { key: "kind", label: "Kind", text: (t) => (t.kind === "dispute" ? "Dispute" : "Help") },
+      {
+        key: "kind",
+        label: "Kind",
+        text: (t) =>
+          t.kind === "classifier_feedback" ? "Classifier review" : t.kind === "dispute" ? "Dispute" : "Help",
+      },
       {
         key: "state",
         label: "State",
@@ -1441,6 +1554,7 @@ export function boot(win: OpsWindow) {
         options: [
           ["manual_review", "Help"],
           ["dispute", "Dispute"],
+          ["classifier_feedback", "Classifier review"],
         ],
       },
     ],

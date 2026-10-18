@@ -593,7 +593,7 @@ describe("ops page boot", () => {
       "Payouts per hour",
     ]);
     expect($("tickets").querySelector(".tbl-empty")?.textContent).toBe(
-      "No tickets. A worker opens one by texting HELP after an answer is held for review.",
+      "No tickets. Workers can request help; agents can report a classifier decision for review.",
     );
     expect(text("tickets-count")).toBe("0 open");
     expect($("tickets-count").className).toBe("ui-badge ui-badge--success");
@@ -824,6 +824,36 @@ describe("ops support tickets", () => {
       ...over,
     });
 
+  const classifierTicket = (over: Partial<Ticket> = {}): Ticket => ({
+    id: 10,
+    kind: "classifier_feedback",
+    status: "open",
+    classifier_status: "open",
+    agent_id: "11111111-2222-4333-8444-555555555555",
+    task_id: null,
+    question: "<img src=x onerror=alert(1)> Is the cafe open?",
+    place_label: "Blue Bottle Coffee, Mint Plaza",
+    reported_context: {
+      error: "unsafe_task",
+      category: "privacy",
+      reason: "Possible surveillance",
+      layer: "classifier",
+    },
+    request: {
+      question: "Is the cafe open?",
+      location: "Blue Bottle Coffee, Mint Plaza",
+      task_type: "photo",
+      bounty_usd: 3,
+      deadline_minutes: 30,
+      require_photo: true,
+      idempotency_key: "original-key",
+    },
+    request_fingerprint: "exact-request-fingerprint",
+    message: "Client-reported classifier feedback",
+    created_at: "2026-10-18T12:00:00Z",
+    ...over,
+  });
+
   async function withTickets(first: Ticket[], post: Route = () => ok({}), opts: { open?: number } = {}) {
     let list = first;
     let pages: Record<string, { tickets: Ticket[]; next_cursor: string | null }> = {};
@@ -840,6 +870,8 @@ describe("ops support tickets", () => {
         "POST /ops/tickets/7/close": post,
         "POST /ops/tickets/9/confirm_fraud": post,
         "POST /ops/tickets/9/reject_dispute": post,
+        "POST /ops/tickets/10/approve_classifier": post,
+        "POST /ops/tickets/10/reject_classifier": post,
       },
       { hash: "#support" },
     );
@@ -882,6 +914,119 @@ describe("ops support tickets", () => {
     expect(rows()[2]?.querySelectorAll("td")[5]?.textContent).toBe("?");
     expect($("tickets").querySelector(".tbl-select, select")?.getAttribute("aria-label")).toBe("States");
   });
+
+  it("renders classifier context as text and approves only an explicit exact-request retry", async () => {
+    const { promise, resolve } = Promise.withResolvers<Response>();
+    const page = await withTickets([classifierTicket()], () => promise);
+    const panel = await page.open(10);
+    expect(panel.textContent).toContain("Pending review");
+    expect(panel.textContent).toContain("<img src=x onerror=alert(1)>");
+    expect(panel.querySelector("img")).toBeNull();
+    expect(panel.textContent).toContain("Blue Bottle Coffee, Mint Plaza");
+    expect(panel.textContent).toContain("Client-reported classifier decision and reason (untrusted)");
+    expect(panel.textContent).toContain("Possible surveillance");
+    expect(panel.textContent).toContain("original-key");
+    expect(panel.textContent).toContain("exact-request-fingerprint");
+    expect(panel.textContent).not.toContain("answer taken");
+    expect([...panel.querySelectorAll(".decide__row button")].map((b) => b.textContent)).toEqual([
+      "Approve",
+      "Reject",
+    ]);
+    await page.click(page.button(panel, "Approve"));
+    expect(panel.querySelector(".decide__question")?.textContent).toContain(
+      "does not dispatch a task or charge",
+    );
+    const confirm = page.button(panel, "Approve retry");
+    await page.click(confirm);
+    confirm.click();
+    confirm.dispatchEvent(
+      new page.happy.KeyboardEvent("keydown", {
+        key: "Escape",
+        bubbles: true,
+        cancelable: true,
+      }) as unknown as Event,
+    );
+    expect(confirm.disabled).toBe(true);
+    expect(page.button(panel, "Cancel").disabled).toBe(true);
+    expect((panel.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(true);
+    expect(page.requests.filter((r) => r.method === "POST")).toEqual([
+      { method: "POST", path: "/ops/tickets/10/approve_classifier", body: { note: "" } },
+    ]);
+    resolve(ok({ status: "approved", already_resolved: false }));
+    await page.settle();
+    await page.settle();
+    expect(panel.querySelector(".decide__status")?.textContent).toContain("same agent");
+    expect(panel.querySelector(".decide__status")?.textContent).toContain(
+      "No task dispatched, charge made or worker messaged.",
+    );
+    expect(panel.querySelectorAll(".decide__row button")).toHaveLength(0);
+  });
+
+  it.each(["", "  This request is still unsafe.  "])(
+    "rejects with a visible default or operator note: %j",
+    async (note) => {
+      const page = await withTickets([classifierTicket()], () => ok({ status: "rejected" }));
+      const panel = await page.open(10);
+      (panel.querySelector("textarea") as HTMLTextAreaElement).value = note;
+      await page.click(page.button(panel, "Reject"));
+      expect(panel.querySelector(".decide__question")?.textContent).toContain(
+        "Classifier block upheld by operator.",
+      );
+      await page.click(page.button(panel, "Reject report"));
+      expect(page.requests.filter((r) => r.method === "POST")).toEqual([
+        {
+          method: "POST",
+          path: "/ops/tickets/10/reject_classifier",
+          body: { note: note.trim() || "Classifier block upheld by operator." },
+        },
+      ]);
+      expect(panel.querySelector(".decide__status")?.textContent).toContain("No new retry authorization.");
+    },
+  );
+
+  it("keeps classifier decisions available after errors and reports an already resolved response", async () => {
+    let fail = true;
+    const page = await withTickets([classifierTicket()], () =>
+      fail
+        ? ok({ error: "Review service unavailable" }, 503)
+        : ok({ status: "expired", already_resolved: true }),
+    );
+    const panel = await page.open(10);
+    await page.click(page.button(panel, "Approve"));
+    await page.click(page.button(panel, "Approve retry"));
+    expect(panel.querySelector("[role=status]")?.textContent).toBe("Failed: Review service unavailable");
+    expect((panel.querySelector("textarea") as HTMLTextAreaElement).disabled).toBe(false);
+    fail = false;
+    await page.click(page.button(panel, "Approve"));
+    await page.click(page.button(panel, "Approve retry"));
+    expect(panel.querySelector("[role=status]")?.textContent).toContain(
+      "Already expired. No new retry authorization.",
+    );
+  });
+
+  it.each(["approved", "rejected", "expired", "consumed"] as const)(
+    "shows resolved classifier state %s without task or money controls",
+    async (state) => {
+      const page = await withTickets([
+        classifierTicket({
+          status: "resolved",
+          classifier_status: state,
+          decision_by: "op***@eyes.test",
+          decision_at: "2026-10-18T13:00:00Z",
+          approval_expires_at: state === "approved" ? "2026-10-19T13:00:00Z" : null,
+          note: "Operator decision reason",
+        }),
+      ]);
+      const panel = await page.open(10);
+      expect(panel.textContent).toContain(`Decision: ${state}`);
+      expect(panel.textContent).toContain("op***@eyes.test");
+      expect(panel.textContent).toContain("Operator decision reason");
+      expect(panel.querySelector(".decide")).toBeNull();
+      expect(panel.textContent).not.toMatch(
+        /Release to the worker|Refund the agent|Resolve with note|task null/,
+      );
+    },
+  );
 
   it("needs a note, then releases a held ticket, says so, and reloads the list", async () => {
     const page = await withTickets([helpTicket()], () => ok({}));

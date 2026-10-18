@@ -16,6 +16,8 @@ export type Action = {
 export type ActionAreaOptions = {
   primary: Action;
   more: Action[];
+  /** Keep a short pair of decisions visible rather than hiding the second in a menu. */
+  inlineMore?: boolean;
   note: { label: string; hint: string; required: boolean };
   /** Shown as a toast after a decision went through. */
   toast: (message: string) => void;
@@ -61,17 +63,26 @@ export function actionArea(doc: Document, opts: ActionAreaOptions) {
   root.append(field, row, status);
 
   let menuOpen = false;
+  let busy = false;
   const say = (tone: "ok" | "error" | "", text: string) => {
     status.className = `decide__status${tone ? ` is-${tone}` : ""}`;
     status.replaceChildren(...(tone ? [icon(doc, tone === "ok" ? "i-check" : "i-error")] : []), text);
   };
 
   function idle(focus?: HTMLElement) {
+    row.onkeydown = null;
+    row.classList.remove("is-confirming");
     menuOpen = false;
     const primary = button(doc, opts.primary.label, `ui-button--${opts.primary.tone}`);
     primary.addEventListener("click", () => confirming(opts.primary));
     const items: Node[] = [primary];
-    if (opts.more.length) {
+    if (opts.inlineMore) {
+      for (const action of opts.more) {
+        const secondary = button(doc, action.label, `ui-button--${action.tone}`);
+        secondary.addEventListener("click", () => confirming(action));
+        items.push(secondary);
+      }
+    } else if (opts.more.length) {
       const toggle = button(doc, "More actions", "ui-button--ghost decide__more");
       toggle.setAttribute("aria-haspopup", "menu");
       toggle.setAttribute("aria-expanded", "false");
@@ -116,6 +127,7 @@ export function actionArea(doc: Document, opts: ActionAreaOptions) {
 
   // The confirm step replaces the buttons in place: it says what will happen, the confirm button repeats the verb.
   function confirming(action: Action) {
+    if (busy) return;
     if (opts.note.required && !note.value.trim()) {
       note.setAttribute("aria-invalid", "true");
       say("error", `Write a note first. ${opts.note.hint}`);
@@ -128,13 +140,18 @@ export function actionArea(doc: Document, opts: ActionAreaOptions) {
     const yes = button(doc, action.verb, `ui-button--${action.tone === "ghost" ? "primary" : action.tone}`);
     const no = button(doc, "Cancel", "ui-button--ghost");
     yes.addEventListener("click", () => run(action, yes, no));
-    no.addEventListener("click", () => idle());
+    note.disabled = true;
+    no.addEventListener("click", () => {
+      note.disabled = false;
+      idle();
+    });
     row.replaceChildren(question, yes, no);
     row.classList.add("is-confirming");
     row.onkeydown = (e) => {
       if (e.key === "Escape") {
         e.preventDefault();
-        row.classList.remove("is-confirming");
+        if (busy) return;
+        note.disabled = false;
         idle();
       }
     };
@@ -142,6 +159,8 @@ export function actionArea(doc: Document, opts: ActionAreaOptions) {
   }
 
   async function run(action: Action, yes: HTMLButtonElement, no: HTMLButtonElement) {
+    if (busy) return;
+    busy = true;
     yes.disabled = true;
     no.disabled = true;
     yes.textContent = `${action.verb}…`;
@@ -154,6 +173,8 @@ export function actionArea(doc: Document, opts: ActionAreaOptions) {
     row.classList.remove("is-confirming");
     row.onkeydown = null;
     if (!outcome.ok) {
+      busy = false;
+      note.disabled = false;
       say("error", outcome.message);
       idle();
       return;
