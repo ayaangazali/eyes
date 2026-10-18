@@ -1,6 +1,6 @@
-FROM node:24-slim
+FROM node:26-slim
 WORKDIR /app
-RUN corepack enable
+RUN npm install -g pnpm@11.18.0
 COPY . .
 RUN pnpm install --frozen-lockfile --filter "@eyes/mcp..."
 ENV HOST=0.0.0.0 PORT=3000 NODE_ENV=production
