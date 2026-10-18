@@ -15,7 +15,7 @@ export type Last = { at: number; result: Result; lat: number; lng: number };
 // A 429 means the server stored a fix for this worker seconds ago (1 per 30 s), so the spot is fresh.
 export const MESSAGES: Record<Result, string> = {
   sent: "Sent",
-  stopped: "Code stopped working: text AUTO to Eyes for a new one",
+  stopped: "Code stopped working: text APP to Eyes for a new link",
   rate_limited: "Up to date",
   failed: "Not sent, will retry",
 };
