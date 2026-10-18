@@ -225,7 +225,11 @@ const LEDGER_LABELS: Record<LedgerType, string> = {
 type Note = { text: string; error: boolean };
 const SAVED: Note = { text: "Saved. The new limits apply to your agent's next request.", error: false };
 const INVALID: Note = {
-  text: "Nothing was saved. Max bounty must be a number from 0 to 100 USD, and the daily cap a number from 0 to 1000 USD.",
+  text: "Nothing was saved. Max bounty must be a number from 0 to 50 USD, and the daily cap a number from 0 to 1000 USD.",
+  error: true,
+};
+const UNCONFIRMED: Note = {
+  text: "The API key was not replaced. Tick the box to confirm that the old key stops working now, then press Replace the API key.",
   error: true,
 };
 
@@ -294,7 +298,7 @@ ${view.top_up_url ? html`<a class="button" href="${view.top_up_url}">Add funds</
 <h2>Spending limits</h2>
 <form method="post" action="/owner/${token}/policy">
 <label for="max_bounty_usd">Most it may pay a worker per task (USD)</label>
-<input id="max_bounty_usd" name="max_bounty_usd" type="number" inputmode="decimal" min="0" max="100" step="0.01" required value="${p.max_bounty_usd.toFixed(2)}">
+<input id="max_bounty_usd" name="max_bounty_usd" type="number" inputmode="decimal" min="0" max="50" step="0.01" required value="${p.max_bounty_usd.toFixed(2)}">
 <label for="daily_cap_usd">Daily spending cap (USD)</label>
 <input id="daily_cap_usd" name="daily_cap_usd" type="number" inputmode="decimal" min="0" max="1000" step="0.01" required value="${p.daily_cap_usd.toFixed(2)}" aria-describedby="cap-hint">
 <p class="hint" id="cap-hint">A daily cap of 0 freezes all spending. Each task counts its bounty plus the ${usd(feeUsd)} Eyes fee.</p>
@@ -317,6 +321,7 @@ ${
 <h2>Replace this agent's API key</h2>
 <p>If the API key may have leaked, replace it. The old key stops working immediately, so your agent cannot use Eyes until you give it the new key. The new key is shown once, on the next page.</p>
 <form method="post" action="/owner/${token}/rotate-key">
+<label><input type="checkbox" name="confirm" value="yes" required>I understand the old key stops working now, and my agent cannot use Eyes until I give it the new key.</label>
 <button class="danger" type="submit">Replace the API key</button>
 </form>`,
     OWNER_STYLE,
@@ -367,6 +372,14 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
   });
 
   app.get("/topup/done", (c) => {
+    if (c.req.query("simulated") !== undefined) {
+      return c.html(
+        page(
+          "Payments are simulated",
+          "Payments are simulated on this server, so no money moved and nothing was added to your agent's balance. You can close this page.",
+        ),
+      );
+    }
     const cents = c.req.query("amount_cents") ?? "";
     const added = /^\d{1,6}$/.test(cents)
       ? `${usd(centsToUsd(Number(cents)))} added to your agent's balance.`
@@ -414,12 +427,13 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
       return c.redirect(`/owner/${token}?saved=1`, 303);
     });
   });
-  app.post("/owner/:token/rotate-key", (c) =>
-    explained(c, async () => {
+  app.post("/owner/:token/rotate-key", async (c) => {
+    if ((await c.req.parseBody()).confirm !== "yes") return ownerView(c, UNCONFIRMED, 400);
+    return explained(c, async () => {
       const token = c.req.param("token");
       return c.html(newKeyPage((await deps.service.rotateApiKey(token)).api_key, token));
-    }),
-  );
+    });
+  });
 
   app.get("/w/connect/done", (c) =>
     c.html(

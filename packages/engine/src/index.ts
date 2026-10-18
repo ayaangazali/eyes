@@ -121,6 +121,8 @@ const policyOf = (s: Summary) => ({
 });
 
 const MIN_BOUNTY_CENTS = 100;
+const FROZEN =
+  "Your user froze spending on this API key by setting its daily cap to 0, so waiting for the daily reset will not help. Do not retry; ask your user to raise daily_cap_usd in their Eyes owner console.";
 
 function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<S> {
   const result = schema.safeParse(input);
@@ -251,11 +253,15 @@ export function createEyesService(deps: EngineDeps): EyesService {
     }
     if (err.code === "daily_cap_exceeded") {
       const c = err.context as { daily_cap_cents: number; spent_today_cents: number };
-      return new EyesError("daily_cap_exceeded", {
-        daily_cap_usd: centsToUsd(c.daily_cap_cents),
-        spent_today_usd: centsToUsd(c.spent_today_cents),
-        remaining_today_usd: centsToUsd(Math.max(0, c.daily_cap_cents - c.spent_today_cents)),
-      });
+      return new EyesError(
+        "daily_cap_exceeded",
+        {
+          daily_cap_usd: centsToUsd(c.daily_cap_cents),
+          spent_today_usd: centsToUsd(c.spent_today_cents),
+          remaining_today_usd: centsToUsd(Math.max(0, c.daily_cap_cents - c.spent_today_cents)),
+        },
+        { fix: c.daily_cap_cents === 0 ? FROZEN : undefined },
+      );
     }
     return err;
   }
@@ -426,7 +432,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
           : `This API key's max_bounty_usd is ${centsToUsd(s.max_bounty_cents)}, below the ${centsToUsd(MIN_BOUNTY_CENTS)} USD minimum bounty, so it cannot post tasks. Ask your user to raise max_bounty_usd.`,
         left >= least
           ? ""
-          : `Only ${centsToUsd(left)} USD of today's spend cap is left, less than the minimum bounty plus fee (${centsToUsd(least)} USD). Wait until the cap resets at ${reset.toISOString()} (midnight UTC), or ask your user to raise daily_cap_usd.`,
+          : s.daily_cap_cents === 0
+            ? FROZEN
+            : `Only ${centsToUsd(left)} USD of today's spend cap is left, less than the minimum bounty plus fee (${centsToUsd(least)} USD). Wait until the cap resets at ${reset.toISOString()} (midnight UTC), or ask your user to raise daily_cap_usd.`,
         s.balance_cents >= least
           ? ""
           : `Your balance of ${centsToUsd(s.balance_cents)} USD is less than the minimum bounty plus fee (${centsToUsd(least)} USD). Ask your user to top up at ${topUpUrl(agent.id)}, then call get_balance before asking.`,
@@ -491,7 +499,16 @@ export function createEyesService(deps: EngineDeps): EyesService {
         p_idempotency_key: ask.idempotency_key ?? null,
         p_worker_ids: workers.map((w) => w.worker_id),
         p_now: nowIso(),
-      }).catch((err) => {
+      }).catch(async (err) => {
+        if (err instanceof EyesError && err.code === "no_workers_nearby") {
+          const needed_cents = bountyCents + config.fee_cents;
+          const s = await one<Summary>("eyes_agent_summary", { p_agent_id: agent.id, p_now: nowIso() });
+          if (s.balance_cents < needed_cents)
+            throw agentFacing(
+              new EyesError("insufficient_balance", { balance_cents: s.balance_cents, needed_cents }),
+              agent.id,
+            );
+        }
         throw agentFacing(err, agent.id);
       });
       const { task } = posted;

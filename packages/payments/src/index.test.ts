@@ -285,6 +285,16 @@ describe("stripeRoutes", () => {
     }
   });
 
+  it("says a simulated checkout moved no money and credited nothing", async () => {
+    const { app } = setup();
+    const res = await app.request("/topup/done?simulated=1&amount_cents=2000");
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("Payments are simulated on this server, so no money moved");
+    expect(body).not.toContain("Payment received");
+    expect(body).not.toContain("$20.00 added");
+  });
+
   it("redirects a worker connect link to a freshly minted onboarding URL", async () => {
     const { app } = setup();
     const res = await app.request("/w/connect/tok");
@@ -352,6 +362,7 @@ describe("owner console routes", () => {
     for (const body of [
       "max_bounty_usd=&daily_cap_usd=20",
       "max_bounty_usd=500&daily_cap_usd=20",
+      "max_bounty_usd=50.01&daily_cap_usd=20",
       "max_bounty_usd=0x10&daily_cap_usd=20",
       "max_bounty_usd=1.005&daily_cap_usd=20",
       "max_bounty_usd=3&daily_cap_usd=0.005",
@@ -372,14 +383,27 @@ describe("owner console routes", () => {
     }
   });
 
-  it("replaces the API key only on a POST with the owner link and shows the new key once, escaped and uncached", async () => {
+  it("replaces the API key only on a confirmed POST with the owner link and shows the new key once, escaped and uncached", async () => {
     const { app, service } = setup();
     const escaped = "eyes_test_&lt;b&gt;&quot;new&quot;&lt;/b&gt;&amp;key";
+    const rotate = (token: string, body = "confirm=yes") =>
+      app.request(`/owner/${token}/rotate-key`, {
+        method: "POST",
+        body,
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+      });
     const before = await (await app.request("/owner/owner-tok")).text();
     expect(before).toContain('action="/owner/owner-tok/rotate-key"');
     expect(before).toContain("The old key stops working immediately");
 
-    const res = await app.request("/owner/owner-tok/rotate-key", { method: "POST" });
+    for (const body of ["", "confirm=no"]) {
+      const unconfirmed = await rotate("owner-tok", body);
+      expect(unconfirmed.status).toBe(400);
+      expect(await unconfirmed.text()).toContain("The API key was not replaced.");
+    }
+    expect(service.rotateApiKey).not.toHaveBeenCalled();
+
+    const res = await rotate("owner-tok");
     expect(res.status).toBe(200);
     expect(privateHeaders(res)).toEqual(PRIVATE);
     expect(res.headers.get("location")).toBeNull();
@@ -391,7 +415,7 @@ describe("owner console routes", () => {
     const elsewhere = [
       await app.request("/owner/owner-tok/rotate-key"),
       await app.request("/owner/owner-tok"),
-      await app.request("/owner/agent-tok/rotate-key", { method: "POST" }),
+      await rotate("agent-tok"),
     ];
     expect(elsewhere.map((r) => r.status)).toEqual([404, 200, 404]);
     for (const r of elsewhere) {

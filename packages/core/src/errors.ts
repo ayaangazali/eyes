@@ -22,7 +22,7 @@ export const ERRORS = {
   daily_cap_exceeded: {
     status: 403,
     message: "This task would exceed the API key's daily spend cap.",
-    fix: "You have {remaining_today_usd} USD left today. Lower bounty_usd, wait until tomorrow (UTC), or ask your user to raise daily_cap.",
+    fix: "You have {remaining_today_usd} USD left today. Lower bounty_usd, wait until tomorrow (UTC), or ask your user to raise daily_cap_usd.",
   },
   task_type_not_allowed: {
     status: 403,
@@ -48,7 +48,7 @@ export const ERRORS = {
   task_not_found: {
     status: 404,
     message: "No task with that task_id belongs to this API key.",
-    fix: "Use the task_id returned by ask_eyes. Tasks from other API keys are not visible.",
+    fix: "Use the task_id returned by ask_eyes. Lost it? Call list_tasks to see your tasks and their task_ids. Tasks from other API keys are not visible.",
   },
   task_not_cancellable: {
     status: 409,

@@ -273,12 +273,12 @@ Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...cont
 - invalid_input (HTTP 400): The request did not match the expected schema. Fix: Correct the fields listed in `issues` and retry. Each tool's input schema documents every field.
 - insufficient_balance (HTTP 402): Your balance is too low to escrow this task. Fix: Ask your user to top up at {top_up_url}, or lower bounty_usd to {max_affordable_bounty_usd} or less.
 - bounty_exceeds_max (HTTP 403): bounty_usd is above this API key's max_bounty limit. Fix: Lower bounty_usd to {max_bounty_usd} or less, or ask your user to raise the limit.
-- daily_cap_exceeded (HTTP 403): This task would exceed the API key's daily spend cap. Fix: You have {remaining_today_usd} USD left today. Lower bounty_usd, wait until tomorrow (UTC), or ask your user to raise daily_cap.
+- daily_cap_exceeded (HTTP 403): This task would exceed the API key's daily spend cap. Fix: You have {remaining_today_usd} USD left today. Lower bounty_usd, wait until tomorrow (UTC), or ask your user to raise daily_cap_usd.
 - task_type_not_allowed (HTTP 403): This API key is not allowed to post this task_type. Fix: Use one of {allowed_task_types}, or ask your user to allow {task_type} for this key.
 - unsafe_task (HTTP 422): Eyes only checks public, commercial or civic places, and never targets private people or homes. Fix: Rephrase the task about a public place (store, cafe, park, transit stop, venue). Do not ask about specific people, homes, vehicles or private property.
 - location_not_found (HTTP 422): Could not resolve that location. Fix: Pass the coordinates as numbers, e.g. {"lat": 37.7955, "lng": -122.3937}; coordinates always resolve. Or pass "place name, city", e.g. "Ferry Building, San Francisco".
 - no_workers_nearby (HTTP 409): No available workers are near that location right now. Nothing was charged. Fix: Call quote_task to check coverage, try a nearby busier location, or try again later.
-- task_not_found (HTTP 404): No task with that task_id belongs to this API key. Fix: Use the task_id returned by ask_eyes. Tasks from other API keys are not visible.
+- task_not_found (HTTP 404): No task with that task_id belongs to this API key. Fix: Use the task_id returned by ask_eyes. Lost it? Call list_tasks to see your tasks and their task_ids. Tasks from other API keys are not visible.
 - task_not_cancellable (HTTP 409): Only unclaimed (dispatched) tasks can be cancelled. Fix: A worker is already on it. Call await_answer to get the result, or dispute_answer if the answer is wrong.
 - task_not_disputable (HTTP 409): Only answered tasks (verified, paid or needs_review) can be disputed. Fix: Call get_task to see the current status. Unanswered tasks can be cancelled instead.
 - idempotency_conflict (HTTP 409): This idempotency_key was already used with different parameters. Fix: Reuse an idempotency_key only for an identical retry. Use a new key for a new question.

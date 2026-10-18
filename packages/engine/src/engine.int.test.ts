@@ -198,6 +198,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(outbox).toContainEqual(expect.objectContaining({ to: winner.phone, kind: "paid" }));
     await expect(service.getTask(await agent(), { task_id: asked.task_id })).rejects.toMatchObject({
       code: "task_not_found",
+      fix: expect.stringContaining("Call list_tasks"),
     });
   });
 
@@ -367,6 +368,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
         null,
         blocked("2026-10-18T00:00:00.000Z"),
       ],
+      [
+        "says a key with a daily cap of 0 is frozen by its user",
+        { daily_cap_usd: 0 },
+        null,
+        blocked("froze"),
+      ],
       ["blocks when the minimum does not fit the balance", {}, 120, blocked("https://api.eyes.test/topup/")],
     ];
 
@@ -384,16 +391,18 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
   });
 
-  it("charges nothing on insufficient balance and tells the agent what it can afford", async () => {
+  it("charges nothing on insufficient balance and tells the agent what it can afford, with or without workers nearby", async () => {
     const at = somewhere();
-    await worker(north(at, 100));
     const a = await agent();
     await sql`update agents set balance_cents = 100 where id = ${a.id}`;
-
-    await expect(ask(a, at)).rejects.toMatchObject({
+    const broke = {
       code: "insufficient_balance",
       context: { balance_usd: 1, needed_usd: 3.5, max_affordable_bounty_usd: 0.5 },
-    });
+    };
+
+    await expect(ask(a, at)).rejects.toMatchObject(broke);
+    await worker(north(at, 100));
+    await expect(ask(a, at)).rejects.toMatchObject(broke);
     expect(await service.getBalance(a)).toMatchObject({ balance_usd: 1, escrowed_usd: 0 });
     expect(await sql`select id from tasks where agent_id = ${a.id}`).toHaveLength(0);
   });
@@ -558,12 +567,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
       daily_cap_usd: 0,
       allowed_task_types: [...types],
     });
-    await expect(ask(await fresh(), at, { bounty_usd: 2 })).rejects.toMatchObject({
-      code: "daily_cap_exceeded",
-    });
+    const frozen = await ask(await fresh(), at, { bounty_usd: 2 }).catch((err: EyesError) => err);
+    expect(frozen).toMatchObject({ code: "daily_cap_exceeded", fix: expect.stringContaining("froze") });
+    expect((frozen as EyesError).fix).not.toMatch(/tomorrow|Lower bounty_usd/);
 
     await service.updateSpendPolicy(ownerToken, {
-      max_bounty_usd: 100,
+      max_bounty_usd: 50,
       daily_cap_usd: 1000,
       allowed_task_types: [...types],
     });
