@@ -8,7 +8,7 @@ Roles: **presenter** at the laptop; **cafe worker** standing at the cafe door wi
 
 Never show on screen: the API key, the agent's Eyes email address, the owner console link, a top-up link, the dashboard's address bar. Each one is a capability: whoever sees it can spend the balance, change the limits or watch where workers are. A leaked API key can be replaced from the owner console ([ADR-019](../intent/decisions/ADR-019-owner-key-rotation.md), see Fallbacks), but links cannot be revoked one by one yet ([#28](https://github.com/ayaangazali/eyes/issues/28)). Use a demo-only agent with a small balance.
 
-Current demo state: ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`; REST remains at `https://api.eyes.pictures`. Stripe is connected in test mode with $20 test credit, not real money. Current API/card-protocol checks pass, but fresh in-chat visuals are quota-blocked; do not present the historical recording below as fresh acceptance. Marketplace 1.0.3 remains a draft, not submitted or published.
+Current demo state: ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`; REST remains at `https://api.eyes.pictures`. Stripe is connected in test mode with $20 test credit, not real money. API/card-protocol checks pass; follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18, not unavailable for all users. Do not present the historical recording below as fresh acceptance. Marketplace 1.0.3 remains a draft, not submitted or published.
 
 ## Pre-demo checklist (start 30 minutes before)
 

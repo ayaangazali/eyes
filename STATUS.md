@@ -10,7 +10,7 @@ Photo moderation rejects confirmed graphic gore or explicit sexual content, not 
 
 Known unresolved gap: STOP handling and the documented email-deletion policy are not fully aligned. This documentation refresh does not fix that policy–implementation gap.
 
-Marketplace 1.0.3 is a configured draft with preflight complete, not submitted/published; legal owner attestations and test-mode limits remain. Live ChatGPT API/card protocol is verified, but fresh in-chat ChatGPT and Claude visual checks are quota-blocked.
+Marketplace 1.0.3 is a configured draft with preflight complete, not submitted/published; legal owner attestations and test-mode limits remain. Live ChatGPT API/card protocol is verified. **Verification note (2026-10-18):** follow-up in-chat visual checks on the operator's ChatGPT and Claude test accounts hit account quotas; this is not a general limitation on either client's card capabilities.
 
 ## Historical snapshots and task board
 

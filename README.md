@@ -27,7 +27,7 @@ Agents can read the internet but cannot see the street. Eyes is an MCP server th
 - **[Photo checks](docs/features/photo-checks.md):** GPS within 150 m, taken live and narrowly moderated; no answer-correctness judgment.
 - **[Escrow](docs/features/escrow.md):** bounty plus $0.50 fee held on ask; refunded if no answer.
 - **[Prepaid balance](docs/features/escrow.md):** `get_balance.top_up_url` opens Stripe Checkout to add funds; payments are in test mode.
-- **[Safety](docs/features/safety.md):** rules, then an AI check; requests targeting homes, specific people, vehicles or faces are refused.
+- **[Safety](docs/features/safety.md):** rules and an AI check refuse private-person, home, vehicle or face-targeted requests; this is separate from photo moderation and is not a blanket ban on faces in photos.
 - **[Classifier review](docs/features/safety.md):** `report_classifier` and `get_classifier_report`; internal Approve/Reject controls, with approval allowing only an explicit retry of the same agent's exact request for 24 hours—not automatic dispatch or charging.
 - **[Owner controls](docs/features/owner-controls.md):** spend caps, allowed task types, key rotation.
 - **[Worker location](docs/features/worker-location.md):** HERE links, a Shortcut or the iPhone app.
@@ -55,7 +55,7 @@ Prefer the Manufact CLI? `npx -y mcp-use@2.10.1 client connect eyes https://mcp.
 
 **MCP is live at `https://mcp.eyes.pictures/mcp`, with ChatGPT and Claude configured there.** OAuth issuer and card origins match each host. REST signup, balance, uploads and webhooks stay at `https://api.eyes.pictures`; legacy `api.eyes.pictures/mcp` connectors remain supported. This does not mean every third-party connector has migrated. See [OAuth setup](docs/CONNECT.md).
 
-Stripe's provider integration is live, but payments and the $20 signup credit are test-only: no real money moves. Marketplace version 1.0.3 is a configured draft with preflight complete, not submitted or published; legal owner attestations and test-mode limits remain. The new ChatGPT card protocol and live API are verified, but fresh in-chat ChatGPT and Claude visual checks are quota-blocked.
+Stripe's provider integration is live, but payments and the $20 signup credit are test-only: no real money moves. Marketplace version 1.0.3 is a configured draft with preflight complete, not submitted or published; legal owner attestations and test-mode limits remain. The new ChatGPT card protocol and live API are verified. Follow-up in-chat visual checks on the operator's test accounts were quota-blocked on 2026-10-18, not unavailable for all users; see [STATUS](STATUS.md).
 
 ## How it works
 

@@ -10,7 +10,7 @@ Hacking: Sat Oct 17 10:30 AM to Sun Oct 18 10:00 AM (submissions). Feature freez
 |---|---|
 | Live mode | Manufact Cloud hosts the MCP/API application; Cloudflare supplies the edge and static sites. ChatGPT and Claude use `https://mcp.eyes.pictures/mcp`; REST/uploads/webhooks stay at `https://api.eyes.pictures`, whose legacy MCP endpoint remains supported. |
 | Current verification | Dedicated-host OAuth/card metadata and live API are verified; 13 tools share the current service. Photo moderation rejects confirmed graphic gore or explicit sexual content, not faces alone. |
-| Remaining limits | Stripe provider is live but payments/$20 credit are test-only. Fresh in-chat ChatGPT and Claude visual checks are quota-blocked. Primitive unrestricted sending and external custom-alias SPF remain unresolved. |
+| Remaining limits | Stripe provider is live but payments/$20 credit are test-only. Follow-up visual checks on the operator's ChatGPT/Claude test accounts were quota-blocked on 2026-10-18, not unavailable for all users. Primitive unrestricted sending and external custom-alias SPF remain unresolved. |
 | CI and tests | lint, typecheck, unit, contract, integration, golden and demo e2e, safety rules, intent, secrets; `pnpm ax:eval` (Claude client passes locally); `safety-llm-eval` and the Claude PR reviewer run with the repo secret |
 | Agent experience | 13 MCP tools (12 plus the `show_task` card), REST mirror, llms.txt, openapi.json, agent card, `eyes` CLI, every error with a fix |
 

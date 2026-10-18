@@ -30,7 +30,7 @@ Earlier verified readiness (same 11:07 UTC snapshot):
 3. Widget metadata from `resources/list` and `resources/read` matches the new connector's ChatGPT origin and Claude hash. Existing API-host OAuth and card metadata remain unchanged. This verifies server resources, not an actual ChatGPT or Claude client migration.
 4. API unauthenticated REST/upload/webhook rejection checks passed. No existing connector or optional gateway configuration was changed.
 
-At that verification time, public DNS lookup preserved the original Host/SNI and TLS validation without hardcoded IPs or a TLS bypass; local macOS and Google resolvers still held negative results. This is historical DNS evidence, not a current outage claim. Current ChatGPT card protocol/live API checks are verified; fresh in-chat ChatGPT and Claude visual checks remain quota-blocked.
+At that verification time, public DNS lookup preserved the original Host/SNI and TLS validation without hardcoded IPs or a TLS bypass; local macOS and Google resolvers still held negative results. This is historical DNS evidence, not a current outage claim. ChatGPT card protocol/live API checks are verified. Follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18; this is not a general client limitation.
 
 ### Permanent operator deployment
 
