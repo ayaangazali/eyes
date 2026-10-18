@@ -33,7 +33,12 @@ const ANSWER = {
 
 /** Boots the widget script in happy-dom. `openai` stands in for ChatGPT; without it the MCP Apps host answers. */
 function boot(
-  opts: { openai?: Record<string, unknown>; host?: (m: Msg) => HostResult | Promise<HostResult> } = {},
+  opts: {
+    openai?: Record<string, unknown>;
+    host?: (m: Msg) => HostResult | Promise<HostResult>;
+    restore?: { name: string; state: string };
+    hostCapabilities?: Record<string, unknown>;
+  } = {},
 ) {
   const happy = new Window({ url: "https://card.test/" });
   const win = happy as unknown as globalThis.Window & {
@@ -49,7 +54,9 @@ function boot(
         sent.push(m);
         if (m.id == null) return;
         if (m.method === "ui/initialize")
-          return reply({ jsonrpc: "2.0", id: m.id, result: { hostContext: { theme: "dark" } } });
+          return reply({ jsonrpc: "2.0", id: m.id, result: {
+            hostContext: { theme: "dark" }, hostCapabilities: opts.hostCapabilities,
+          } });
         const r = opts.host?.(m) ?? {};
         void Promise.resolve(r).then((result) =>
           reply({ jsonrpc: "2.0", id: m.id, ...("error" in result ? result : { result }) }),
@@ -58,6 +65,10 @@ function boot(
     },
   });
   if (opts.openai) win.openai = opts.openai;
+  if (opts.restore) {
+    win.name = opts.restore.name;
+    win.sessionStorage.setItem("eyes.card." + win.name, opts.restore.state);
+  }
   let uuid = 0;
   new Function("window", "document", "ResizeObserver", "crypto", WIDGET_SCRIPT)(
     win,
@@ -81,7 +92,7 @@ function boot(
 }
 
 describe("widget call bridge (MCP Apps host)", () => {
-  it("handshakes, then Ask Eyes sends tools/call ask_eyes with the quote and renders the task", async () => {
+  it("handshakes, then Ask Eyes explicitly confirms the quote and renders the task", async () => {
     const host = vi.fn((_m: Msg): Result => ({ structuredContent: { ...TASK } }));
     const w = boot({ host });
     await w.settle();
@@ -97,7 +108,7 @@ describe("widget call bridge (MCP Apps host)", () => {
     expect(host.mock.calls[0]?.[0]).toMatchObject({
       method: "tools/call",
       params: {
-        name: "ask_eyes",
+        name: "confirm_ask",
         arguments: {
           question: "How long is the line?",
           location: "Ferry Building, San Francisco",
@@ -395,7 +406,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     let asks = 0;
     const w = setup((name) => ({
       structuredContent:
-        name === "ask_eyes"
+        name === "confirm_ask"
           ? { ...TASK, task_id: ++asks === 1 ? "t1" : "t2" }
           : name === "dispute_answer"
             ? disputed
@@ -418,7 +429,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     expect(w.button("again").textContent).toBe("Ask again");
     expect(w.button("dispute")).toBeNull();
     expect(w.button("accept")).toBeNull();
-    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["ask_eyes", "dispute_answer"]);
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["confirm_ask", "dispute_answer"]);
 
     w.button("again").click();
     expect(w.button("again").disabled).toBe(true);
@@ -428,7 +439,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
       location: context.location,
       task_type: context.task_type,
     });
-    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["ask_eyes", "dispute_answer", "quote_task"]);
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["confirm_ask", "dispute_answer", "quote_task"]);
     expect(w.question().value).toBe(context.question);
     expect(w.question().readOnly).toBe(true);
     expect(w.root.textContent).toContain("Suggested bounty $2.00");
@@ -470,7 +481,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
       task_type: context.task_type,
     });
     expect(w.button("ask")).not.toBeNull();
-    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(0);
+    expect(w.invoke.mock.calls.filter(([name]) => name === "confirm_ask")).toHaveLength(0);
   });
 
   it.each([
@@ -549,14 +560,14 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
       expect(w.root.querySelector('[role="alert"]')?.textContent).toContain(
         tool === "quote_task" ? "quote was incomplete" : "Dispute was not confirmed",
       );
-      expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(0);
+      expect(w.invoke.mock.calls.filter(([name]) => name === "confirm_ask")).toHaveLength(0);
     },
   );
 
   it("retains the new ask key and exact arguments across a network failure and a fresh availability check", async () => {
     let asks = 0;
     const w = setup((name) =>
-      name === "ask_eyes"
+      name === "confirm_ask"
         ? ++asks === 1
           ? { isError: true, structuredContent: { message: "Connection lost." } }
           : { structuredContent: { ...TASK, task_id: "t2" } }
@@ -584,7 +595,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     const w = setup((name, args) => {
       if (name === "dispute_answer") return { structuredContent: disputed };
       if (name === "quote_task") return { structuredContent: quote };
-      if (name === "ask_eyes")
+      if (name === "confirm_ask")
         return args.classifier_report_id
           ? { structuredContent: { ...TASK, task_id: "t2" } }
           : {
@@ -612,10 +623,10 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     expect(w.root.textContent).toContain("Awaiting manual review.");
     report("check").click();
     await w.settle();
-    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+    expect(w.invoke.mock.calls.filter(([name]) => name === "confirm_ask")).toHaveLength(1);
     report("retry").click();
     await w.settle();
-    expect(w.invoke).toHaveBeenLastCalledWith("ask_eyes", { ...newArgs, classifier_report_id: "report-1" });
+    expect(w.invoke).toHaveBeenLastCalledWith("confirm_ask", { ...newArgs, classifier_report_id: "report-1" });
     expect(w.root.textContent).toContain("Finding a worker");
   });
 
@@ -775,7 +786,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
 
   it("reports the exact refusal, waits for manual approval, then explicitly retries only the original ask", async () => {
     const w = setup((name, args) => {
-      if (name === "ask_eyes") return args.classifier_report_id ? { structuredContent: TASK } : failed;
+      if (name === "confirm_ask") return args.classifier_report_id ? { structuredContent: TASK } : failed;
       if (name === "report_classifier")
         return { structuredContent: { ticket_id: "42", created: true, status: "open" } };
       return { structuredContent: { ticket_id: "42", status: "approved" } };
@@ -799,7 +810,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
     });
     expect(w.root.textContent).toContain("Ticket 42: Awaiting manual review.");
     expect(w.report("submit")).toBeNull();
-    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+    expect(w.invoke.mock.calls.filter(([name]) => name === "confirm_ask")).toHaveLength(1);
     // Host report notifications must not replace the quote or its typed question.
     if (bridge === "ChatGPT") {
       const notification = w.win.document.createEvent("CustomEvent");
@@ -820,14 +831,14 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
     w.change("Is it still open?");
     w.report("retry")?.click();
     await w.settle();
-    expect(w.invoke).toHaveBeenNthCalledWith(4, "ask_eyes", { ...original, classifier_report_id: "42" });
+    expect(w.invoke).toHaveBeenNthCalledWith(4, "confirm_ask", { ...original, classifier_report_id: "42" });
     expect(w.root.textContent).toContain("Finding a worker");
   });
 
   it("retries report failures with the same report key, without retrying or charging the ask", async () => {
     let attempts = 0;
     const w = setup((name) =>
-      name === "ask_eyes"
+      name === "confirm_ask"
         ? failed
         : ++attempts === 1
           ? {
@@ -851,7 +862,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
     w.report("submit")?.click();
     await w.settle();
     expect(w.invoke.mock.calls[1]?.[1]).toEqual(w.invoke.mock.calls[2]?.[1]);
-    expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+    expect(w.invoke.mock.calls.filter(([name]) => name === "confirm_ask")).toHaveLength(1);
     expect(w.report("submit")).toBeNull();
   });
 
@@ -859,7 +870,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
     "shows review status %s without creating another task",
     async (status) => {
       const w = setup((name) => {
-        if (name === "ask_eyes") return failed;
+        if (name === "confirm_ask") return failed;
         if (name === "report_classifier") return { structuredContent: { ticket_id: "44", status: "open" } };
         if (name === "get_task") return { structuredContent: TASK };
         return { structuredContent: { ticket_id: "44", status, reason: "<reviewed>", task_id: "t1" } };
@@ -878,7 +889,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
         await w.settle();
         expect(w.invoke).toHaveBeenLastCalledWith("get_task", { task_id: "t1" });
       }
-      expect(w.invoke.mock.calls.filter(([name]) => name === "ask_eyes")).toHaveLength(1);
+      expect(w.invoke.mock.calls.filter(([name]) => name === "confirm_ask")).toHaveLength(1);
     },
   );
 
@@ -894,6 +905,143 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
       expect(w.report("submit")).toBeNull();
     },
   );
+});
+
+describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
+  const draft = {
+    ...QUOTE,
+    status: "confirmation_required",
+    question: "AI question",
+    location: "Ferry Building",
+    task_type: "line_length",
+    bounty_usd: 3,
+    idempotency_key: "shared-intent",
+    deadline_minutes: 30,
+    require_photo: true,
+  };
+  function setup(
+    handler: (name: string, args: Record<string, unknown>) => Result | Promise<Result>,
+    restore?: { name: string; state: string },
+  ) {
+    const invoke = vi.fn(handler);
+    const w = boot({
+      ...(bridge === "ChatGPT"
+        ? { openai: { callTool: invoke } }
+        : { host: (m: Msg) => invoke(String(m.params?.name), m.params?.arguments as Record<string, unknown>) }),
+      restore,
+    });
+    const update = (out: unknown, args: Record<string, unknown> = {}) => {
+      if (bridge === "ChatGPT") {
+        const event = w.win.document.createEvent("CustomEvent");
+        event.initCustomEvent("openai:set_globals", false, false, {
+          globals: { toolInput: args, toolOutput: out },
+        });
+        w.win.dispatchEvent(event);
+      } else w.show(out, args);
+    };
+    const field = (name: string) => w.root.querySelector(`[data-field="${name}"]`) as HTMLInputElement;
+    const edit = (name: string, value: string) => {
+      field(name).value = value;
+      const event = w.win.document.createEvent("Event");
+      event.initEvent("input", true, false);
+      field(name).dispatchEvent(event);
+    };
+    const snapshot = () => ({
+      name: w.win.name,
+      state: w.win.sessionStorage.getItem("eyes.card." + w.win.name)!,
+    });
+    return { ...w, invoke, update, field, edit, snapshot };
+  }
+
+  it("preserves user question, place and bounty through late AI updates, and posts only after confirmation", async () => {
+    const w = setup(async () => ({ structuredContent: TASK }));
+    w.update(draft, draft);
+    w.edit("question", "My own question");
+    w.edit("location", "My public place");
+    w.edit("bounty_usd", "4.25");
+    w.update({ ...draft, question: "Late AI", location: "Another place", bounty_usd: 9,
+      idempotency_key: "late-key" });
+    await w.settle();
+    expect([w.field("question").value, w.field("location").value, w.field("bounty_usd").value])
+      .toEqual(["My own question", "My public place", "4.25"]);
+    expect(w.invoke).not.toHaveBeenCalled();
+    w.button("ask").click();
+    await w.settle();
+    expect(w.invoke).toHaveBeenCalledExactlyOnceWith("confirm_ask", {
+      question: "My own question", location: "My public place", task_type: "line_length",
+      bounty_usd: 4.25, deadline_minutes: 30, require_photo: true, idempotency_key: "shared-intent",
+    });
+    expect(w.button("cancel")).not.toBeNull();
+    w.update({ ...draft, idempotency_key: "another-ai-key" });
+    expect(w.button("ask")).toBeNull();
+    expect(w.button("cancel")).not.toBeNull();
+    expect(w.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("blocks double confirmation across host rerenders and shows the already-created task", async () => {
+    const pending = Promise.withResolvers<Result>();
+    const w = setup(() => pending.promise);
+    w.update(draft);
+    w.button("ask").click();
+    w.update({ ...draft, idempotency_key: "late-key" });
+    expect(w.button("ask").disabled).toBe(true);
+    w.button("ask").click();
+    expect(w.invoke).toHaveBeenCalledTimes(1);
+    w.update(TASK);
+    pending.resolve({ structuredContent: TASK });
+    await w.settle();
+    w.update(draft);
+    expect(w.button("ask")).toBeNull();
+    expect(w.button("cancel")).not.toBeNull();
+    expect(w.invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("restores the same frozen intent after a lost response and a remounted host", async () => {
+    const w = setup(async () => ({ isError: true, structuredContent: { message: "Connection lost." } }));
+    w.update(draft);
+    w.edit("question", "User confirmed question");
+    w.button("ask").click();
+    w.update({ ...draft, question: "Late question", idempotency_key: "late-key" });
+    await w.settle();
+    expect(w.root.querySelector("[data-error]")?.textContent).toBe("Connection lost.");
+    const first = w.invoke.mock.calls[0]?.[1];
+    const restored = setup(async () => ({ structuredContent: TASK }), w.snapshot());
+    restored.update({ ...draft, question: "Late question", idempotency_key: "late-key" });
+    expect(restored.field("question").value).toBe("User confirmed question");
+    restored.button("ask").click();
+    await restored.settle();
+    expect(restored.invoke).toHaveBeenCalledExactlyOnceWith("confirm_ask", first);
+    const completed = setup(async () => ({ structuredContent: TASK }), restored.snapshot());
+    completed.update(draft);
+    expect(completed.button("ask")).toBeNull();
+    expect(completed.button("cancel")).not.toBeNull();
+    expect(completed.invoke).not.toHaveBeenCalled();
+  });
+
+  it("publishes confirmed task context without a follow-up or another paid call", async () => {
+    const invoke = vi.fn(async () => ({ structuredContent: TASK }));
+    const setWidgetState = vi.fn();
+    const w = boot({
+      ...(bridge === "ChatGPT"
+        ? { openai: { callTool: invoke, setWidgetState } }
+        : { hostCapabilities: { updateModelContext: { structuredContent: {} } } }),
+      host: (m) => m.method === "tools/call" ? invoke() : {},
+    });
+    w.show(draft);
+    w.button("ask").click();
+    await w.settle();
+    const expected = {
+      task_id: "t1", status: "dispatched", idempotency_key: "shared-intent", next_step: "await_answer",
+    };
+    if (bridge === "ChatGPT") {
+      expect(setWidgetState.mock.lastCall?.[0].modelContent).toEqual(expected);
+    } else {
+      expect(w.sent.find((m) => m.method === "ui/update-model-context")?.params)
+        .toEqual({ structuredContent: expected });
+    }
+    expect(w.sent.some((m) => m.method === "ui/message")).toBe(false);
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
 });
 
 it.each([
