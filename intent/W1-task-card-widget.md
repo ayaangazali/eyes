@@ -5,7 +5,7 @@ agent: builder
 pr: https://github.com/ayaangazali/eyes/pull/87
 spec_refs: [§6, §7, §10, §12]
 vendor_refs: [docs/vendor/mcp-apps.md]
-status: in_review
+status: done
 files:
   - apps/web/widget-task-card/package.json
   - apps/web/widget-task-card/README.md
@@ -57,6 +57,8 @@ files:
 ---
 
 ## Current status (2026-10-18)
+
+PR #87 merged on 2026-10-17 at `6a350fac38144607f00b484c12583ff7b4e47b33`; the prototype task is complete.
 
 This is the historical fixture/mock-bridge design and its original handoff, not a current activation task. The deployed MCP card is `ui://eyes/card.html` in `apps/mcp/src/widget.ts`; `show_task` uses it after [PR #165](https://github.com/ayaangazali/eyes/pull/165). See [T6.9](T6.9-chatgpt-app.md#current-status-2026-10-18) for current host verification limits. Preserve the W1 evidence below; it does not establish current in-chat visual verification.
 
