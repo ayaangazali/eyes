@@ -188,7 +188,7 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
     const filters = {
       q: search(q.q),
       state: oneOf(q.state, ["open", "resolved"]),
-      kind: oneOf(q.kind, ["manual_review", "dispute"]),
+      kind: oneOf(q.kind, ["manual_review", "dispute", "classifier_feedback"]),
     };
     const limit = limitOf(q.limit, 50, 200);
     const before = decodeCursor(q.cursor, filters);

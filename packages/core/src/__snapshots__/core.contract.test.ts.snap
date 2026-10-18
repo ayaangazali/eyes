@@ -13,6 +13,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           "minimum": 1,
           "type": "number",
         },
+        "classifier_report_id": {
+          "description": "Approved classifier feedback ticket for this exact request and API agent. Never grants permission for a changed request.",
+          "pattern": "^[1-9]\\d{0,18}$",
+          "type": "string",
+        },
         "deadline_minutes": {
           "default": 30,
           "description": "Minutes until the task expires and the escrow is refunded.",
@@ -403,6 +408,59 @@ exports[`tool schemas > match the committed snapshot 1`] = `
         "balance_usd",
         "escrowed_usd",
         "top_up_url",
+      ],
+      "type": "object",
+    },
+  },
+  "get_classifier_report": {
+    "input": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "ticket_id": {
+          "pattern": "^[1-9]\\d{0,18}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "ticket_id",
+      ],
+      "type": "object",
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "approval_expires_at": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
+        "reason": {
+          "type": "string",
+        },
+        "status": {
+          "enum": [
+            "open",
+            "approved",
+            "rejected",
+            "expired",
+            "consumed",
+          ],
+          "type": "string",
+        },
+        "task_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "ticket_id": {
+          "pattern": "^[1-9]\\d{0,18}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "ticket_id",
+        "status",
       ],
       "type": "object",
     },
@@ -903,6 +961,207 @@ exports[`tool schemas > match the committed snapshot 1`] = `
         "allowed",
         "reason_if_not",
         "resolved_location",
+      ],
+      "type": "object",
+    },
+  },
+  "report_classifier": {
+    "input": {
+      "$defs": {
+        "__schema0": {
+          "anyOf": [
+            {
+              "type": "string",
+            },
+            {
+              "type": "number",
+            },
+            {
+              "type": "boolean",
+            },
+            {
+              "type": "null",
+            },
+            {
+              "items": {
+                "$ref": "#/$defs/__schema0",
+              },
+              "type": "array",
+            },
+            {
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema0",
+              },
+              "propertyNames": {
+                "type": "string",
+              },
+              "type": "object",
+            },
+          ],
+        },
+      },
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "properties": {
+        "ask_idempotency_key": {
+          "description": "The original refused Ask key. The top-level idempotency_key is the separate per-card report key.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+        "bounty_usd": {
+          "default": 3,
+          "description": "Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.",
+          "maximum": 50,
+          "minimum": 1,
+          "type": "number",
+        },
+        "classifier_error": {
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0",
+          },
+          "properties": {
+            "error": {
+              "const": "unsafe_task",
+              "type": "string",
+            },
+            "fix": {
+              "maxLength": 4000,
+              "type": "string",
+            },
+            "message": {
+              "maxLength": 4000,
+              "type": "string",
+            },
+          },
+          "required": [
+            "error",
+          ],
+          "type": "object",
+        },
+        "deadline_minutes": {
+          "default": 30,
+          "description": "Minutes until the task expires and the escrow is refunded.",
+          "maximum": 240,
+          "minimum": 5,
+          "type": "integer",
+        },
+        "idempotency_key": {
+          "description": "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question.",
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string",
+        },
+        "location": {
+          "anyOf": [
+            {
+              "properties": {
+                "lat": {
+                  "description": "Latitude in decimal degrees, e.g. 37.7825",
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number",
+                },
+                "lng": {
+                  "description": "Longitude in decimal degrees, e.g. -122.4078",
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number",
+                },
+              },
+              "required": [
+                "lat",
+                "lng",
+              ],
+              "type": "object",
+            },
+            {
+              "description": "A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.",
+              "maxLength": 200,
+              "minLength": 2,
+              "type": "string",
+            },
+          ],
+          "description": "The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user's own location or a home address.",
+        },
+        "question": {
+          "description": "What the human should check, in plain words, e.g. "How many people are in line right now?"",
+          "maxLength": 500,
+          "minLength": 5,
+          "type": "string",
+        },
+        "require_photo": {
+          "default": true,
+          "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+          "type": "boolean",
+        },
+        "task_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "task_type": {
+          "description": "is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place.",
+          "enum": [
+            "is_open",
+            "line_length",
+            "in_stock",
+            "photo_of_place",
+            "price_check",
+            "crowd_level",
+            "other_public",
+          ],
+          "type": "string",
+        },
+      },
+      "required": [
+        "question",
+        "location",
+        "task_type",
+        "idempotency_key",
+        "ask_idempotency_key",
+        "classifier_error",
+      ],
+      "type": "object",
+    },
+    "output": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "properties": {
+        "approval_expires_at": {
+          "format": "date-time",
+          "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+          "type": "string",
+        },
+        "created": {
+          "type": "boolean",
+        },
+        "reason": {
+          "type": "string",
+        },
+        "status": {
+          "enum": [
+            "open",
+            "approved",
+            "rejected",
+            "expired",
+            "consumed",
+          ],
+          "type": "string",
+        },
+        "task_id": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
+        "ticket_id": {
+          "pattern": "^[1-9]\\d{0,18}$",
+          "type": "string",
+        },
+      },
+      "required": [
+        "ticket_id",
+        "status",
+        "created",
       ],
       "type": "object",
     },

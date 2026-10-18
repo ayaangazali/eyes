@@ -7,7 +7,7 @@
 
 The actual MCP/API server is hosted on **Manufact Cloud**, server `eyes-prod`, at `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare's `eyes-api` Worker only forwards `api.eyes.pictures` and `internal.eyes.pictures` to that origin. Static `eyes.pictures` and `app.eyes.pictures` remain on Cloudflare.
 
-Both client URLs reach the same server and the same 10 tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `dispute_answer`, `get_balance`, `get_spend_policy`. The optional gateway is a [Manufact](https://docs.manufact.com/dashboard/connect-existing-server) proxy in front of `api.eyes.pictures`. It adds usage analytics and sessions, but is not the server host and does not hold your key. Every client sends its own Eyes API key.
+Both client URLs reach the same server and the same 12 tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`. The optional gateway is a [Manufact](https://docs.manufact.com/dashboard/connect-existing-server) proxy in front of `api.eyes.pictures`. It adds usage analytics and sessions, but is not the server host and does not hold your key. Every client sends its own Eyes API key.
 
 ## 1. Get an Eyes API key
 

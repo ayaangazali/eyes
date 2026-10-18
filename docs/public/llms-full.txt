@@ -57,6 +57,14 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 
 When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`, `captured_at`, `worker_distance_m`, `verification`, `confidence` and `cost_usd`. Show your user the answer and the photo. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call `dispute_answer` if it is wrong.
 
+
+## Incorrect classifier blocks
+
+Call `report_classifier` with the original refused Ask arguments, the original key as `ask_idempotency_key`, a separate stable per-card `idempotency_key`, and the full `classifier_error` object. This creates an internal Support ticket only: no charge, dispatch or message. Submitted context is client-reported feedback, not an authoritative classification.
+
+Call `get_classifier_report({ticket_id})` to check the review. Only `approved` permits an explicit retry of the unchanged original Ask with `classifier_report_id: ticket_id` and the original Ask key. Approval lasts 24 hours and authorizes one resulting task for the same authenticated agent. Deterministic safety rules, spending limits and balance still apply. `rejected` or `expired` does not permit retry; `consumed` includes the existing `task_id` to read with `get_task`.
+
+REST: `POST /v1/classifier-reports` and `GET /v1/classifier-reports/{ticket_id}` use the same bearer key.
 Lost a `task_id` after a restart or context reset? Call `list_tasks` (newest first, optional `status` and `limit`) before asking again, and resume the open task with `await_answer` instead of paying twice.
 
 ## Task statuses
@@ -139,11 +147,45 @@ Example: ask_eyes({"question":"How many people are waiting in line right now?","
 
 Input:
 ```json
-{"type":"object","properties":{"question":{"type":"string","minLength":5,"maxLength":500,"description":"What the human should check, in plain words, e.g. \"How many people are in line right now?\""},"location":{"anyOf":[{"type":"object","properties":{"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude in decimal degrees, e.g. 37.7825"},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude in decimal degrees, e.g. -122.4078"}},"required":["lat","lng"]},{"type":"string","minLength":2,"maxLength":200,"description":"A public place as \"place name, city\" or its street address, e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\". Never a home address."}],"description":"The public place to check: a string \"place name, city\" or its numbers {\"lat\": 37.7825, \"lng\": -122.4078}. Never the user's own location or a home address."},"task_type":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"],"description":"is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place."},"bounty_usd":{"default":3,"description":"Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.","type":"number","minimum":1,"maximum":50},"deadline_minutes":{"default":30,"description":"Minutes until the task expires and the escrow is refunded.","type":"integer","minimum":5,"maximum":240},"require_photo":{"default":true,"description":"Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.","type":"boolean"},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"description":"Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question."}},"required":["question","location","task_type","idempotency_key"]}
+{"type":"object","properties":{"question":{"type":"string","minLength":5,"maxLength":500,"description":"What the human should check, in plain words, e.g. \"How many people are in line right now?\""},"location":{"anyOf":[{"type":"object","properties":{"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude in decimal degrees, e.g. 37.7825"},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude in decimal degrees, e.g. -122.4078"}},"required":["lat","lng"]},{"type":"string","minLength":2,"maxLength":200,"description":"A public place as \"place name, city\" or its street address, e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\". Never a home address."}],"description":"The public place to check: a string \"place name, city\" or its numbers {\"lat\": 37.7825, \"lng\": -122.4078}. Never the user's own location or a home address."},"task_type":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"],"description":"is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place."},"bounty_usd":{"default":3,"description":"Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.","type":"number","minimum":1,"maximum":50},"deadline_minutes":{"default":30,"description":"Minutes until the task expires and the escrow is refunded.","type":"integer","minimum":5,"maximum":240},"require_photo":{"default":true,"description":"Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.","type":"boolean"},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"description":"Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question."},"classifier_report_id":{"description":"Approved classifier feedback ticket for this exact request and API agent. Never grants permission for a changed request.","type":"string","pattern":"^[1-9]\\d{0,18}$"}},"required":["question","location","task_type","idempotency_key"]}
 ```
 Output:
 ```json
 {"type":"object","properties":{"task_id":{"type":"string","format":"uuid"},"status":{"type":"string","const":"dispatched"},"workers_notified":{"type":"integer","minimum":0,"maximum":9007199254740991},"escrowed_usd":{"type":"number"},"deadline_at":{"type":"string","format":"date-time"},"next_step":{"type":"string"}},"required":["task_id","status","workers_notified","escrowed_usd","deadline_at","next_step"],"additionalProperties":false}
+```
+
+### report_classifier: Report an incorrect classifier block
+
+REST: POST /v1/classifier-reports
+
+Create an internal Support ticket with the original refused Ask and client-reported unsafe_task context. Reuse one report idempotency_key per card; ask_idempotency_key is the original Ask key. No dispatch, messages or charge. A human may approve this exact request for the same agent for 24 hours. Next: explicitly check get_classifier_report.
+
+Example: report_classifier({"question":"Is the cafe open now?","location":"Ferry Building, San Francisco","task_type":"is_open","bounty_usd":3,"ask_idempotency_key":"original-ask","idempotency_key":"report-card","classifier_error":{"error":"unsafe_task","reason":"Reported classifier refusal"}})
+
+Input:
+```json
+{"type":"object","properties":{"question":{"type":"string","minLength":5,"maxLength":500,"description":"What the human should check, in plain words, e.g. \"How many people are in line right now?\""},"location":{"anyOf":[{"type":"object","properties":{"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude in decimal degrees, e.g. 37.7825"},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude in decimal degrees, e.g. -122.4078"}},"required":["lat","lng"]},{"type":"string","minLength":2,"maxLength":200,"description":"A public place as \"place name, city\" or its street address, e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\". Never a home address."}],"description":"The public place to check: a string \"place name, city\" or its numbers {\"lat\": 37.7825, \"lng\": -122.4078}. Never the user's own location or a home address."},"task_type":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"],"description":"is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place."},"bounty_usd":{"default":3,"description":"Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.","type":"number","minimum":1,"maximum":50},"deadline_minutes":{"default":30,"description":"Minutes until the task expires and the escrow is refunded.","type":"integer","minimum":5,"maximum":240},"require_photo":{"default":true,"description":"Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.","type":"boolean"},"idempotency_key":{"type":"string","minLength":1,"maxLength":128,"description":"Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question."},"ask_idempotency_key":{"type":"string","minLength":1,"maxLength":128,"description":"The original refused Ask key. The top-level idempotency_key is the separate per-card report key."},"classifier_error":{"type":"object","properties":{"error":{"type":"string","const":"unsafe_task"},"message":{"type":"string","maxLength":4000},"fix":{"type":"string","maxLength":4000}},"required":["error"],"additionalProperties":{"$ref":"#/$defs/__schema0"}},"task_id":{"type":"string","format":"uuid"}},"required":["question","location","task_type","idempotency_key","ask_idempotency_key","classifier_error"],"$defs":{"__schema0":{"anyOf":[{"type":"string"},{"type":"number"},{"type":"boolean"},{"type":"null"},{"type":"array","items":{"$ref":"#/$defs/__schema0"}},{"type":"object","propertyNames":{"type":"string"},"additionalProperties":{"$ref":"#/$defs/__schema0"}}]}}}
+```
+Output:
+```json
+{"type":"object","properties":{"ticket_id":{"type":"string","pattern":"^[1-9]\\d{0,18}$"},"status":{"type":"string","enum":["open","approved","rejected","expired","consumed"]},"approval_expires_at":{"type":"string","format":"date-time"},"reason":{"type":"string"},"task_id":{"type":"string","format":"uuid"},"created":{"type":"boolean"}},"required":["ticket_id","status","created"],"additionalProperties":false}
+```
+
+### get_classifier_report: Check classifier review
+
+REST: GET /v1/classifier-reports/{ticket_id}
+
+Read your ticket status. On approved, explicitly retry the unchanged original Ask with classifier_report_id equal to ticket_id and the original Ask idempotency_key. Rejected or expired does not permit retry. Consumed returns the existing task_id. Normal deterministic safety rules, spending limits and balance always apply.
+
+Example: get_classifier_report({"ticket_id":"123"})
+
+Input:
+```json
+{"type":"object","properties":{"ticket_id":{"type":"string","pattern":"^[1-9]\\d{0,18}$"}},"required":["ticket_id"]}
+```
+Output:
+```json
+{"type":"object","properties":{"ticket_id":{"type":"string","pattern":"^[1-9]\\d{0,18}$"},"status":{"type":"string","enum":["open","approved","rejected","expired","consumed"]},"approval_expires_at":{"type":"string","format":"date-time"},"reason":{"type":"string"},"task_id":{"type":"string","format":"uuid"}},"required":["ticket_id","status"],"additionalProperties":false}
 ```
 
 ### await_answer: Wait for the answer

@@ -67,6 +67,28 @@ const TOOL_DOCS: Record<ToolName, { title: string; summary: string; tags: string
       idempotency_key: "6f1c2a9e-line-check",
     },
   },
+  report_classifier: {
+    title: "Report an incorrect classifier block",
+    summary:
+      "Create an internal Support ticket with the original refused Ask and client-reported unsafe_task context. Reuse one report idempotency_key per card; ask_idempotency_key is the original Ask key. No dispatch, messages or charge. A human may approve this exact request for the same agent for 24 hours. Next: explicitly check get_classifier_report.",
+    tags: ["support", "review"],
+    example: {
+      question: "Is the cafe open now?",
+      location: "Ferry Building, San Francisco",
+      task_type: "is_open",
+      bounty_usd: 3,
+      ask_idempotency_key: "original-ask",
+      idempotency_key: "report-card",
+      classifier_error: { error: "unsafe_task", reason: "Reported classifier refusal" },
+    },
+  },
+  get_classifier_report: {
+    title: "Check classifier review",
+    summary:
+      "Read your ticket status. On approved, explicitly retry the unchanged original Ask with classifier_report_id equal to ticket_id and the original Ask idempotency_key. Rejected or expired does not permit retry. Consumed returns the existing task_id. Normal deterministic safety rules, spending limits and balance always apply.",
+    tags: ["support", "status"],
+    example: { ticket_id: "123" },
+  },
   await_answer: {
     title: "Wait for the answer",
     summary:
@@ -164,8 +186,7 @@ const OPS: Record<Documented, Op> = {
     id: "mcp",
     tag: "agent",
     summary: "MCP endpoint",
-    description:
-      "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, list_tasks, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
+    description: `MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: ${[...Object.keys(TOOLS), "show_task"].join(", ")} (schemas in /llms-full.txt).`,
     auth: true,
     body: { type: "object", description: "An MCP JSON-RPC 2.0 message." },
     response: { type: "object", description: "An MCP JSON-RPC 2.0 response, as JSON or text/event-stream." },
@@ -183,6 +204,8 @@ const OPS: Record<Documented, Op> = {
   },
   quote: toolOp("quote_task", "quote"),
   ask: toolOp("ask_eyes", "ask"),
+  report_classifier: toolOp("report_classifier", "report_classifier"),
+  get_classifier_report: toolOp("get_classifier_report", "get_classifier_report"),
   await_answer: toolOp("await_answer", "await_answer"),
   get_task: toolOp("get_task", "get_task"),
   list_tasks: toolOp("list_tasks", "list_tasks"),

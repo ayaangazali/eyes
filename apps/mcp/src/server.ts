@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isIPv6 } from "node:net";
@@ -593,6 +593,47 @@ Next: if status is "dispatched", immediately call await_answer with the returned
 
   server.tool(
     {
+      name: "report_classifier",
+      title: "Report an incorrect classifier block",
+      description:
+        "Open an internal Support review for an incorrect unsafe_task refusal. Supply the original Ask arguments, ask_idempotency_key from that Ask, a separate per-card idempotency_key, and the complete reported error. Context is untrusted feedback, not an authoritative classification. This never posts a task, sends messages or charges money. A human can approve only this exact request for this same agent for 24 hours. Next: call get_classifier_report with the returned ticket_id to check for a decision.",
+      inputSchema: TOOLS.report_classifier.input,
+      outputSchema: TOOLS.report_classifier.output,
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      _meta: { "openai/widgetAccessible": true },
+    },
+    (input, ctx) =>
+      run(async () => {
+        if (!ctx.req?.header("authorization")) throw new EyesError("unauthorized");
+        throttle({ req: ctx.req }, "/v1/classifier-reports", ctx.get("agent").id);
+        return service.reportClassifier(ctx.get("agent"), input);
+      }),
+  );
+  server.tool(
+    {
+      name: "get_classifier_report",
+      title: "Check classifier review",
+      description:
+        "Read your internal classifier review status. Only after approved, explicitly retry the original unchanged Ask with its original idempotency_key and classifier_report_id set to ticket_id. Rejected or expired reviews do not permit retry. Consumed means a task already exists: read task_id with get_task. Checking never posts or charges. Next: on approved, offer an explicit retry of the unchanged original Ask; otherwise show the status.",
+      inputSchema: TOOLS.get_classifier_report.input,
+      outputSchema: TOOLS.get_classifier_report.output,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      _meta: { "openai/widgetAccessible": true },
+    },
+    (input, ctx) =>
+      run(() => {
+        if (!ctx.req?.header("authorization")) throw new EyesError("unauthorized");
+        return service.getClassifierReport(ctx.get("agent"), input);
+      }),
+  );
+
+  server.tool(
+    {
       name: "await_answer",
       title: "Wait for the answer",
       description: `Wait for the answer to a task you created with ask_eyes. Call it immediately after ask_eyes, then keep calling it with the same task_id until answered is true or the status is expired, refunded or disputed. You cannot watch for events in the background, so this loop is the only way to receive the answer.
@@ -785,7 +826,9 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   server.use("mcp:tools/list", async (_ctx, next) =>
     (await next()).map((tool) => {
       const card = tool._meta?.["openai/outputTemplate"] === WIDGET_URI;
-      const callable = WIDGET_CALLABLE.includes(tool.name);
+      const callable =
+        WIDGET_CALLABLE.includes(tool.name) ||
+        ["report_classifier", "get_classifier_report"].includes(tool.name);
       if (!card && !callable) return tool;
       const ui = {
         ...(card && { resourceUri: WIDGET_URI }),
@@ -806,7 +849,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   const hits = new Map<string, number[]>();
   // `who` defaults to the caller's address; the worker email routes also key by code or address.
   const throttle = (
-    c: Context,
+    c: Pick<Context, "req">,
     path = c.req.path,
     who = clientKey(c.req.header("x-forwarded-for")),
     max = PUBLIC_CALLS_PER_HOUR,
@@ -858,6 +901,21 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   server.post("/v1/tasks", async (c) =>
     c.json(await service.askEyes(c.get("agent"), parse(AskEyesInput, await readJson(c)))),
   );
+  server.post("/v1/classifier-reports", async (c) => {
+    if (!c.req.header("authorization")) throw new EyesError("unauthorized");
+    const input = parse(TOOLS.report_classifier.input, await readJson(c));
+    throttle(c, "/v1/classifier-reports", c.get("agent").id);
+    return c.json(await service.reportClassifier(c.get("agent"), input));
+  });
+  server.get("/v1/classifier-reports/:ticket_id", async (c) => {
+    if (!c.req.header("authorization")) throw new EyesError("unauthorized");
+    return c.json(
+      await service.getClassifierReport(
+        c.get("agent"),
+        parse(TOOLS.get_classifier_report.input, c.req.param()),
+      ),
+    );
+  });
   server.get("/v1/tasks", async (c) => {
     const { status, limit } = c.req.query();
     const input = parse(ListTasksInput, {
@@ -1377,9 +1435,35 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
         return c.json(result, 200, FEED_HEADERS);
       });
     }
+    for (const [action, decision] of [
+      ["approve_classifier", "approved"],
+      ["reject_classifier", "rejected"],
+    ] as const) {
+      server.app.post(`/ops/tickets/:id/${action}`, ops.sameOrigin, ops.operator, async (c) => {
+        const body = parse(
+          z.object({
+            ticket_id: TOOLS.get_classifier_report.input.shape.ticket_id,
+            note: z.string().trim().max(500).default(""),
+          }),
+          { ...(await readJson(c)), ticket_id: c.req.param("id") },
+        );
+        const operator = c.get("operator").label;
+        const result = await service.decideClassifierReport({ ...body, decision, operator });
+        log({
+          kind: "ops",
+          summary: `classifier ticket #${body.ticket_id} ${decision} by ${operator}${result.already_resolved ? " (already resolved)" : ""}`,
+          data: { action, operator, ...result },
+        });
+        return c.json(result, 200, FEED_HEADERS);
+      });
+    }
     server.app.post("/ops/tickets/:id/:action", ops.sameOrigin, ops.operator, async (c) => {
       const { id, action } = c.req.param();
       const body = parse(TicketAction, { ...(await readJson(c)), ticket_id: id, outcome: action });
+      if (!(await rpc("eyes_manual_ticket", { p_ticket_id: body.ticket_id, p_task_id: body.task_id })).length)
+        throw new EyesError("invalid_input", {
+          issues: [{ path: "ticket_id", message: "Not a manual review ticket for this task." }],
+        });
       if (body.outcome !== "close") await service.resolveTask(body.task_id, body.outcome, body.note);
       const resolved = await service.resolveTicket({
         ticket_id: body.ticket_id,

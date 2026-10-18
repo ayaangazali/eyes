@@ -31,7 +31,7 @@
         "operationId": "mcp",
         "tags": ["agent"],
         "summary": "MCP endpoint",
-        "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, await_answer, get_task, list_tasks, cancel_task, dispute_answer, get_balance, get_spend_policy (schemas in /llms-full.txt).",
+        "description": "MCP Streamable HTTP endpoint (JSON-RPC 2.0). Connect an MCP client here with the header Authorization: Bearer <api_key>; do not hand-craft requests. Tools: quote_task, ask_eyes, report_classifier, get_classifier_report, await_answer, get_task, list_tasks, cancel_task, dispute_answer, get_balance, get_spend_policy, show_task (schemas in /llms-full.txt).",
         "requestBody": {
           "content": {
             "application/json": {
@@ -365,6 +365,11 @@
                     "minLength": 1,
                     "maxLength": 128,
                     "description": "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question."
+                  },
+                  "classifier_report_id": {
+                    "description": "Approved classifier feedback ticket for this exact request and API agent. Never grants permission for a changed request.",
+                    "type": "string",
+                    "pattern": "^[1-9]\\d{0,18}$"
                   }
                 },
                 "required": ["question", "location", "task_type", "idempotency_key"]
@@ -546,6 +551,292 @@
                     }
                   },
                   "required": ["tasks", "next_step"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/classifier-reports": {
+      "post": {
+        "operationId": "report_classifier",
+        "tags": ["agent"],
+        "summary": "Report an incorrect classifier block",
+        "description": "Create an internal Support ticket with the original refused Ask and client-reported unsafe_task context. Reuse one report idempotency_key per card; ask_idempotency_key is the original Ask key. No dispatch, messages or charge. A human may approve this exact request for the same agent for 24 hours. Next: explicitly check get_classifier_report. Same as the MCP tool report_classifier.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500,
+                    "description": "What the human should check, in plain words, e.g. \"How many people are in line right now?\""
+                  },
+                  "location": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "lat": {
+                            "type": "number",
+                            "minimum": -90,
+                            "maximum": 90,
+                            "description": "Latitude in decimal degrees, e.g. 37.7825"
+                          },
+                          "lng": {
+                            "type": "number",
+                            "minimum": -180,
+                            "maximum": 180,
+                            "description": "Longitude in decimal degrees, e.g. -122.4078"
+                          }
+                        },
+                        "required": ["lat", "lng"]
+                      },
+                      {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 200,
+                        "description": "A public place as \"place name, city\" or its street address, e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\". Never a home address."
+                      }
+                    ],
+                    "description": "The public place to check: a string \"place name, city\" or its numbers {\"lat\": 37.7825, \"lng\": -122.4078}. Never the user's own location or a home address."
+                  },
+                  "task_type": {
+                    "type": "string",
+                    "enum": [
+                      "is_open",
+                      "line_length",
+                      "in_stock",
+                      "photo_of_place",
+                      "price_check",
+                      "crowd_level",
+                      "other_public"
+                    ],
+                    "description": "is_open: open or closed now; line_length: how long the line is; in_stock: whether an item is on the shelf; photo_of_place: a current photo; price_check: a posted price; crowd_level: how busy it is; other_public: any other check of a public place."
+                  },
+                  "bounty_usd": {
+                    "default": 3,
+                    "description": "Paid to the human who answers. A $0.50 fee is added. Both are escrowed now and refunded if nobody answers.",
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 50
+                  },
+                  "deadline_minutes": {
+                    "default": 30,
+                    "description": "Minutes until the task expires and the escrow is refunded.",
+                    "type": "integer",
+                    "minimum": 5,
+                    "maximum": 240
+                  },
+                  "require_photo": {
+                    "default": true,
+                    "description": "Require a live photo. Keep true unless a text answer is enough; photos are what make an answer verifiable.",
+                    "type": "boolean"
+                  },
+                  "idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question."
+                  },
+                  "ask_idempotency_key": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128,
+                    "description": "The original refused Ask key. The top-level idempotency_key is the separate per-card report key."
+                  },
+                  "classifier_error": {
+                    "type": "object",
+                    "properties": {
+                      "error": {
+                        "type": "string",
+                        "const": "unsafe_task"
+                      },
+                      "message": {
+                        "type": "string",
+                        "maxLength": 4000
+                      },
+                      "fix": {
+                        "type": "string",
+                        "maxLength": 4000
+                      }
+                    },
+                    "required": ["error"],
+                    "additionalProperties": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  },
+                  "task_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  }
+                },
+                "required": [
+                  "question",
+                  "location",
+                  "task_type",
+                  "idempotency_key",
+                  "ask_idempotency_key",
+                  "classifier_error"
+                ],
+                "$defs": {
+                  "__schema0": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "boolean"
+                      },
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/__schema0"
+                        }
+                      },
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string"
+                        },
+                        "additionalProperties": {
+                          "$ref": "#/$defs/__schema0"
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              "example": {
+                "question": "Is the cafe open now?",
+                "location": "Ferry Building, San Francisco",
+                "task_type": "is_open",
+                "bounty_usd": 3,
+                "ask_idempotency_key": "original-ask",
+                "idempotency_key": "report-card",
+                "classifier_error": {
+                  "error": "unsafe_task",
+                  "reason": "Reported classifier refusal"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ticket_id": {
+                      "type": "string",
+                      "pattern": "^[1-9]\\d{0,18}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["open", "approved", "rejected", "expired", "consumed"]
+                    },
+                    "approval_expires_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "task_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    },
+                    "created": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["ticket_id", "status", "created"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "4XX": {
+            "$ref": "#/components/responses/Error"
+          },
+          "5XX": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/v1/classifier-reports/{ticket_id}": {
+      "get": {
+        "operationId": "get_classifier_report",
+        "tags": ["agent"],
+        "summary": "Check classifier review",
+        "description": "Read your ticket status. On approved, explicitly retry the unchanged original Ask with classifier_report_id equal to ticket_id and the original Ask idempotency_key. Rejected or expired does not permit retry. Consumed returns the existing task_id. Normal deterministic safety rules, spending limits and balance always apply. Same as the MCP tool get_classifier_report.",
+        "parameters": [
+          {
+            "name": "ticket_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[1-9]\\d{0,18}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ticket_id": {
+                      "type": "string",
+                      "pattern": "^[1-9]\\d{0,18}$"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": ["open", "approved", "rejected", "expired", "consumed"]
+                    },
+                    "approval_expires_at": {
+                      "type": "string",
+                      "format": "date-time",
+                      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "task_id": {
+                      "type": "string",
+                      "format": "uuid",
+                      "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                    }
+                  },
+                  "required": ["ticket_id", "status"],
                   "additionalProperties": false
                 }
               }

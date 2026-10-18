@@ -193,6 +193,13 @@ export const QuoteTaskOutput = z.object({
   resolved_location: ResolvedLocation,
 });
 
+export const ClassifierReportId = z
+  .string()
+  .regex(/^[1-9]\d{0,18}$/)
+  .refine(
+    (value) => /^[1-9]\d{0,18}$/.test(value) && BigInt(value) <= 9223372036854775807n,
+    "Ticket id exceeds the supported range.",
+  );
 export const AskEyesInput = z.object({
   question: z
     .string()
@@ -233,6 +240,9 @@ export const AskEyesInput = z.object({
     .describe(
       "Required. Any unique string for each task you intend to create, for example a UUID. Reuse it when you retry that task: the same key and parameters return the original task and never charge twice. Use a new key for a new question.",
     ),
+  classifier_report_id: ClassifierReportId.optional().describe(
+    "Approved classifier feedback ticket for this exact request and API agent. Never grants permission for a changed request.",
+  ),
 });
 export const AskEyesOutput = z.object({
   task_id: Id,
@@ -242,6 +252,30 @@ export const AskEyesOutput = z.object({
   deadline_at: Timestamp,
   next_step: z.string(),
 });
+
+export const ReportClassifierInput = AskEyesInput.omit({ classifier_report_id: true }).extend({
+  ask_idempotency_key: AskEyesInput.shape.idempotency_key.describe(
+    "The original refused Ask key. The top-level idempotency_key is the separate per-card report key.",
+  ),
+  classifier_error: z
+    .object({
+      error: z.literal("unsafe_task"),
+      message: z.string().max(4000).optional(),
+      fix: z.string().max(4000).optional(),
+    })
+    .catchall(z.json())
+    .refine((value) => JSON.stringify(value).length <= 16000, "Classifier context exceeds 16000 characters."),
+  task_id: Id.optional(),
+});
+export const GetClassifierReportInput = z.object({ ticket_id: ClassifierReportId });
+export const ClassifierReportOutput = z.object({
+  ticket_id: ClassifierReportId,
+  status: z.enum(["open", "approved", "rejected", "expired", "consumed"]),
+  approval_expires_at: Timestamp.optional(),
+  reason: z.string().optional(),
+  task_id: Id.optional(),
+});
+export const ReportClassifierOutput = ClassifierReportOutput.extend({ created: z.boolean() });
 
 export const AwaitAnswerInput = z.object({
   task_id: TaskId,
@@ -401,6 +435,8 @@ export const SignupOutput = z.object({
 export const TOOLS = {
   quote_task: { input: QuoteTaskInput, output: QuoteTaskOutput },
   ask_eyes: { input: AskEyesInput, output: AskEyesOutput },
+  report_classifier: { input: ReportClassifierInput, output: ReportClassifierOutput },
+  get_classifier_report: { input: GetClassifierReportInput, output: ClassifierReportOutput },
   await_answer: { input: AwaitAnswerInput, output: AwaitAnswerOutput },
   get_task: { input: GetTaskInput, output: GetTaskOutput },
   list_tasks: { input: ListTasksInput, output: ListTasksOutput },
@@ -534,6 +570,8 @@ export const HTTP_ROUTES = {
   mcp: "POST /mcp",
   signup: "POST /v1/signup",
   quote: "POST /v1/quote",
+  report_classifier: "POST /v1/classifier-reports",
+  get_classifier_report: "GET /v1/classifier-reports/:ticket_id",
   ask: "POST /v1/tasks",
   get_task: "GET /v1/tasks/:task_id",
   list_tasks: "GET /v1/tasks",

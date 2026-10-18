@@ -1979,7 +1979,16 @@ describe("ChatGPT and Claude widget", () => {
   it("lets the card's buttons call their tools in ChatGPT and MCP Apps hosts", async () => {
     const client = await connect(setup().fetch);
     const { tools } = await client.listTools();
-    const callable = ["ask_eyes", "get_task", "await_answer", "cancel_task", "dispute_answer", "get_balance"];
+    const callable = [
+      "ask_eyes",
+      "get_task",
+      "await_answer",
+      "cancel_task",
+      "dispute_answer",
+      "get_balance",
+      "report_classifier",
+      "get_classifier_report",
+    ];
     for (const tool of tools) {
       const meta = tool._meta as Record<string, unknown> | undefined;
       if (callable.includes(tool.name)) {

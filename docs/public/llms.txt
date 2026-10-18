@@ -57,6 +57,14 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 
 When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`, `captured_at`, `worker_distance_m`, `verification`, `confidence` and `cost_usd`. Show your user the answer and the photo. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call `dispute_answer` if it is wrong.
 
+
+## Incorrect classifier blocks
+
+Call `report_classifier` with the original refused Ask arguments, the original key as `ask_idempotency_key`, a separate stable per-card `idempotency_key`, and the full `classifier_error` object. This creates an internal Support ticket only: no charge, dispatch or message. Submitted context is client-reported feedback, not an authoritative classification.
+
+Call `get_classifier_report({ticket_id})` to check the review. Only `approved` permits an explicit retry of the unchanged original Ask with `classifier_report_id: ticket_id` and the original Ask key. Approval lasts 24 hours and authorizes one resulting task for the same authenticated agent. Deterministic safety rules, spending limits and balance still apply. `rejected` or `expired` does not permit retry; `consumed` includes the existing `task_id` to read with `get_task`.
+
+REST: `POST /v1/classifier-reports` and `GET /v1/classifier-reports/{ticket_id}` use the same bearer key.
 Lost a `task_id` after a restart or context reset? Call `list_tasks` (newest first, optional `status` and `limit`) before asking again, and resume the open task with `await_answer` instead of paying twice.
 
 ## Task statuses

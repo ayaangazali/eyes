@@ -58,6 +58,22 @@
       ]
     },
     {
+      "id": "report_classifier",
+      "name": "Report an incorrect classifier block",
+      "description": "Create an internal Support ticket with the original refused Ask and client-reported unsafe_task context. Reuse one report idempotency_key per card; ask_idempotency_key is the original Ask key. No dispatch, messages or charge. A human may approve this exact request for the same agent for 24 hours. Next: explicitly check get_classifier_report.",
+      "tags": ["support", "review"],
+      "examples": [
+        "report_classifier({\"question\":\"Is the cafe open now?\",\"location\":\"Ferry Building, San Francisco\",\"task_type\":\"is_open\",\"bounty_usd\":3,\"ask_idempotency_key\":\"original-ask\",\"idempotency_key\":\"report-card\",\"classifier_error\":{\"error\":\"unsafe_task\",\"reason\":\"Reported classifier refusal\"}})"
+      ]
+    },
+    {
+      "id": "get_classifier_report",
+      "name": "Check classifier review",
+      "description": "Read your ticket status. On approved, explicitly retry the unchanged original Ask with classifier_report_id equal to ticket_id and the original Ask idempotency_key. Rejected or expired does not permit retry. Consumed returns the existing task_id. Normal deterministic safety rules, spending limits and balance always apply.",
+      "tags": ["support", "status"],
+      "examples": ["get_classifier_report({\"ticket_id\":\"123\"})"]
+    },
+    {
       "id": "await_answer",
       "name": "Wait for the answer",
       "description": "Long-poll for the answer to a task. Each call waits up to timeout_seconds (default 50, max 55) and returns as soon as the task is answered. Call it right after ask_eyes and keep calling it with the same task_id until answered is true or status is expired, refunded or disputed; you cannot receive events in the background, so this loop is how you get the answer. answered: false only means not yet; tasks usually take 5 to 20 minutes.",

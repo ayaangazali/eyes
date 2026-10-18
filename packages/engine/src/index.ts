@@ -25,6 +25,8 @@ import {
   type Task,
   type TaskStatus,
   TOOLS,
+  type ToolInput,
+  type ToolOutput,
   usdToCents,
   verifyToken,
   type Worker,
@@ -47,6 +49,46 @@ const toAll = (to: string[], send: (to: string) => Promise<unknown>) =>
   Promise.any(to.map(send)).catch((err: AggregateError) => Promise.reject(err.errors[0]));
 type Posted = { task: Task; created: boolean; workers_notified: number };
 type Payee = Worker & { stripe_account_id: string };
+type ClassifierTicket = {
+  id: number | string;
+  request_fingerprint: string;
+  classifier_decision: "approved" | "rejected" | null;
+  approval_expires_at: string | null;
+  consumed_task_id: string | null;
+  note: string | null;
+};
+const requestFingerprint = (ask: ToolInput<"ask_eyes">) =>
+  createHash("sha256")
+    .update(
+      JSON.stringify({
+        question: ask.question,
+        location:
+          typeof ask.location === "string" ? ask.location : { lat: ask.location.lat, lng: ask.location.lng },
+        task_type: ask.task_type,
+        bounty_usd: ask.bounty_usd,
+        deadline_minutes: ask.deadline_minutes,
+        require_photo: ask.require_photo,
+        idempotency_key: ask.idempotency_key,
+      }),
+    )
+    .digest("hex");
+function classifierReport(ticket: ClassifierTicket, now: Date): ToolOutput<"get_classifier_report"> {
+  const status = ticket.consumed_task_id
+    ? "consumed"
+    : ticket.classifier_decision === "approved" &&
+        Date.parse(ticket.approval_expires_at ?? "") <= now.getTime()
+      ? "expired"
+      : (ticket.classifier_decision ?? "open");
+  return {
+    ticket_id: String(ticket.id),
+    status,
+    ...(ticket.approval_expires_at && {
+      approval_expires_at: new Date(ticket.approval_expires_at).toISOString(),
+    }),
+    ...(ticket.note && { reason: ticket.note }),
+    ...(ticket.consumed_task_id && { task_id: ticket.consumed_task_id }),
+  };
+}
 type Summary = {
   balance_cents: number;
   escrowed_cents: number;
@@ -863,18 +905,100 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       };
     },
 
+    async reportClassifier(agent, input) {
+      const report = parse(TOOLS.report_classifier.input, input);
+      const ask = parse(TOOLS.ask_eyes.input, { ...report, idempotency_key: report.ask_idempotency_key });
+      const { ticket, created } = await one<{ ticket: ClassifierTicket; created: boolean }>(
+        "eyes_report_classifier",
+        {
+          p_agent_id: agent.id,
+          p_request: ask,
+          p_context: report.classifier_error,
+          p_fingerprint: requestFingerprint(ask),
+          p_key: report.idempotency_key,
+          p_task_id: report.task_id ?? null,
+          p_now: nowIso(),
+        },
+      );
+      return { ...classifierReport(ticket, now()), created };
+    },
+
+    async getClassifierReport(agent, input) {
+      const { ticket_id } = parse(TOOLS.get_classifier_report.input, input);
+      const ticket = await maybe<ClassifierTicket>("eyes_classifier_report", {
+        p_agent_id: agent.id,
+        p_ticket_id: ticket_id,
+      });
+      if (!ticket)
+        throw new EyesError("invalid_input", {
+          issues: [{ path: "ticket_id", message: "No classifier report for this agent." }],
+        });
+      return classifierReport(ticket, now());
+    },
+
+    async decideClassifierReport(input) {
+      const { ticket_id, decision, note, operator } = parse(
+        z
+          .object({
+            ticket_id: TOOLS.get_classifier_report.input.shape.ticket_id,
+            decision: z.enum(["approved", "rejected"]),
+            note: z.string().max(500),
+            operator: z.string().min(1).max(512),
+          })
+          .refine(
+            (v) => v.decision !== "rejected" || v.note.trim().length > 0,
+            "Rejection requires a reason.",
+          ),
+        input,
+      );
+      const { ticket, already } = await one<{ ticket: ClassifierTicket; already: boolean }>(
+        "eyes_decide_classifier",
+        {
+          p_ticket_id: ticket_id,
+          p_decision: decision,
+          p_note: note,
+          p_operator: operator,
+          p_now: nowIso(),
+        },
+      );
+      return { ...classifierReport(ticket, now()), already_resolved: already };
+    },
+
     async askEyes(agent, input) {
       const ask = parse(TOOLS.ask_eyes.input, input);
+      const fingerprint = ask.classifier_report_id ? requestFingerprint(ask) : undefined;
+      let approved = false;
+      if (ask.classifier_report_id) {
+        const ticket = await maybe<ClassifierTicket>("eyes_classifier_report", {
+          p_agent_id: agent.id,
+          p_ticket_id: ask.classifier_report_id,
+        });
+        approved = Boolean(
+          ticket &&
+            ticket.request_fingerprint === fingerprint &&
+            ["approved", "consumed"].includes(classifierReport(ticket, now()).status),
+        );
+        if (!approved)
+          throw new EyesError(
+            "unsafe_task",
+            {},
+            {
+              message:
+                "This classifier approval is missing, expired, rejected, or belongs to a different request.",
+              fix: "Check your report status. Retry only the original approved request with the same API key and idempotency_key.",
+            },
+          );
+      }
       const assess = async (place_label: string) => {
         const verdict = await deps.assessTask({
           question: ask.question,
           task_type: ask.task_type,
           place_label,
         });
-        if (!verdict.allowed) {
+        if (!verdict.allowed && !(approved && verdict.layer === "classifier")) {
           throw new EyesError(
             "unsafe_task",
-            { category: verdict.category, reason: verdict.reason },
+            { category: verdict.category, reason: verdict.reason, layer: verdict.layer },
             { fix: verdict.fix ?? undefined },
           );
         }
@@ -904,22 +1028,29 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           console.error(`location pings failed: ${errorName(err)}`);
           return 0;
         });
-      const posted = await one<Posted>("eyes_post_task", {
-        p_agent_id: agent.id,
-        p_question: ask.question,
-        p_task_type: ask.task_type,
-        p_place_label: place.label,
-        p_lat: place.lat,
-        p_lng: place.lng,
-        p_radius_m: config.verify_radius_m,
-        p_bounty_cents: bountyCents,
-        p_fee_cents: config.fee_cents,
-        p_require_photo: ask.require_photo,
-        p_deadline_minutes: ask.deadline_minutes,
-        p_idempotency_key: ask.idempotency_key,
-        p_worker_ids: workers.map((w) => w.worker_id),
-        p_now: nowIso(),
-      }).catch(async (err) => {
+      const posted = await one<Posted>(
+        ask.classifier_report_id ? "eyes_post_reviewed_task" : "eyes_post_task",
+        {
+          ...(ask.classifier_report_id && {
+            p_ticket_id: ask.classifier_report_id,
+            p_fingerprint: fingerprint,
+          }),
+          p_agent_id: agent.id,
+          p_question: ask.question,
+          p_task_type: ask.task_type,
+          p_place_label: place.label,
+          p_lat: place.lat,
+          p_lng: place.lng,
+          p_radius_m: config.verify_radius_m,
+          p_bounty_cents: bountyCents,
+          p_fee_cents: config.fee_cents,
+          p_require_photo: ask.require_photo,
+          p_deadline_minutes: ask.deadline_minutes,
+          p_idempotency_key: ask.idempotency_key,
+          p_worker_ids: workers.map((w) => w.worker_id),
+          p_now: nowIso(),
+        },
+      ).catch(async (err) => {
         if (err instanceof EyesError && err.code === "no_workers_nearby") {
           const needed_cents = bountyCents + config.fee_cents;
           const s = await one<Summary>("eyes_agent_summary", { p_agent_id: agent.id, p_now: nowIso() });

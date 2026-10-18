@@ -78,6 +78,20 @@ export interface EyesService {
 
   quoteTask(agent: Agent, input: ToolInput<"quote_task">): Promise<ToolOutput<"quote_task">>;
   askEyes(agent: Agent, input: ToolInput<"ask_eyes">): Promise<ToolOutput<"ask_eyes">>;
+  reportClassifier(
+    agent: Agent,
+    input: ToolInput<"report_classifier">,
+  ): Promise<ToolOutput<"report_classifier">>;
+  getClassifierReport(
+    agent: Agent,
+    input: ToolInput<"get_classifier_report">,
+  ): Promise<ToolOutput<"get_classifier_report">>;
+  decideClassifierReport(input: {
+    ticket_id: string;
+    decision: "approved" | "rejected";
+    note: string;
+    operator: string;
+  }): Promise<ToolOutput<"get_classifier_report"> & { already_resolved: boolean }>;
   awaitAnswer(
     agent: Agent,
     input: ToolInput<"await_answer">,

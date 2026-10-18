@@ -72,6 +72,8 @@ function setup(values = [PHONE, EMAIL], env: Record<string, string> = { EYES_OPS
     }
     if (fn === "eyes_ops_code_delete") return codes.delete(a.p_identifier ?? "") ? [] : [];
     if (fn === "eyes_dashboard_feed") return [{ tasks: [], ledger: [], workers: [], totals: {} }];
+    if (fn === "eyes_manual_ticket")
+      return [{ id: a.p_ticket_id, task_id: a.p_task_id, kind: "manual_review" }];
     // 031: 3 invites per entry per UTC day.
     if (fn === "eyes_ops_invite_take") {
       const e = allowlist.find((x) => x.id === a.p_id);
