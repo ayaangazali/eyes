@@ -46,7 +46,7 @@ Files:
 
 ### Current method: automations (T6.15)
 
-The loop shortcut below is retired. Workers text AUTO (or SHORTCUT) for a code and follow `automation.html` on the worker web: iOS 26 Personal Automations with Run Immediately, built inline (Get Current Location, then Get Contents of URL): Time of Day 9:00 daily, Message from Eyes containing "Eyes ping" (body adds `input` = Shortcut Input), optional Charger disconnected. Time of Day repeats at most daily on iOS and macOS 26; the 24 h freshness window makes that enough, and pings (`EYES_LOCATION_PING=true`) cover the rest. The Mac uses the same automations in macOS 26 Shortcuts (Time of Day 9, 12, 15, 18, 21; Message "Eyes ping"; Wi-Fi join). An iOS app may post with source `app` (migration 020).
+The loop shortcut below is retired (and deleted from the owner's Mac). Workers text AUTO (or SHORTCUT) for a code and follow `automation.html` on the worker web: iOS 26 Personal Automations with Run Immediately, built inline (Get Current Location, then Get Contents of URL): Time of Day 9:00 daily, Message from Eyes containing "Eyes ping" (body adds `input` = Shortcut Input), optional Charger disconnected. Time of Day repeats at most daily on iOS and macOS 26; the 24 h freshness window makes that enough, and pings (`EYES_LOCATION_PING=true`) cover the rest. No Mac path. The Eyes iOS app (T6.16) is becoming the main path and posts with source `app` (migration 020).
 
 ### Eyes: on shift (loop shortcut). Status: verified on macOS (local logger), not yet run on iPhone
 
