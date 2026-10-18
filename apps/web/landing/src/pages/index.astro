@@ -1,0 +1,741 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+const APP = "https://app.eyes.pictures";
+const API = "https://api.eyes.pictures";
+const MCP = `${API}/mcp`;
+
+const steps = [
+  ["Ask", "Your agent calls quote_task, then ask_eyes with a question, a place, a bounty and a deadline."],
+  ["Text", "Eyes texts up to three people within 3 km over iMessage. The first to reply YES gets the task."],
+  [
+    "Photo",
+    "They walk over and take one live photo. No gallery uploads, and GPS has to put them within 150 m.",
+  ],
+  [
+    "Answer",
+    "A vision model checks the photo, your agent gets the answer with its proof, and the worker gets paid.",
+  ],
+];
+
+// Verified with mcp-use 2.10.1 against the live API. The default auto protocol times out on this
+// server, so connect pins the legacy (initialize) handshake.
+const CLI = "npx -y mcp-use@2.10.1";
+
+const signup = `curl -X POST ${API}/v1/signup \\
+  -H "content-type: application/json" \\
+  -d '{"name":"my-agent"}'`;
+
+const connect = `${CLI} client connect eyes ${MCP} \\
+  --protocol legacy -H "Authorization: Bearer $EYES_API_KEY"`;
+
+const tryIt = `${CLI} client eyes tools call quote_task \\
+  location="Ferry Building, San Francisco" task_type=is_open`;
+
+const answer = `// await_answer
+{
+  "status": "paid",
+  "answer": {
+    "answer_text": "Two cartons left",
+    "answer_bool": true,
+    "worker_distance_m": 41,
+    "verification": { "gps_ok": true, "fresh_ok": true, "vision_ok": true },
+    "confidence": 0.93,
+    "cost_usd": 3.5
+  }
+}`;
+
+// Real shapes of tasks agents send. Public places only.
+const questions = [
+  "Is the cafe on 18th St open right now?",
+  "How long is the line at the Ferry Building?",
+  "Is oat milk in stock at the Safeway on Market?",
+  "Are there bikes at the 4th and King dock?",
+  "Is the farmers market still set up?",
+  "Is the pharmacy counter open?",
+  "Is there a free table on the patio?",
+  "Is the parking lot full?",
+];
+
+// Task in flight: one row per state, stamped like the event log an agent reads.
+// hl maps each state to the step it belongs to in the list beside it.
+const flight = [
+  ["Asking", "12:04:10", "ask_eyes accepted, $3.50 held", 0],
+  ["Texting", "12:04:12", "Texted 3 people within 3 km", 1],
+  ["Claimed", "12:05:01", "YES from a worker 0.4 km away", 1],
+  ["Photo in", "12:09:37", "Live photo received, 41 m from the store", 2],
+  ["Verified", "12:09:40", "Answer sent to your agent, worker paid", 3],
+] as const;
+---
+
+<Layout
+  title="Eyes: your agent asks, someone nearby looks"
+  description="Eyes pays someone near a place to take a live photo, then returns a verified answer to your AI agent in minutes."
+>
+  <link slot="head" rel="preload" as="image" href="/images/storefront.webp" />
+
+  <main>
+    <section class="mx-auto grid max-w-6xl gap-10 px-5 pt-14 pb-16 md:grid-cols-12 md:pt-20 md:pb-24">
+      <h1 class="hero-title m-0 font-semibold text-balance md:col-span-12">
+        <span>Your agent asks.</span>
+        <span class="text-secondary">Someone nearby looks.</span>
+      </h1>
+      <div class="grid content-end gap-6 md:col-span-5">
+        <p class="m-0 max-w-[34ch] text-lg text-secondary md:text-xl">
+          Eyes pays a person near the place to take a live photo, then hands your agent a verified answer in
+          minutes.
+        </p>
+        <div class="pair">
+          <a class="ui-button ui-button--primary" href="#agents">Connect your agent</a>
+          <a class="ui-button" href={APP}>Earn as a worker</a>
+        </div>
+      </div>
+      <figure class="m-0 grid gap-3 md:col-span-7">
+        <div class="ui-viewfinder focus">
+          <img
+            src="/images/storefront.webp"
+            width="1536"
+            height="1024"
+            alt="A corner coffee shop with an OPEN sign on the door and a chalkboard menu on the sidewalk"
+          />
+          <span class="hud hud--top ui-badge ui-badge--accent">AF locked</span>
+          <span class="hud hud--bottom ui-num">38 m away, 6 min after the ask</span>
+        </div>
+        <figcaption class="text-sm text-secondary">"Is the cafe on 18th St open?" Yes.</figcaption>
+      </figure>
+    </section>
+
+    <div class="marquee" aria-label="Questions agents ask">
+      <ul class="marquee__track">
+        {questions.map((q) => <li>{q}</li>)}
+        {questions.map((q) => <li aria-hidden="true">{q}</li>)}
+      </ul>
+    </div>
+
+    <section id="how">
+      <div class="how mx-auto grid max-w-6xl items-start gap-12 px-5 py-20 md:grid-cols-12">
+        <div class="grid gap-10 md:col-span-5">
+          <div class="grid gap-4">
+            <h2 class="section-title wipe m-0 font-semibold">From a question to a photo in four moves</h2>
+            <p class="m-0 text-lg text-secondary">
+              Agents can read the whole internet, but not what is happening on the street right now.
+            </p>
+          </div>
+          <ol class="steps m-0 grid list-none gap-6 p-0">
+            {
+              steps.map(([title, body], i) => (
+                <li
+                  class:list={["step grid grid-cols-[2.5rem_1fr] items-baseline gap-x-3 gap-y-1", { "is-now": i === steps.length - 1 }]}
+                  data-step={i}
+                >
+                  <span class="ui-num step__n">0{i + 1}</span>
+                  <h3 class="m-0 text-xl font-semibold">{title}</h3>
+                  <p class="col-start-2 m-0 text-secondary">{body}</p>
+                </li>
+              ))
+            }
+          </ol>
+        </div>
+
+        <div class="flight brackets md:col-span-6 md:col-start-7" data-step="4" aria-live="off">
+          <div class="flex items-center gap-3">
+            <span class="ui-badge ui-badge--accent">
+              <span class="t-text-swap" id="flight-status">{flight[4][0]}</span>
+            </span>
+            <span class="ui-num ml-auto text-sm text-secondary">task in flight</span>
+          </div>
+          <p class="flight__q m-0 font-semibold">"Is there oat milk at the Safeway on Market St?"</p>
+          <p class="ui-place">
+            <svg class="ui-icon" aria-hidden="true"><use href="#i-pin"></use></svg>
+            <span>
+              <span class="ui-place__name">Safeway, 2020 Market St</span>
+              <span class="ui-place__address">Bounty $3.50, deadline 20 min</span>
+            </span>
+          </p>
+          <ol class="flight__log m-0 grid list-none gap-2 p-0">
+            {
+              flight.map(([state, time, text, hl], i) => (
+                <li data-at={i} data-state={state} data-hl={hl}>
+                  <span class="ui-num text-secondary">{time}</span>
+                  <span>{text}</span>
+                </li>
+              ))
+            }
+          </ol>
+          <ul class="ui-checks flight__checks">
+            <li class="ui-check ui-check--pass">
+              <span class="ui-check__mark t-success-check"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg></span>
+              <span>GPS within 150 m</span>
+              <span class="ui-check__detail">41 m</span>
+            </li>
+            <li class="ui-check ui-check--pass">
+              <span class="ui-check__mark t-success-check"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg></span>
+              <span>Live, before the deadline</span>
+              <span class="ui-check__detail">4 min</span>
+            </li>
+            <li class="ui-check ui-check--pass">
+              <span class="ui-check__mark t-success-check"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg></span>
+              <span>Vision model agrees</span>
+              <span class="ui-check__detail">0.93</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="band">
+      <div class="band__photo ui-viewfinder">
+        <img
+          src="/images/shelf.webp"
+          width="1024"
+          height="1536"
+          loading="lazy"
+          alt="Two cartons of oat milk on a grocery shelf beside an empty gap"
+        />
+      </div>
+      <div class="band__inner mx-auto grid max-w-6xl px-5">
+        <div class="band__card brackets grid gap-6">
+          <p class="band__answer wipe m-0 font-semibold">"Two cartons left."</p>
+          <h2 class="m-0 text-2xl font-semibold tracking-tight">An answer you can check</h2>
+          <p class="m-0 text-secondary">
+            Your agent gets the photo, the worker's answer and three checks. If any check fails, the money stays held
+            for review instead of paying out.
+          </p>
+          <ul class="ui-checks text-base">
+            <li class="ui-check ui-check--pass">
+              <span class="ui-check__mark"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg></span>
+              <span>The worker stood within 150 m of the place</span>
+              <span class="ui-check__detail">41 m</span>
+            </li>
+            <li class="ui-check ui-check--pass">
+              <span class="ui-check__mark"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg></span>
+              <span>The photo was taken live, before the deadline</span>
+              <span class="ui-check__detail">4 min</span>
+            </li>
+            <li class="ui-check ui-check--pass">
+              <span class="ui-check__mark"><svg class="ui-icon" aria-hidden="true"><use href="#i-check"></use></svg></span>
+              <span>A vision model agrees it answers the question</span>
+              <span class="ui-check__detail">0.93</span>
+            </li>
+            <li class="ui-check">
+              <span class="ui-check__mark"><svg class="ui-icon" aria-hidden="true"><use href="#i-no-face"></use></svg></span>
+              <span>Photos with faces are rejected and deleted</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section id="agents" class="bg-surface-secondary">
+      <div class="mx-auto grid max-w-6xl items-start gap-10 px-5 py-20 md:grid-cols-12 md:py-32">
+        <div class="grid gap-5 md:col-span-5 md:sticky md:top-24">
+          <h2 class="section-title wipe m-0 font-semibold">Built for agents first</h2>
+          <p class="m-0 text-lg text-secondary">
+            One MCP server with nine tools. Connect from your terminal with the Manufact CLI in three commands. Every
+            error says what to do next, and every answer arrives with the checks behind it.
+          </p>
+          <p class="m-0 text-sm text-secondary">
+            Or add <code class="font-mono">{MCP}</code> to any MCP client with an Authorization: Bearer header.
+          </p>
+          <p class="m-0 flex flex-wrap gap-x-4 gap-y-1 text-sm text-secondary">
+            <span>Docs for agents</span>
+            <a class="ui-link" href={`${API}/llms.txt`}>llms.txt</a>
+            <a class="ui-link" href={`${API}/openapi.json`}>openapi.json</a>
+            <a class="ui-link" href="https://docs.manufact.com/cli">Manufact CLI</a>
+            <a class="ui-link" href={`${API}/status`}>Live status</a>
+          </p>
+        </div>
+        <div class="grid min-w-0 gap-10 md:col-span-7">
+          <ol class="m-0 grid list-none gap-10 p-0">
+            <li class="grid min-w-0 gap-3">
+              <span class="ui-num step__n">01</span>
+              <h3 class="m-0 text-xl font-semibold">Get a key</h3>
+              <pre data-focus class="code"><code>{signup}</code></pre>
+              <p class="m-0 text-sm text-secondary">
+                The response holds api_key, shown once. Test mode grants $20. Save it with{" "}
+                <code class="font-mono">export EYES_API_KEY=...</code>
+              </p>
+            </li>
+            <li class="grid min-w-0 gap-3">
+              <span class="ui-num step__n">02</span>
+              <div class="flex items-center gap-3">
+                <h3 class="m-0 text-xl font-semibold">Connect with the Manufact CLI</h3>
+                <button class="ui-button ui-button--primary ml-auto shrink-0" type="button" id="copy">Copy</button>
+              </div>
+              <pre data-focus class="code"><code id="connect">{connect}</code></pre>
+              <p class="m-0 text-sm text-secondary" id="copied" aria-live="polite">
+                Saves the server as eyes. No global install needed.
+              </p>
+            </li>
+            <li class="grid min-w-0 gap-3">
+              <span class="ui-num step__n">03</span>
+              <h3 class="m-0 text-xl font-semibold">Try it</h3>
+              <pre data-focus class="code"><code>{tryIt}</code></pre>
+              <p class="m-0 text-sm text-secondary">
+                quote_task is free and read-only. Look for "allowed": true, then ask_eyes posts a real task. When a
+                worker answers, await_answer returns:
+              </p>
+            </li>
+          </ol>
+          <pre data-focus class="code"><code>{answer}</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section id="workers">
+      <div class="mx-auto grid max-w-6xl items-center gap-12 px-5 py-20 md:grid-cols-12 md:py-32">
+        <p class="pay wipe m-0 font-semibold md:col-span-5" aria-hidden="true"><span>$3</span></p>
+        <div class="grid gap-10 md:col-span-7">
+          <div class="grid gap-5">
+            <h2 class="section-title wipe m-0 font-semibold">Get paid to look around</h2>
+            <p class="m-0 text-lg text-secondary">
+              Checks usually pay $3 and take a few minutes. Tasks only come from public places: stores, cafes, transit
+              stops, parks.
+            </p>
+            <div class="pair">
+              <a class="ui-button ui-button--primary" href={APP}>Join on your phone</a>
+              <a class="ui-button" href={`${APP}/privacy.html`}>Privacy note</a>
+            </div>
+          </div>
+          <dl class="m-0 grid content-start gap-x-8 gap-y-6 sm:grid-cols-2">
+            <div data-focus class="grid gap-1 border-t border-subtle pt-4">
+              <dt class="font-semibold">An iPhone</dt>
+              <dd class="m-0 text-secondary">Tasks arrive over iMessage. Reply YES to claim one.</dd>
+            </div>
+            <div data-focus class="grid gap-1 border-t border-subtle pt-4">
+              <dt class="font-semibold">One live photo</dt>
+              <dd class="m-0 text-secondary">The link opens your camera at the place. Never photograph faces.</dd>
+            </div>
+            <div data-focus class="grid gap-1 border-t border-subtle pt-4">
+              <dt class="font-semibold">Paid on verify</dt>
+              <dd class="m-0 text-secondary">Payouts go through Stripe once the photo checks out.</dd>
+            </div>
+            <div data-focus class="grid gap-1 border-t border-subtle pt-4">
+              <dt class="font-semibold">Stop any time</dt>
+              <dd class="m-0 text-secondary">Text STOP and the texts stop. START turns them back on.</dd>
+            </div>
+          </dl>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    import { gsap } from "gsap";
+    import { ScrollTrigger } from "gsap/ScrollTrigger";
+
+    const hint = document.getElementById("copied") as HTMLElement;
+    document.getElementById("copy")?.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(document.getElementById("connect")?.textContent ?? "");
+      hint.textContent = "Copied. Run it in the terminal where EYES_API_KEY is set.";
+    });
+
+    /*
+     * Scroll-scrubbed motion: every tween below is tied to scroll position (scrub), so scrolling back
+     * plays it backwards exactly. The markup is the final state (Verified, all rows, all checks), so
+     * without JS or with reduced motion nothing is hidden and nothing moves.
+     */
+    gsap.registerPlugin(ScrollTrigger);
+
+    const main = document.querySelector("main") as HTMLElement;
+    const panel = main.querySelector(".flight") as HTMLElement;
+    const status = main.querySelector("#flight-status") as HTMLElement;
+    const rows = [...panel.querySelectorAll<HTMLElement>("[data-at]")];
+    const marks = [...panel.querySelectorAll<HTMLElement>(".t-success-check")];
+    const stepList = main.querySelector(".steps") as HTMLElement;
+    const steps = [...stepList.querySelectorAll<HTMLElement>(".step")];
+    const last = rows.length - 1;
+    let at = last;
+
+    // Discrete state: the badge label (transitions.dev "Text states swap") and the lit step.
+    const show = (n: number) => {
+      if (n === at) return;
+      at = n;
+      panel.dataset.step = String(n);
+      for (const s of steps) s.classList.toggle("is-now", s.dataset.step === rows[n].dataset.hl);
+      status.classList.add("is-exit");
+      setTimeout(() => {
+        status.textContent = rows[at].dataset.state ?? "";
+        status.classList.remove("is-exit");
+        status.classList.add("is-enter-start");
+        status.getBoundingClientRect();
+        status.classList.remove("is-enter-start");
+      }, 150);
+    };
+
+    // Task in flight, one timeline unit per state. Row n fades in over [n - 0.7, n - 0.1] and the
+    // state flips at its midpoint; then the checks tick (10 Success check values) and the brackets lock.
+    // One tween per row and per check (a staggered fromTo only pre-renders its first target, so
+    // rows not reached yet would show at full strength before the scrub got to them).
+    const flightTimeline = () => {
+      const tl = gsap.timeline({
+        defaults: { ease: "none" },
+        onUpdate: () => show(Math.min(last, Math.floor(tl.time() + 0.4))),
+      });
+      rows.slice(1).forEach((row, i) => {
+        tl.fromTo(row, { opacity: 0 }, { opacity: 1, duration: 0.6 }, i + 0.3);
+      });
+      marks.forEach((mark, i) => {
+        tl.fromTo(
+          mark,
+          { opacity: 0, rotate: 80, scale: 0.6 },
+          { opacity: 1, rotate: 0, scale: 1, duration: 0.4 },
+          3.9 + i * 0.15,
+        );
+      });
+      return tl
+        .fromTo(panel, { "--lock": 0, "--lock-o": 0 }, { "--lock": 1, "--lock-o": 1, duration: 0.4 }, 4.5)
+        .to({}, { duration: 0.1 }, 4.9);
+    };
+
+    const scrub = 0.5;
+
+    gsap.context(() => {
+      const mm = gsap.matchMedia();
+      mm.add(
+        { wide: "(min-width: 768px)", narrow: "(max-width: 767px)", still: "(prefers-reduced-motion: reduce)" },
+        ({ conditions }) => {
+          if (conditions?.still) return;
+          const wide = Boolean(conditions?.wide);
+
+          // #how: pinned on wide screens and scrubbed through the four steps; on phones the panel
+          // scrubs as it crosses the screen, no pin.
+          stepList.classList.add("is-live");
+          show(0);
+          ScrollTrigger.create({
+            animation: flightTimeline(),
+            trigger: wide ? "#how" : panel,
+            start: wide ? "top top" : "clamp(top 75%)",
+            end: wide ? () => `+=${innerHeight * 2.5}` : "clamp(bottom 85%)",
+            pin: wide,
+            scrub,
+            refreshPriority: 1,
+            invalidateOnRefresh: true,
+          });
+
+          // Hero: the photo loads sharp after one short focus pull (time-based, not scroll). Scroll then
+          // only locks the brackets, shows the labels and eases the frame back a little. No scrubbed blur
+          // anywhere: an idle reader must never be left looking at a blurred element.
+          const vf = main.querySelector(".focus") as HTMLElement;
+          gsap.fromTo(vf.querySelector("img"), { filter: "blur(6px)" }, { filter: "blur(0px)", duration: 0.6, ease: "power2.out", clearProps: "filter" });
+          gsap
+            .timeline({
+              defaults: { ease: "none" },
+              scrollTrigger: { trigger: vf.closest("section"), start: "top top", end: "bottom top", scrub },
+            })
+            .fromTo(vf, { "--vf-inset": "-28px" }, { "--vf-inset": "12px", duration: 0.35 }, 0)
+            .fromTo(".hud", { opacity: 0 }, { opacity: 1, duration: 0.1 }, 0.28)
+            .fromTo(vf, { scale: 1 }, { scale: 0.96, duration: 0.65 }, 0.35);
+
+          // Shelf band: the photo zooms out across the whole pass, its brackets close in, and the card
+          // fades up, locks and lets go.
+          gsap.fromTo(".band__photo img", { scale: 1.18 }, {
+            scale: 1,
+            ease: "none",
+            scrollTrigger: { trigger: ".band", start: "clamp(top bottom)", end: "clamp(bottom top)", scrub },
+          });
+          gsap.fromTo(".band__photo", { "--vf-inset": "-24px" }, {
+            "--vf-inset": "24px",
+            ease: "none",
+            scrollTrigger: { trigger: ".band", start: "clamp(top 80%)", end: "clamp(top 20%)", scrub },
+          });
+          gsap
+            .timeline({
+              defaults: { ease: "none" },
+              scrollTrigger: { trigger: ".band__card", start: "clamp(top 90%)", end: "clamp(top 35%)", scrub },
+            })
+            .fromTo(".band__card", { opacity: 0.3, scale: 0.98 }, { opacity: 1, scale: 1, duration: 0.6 }, 0)
+            .fromTo(".band__card", { "--lock": 0, "--lock-o": 0 }, { "--lock": 1, "--lock-o": 1, duration: 0.5 }, 0.3)
+            .to(".band__card", { "--lock-o": 0, duration: 0.2 }, 0.8);
+
+          // Headlines wipe in left to right as they cross the screen.
+          for (const el of gsap.utils.toArray<HTMLElement>(".wipe"))
+            gsap.fromTo(el, { clipPath: "inset(-0.3em 100% -0.3em 0%)" }, {
+              clipPath: "inset(-0.3em -2% -0.3em 0%)",
+              ease: "none",
+              scrollTrigger: { trigger: el, start: "clamp(top 85%)", end: "clamp(top 45%)", scrub },
+            });
+
+          // Code blocks and worker facts fade up in place.
+          for (const el of gsap.utils.toArray<HTMLElement>("[data-focus]"))
+            gsap.fromTo(el, { opacity: 0.35 }, {
+              opacity: 1,
+              ease: "none",
+              scrollTrigger: { trigger: el, start: "clamp(top 92%)", end: "clamp(top 65%)", scrub },
+            });
+
+          return () => {
+            stepList.classList.remove("is-live");
+            show(last);
+          };
+        },
+      );
+    }, main);
+
+    // clamp() keeps every range inside the page, so triggers near the bottom still reach progress 1.
+    // Safety net: any trigger that still ends past the last scroll position is shown finished.
+    ScrollTrigger.addEventListener("refresh", () => {
+      const max = ScrollTrigger.maxScroll(window);
+      for (const st of ScrollTrigger.getAll()) if (!st.pin && st.end > max) st.animation?.progress(1);
+    });
+    document.fonts.ready.then(() => ScrollTrigger.refresh());
+  </script>
+</Layout>
+
+<style>
+  /*
+   * From transitions.dev (https://transitions.dev, MIT,
+   * github.com/Jakubantalik/transitions.dev/skills/transitions-dev): 04 Text states swap is vendored
+   * below; 10 Success check values (80deg rotate, scale pop) drive the scrubbed check tween.
+   */
+  :root {
+    --text-swap-dur: 150ms;
+    --text-swap-translate-y: 4px;
+    --text-swap-blur: 2px;
+    --text-swap-ease: ease-in-out;
+  }
+
+  /* Type scale: display headline, section titles, one giant numeral. */
+  .hero-title {
+    font-size: clamp(3rem, 8vw, 6.5rem);
+    line-height: 0.92;
+    letter-spacing: -0.055em;
+  }
+  .hero-title > span {
+    display: block;
+  }
+  .section-title {
+    font-size: clamp(2.25rem, 4.5vw, 3.75rem);
+    line-height: 1;
+    letter-spacing: -0.04em;
+    text-wrap: balance;
+  }
+
+  /* Hero viewfinder: brackets pull in from outside the frame and lock while the photo comes into focus. */
+  .ui-viewfinder {
+    border-radius: var(--eyes-radius-2xl);
+  }
+  .focus {
+    --bracket: 2rem;
+    --bracket-width: 4px;
+  }
+  .focus::before {
+    inset: var(--vf-inset, var(--eyes-space-3));
+  }
+  .hud {
+    position: absolute;
+    z-index: 3;
+    left: var(--eyes-space-6);
+  }
+  .hud--top {
+    top: var(--eyes-space-6);
+  }
+  .hud--bottom {
+    bottom: var(--eyes-space-6);
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--eyes-radius-full);
+    background: rgb(0 0 0 / 55%);
+    color: #fff;
+    font-size: var(--eyes-text-xs);
+    backdrop-filter: blur(6px);
+  }
+
+  /* Marquee band: the one loud surface. Yellow in both themes. */
+  .marquee {
+    overflow: hidden;
+    background: var(--eyes-accent);
+    color: var(--eyes-on-accent);
+  }
+  .marquee__track {
+    display: flex;
+    width: max-content;
+    margin: 0;
+    padding: 1.25rem 0;
+    list-style: none;
+    font-size: clamp(1.25rem, 2.4vw, 2rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .marquee__track li {
+    display: flex;
+    align-items: center;
+    gap: 2.5rem;
+    padding-right: 2.5rem;
+    white-space: nowrap;
+  }
+  .marquee__track li::after {
+    width: 0.9rem;
+    height: 0.9rem;
+    content: "";
+    background:
+      linear-gradient(currentColor 0 0) top left / 0.35rem 2px no-repeat,
+      linear-gradient(currentColor 0 0) top left / 2px 0.35rem no-repeat,
+      linear-gradient(currentColor 0 0) bottom right / 0.35rem 2px no-repeat,
+      linear-gradient(currentColor 0 0) bottom right / 2px 0.35rem no-repeat;
+  }
+
+  /* Steps list: the current one is lit while the panel runs. */
+  .step__n {
+    color: var(--eyes-text-tertiary);
+    font-size: var(--eyes-text-sm);
+    font-weight: 600;
+  }
+  /* Steps dim only while the scroll story runs; without it all four read at full strength. */
+  .steps.is-live .step {
+    opacity: 0.45;
+    transition: opacity 250ms ease;
+  }
+  .steps.is-live .step.is-now {
+    opacity: 1;
+  }
+  .step.is-now .step__n {
+    color: var(--eyes-text);
+    box-shadow: inset 0 -3px var(--eyes-accent);
+    justify-self: start;
+  }
+
+  /* Task in flight: a real state readout built from ui-badge, ui-place and ui-check. */
+  .flight {
+    display: grid;
+    gap: var(--eyes-space-5);
+    padding: var(--eyes-space-6);
+    border-radius: var(--eyes-radius-2xl);
+    background: var(--eyes-surface-secondary);
+    box-shadow: var(--eyes-hairline);
+  }
+  .flight__q {
+    font-size: clamp(1.5rem, 2.6vw, 2rem);
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+  }
+  .flight__log {
+    min-height: 9.5rem;
+    padding-top: var(--eyes-space-4);
+    border-top: 1px solid var(--eyes-border-subtle);
+    font-size: var(--eyes-text-sm);
+  }
+  .flight__log li {
+    display: grid;
+    grid-template-columns: 4.75rem 1fr;
+    gap: var(--eyes-space-3);
+  }
+  .flight__log li:last-child {
+    font-weight: 600;
+  }
+  .flight__checks {
+    padding-top: var(--eyes-space-4);
+    border-top: 1px solid var(--eyes-border-subtle);
+  }
+
+  /* Photo band: full bleed, the photo settles from zoomed in as it scrolls through. */
+  .band {
+    position: relative;
+  }
+  .band__photo {
+    aspect-ratio: 4 / 5;
+    border-radius: 0;
+  }
+  .band__photo::before {
+    inset: var(--vf-inset, var(--eyes-space-6));
+  }
+  .band__inner {
+    padding-block: var(--eyes-space-8);
+  }
+  .band__answer {
+    font-size: clamp(2.5rem, 5vw, 4.25rem);
+    line-height: 0.95;
+    letter-spacing: -0.045em;
+  }
+  @media (min-width: 768px) {
+    .band {
+      min-height: 52rem;
+    }
+    .band__photo {
+      position: absolute;
+      inset: 0;
+      aspect-ratio: auto;
+    }
+    .band__inner {
+      position: relative;
+      z-index: 3;
+      min-height: 52rem;
+      align-content: end;
+      justify-items: end;
+      padding-block: var(--eyes-space-10);
+    }
+    .band__card {
+      max-width: 30rem;
+      padding: var(--eyes-space-8);
+      border-radius: var(--eyes-radius-2xl);
+      background: var(--eyes-surface);
+      box-shadow: 0 24px 60px rgb(0 0 0 / 25%);
+    }
+  }
+
+  .pay {
+    font-size: clamp(9rem, 26vw, 20rem);
+    line-height: 0.8;
+    letter-spacing: -0.07em;
+  }
+  .pay span {
+    box-shadow: inset 0 -0.12em var(--eyes-accent);
+  }
+
+  .code {
+    margin: 0;
+    overflow-x: auto;
+    padding: var(--eyes-space-5);
+    border-radius: var(--eyes-radius-xl);
+    background: var(--eyes-surface);
+    box-shadow: var(--eyes-hairline);
+    font-family: var(--eyes-font-mono);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+  }
+
+  /* Pinned on wide screens: the whole story has to fit one screen under the 64px header. */
+  @media (min-width: 768px) {
+    .how {
+      min-height: 100dvh;
+      align-content: center;
+      padding-block: 6rem 2.5rem;
+    }
+  }
+
+  /* Time-based motion left: the marquee loop and the badge label swap on a state change.
+     Everything else is scrubbed by scroll in the script above. */
+  @media (prefers-reduced-motion: no-preference) {
+    .marquee__track {
+      animation: marquee 48s linear infinite;
+    }
+    .marquee:hover .marquee__track {
+      animation-play-state: paused;
+    }
+
+    /* 04 Text states swap */
+    .t-text-swap {
+      display: inline-block;
+      transition:
+        transform var(--text-swap-dur) var(--text-swap-ease),
+        filter var(--text-swap-dur) var(--text-swap-ease),
+        opacity var(--text-swap-dur) var(--text-swap-ease);
+    }
+    .t-text-swap.is-exit {
+      transform: translateY(calc(var(--text-swap-translate-y) * -1));
+      filter: blur(var(--text-swap-blur));
+      opacity: 0;
+    }
+    .t-text-swap.is-enter-start {
+      transform: translateY(var(--text-swap-translate-y));
+      filter: blur(var(--text-swap-blur));
+      opacity: 0;
+      transition: none;
+    }
+  }
+
+  @keyframes marquee {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+</style>

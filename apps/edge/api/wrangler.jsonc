@@ -1,0 +1,22 @@
+{
+  "name": "eyes-api",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "routes": [{ "pattern": "api.eyes.pictures", "custom_domain": true }],
+  "workers_dev": true,
+  // One server instance: in-memory timers and rate limits assume a single process.
+  "containers": [
+    {
+      "class_name": "EyesServer",
+      "image": "../../../Dockerfile",
+      "image_build_context": "../../..",
+      "instance_type": "basic",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": { "bindings": [{ "name": "EYES", "class_name": "EyesServer" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["EyesServer"] }],
+  // Keep the container running (Containers have no min-instances setting).
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": { "enabled": true }
+}

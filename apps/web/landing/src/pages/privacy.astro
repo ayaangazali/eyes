@@ -1,0 +1,101 @@
+---
+import Layout from "../layouts/Layout.astro";
+
+const ISSUES = "https://github.com/ayaangazali/eyes/issues";
+---
+
+<Layout title="Eyes privacy policy" description="What Eyes keeps about workers and agents, for how long, and who sees it.">
+  <main class="legal">
+    <h1 class="m-0 text-4xl font-semibold tracking-[-0.03em] md:text-5xl">Privacy policy</h1>
+    <p class="mt-3">Last updated: October 17, 2026</p>
+
+    <h2>Who this covers</h2>
+    <p>
+      Eyes is a hackathon project. It connects AI agents with people nearby ("workers") who send a live photo of a public
+      place. This policy covers workers, agents and the people who own agent API keys. Payments run in Stripe test mode
+      today, so no real money moves yet.
+    </p>
+
+    <h2>What we keep about workers</h2>
+    <ul>
+      <li>When you join: your name, mobile number and the location you shared.</li>
+      <li>
+        Your latest spot: each task photo, each tap on an Eyes "Update my spot" link and the "Eyes: I&rsquo;m here"
+        Shortcut (if you install it) replace it. We keep only the latest spot, never a history.
+      </li>
+      <li>When you do a task: your photo, your answer, your GPS position and the time you took the photo.</li>
+      <li>
+        If you text HELP about a held answer: that text and any replies you add, kept with the review ticket for Eyes
+        staff.
+      </li>
+    </ul>
+
+    <h2>How long we keep worker data</h2>
+    <ul>
+      <li>If our check finds a face in your photo, we delete the photo and the agent never gets it.</li>
+      <li>
+        Everything else has no end date: we keep your other photos, answers and task records, and the agent's link to
+        your photo keeps working.
+      </li>
+      <li>
+        Texting STOP stops task texts, deletes your latest spot and turns off your Shortcut code. It does not delete
+        your name, number or past tasks.
+      </li>
+    </ul>
+
+    <h2>How we use worker data</h2>
+    <ul>
+      <li>
+        Your latest spot picks which tasks we text you; a spot older than 24 hours is not used. Eyes staff see it as an
+        unlabeled dot on our live map.
+      </li>
+      <li>
+        The AI agent that asked gets your photo, your answer, the time and how far you were from the place. It never gets
+        your name or number.
+      </li>
+      <li>Stripe collects your payout details directly. Eyes does not store your bank details.</li>
+    </ul>
+
+    <h2>What we keep about agents</h2>
+    <ul>
+      <li>The agent's name and its owner's email address.</li>
+      <li>A hash of the API key, never the key itself.</li>
+      <li>The balance and a ledger of every top up, escrow, refund, payout and fee.</li>
+      <li>The tasks the agent created and the questions it asked.</li>
+    </ul>
+
+    <h2>Service providers</h2>
+    <p>These companies process data so Eyes can run:</p>
+    <ul>
+      <li>InsForge: the database and photo storage.</li>
+      <li>Inkbox: iMessage texts to workers.</li>
+      <li>Primitive: email for agents.</li>
+      <li>Stripe: payments and worker payouts.</li>
+      <li>Cloudflare: hosting for eyes.pictures, and Workers AI for the safety and photo checks.</li>
+      <li>Anthropic: a second opinion AI check on tasks and photos, when it is turned on.</li>
+      <li>OpenStreetMap Nominatim: turning place names into coordinates.</li>
+    </ul>
+
+    <h2>This website</h2>
+    <p>
+      eyes.pictures sets no cookies and runs no analytics or tracking scripts. Fonts and images are served from the same
+      site.
+    </p>
+
+    <h2>Your choices</h2>
+    <ul>
+      <li>Reply STOP to any Eyes text to stop task texts. Reply START to turn them back on.</li>
+      <li>Never photograph faces or people. Photos with faces are rejected.</li>
+      <li>To ask about your data, open an issue or, as a worker, reply HELP to an Eyes text.</li>
+    </ul>
+
+    <h2>Changes</h2>
+    <p>We will update this policy and the date above when what we keep changes, and before real payments start.</p>
+
+    <h2>Contact</h2>
+    <p>
+      Open an issue at <a class="ui-link" href={ISSUES}>github.com/ayaangazali/eyes/issues</a>. Workers can also reply
+      HELP to any Eyes text.
+    </p>
+  </main>
+</Layout>
