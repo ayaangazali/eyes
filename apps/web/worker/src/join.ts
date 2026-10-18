@@ -24,18 +24,26 @@ function invalid(id: string, problem: Problem) {
   showError(error, problem);
 }
 
+// States on the one button: busy (spinner, label kept) -> located ("✓ Location set" resolves from a
+// blur, data-settled) or failed ("Try location again", the error notice rises in). CSS in @eyes/ui.
 $("locate").addEventListener("click", () => {
+  const locate = $("locate");
   error.hidden = true;
-  $("where").textContent = "Finding you...";
+  locate.removeAttribute("data-settled");
+  locate.setAttribute("aria-busy", "true");
+  $("where").textContent = "Finding you…";
   navigator.geolocation.getCurrentPosition(
     ({ coords }) => {
       spot = { lat: coords.latitude, lng: coords.longitude };
-      $("locate").textContent = "✓ Location set";
+      locate.removeAttribute("aria-busy");
+      locate.setAttribute("data-settled", "");
+      locate.textContent = "✓ Location set";
       $("where").textContent = `Accurate to ${Math.round(coords.accuracy)} m. Tap again to update it.`;
     },
     (err) => {
+      locate.removeAttribute("aria-busy");
       $("where").textContent = "";
-      $("locate").textContent = "Try location again";
+      locate.textContent = "Try location again";
       showError(
         error,
         new Problem(

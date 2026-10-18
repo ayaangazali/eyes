@@ -527,7 +527,8 @@ const flight = [
     --text-swap-dur: 150ms;
     --text-swap-translate-y: 4px;
     --text-swap-blur: 2px;
-    --text-swap-ease: ease-in-out;
+    /* The badge label enters, so the strong ease-out (transitions.dev ships ease-in-out). */
+    --text-swap-ease: var(--eyes-ease-out);
   }
 
   /* Type scale: display headline, section titles, one giant numeral. */
@@ -741,8 +742,11 @@ const flight = [
     .marquee__track {
       animation: marquee 48s linear infinite;
     }
-    .marquee:hover .marquee__track {
-      animation-play-state: paused;
+    /* Pause on hover for a mouse only: on touch a tap would freeze the loop until the next tap. */
+    @media (hover: hover) and (pointer: fine) {
+      .marquee:hover .marquee__track {
+        animation-play-state: paused;
+      }
     }
 
     /* 04 Text states swap */

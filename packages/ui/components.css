@@ -89,10 +89,14 @@
   text-decoration: underline;
   text-decoration-color: var(--eyes-border-strong);
   text-underline-offset: 0.2em;
+  transition: text-decoration-color var(--eyes-duration) ease;
 }
 
-.ui-link:hover {
-  text-decoration-color: currentColor;
+/* Hover only where there is a real pointer: on touch, a tap would leave the hover look stuck. */
+@media (hover: hover) and (pointer: fine) {
+  .ui-link:hover {
+    text-decoration-color: currentColor;
+  }
 }
 
 .ui-divider {
@@ -118,11 +122,17 @@
   font-weight: var(--eyes-weight-medium);
   text-decoration: none;
   cursor: pointer;
-  transition: background-color var(--eyes-duration) var(--eyes-ease);
+  -webkit-tap-highlight-color: transparent;
+  /* Exact properties, never `all`: colour eases, the press scale uses the strong ease-out. */
+  transition:
+    background-color var(--eyes-duration) ease,
+    box-shadow var(--eyes-duration) ease,
+    transform var(--eyes-duration-press) var(--eyes-ease-out);
 }
 
-.ui-button:hover {
-  background: var(--eyes-border-strong);
+/* Press feedback on every pressable thing: a 3% shrink says "heard you" before anything loads. */
+.ui-button:active:not(:disabled, [aria-disabled="true"]) {
+  transform: scale(var(--eyes-press-scale));
 }
 
 .ui-button--primary {
@@ -130,20 +140,60 @@
   color: var(--eyes-on-accent);
 }
 
-.ui-button--primary:hover {
-  background: var(--eyes-accent-hover);
+.ui-button--ghost {
+  background: transparent;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .ui-button:hover {
+    background: var(--eyes-border-strong);
+  }
+
+  .ui-button--primary:hover {
+    background: var(--eyes-accent-hover);
+  }
+
+  .ui-button--ghost:hover {
+    background: var(--eyes-surface-tertiary);
+  }
 }
 
 .ui-button--primary:active {
   background: var(--eyes-accent-pressed);
 }
 
-.ui-button--ghost {
-  background: transparent;
+/* Busy: the label stays, a small fast spinner says work is happening (a fast spinner reads as a
+   faster load). Set aria-busy="true" while waiting. */
+.ui-button[aria-busy="true"] {
+  cursor: progress;
 }
 
-.ui-button--ghost:hover {
-  background: var(--eyes-surface-tertiary);
+.ui-button[aria-busy="true"]::before {
+  content: "";
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ui-spin 0.6s linear infinite;
+}
+
+/* The spinner takes the icon's place, so the label does not shift and there is one glyph, not two. */
+.ui-button[aria-busy="true"] > .ui-icon {
+  display: none;
+}
+
+/* State settled (e.g. "✓ Location set"): the new label resolves from a 2px blur, so the swap reads as
+   one button changing, not two labels crossfading. Set data-settled on the state change. */
+.ui-button[data-settled] {
+  animation: ui-settle var(--eyes-duration-enter) var(--eyes-ease-out);
+}
+
+@keyframes ui-settle {
+  from {
+    filter: blur(2px);
+    opacity: 0.7;
+  }
 }
 
 .ui-button--sm {
@@ -212,14 +262,17 @@
   color: var(--eyes-text);
   font: inherit;
   appearance: none;
+  transition: border-color var(--eyes-duration) ease;
 }
 
 .ui-input::placeholder {
   color: var(--eyes-text-tertiary);
 }
 
-.ui-input:hover {
-  border-color: var(--eyes-border-strong);
+@media (hover: hover) and (pointer: fine) {
+  .ui-input:hover {
+    border-color: var(--eyes-border-strong);
+  }
 }
 
 .ui-input:focus-visible {
@@ -273,7 +326,7 @@ textarea.ui-input {
   border: 2px solid var(--eyes-border-strong);
   border-top-color: var(--eyes-text);
   border-radius: 50%;
-  animation: ui-spin 0.8s linear infinite;
+  animation: ui-spin 0.6s linear infinite;
 }
 
 @keyframes ui-spin {
@@ -323,6 +376,33 @@ textarea.ui-input {
   background: var(--eyes-surface-secondary);
   box-shadow: var(--eyes-hairline);
   font-size: var(--eyes-text-sm);
+  /* Shown notices (errors, "copied", "location set") rise 6px and fade in, ease-out, 200ms; hiding is
+     instant, so the exit is always faster than the entry. Transitions, not keyframes: a notice
+     re-shown mid-entry retargets instead of restarting. */
+  transition:
+    opacity var(--eyes-duration-enter) var(--eyes-ease-out),
+    transform var(--eyes-duration-enter) var(--eyes-ease-out);
+
+  @starting-style {
+    opacity: 0;
+    transform: translateY(var(--eyes-enter-y));
+  }
+}
+
+/* The action under a notice (e.g. "Text TASK for a new link") follows 50ms later: a short stagger
+   reads as one cause and its fix instead of two things popping in at once. */
+.ui-notice + .ui-button {
+  transition:
+    background-color var(--eyes-duration) ease,
+    box-shadow var(--eyes-duration) ease,
+    transform var(--eyes-duration-press) var(--eyes-ease-out),
+    opacity var(--eyes-duration-enter) var(--eyes-ease-out) 50ms,
+    translate var(--eyes-duration-enter) var(--eyes-ease-out) 50ms;
+
+  @starting-style {
+    opacity: 0;
+    translate: 0 var(--eyes-enter-y);
+  }
 }
 
 /* No icon: plain block, so text nodes set by script (message, <br>, fix) stay in one column. */

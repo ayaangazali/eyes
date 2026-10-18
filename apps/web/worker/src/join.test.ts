@@ -180,10 +180,18 @@ describe("join form", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("shows the button busy while the GPS fix is pending", async () => {
+    geo.getCurrentPosition.mockImplementation(() => {});
+    await fire("locate", "click");
+    expect(byId("locate").attrs["aria-busy"]).toBe("true");
+    expect(byId("where").textContent).toBe("Finding you…");
+  });
+
   it("reads the GPS fix and reports its accuracy in whole metres", async () => {
     gpsOk(12.4);
     await fire("locate", "click");
     expect(byId("locate").textContent).toBe("✓ Location set");
+    expect(byId("locate").attrs).toEqual({ "data-settled": "" });
     expect(byId("where").textContent).toBe("Accurate to 12 m. Tap again to update it.");
   });
 
@@ -192,6 +200,7 @@ describe("join form", () => {
     await fire("locate", "click");
     expect(byId("where").textContent).toBe("");
     expect(byId("locate").textContent).toBe("Try location again");
+    expect(byId("locate").attrs).toEqual({});
     expect(shown()).toEqual(["We could not get your location.", LOCATION_HELP]);
   });
 
