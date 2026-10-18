@@ -16,10 +16,24 @@ body { margin: 0; background: var(--eyes-surface-secondary); min-height: 100vh; 
 .mark { width: 1.1rem; height: 1.1rem; border-radius: 0.25rem; border: 2px solid var(--eyes-accent); box-shadow: inset 0 0 0 3px var(--eyes-surface), inset 0 0 0 9px var(--eyes-accent); }
 .bar .spacer { flex: 1; }
 .bar a { color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
-main { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--eyes-space-4); padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-10); }
-main > .ui-card { max-width: none; align-content: start; }
+main { padding: var(--eyes-space-4) var(--eyes-space-6) var(--eyes-space-10); }
+.panel { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--eyes-space-4); }
+.panel[hidden] { display: none; }
+.panel > .ui-card { max-width: none; align-content: start; }
 .c3 { grid-column: span 3; } .c4 { grid-column: span 4; } .c5 { grid-column: span 5; } .c6 { grid-column: span 6; } .c7 { grid-column: span 7; } .c8 { grid-column: span 8; } .c12 { grid-column: span 12; }
-@media (max-width: 1100px) { main > .ui-card { grid-column: span 12; } }
+@media (max-width: 1100px) { .panel > .ui-card { grid-column: span 12; } }
+/* Tabs sit under the sticky bar; --bar-h and --chrome come from the script, since the bar wraps on phones. */
+.tabs { position: sticky; top: var(--bar-h, 3.5rem); z-index: 999; display: flex; gap: var(--eyes-space-1); overflow-x: auto; scrollbar-width: none; padding: 0 var(--eyes-space-6); background: var(--eyes-surface); border-bottom: 1px solid var(--eyes-border-subtle); }
+.tabs a { flex: none; display: inline-flex; align-items: center; gap: var(--eyes-space-1); padding: var(--eyes-space-3); color: var(--eyes-text-secondary); text-decoration: none; font-size: var(--eyes-text-sm); white-space: nowrap; border-bottom: 2px solid transparent; }
+.tabs a[aria-selected="true"] { color: var(--eyes-text); border-bottom-color: var(--eyes-accent); font-weight: var(--eyes-weight-semibold); }
+.tabs a:focus-visible { outline: 2px solid var(--eyes-accent); outline-offset: -2px; }
+.count:empty { display: none; }
+.count { padding: 0 0.4rem; border-radius: 999px; background: var(--eyes-surface-tertiary); font-size: var(--eyes-text-xs); font-variant-numeric: tabular-nums; }
+.count.hot { background: var(--eyes-danger-bg); color: var(--eyes-danger-text); }
+/* A list tab uses the whole viewport; only its list scrolls. */
+.fill { height: calc(100dvh - var(--chrome, 7rem) - var(--eyes-space-4) - var(--eyes-space-6)); min-height: 22rem; display: flex; flex-direction: column; gap: var(--eyes-space-3); }
+.grow { flex: 1; min-height: 0; overflow: auto; }
+#banner { margin-bottom: var(--eyes-space-4); }
 .ui-card__title { font-size: var(--eyes-text-md); }
 .sub { color: var(--eyes-text-secondary); font-size: var(--eyes-text-xs); font-weight: var(--eyes-weight-normal); }
 .big { font-size: var(--eyes-heading-xl); font-weight: var(--eyes-weight-semibold); line-height: 1; font-variant-numeric: tabular-nums; }
@@ -29,7 +43,7 @@ main > .ui-card { max-width: none; align-content: start; }
 .stat span { color: var(--eyes-text-secondary); font-size: var(--eyes-text-xs); }
 .stat.hot { background: var(--eyes-danger-bg); } .stat.hot b, .stat.hot span { color: var(--eyes-danger-text); }
 .stat.live { box-shadow: inset 3px 0 0 var(--eyes-accent); }
-.rows { display: grid; margin: 0; padding: 0; list-style: none; }
+.rows { display: grid; align-content: start; margin: 0; padding: 0; list-style: none; }
 .rows > li { padding: var(--eyes-space-3) 0; border-bottom: 1px solid var(--eyes-border-subtle); display: grid; gap: var(--eyes-space-1); }
 .rows > li:last-child { border-bottom: 0; }
 .scroll { max-height: 34rem; overflow: auto; margin-right: calc(-1 * var(--eyes-space-2)); padding-right: var(--eyes-space-2); }
@@ -49,6 +63,8 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .ledger > * { padding: var(--eyes-space-1) 0; border-bottom: 1px solid var(--eyes-border-subtle); }
 .ledger .amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: var(--eyes-weight-medium); }
 #map { height: 22rem; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); z-index: 0; }
+#map.grow { height: auto; min-height: 16rem; overflow: hidden; }
+.filters.short { grid-template-columns: minmax(0, 24rem) minmax(0, 12rem); justify-content: start; }
 #map.nomap { display: grid; place-items: center; color: var(--eyes-text-secondary); font-size: var(--eyes-text-sm); }
 @media (prefers-color-scheme: dark) { .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9); } }
 .ui-status > li { padding: var(--eyes-space-2) 0; }
@@ -81,16 +97,17 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
   .bar { gap: var(--eyes-space-2) var(--eyes-space-3); padding: var(--eyes-space-3) var(--eyes-space-4); }
   .bar .spacer { flex-basis: 100%; }
   main { padding: var(--eyes-space-3) var(--eyes-space-3) var(--eyes-space-8); }
-  .filters { grid-template-columns: 1fr 1fr; }
+  .filters, .filters.short { grid-template-columns: 1fr 1fr; }
   .filters > :first-child { grid-column: span 2; }
+  .tabs { padding: 0 var(--eyes-space-2); }
 }
 .rows > li.open { cursor: pointer; }
 .rows > li.open:hover, .rows > li.open:focus-visible { background: var(--eyes-surface-tertiary); outline: none; }
-#review { width: min(40rem, calc(100vw - 1.5rem)); max-height: calc(100vh - 1.5rem); overflow: auto; padding: var(--eyes-space-5); border: 1px solid var(--eyes-border-subtle); border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-primary, Canvas); color: inherit; }
-#review::backdrop { background: rgb(0 0 0 / 0.4); }
-#review > * + * { margin-top: var(--eyes-space-3); }
-#review img, #review .nophoto { display: grid; place-items: center; width: 100%; max-height: 22rem; object-fit: contain; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); color: var(--eyes-text-tertiary); min-height: 6rem; }
-#review textarea { width: 100%; min-height: 2.5rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); }
+#review-panel { width: min(40rem, calc(100vw - 1.5rem)); max-height: calc(100vh - 1.5rem); overflow: auto; padding: var(--eyes-space-5); border: 1px solid var(--eyes-border-subtle); border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-primary, Canvas); color: inherit; }
+#review-panel::backdrop { background: rgb(0 0 0 / 0.4); }
+#review-panel > * + * { margin-top: var(--eyes-space-3); }
+#review-panel img, #review-panel .nophoto { display: grid; place-items: center; width: 100%; max-height: 22rem; object-fit: contain; border-radius: var(--eyes-radius-lg); background: var(--eyes-surface-tertiary); color: var(--eyes-text-tertiary); min-height: 6rem; }
+#review-panel textarea { width: 100%; min-height: 2.5rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); }
 .checklist { display: grid; gap: var(--eyes-space-1); margin: 0; padding: 0; list-style: none; }
 .checklist .ok { color: var(--eyes-text-success, green); }
 .checklist .bad { color: var(--eyes-text-danger, crimson); }
@@ -107,82 +124,133 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
   <a href="/ops/allowlist">Allowlist</a>
   <button id="logout" class="ui-button ui-button--ghost ui-button--sm" type="button">Log out</button>
 </header>
+<div id="tabs" class="tabs" role="tablist" aria-label="Ops sections">
+  <a role="tab" id="tab-overview" href="#overview" aria-controls="p-overview">Overview</a>
+  <a role="tab" id="tab-review" href="#review" aria-controls="p-review">Review <span id="n-review" class="count"></span></a>
+  <a role="tab" id="tab-support" href="#support" aria-controls="p-support">Support <span id="n-support" class="count"></span></a>
+  <a role="tab" id="tab-tasks" href="#tasks" aria-controls="p-tasks">Tasks</a>
+  <a role="tab" id="tab-workers" href="#workers" aria-controls="p-workers">Workers</a>
+  <a role="tab" id="tab-money" href="#money" aria-controls="p-money">Money</a>
+  <a role="tab" id="tab-logs" href="#logs" aria-controls="p-logs">Logs <span id="n-logs" class="count"></span></a>
+</div>
 <main>
   <p id="banner" class="ui-notice ui-notice--danger" hidden></p>
 
-  <section class="ui-card c3">
-    <header class="ui-card__header"><h2 class="ui-card__title">Health</h2><span id="uptime" class="ui-badge"></span></header>
-    <ul id="providers" class="ui-status"></ul>
-    <dl id="health" class="ui-kv"></dl>
-  </section>
+  <div id="p-overview" class="panel" role="tabpanel" aria-labelledby="tab-overview">
+    <section class="ui-card c3">
+      <header class="ui-card__header"><h2 class="ui-card__title">Health</h2><span id="uptime" class="ui-badge"></span></header>
+      <ul id="providers" class="ui-status"></ul>
+      <dl id="health" class="ui-kv"></dl>
+    </section>
 
-  <section class="ui-card c5">
-    <header class="ui-card__header"><h2 class="ui-card__title">Tasks, last 24 h</h2><span id="tasks-total" class="sub"></span></header>
-    <div id="statuses" class="stats"></div>
-  </section>
+    <section class="ui-card c5">
+      <header class="ui-card__header"><h2 class="ui-card__title">Tasks, last 24 h</h2><span id="tasks-total" class="sub"></span></header>
+      <div id="statuses" class="stats"></div>
+    </section>
 
-  <section class="ui-card c4">
-    <header class="ui-card__header"><h2 class="ui-card__title">Money</h2><span class="sub">24 h, except escrow held</span></header>
-    <div><div id="escrowed" class="big"></div><div class="muted">held in escrow now</div></div>
-    <dl id="money" class="ui-kv"></dl>
-  </section>
+    <section class="ui-card c4">
+      <header class="ui-card__header"><h2 class="ui-card__title">Money</h2><span class="sub">24 h, except escrow held</span></header>
+      <div><div id="escrowed" class="big"></div><div class="muted">held in escrow now</div></div>
+      <dl id="money-kv" class="ui-kv"></dl>
+    </section>
 
-  <section class="ui-card c12">
-    <header class="ui-card__header"><h2 class="ui-card__title">Trends</h2><span id="series-source" class="sub"></span></header>
-    <div id="charts" class="charts"></div>
-  </section>
+    <section class="ui-card c12">
+      <header class="ui-card__header"><h2 class="ui-card__title">Trends</h2><span id="series-source" class="sub"></span></header>
+      <div id="charts" class="charts"></div>
+    </section>
+  </div>
 
-  <section class="ui-card c12">
-    <header class="ui-card__header"><h2 class="ui-card__title">Support tickets</h2><span id="tickets-count" class="ui-badge"></span></header>
-    <ul id="tickets-list" class="rows"></ul>
-  </section>
+  <div id="p-review" class="panel" role="tabpanel" aria-labelledby="tab-review" hidden>
+    <section class="ui-card c12 fill">
+      <header class="ui-card__header"><h2 class="ui-card__title">Needs a decision</h2><span id="queue-count" class="ui-badge"></span></header>
+      <ul id="queue" class="rows grow"></ul>
+    </section>
+  </div>
 
-  <section class="ui-card c12">
-    <header class="ui-card__header"><h2 class="ui-card__title">Ops queue</h2><span id="queue-count" class="ui-badge"></span></header>
-    <ul id="queue" class="rows"></ul>
-  </section>
+  <div id="p-support" class="panel" role="tabpanel" aria-labelledby="tab-support" hidden>
+    <section class="ui-card c12 fill">
+      <header class="ui-card__header"><h2 class="ui-card__title">Support tickets</h2><span id="tickets-count" class="ui-badge"></span></header>
+      <div class="filters short">
+        <input id="t-q" class="ui-input" type="search" placeholder="Search question, message, task id" aria-label="Search tickets">
+        <select id="t-status" class="ui-input" aria-label="Ticket status">
+          <option value="open">Open</option><option value="resolved">Resolved</option><option value="">All</option>
+        </select>
+      </div>
+      <div class="grow">
+        <ul id="tickets-list" class="rows"></ul>
+        <button id="t-more" class="ui-button ui-button--ghost ui-button--sm" type="button" hidden>Show more</button>
+      </div>
+    </section>
+  </div>
 
-  <section class="ui-card c7">
-    <header class="ui-card__header"><h2 class="ui-card__title">Recent tasks</h2><span class="sub">newest first</span></header>
-    <ul id="tasks" class="rows scroll"></ul>
-  </section>
+  <div id="p-tasks" class="panel" role="tabpanel" aria-labelledby="tab-tasks" hidden>
+    <section class="ui-card c12 fill">
+      <header class="ui-card__header"><h2 class="ui-card__title">Recent tasks</h2><span id="tasks-shown" class="sub">newest first</span></header>
+      <div class="filters short">
+        <select id="task-status" class="ui-input" aria-label="Task status">
+          <option value="">All statuses</option><option>dispatched</option><option>claimed</option><option>submitted</option>
+          <option value="needs_review">needs review</option><option>disputed</option><option>verified</option><option>paid</option>
+          <option>expired</option><option>refunded</option>
+        </select>
+      </div>
+      <ul id="task-list" class="rows grow"></ul>
+    </section>
+  </div>
 
-  <section class="ui-card c5">
-    <header class="ui-card__header"><h2 class="ui-card__title">Workers</h2><span class="sub">positions rounded to about 100 m</span></header>
-    <div id="workers" class="stats"></div>
-    <div id="map"></div>
-  </section>
+  <div id="p-workers" class="panel" role="tabpanel" aria-labelledby="tab-workers" hidden>
+    <section class="ui-card c8 fill">
+      <header class="ui-card__header"><h2 class="ui-card__title">Workers</h2><span class="sub">positions rounded to about 100 m</span></header>
+      <div id="worker-stats" class="stats"></div>
+      <div id="map" class="grow"></div>
+    </section>
+    <section class="ui-card c4 fill">
+      <header class="ui-card__header"><h2 class="ui-card__title">All workers</h2><span class="sub">available first</span></header>
+      <ul id="workers-list" class="rows grow"></ul>
+    </section>
+  </div>
 
-  <section class="ui-card c5">
-    <header class="ui-card__header"><h2 class="ui-card__title">Ledger</h2><span class="sub">latest rows</span></header>
-    <div class="scroll"><div id="ledger" class="ledger"></div></div>
-  </section>
+  <div id="p-money" class="panel" role="tabpanel" aria-labelledby="tab-money" hidden>
+    <section class="ui-card c12 fill">
+      <header class="ui-card__header"><h2 class="ui-card__title">Ledger</h2><span class="sub">latest rows</span></header>
+      <div class="filters short">
+        <select id="ledger-type" class="ui-input" aria-label="Ledger row type">
+          <option value="">All rows</option><option value="topup">Top-ups</option><option value="payout">Payouts</option>
+          <option value="escrow">Escrow</option><option value="release">Releases</option><option value="refund">Refunds</option><option value="fee">Fees</option>
+        </select>
+      </div>
+      <div class="grow"><div id="ledger" class="ledger"></div></div>
+    </section>
+  </div>
 
-  <section class="ui-card c7">
-    <header class="ui-card__header"><h2 class="ui-card__title">Server errors and warnings</h2><span class="sub">this process, newest first, redacted</span></header>
-    <ul id="errors" class="rows scroll"></ul>
-  </section>
+  <div id="p-logs" class="panel" role="tabpanel" aria-labelledby="tab-logs" hidden>
+    <section class="ui-card c12">
+      <header class="ui-card__header"><h2 class="ui-card__title">Server errors and warnings</h2><span class="sub">this process, newest first, redacted</span></header>
+      <ul id="errors" class="rows scroll"></ul>
+    </section>
 
-  <section class="ui-card c12">
-    <header class="ui-card__header"><h2 class="ui-card__title">Event log</h2><span id="events-source" class="sub"></span></header>
-    <div class="filters">
-      <input id="f-q" class="ui-input" type="search" placeholder="Search summary and details">
-      <select id="f-kind" class="ui-input">
-        <option value="">All kinds</option>
-        <option>http</option><option>mcp</option><option>call</option><option>task</option><option>ledger</option>
-        <option>text</option><option>email</option><option>reply</option><option>webhook</option><option>safety</option>
-        <option>vision</option><option>payout</option><option>ticket</option><option>ops</option><option>auth</option><option>log</option>
-      </select>
-      <select id="f-level" class="ui-input">
-        <option value="">All levels</option><option>info</option><option>warn</option><option>error</option>
-      </select>
-      <input id="f-task" class="ui-input" placeholder="Task id">
-    </div>
-    <div class="scroll"><table class="events"><tbody id="events"></tbody></table></div>
-    <button id="older" class="ui-button ui-button--ghost ui-button--sm" type="button" hidden>Load older</button>
-  </section>
+    <section class="ui-card c12 fill">
+      <header class="ui-card__header"><h2 class="ui-card__title">Event log</h2><span id="events-source" class="sub"></span></header>
+      <div class="filters">
+        <input id="f-q" class="ui-input" type="search" placeholder="Search summary and details" aria-label="Search events">
+        <select id="f-kind" class="ui-input" aria-label="Event kind">
+          <option value="">All kinds</option>
+          <option>http</option><option>mcp</option><option>call</option><option>task</option><option>ledger</option>
+          <option>text</option><option>email</option><option>reply</option><option>webhook</option><option>safety</option>
+          <option>vision</option><option>payout</option><option>ticket</option><option>ops</option><option>auth</option><option>log</option>
+        </select>
+        <select id="f-level" class="ui-input" aria-label="Event level">
+          <option value="">All levels</option><option>info</option><option>warn</option><option>error</option>
+        </select>
+        <input id="f-task" class="ui-input" placeholder="Task id" aria-label="Task id">
+      </div>
+      <div class="grow">
+        <table class="events"><tbody id="events"></tbody></table>
+        <button id="older" class="ui-button ui-button--ghost ui-button--sm" type="button" hidden>Load older</button>
+      </div>
+    </section>
+  </div>
 </main>
-<dialog id="review" aria-label="Review task"></dialog>
+<dialog id="review-panel" aria-label="Review task"></dialog>
 <script>
 const POLL_MS = 10000;
 const $ = (id) => document.getElementById(id);
@@ -258,7 +326,7 @@ function taskRow(t) {
 
 // Release or refund a needs_review / disputed task. Same server path as `pnpm resolve-task` (resolveTask).
 async function openReview(id) {
-  const review = $("review");
+  const review = $("review-panel");
   const close = h("button", "ui-button ui-button--ghost ui-button--sm", "Close");
   close.type = "button";
   close.addEventListener("click", () => review.close());
@@ -375,7 +443,7 @@ function render(feed) {
 
   const m = o.money_24h;
   $("escrowed").textContent = usd(feed.totals.escrowed_cents);
-  kv($("money"), [
+  kv($("money-kv"), [
     ["Escrowed", usd(m.escrow)],
     ["Released to workers", usd(m.release)],
     ["Refunded to agents", usd(m.refund)],
@@ -388,27 +456,61 @@ function render(feed) {
   $("queue-count").className = `ui-badge${o.queue.length ? " ui-badge--danger" : " ui-badge--success"}`;
   $("queue").replaceChildren(...(o.queue.length ? o.queue.map(taskRow)
     : [empty("Nothing needs a decision. Tasks in needs_review or disputed show here; click one to release or refund it.")]));
+  count("n-review", o.queue.length, true);
 
-  $("tasks").replaceChildren(...(feed.tasks.length ? feed.tasks.map(taskRow) : [empty("No tasks yet.")]));
+  last = feed;
+  renderTasks();
 
   const w = o.workers;
-  $("workers").replaceChildren(
+  $("worker-stats").replaceChildren(
     h("div", "stat", h("b", null, `${w.opted_in}${o.partial.workers ? "+" : ""}`), h("span", null, "opted in")),
     h("div", "stat live", h("b", null, String(w.online)), h("span", null, "available now")),
     h("div", "stat", h("b", null, String(w.total)), h("span", null, "signed up")),
   );
   renderMap(feed.workers);
-
-  const places = new Map(feed.tasks.map((t) => [t.id, t.place_label]));
-  $("ledger").replaceChildren(...(feed.ledger.length ? feed.ledger.flatMap((row) => [
-    h("span", "tiny", stamp(row.created_at)),
-    h("span", null, LEDGER_LABEL[row.type] || row.type, row.task_id ? h("span", "tiny", ` ${cut(places.get(row.task_id) || row.task_id.slice(0, 8), 40)}`) : null),
-    h("span", "amt", usd(row.amount_cents)),
-  ]) : [h("span", "muted", "No ledger rows yet.")]));
+  renderWorkers();
+  renderLedger();
 
   $("errors").replaceChildren(...(o.errors.length ? o.errors.map((e) =>
     h("li", null, h("div", "line", badge(e.level, e.level === "error" ? "danger" : "warning"), h("span", "tiny", stamp(e.at))), h("pre", "err", e.summary)))
     : [empty("No errors or warnings since the server started.")]));
+  count("n-logs", o.errors.length, o.errors.some((e) => e.level === "error"));
+}
+
+let last = { tasks: [], ledger: [], workers: [] };
+function count(id, n, hot) {
+  $(id).textContent = n ? String(n) : "";
+  $(id).classList.toggle("hot", Boolean(hot && n));
+}
+
+function renderTasks() {
+  const s = $("task-status").value;
+  const shown = s ? last.tasks.filter((t) => t.status === s) : last.tasks;
+  $("tasks-shown").textContent = `${shown.length} of ${last.tasks.length}, newest first`;
+  $("task-list").replaceChildren(...(shown.length ? shown.map(taskRow)
+    : [empty(last.tasks.length ? "No tasks with this status." : "No tasks yet.")]));
+}
+
+function renderLedger() {
+  const places = new Map(last.tasks.map((t) => [t.id, t.place_label]));
+  const type = $("ledger-type").value;
+  const rows = type ? last.ledger.filter((r) => r.type === type) : last.ledger;
+  $("ledger").replaceChildren(...(rows.length ? rows.flatMap((row) => [
+    h("span", "tiny", stamp(row.created_at)),
+    h("span", null, LEDGER_LABEL[row.type] || row.type, row.task_id ? h("span", "tiny", ` ${cut(places.get(row.task_id) || row.task_id.slice(0, 8), 40)}`) : null),
+    h("span", "amt", usd(row.amount_cents)),
+  ]) : [h("span", "muted", type ? "No rows of this type." : "No ledger rows yet.")]));
+}
+
+// No coordinates here: the map already shows rounded positions.
+function renderWorkers() {
+  const rank = (w) => (w.available && w.opted_in ? 2 : w.opted_in ? 1 : 0);
+  const all = [...last.workers].sort((a, b) => rank(b) - rank(a));
+  $("workers-list").replaceChildren(...(all.length ? all.map((w) => h("li", null, h("div", "line",
+    badge(["opted out", "opted in", "available"][rank(w)], ["", "", "success"][rank(w)]),
+    h("span", "tiny", `worker ${w.id.slice(0, 8)}`),
+    w.lat == null ? h("span", "muted", "no location") : null)))
+    : [empty("No workers yet.")]));
 }
 
 // Two clicks: the first arms the button for 5 s and says what will happen, the second does it.
@@ -479,18 +581,31 @@ function ticketRow(t) {
 }
 
 let ticketsText = "";
+let tickets = [];
+let ticketPages = 1;
+const TICKETS_PER_PAGE = 50;
 async function loadTickets() {
   const res = await fetch("/ops/tickets", { cache: "no-store" });
   if (!res.ok) return;
   const text = await res.text();
   if (text === ticketsText) return;
   ticketsText = text;
-  const { tickets } = JSON.parse(text);
+  tickets = JSON.parse(text).tickets;
   const open = tickets.filter((t) => t.status === "open").length;
   $("tickets-count").textContent = `${open} open`;
   $("tickets-count").className = `ui-badge ${open ? "ui-badge--danger" : "ui-badge--success"}`;
-  $("tickets-list").replaceChildren(...(tickets.length ? tickets.map(ticketRow)
-    : [empty("No tickets. A worker opens one by texting HELP after an answer is held for review.")]));
+  count("n-support", open, true);
+  renderTickets();
+}
+
+function renderTickets() {
+  const q = $("t-q").value.trim().toLowerCase();
+  const s = $("t-status").value;
+  const shown = tickets.filter((t) => (!s || t.status === s)
+    && (!q || [t.id, t.question, t.message, t.task_id, t.place_label].some((v) => String(v ?? "").toLowerCase().includes(q))));
+  $("tickets-list").replaceChildren(...(shown.length ? shown.slice(0, ticketPages * TICKETS_PER_PAGE).map(ticketRow)
+    : [empty(tickets.length ? "No tickets match." : "No tickets. A worker opens one by texting HELP after an answer is held for review.")]));
+  $("t-more").hidden = shown.length <= ticketPages * TICKETS_PER_PAGE;
 }
 
 let oldest = null;
@@ -595,6 +710,44 @@ $("logout").addEventListener("click", async () => {
 for (const id of ["f-q", "f-kind", "f-level", "f-task"]) $(id).addEventListener("change", () => loadEvents(false));
 $("f-q").addEventListener("input", () => { clearTimeout(window.qTimer); window.qTimer = setTimeout(() => loadEvents(false), 300); });
 $("older").addEventListener("click", () => loadEvents(true));
+$("task-status").addEventListener("change", renderTasks);
+$("ledger-type").addEventListener("change", renderLedger);
+$("t-status").addEventListener("change", () => { ticketPages = 1; renderTickets(); });
+$("t-q").addEventListener("input", () => { ticketPages = 1; renderTickets(); });
+$("t-more").addEventListener("click", () => { ticketPages++; renderTickets(); });
+
+// Tabs: the URL hash picks one (#review, #support, ...) so reloads and links keep it.
+const TABS = ["overview", "review", "support", "tasks", "workers", "money", "logs"];
+function showTab() {
+  const name = TABS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "overview";
+  for (const t of TABS) {
+    $(`tab-${t}`).setAttribute("aria-selected", String(t === name));
+    $(`tab-${t}`).tabIndex = t === name ? 0 : -1;
+    $(`p-${t}`).hidden = t !== name;
+  }
+  $(`tab-${name}`).scrollIntoView({ block: "nearest", inline: "nearest" });
+  // Leaflet measured a hidden box; size it again and refit.
+  if (name === "workers" && map) { map.invalidateSize(); fitted = false; renderMap(last.workers); }
+}
+$("tabs").addEventListener("keydown", (e) => {
+  const i = TABS.indexOf(document.activeElement.id.replace("tab-", ""));
+  const next = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: TABS.length - 1 }[e.key];
+  if (i < 0 || next === undefined) return;
+  e.preventDefault();
+  const t = TABS[(next + TABS.length) % TABS.length];
+  $(`tab-${t}`).focus();
+  history.replaceState(null, "", `#${t}`);
+  showTab();
+});
+addEventListener("hashchange", showTab);
+function measure() {
+  const bar = document.querySelector(".bar").offsetHeight;
+  document.documentElement.style.setProperty("--bar-h", `${bar}px`);
+  document.documentElement.style.setProperty("--chrome", `${bar + $("tabs").offsetHeight}px`);
+}
+addEventListener("resize", measure);
+measure();
+showTab();
 poll();
 </script>
 </body>
