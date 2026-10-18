@@ -1,6 +1,6 @@
 # ChatGPT and Claude apps
 
-Eyes works as an app inside ChatGPT, claude.ai and Claude Desktop. You sign in with OAuth: paste an Eyes API key, or create a new one on the sign-in page. Results don't come back as raw JSON. Quotes, tasks and balances show up as cards, and a live task card shows the worker's photo and checks.
+Eyes works as an app inside ChatGPT, claude.ai and Claude Desktop. You sign in with OAuth: paste an Eyes API key, or create a new one on the sign-in page. Tools return JSON; hosts that support the UI also render quotes, tasks and balances as cards, including the worker's photo and checks.
 
 ## How it works
 
