@@ -18,6 +18,7 @@ import type {
   ToolOutput,
   WorkerEarnings,
   WorkerLocationInput,
+  WorkerSetup,
 } from "./schemas.ts";
 
 export const SAFETY_CATEGORIES = [
@@ -104,6 +105,10 @@ export interface EyesService {
   markWorkerOnboarded(account_id: string): Promise<void>;
   handleWorkerReply(input: { phone: string; intent: ReplyIntent; text: string }): Promise<void>;
   workerEarnings(token: string): Promise<WorkerEarnings>;
+  /** token: the worker's "e:" token, the /me page's code (ADR-028). Throws unauthorized. */
+  workerSetup(token: string): Promise<WorkerSetup>;
+  /** token: as workerSetup. Mints a location code; returns the app install link carrying it. Throws unauthorized. */
+  workerInstallLink(token: string): Promise<{ install_url: string }>;
   getOffer(token: string): Promise<OfferView>;
   submitCapture(token: string, fields: CaptureFields, photo: PhotoUpload | null): Promise<CaptureResult>;
   /** token: a 30-minute HERE token or the worker's long-lived location token. Throws unauthorized, invalid_input or rate_limited. */

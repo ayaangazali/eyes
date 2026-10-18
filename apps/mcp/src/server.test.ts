@@ -21,6 +21,7 @@ import {
   type ToolOutput,
   verifyToken,
   WorkerLocationInput,
+  type WorkerSetup,
 } from "@eyes/core";
 import type { Rpc } from "@eyes/db";
 import { PAGE_HEADERS } from "@eyes/payments";
@@ -330,6 +331,89 @@ describe("auth", () => {
     expect((await quote()).status).toBe(401);
     expect((await quote()).status).toBe(200);
     expect(signupAgent).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("worker setup page (ADR-028)", () => {
+  const SETUP: WorkerSetup = {
+    opted_in: true,
+    spot: { at: "2026-10-17T18:00:00.000Z", fresh: true, max_age_h: 24 },
+    app: { last_at: "2026-10-17T18:00:00.000Z", sending: true },
+    payouts: { set_up: false, live: true, setup_url: "http://api.eyes.test/w/connect/c" },
+    here_url: "http://worker.eyes.test/here.html?t=l",
+    earnings_url: "http://api.eyes.test/w/earnings/e",
+    tasks: [
+      {
+        question: "Is it open?",
+        place_label: "Dolores Park",
+        status: "verified",
+        bounty_usd: 3,
+        payout: "waiting_for_payout_setup",
+        claimed_at: "2026-10-17T18:30:00.000Z",
+      },
+    ],
+  };
+  const REFUSED = {
+    error: "unauthorized",
+    message: "This link is invalid or has expired.",
+    fix: "Text HELP to the Eyes number for a fresh link.",
+  };
+  // The engine stand-in accepts only the code "good" and records which method saw which code.
+  function me() {
+    const seen: string[] = [];
+    const check = (method: string, token: string) => {
+      seen.push(`${method} ${token}`);
+      if (token !== "good") throw new EyesError("unauthorized", {}, REFUSED);
+    };
+    const ctx = setup({
+      workerSetup: async (token) => {
+        check("setup", token);
+        return SETUP;
+      },
+      workerInstallLink: async (token) => {
+        check("install", token);
+        return { install_url: "http://worker.eyes.test/install#c=code" };
+      },
+    });
+    return { ...ctx, seen };
+  }
+
+  it("GET /w/me returns the setup for the bearer code, uncached and readable from the worker web", async () => {
+    const { fetch, seen } = me();
+    const res = await fetch("http://eyes.test/w/me", {
+      headers: { authorization: "Bearer good", origin: "http://worker.eyes.test" },
+    });
+    expect([res.status, await res.json(), seen]).toEqual([200, SETUP, ["setup good"]]);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+    expect(res.headers.get("access-control-allow-origin")).toBe("http://worker.eyes.test");
+  });
+
+  it.each([
+    ["no header", "/w/me", {}, "setup "],
+    ["a bad code", "/w/me", { authorization: "Bearer bad" }, "setup bad"],
+    ["a code in the query only", "/w/me?c=good&token=good", {}, "setup "],
+  ])("GET /w/me answers 401 for %s, uncached", async (_, path, headers, call) => {
+    const { fetch, seen } = me();
+    const res = await fetch(`http://eyes.test${path}`, { headers });
+    expect([res.status, await res.json(), seen]).toEqual([401, REFUSED, [call]]);
+    expect(res.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("POST /w/me/install returns the install link for the bearer code; GET never mints one", async () => {
+    const { fetch, seen } = me();
+    const install = (method: string, headers: Record<string, string> = { authorization: "Bearer good" }) =>
+      fetch("http://eyes.test/w/me/install", { method, headers });
+    const res = await install("POST");
+    expect([res.status, await res.json(), res.headers.get("cache-control")]).toEqual([
+      200,
+      { install_url: "http://worker.eyes.test/install#c=code" },
+      "no-store",
+    ]);
+    const refused = await install("POST", {});
+    expect([refused.status, await refused.json()]).toEqual([401, REFUSED]);
+    expect((await install("GET")).status).toBe(404);
+    await fetch("http://eyes.test/w/me", { headers: { authorization: "Bearer good" } });
+    expect(seen).toEqual(["install good", "install ", "setup good"]);
   });
 });
 

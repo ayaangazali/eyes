@@ -862,6 +862,22 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     if (!code) throw new EyesError("unauthorized");
     return c.json(await service.workerDevice(code));
   });
+  // The setup page (ADR-028): its code is the worker's "e:" token, read only from the header. A missing
+  // header reaches the engine as "", which refuses it like a bad code. Only POST mints a location code.
+  server.get("/w/me", async (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json(
+      await service.workerSetup(/^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1] ?? ""),
+    );
+  });
+  server.post("/w/me/install", async (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json(
+      await service.workerInstallLink(
+        /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1] ?? "",
+      ),
+    );
+  });
   server.get("/w/device/profile/:ticket", (c) => {
     const ticket = c.req.param("ticket");
     if (!verifyToken(config.link_secret, ticket, deps.providers.clock.now())?.startsWith("d:"))

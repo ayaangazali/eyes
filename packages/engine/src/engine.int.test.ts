@@ -22,6 +22,7 @@ import {
   TOOLS,
   type VerificationResult,
   WorkerEarnings,
+  WorkerSetup,
 } from "@eyes/core";
 import { migrate } from "@eyes/db";
 import postgres from "postgres";
@@ -79,15 +80,18 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
   const newPhone = () => `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
 
+  // START now ends with the setup link, so a token runs to the next space.
   const connectToken = (phone: string) =>
-    String(
-      outbox.findLast((m) => m.to === phone && String(m.payload).includes("/w/connect/"))?.payload,
-    ).split("/w/connect/")[1] ?? "";
+    /\/w\/connect\/(\S+)/.exec(
+      String(outbox.findLast((m) => m.to === phone && String(m.payload).includes("/w/connect/"))?.payload),
+    )?.[1] ?? "";
 
   const earningsToken = (url: unknown) => String(url).split("/w/earnings/")[1] ?? "";
+  // START and HELP link the setup page (ADR-028); its code is the same "e:" token as the earnings link.
+  const meToken = (text: unknown) => /\/me#c=(\S+)/.exec(String(text))?.[1] ?? "";
   async function helpEarnings(phone: string) {
     await service.handleWorkerReply({ phone, intent: "help", text: "HELP" });
-    return earningsToken(outbox.findLast((m) => m.to === phone)?.payload);
+    return meToken(outbox.findLast((m) => m.to === phone)?.payload);
   }
 
   async function worker(at: LatLng, optIn = true) {
@@ -260,26 +264,162 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await service.handleWorkerReply({ phone, intent: "start", text: "START" });
     // STOP reset the app link (it deleted every code), so START also texts a fresh one.
     expect(sent().slice(before + 1)).toEqual([
-      expect.stringMatching(/^You are in\. .*\/w\/connect\//),
+      // STOP also cleared the spot, so the welcome carries the HERE link before the setup link.
+      expect.stringMatching(
+        /^You are in\. .*\/w\/connect\/.*\/here\.html\?t=\S+ Your setup: https:\/\/w\.eyes\.test\/me#c=[\w-]+\.[\w-]+$/,
+      ),
       expect.stringMatching(/^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=/),
     ]);
   });
 
-  it("HELP says what Eyes is, how to opt out, where to read more and links the worker's earnings", async () => {
+  it("HELP says what Eyes is, how to opt out, where to read more and links the worker's setup page", async () => {
     const { phone } = await worker(somewhere());
     await service.handleWorkerReply({ phone, intent: "help", text: "HELP" });
     const help = String(outbox.findLast((m) => m.to === phone)?.payload);
-    const [text, url] = help.split(" Your earnings: ");
+    const [text, url] = help.split(" Your setup: ");
     expect(text).toBe(
       "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, TASK for your task link, APP for your Eyes app link, INSTALL for the iPhone app, STOP to opt out. More: https://w.eyes.test",
     );
-    expect(url).toMatch(/^https:\/\/api\.eyes\.test\/w\/earnings\/[\w-]+\.[\w-]+$/);
-    expect(await service.workerEarnings(earningsToken(url))).toEqual({
-      paid_usd: 0,
-      pending_usd: 0,
-      tasks: [],
-    });
+    expect(url).toMatch(/^https:\/\/w\.eyes\.test\/me#c=[\w-]+\.[\w-]+$/);
+    expect(await service.workerSetup(meToken(url))).toMatchObject({ opted_in: true, tasks: [] });
     expect(help.length).toBeLessThanOrEqual(1600);
+  });
+
+  describe("worker setup page (ADR-028)", () => {
+    const setupToken = (phone: string) =>
+      meToken(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You are in."))?.payload);
+    const fixToken = (workerId: string) =>
+      signToken(deps.config.link_secret, `l:${workerId}`, new Date(providers.clock.now().getTime() + 60_000));
+    const refused = {
+      code: "unauthorized",
+      message: "This link is invalid or has expired.",
+      fix: "Text HELP to the Eyes number for a fresh link.",
+    };
+
+    it("shows the spot's age, whether the app sends it, payout setup and the 5 newest tasks", async () => {
+      const at = somewhere();
+      const agents = [await agent(), await agent()];
+      const w = await worker(north(at, 50));
+      const token = setupToken(w.phone);
+      const [joined] = await sql<
+        { created_at: Date }[]
+      >`select created_at from workers where id = ${w.worker_id}`;
+      expect(WorkerSetup.parse(await service.workerSetup(token))).toEqual({
+        opted_in: true,
+        spot: { at: joined?.created_at.toISOString(), fresh: true, max_age_h: 24 },
+        app: { last_at: null, sending: false },
+        payouts: {
+          set_up: false,
+          live: true,
+          setup_url: expect.stringMatching(/^https:\/\/api\.eyes\.test\/w\/connect\/[\w-]+\.[\w-]+$/),
+        },
+        here_url: expect.stringMatching(/^https:\/\/w\.eyes\.test\/here\.html\?t=[\w-]+\.[\w-]+$/),
+        earnings_url: expect.stringMatching(/^https:\/\/api\.eyes\.test\/w\/earnings\/[\w-]+\.[\w-]+$/),
+        tasks: [],
+      });
+
+      // Six claims from two agents (each stays within its $20 grant); the page lists the 5 newest.
+      const questions: string[] = [];
+      for (let i = 1; i <= 6; i++) {
+        const question = `Is the line longer than ${i} people?`;
+        await ask(agents[i % 2] as Agent, at, { question });
+        await reply(w.phone);
+        const link = outbox.findLast((m) => m.to === w.phone && m.kind === "capture_link");
+        await capture(new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "", at);
+        questions.unshift(question);
+        providers.clock.advance(1000);
+      }
+      const rows = (payout: string) =>
+        questions.slice(0, 5).map((question) => ({
+          question,
+          place_label: expect.any(String),
+          status: "verified",
+          bounty_usd: 3,
+          payout,
+          claimed_at: expect.any(String),
+        }));
+      expect(WorkerSetup.parse(await service.workerSetup(token)).tasks).toEqual(
+        rows("waiting_for_payout_setup"),
+      );
+      await service.workerConnectUrl(connectToken(w.phone));
+      expect(await service.workerSetup(token)).toMatchObject({
+        payouts: { set_up: true, live: true, setup_url: null },
+        tasks: rows("pending"),
+      });
+
+      const start = providers.clock.now();
+      try {
+        providers.clock.advance(31_000); // past the capture's fix and the 30 s fix interval
+        await service.updateWorkerLocation(fixToken(w.worker_id), { ...north(at, 60), source: "app" });
+        const appAt = providers.clock.now().toISOString();
+        expect(await service.workerSetup(token)).toMatchObject({
+          spot: { at: appAt, fresh: true },
+          app: { last_at: appAt, sending: true },
+        });
+        providers.clock.advance(24 * 3_600_000 + 1000);
+        expect(await service.workerSetup(token)).toMatchObject({
+          spot: { at: appAt, fresh: false },
+          app: { last_at: appAt, sending: false },
+        });
+        await service.updateWorkerLocation(fixToken(w.worker_id), { ...north(at, 50), source: "here_link" });
+        expect(await service.workerSetup(token)).toMatchObject({
+          spot: { at: providers.clock.now().toISOString(), fresh: true },
+          app: { last_at: null, sending: false },
+        });
+      } finally {
+        providers.clock.set(start);
+      }
+    });
+
+    it("refuses a missing, garbage, tampered, wrong-kind or expired code and an unknown worker", async () => {
+      const w = await worker(somewhere());
+      const token = setupToken(w.phone);
+      const secret = deps.config.link_secret;
+      for (const bad of [
+        "",
+        "garbage",
+        `${token}x`,
+        signToken(secret, `l:${w.worker_id}`),
+        signToken(secret, `e:${randomUUID()}`),
+      ]) {
+        await expect(service.workerSetup(bad)).rejects.toMatchObject(refused);
+        await expect(service.workerInstallLink(bad)).rejects.toMatchObject(refused);
+      }
+      const issued = providers.clock.now();
+      try {
+        providers.clock.advance(7 * 24 * 3_600_000 + 1000);
+        await expect(service.workerSetup(token)).rejects.toMatchObject(refused);
+      } finally {
+        providers.clock.set(issued);
+      }
+    });
+
+    it("install mints a working location code, as the /app link with TestFlight, never for an opted-out worker", async () => {
+      const w = await worker(somewhere());
+      const token = setupToken(w.phone);
+      const { install_url } = await service.workerInstallLink(token);
+      expect(install_url).toMatch(/^https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/);
+      await expect(service.workerDevice(install_url.split("#c=")[1] ?? "")).resolves.toMatchObject({
+        registered: false,
+      });
+      const withLink = createEyesService({
+        ...deps,
+        config: AppConfig.parse({
+          ...deps.config,
+          testflight_url: "https://testflight.apple.com/join/TESTLINK1",
+        }),
+      });
+      expect((await withLink.workerInstallLink(token)).install_url).toMatch(
+        /^https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
+      );
+      await service.handleWorkerReply({ phone: w.phone, intent: "stop", text: "STOP" });
+      await expect(service.workerInstallLink(token)).rejects.toMatchObject(refused);
+      expect(await service.workerSetup(token)).toMatchObject({
+        opted_in: false,
+        spot: { at: null, fresh: false },
+        app: { last_at: null, sending: false },
+      });
+    });
   });
 
   it("INSTALL without TestFlight texts the /install link with a fresh app code; APP adds it as a second line", async () => {
@@ -774,7 +914,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
     );
     await sim.handleWorkerReply({ phone, intent: "start", text: "START" });
     const texts = outbox.filter((m) => m.to === phone && m.kind === "text").map((m) => m.payload);
-    expect(texts.at(-2)).toBe(`You are in. Eyes will text you paid tasks nearby. ${simulated}`);
+    const [welcome, setup] = String(texts.at(-2)).split(" Your setup: ");
+    expect(welcome).toBe(`You are in. Eyes will text you paid tasks nearby. ${simulated}`);
+    expect(await sim.workerSetup(meToken(setup))).toMatchObject({
+      payouts: { set_up: false, live: false, setup_url: null },
+    });
     expect(String(texts.at(-1))).toMatch(/^Get the Eyes app so tasks find you: /);
     await sim.handleWorkerReply({ phone, intent: "help", text: "HELP" });
     expect(String(last("text"))).toContain(`STOP to opt out. ${simulated} More: `);
@@ -1258,7 +1402,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       for (const { w, task_id } of [verified, old]) {
         await service.handleWorkerReply({ phone: w.phone, intent: "help", text: "HELP" });
         expect(String(outbox.findLast((m) => m.to === w.phone)?.payload)).toMatch(
-          /^Eyes texts you paid tasks to check public places nearby\. .* Your earnings: /,
+          /^Eyes texts you paid tasks to check public places nearby\. .* Your setup: /,
         );
         await service.handleWorkerReply({ phone: w.phone, intent: "unknown", text: "hello?" });
         expect(outbox.findLast((m) => m.to === w.phone)?.payload).toBe(
