@@ -1446,6 +1446,117 @@ describe("OAuth for connectors", () => {
       404,
     );
   });
+
+  it("validates registration bodies: bad JSON, non-string or unparsable URIs, hash, loopback, default name", async () => {
+    const { fetch } = setup({}, { EYES_OAUTH_SECRET: OAUTH_SECRET });
+    // mcp-use answers malformed application/json itself; text/plain bodies reach the route, whose
+    // c.req.json() parses regardless of content type, so the catch for bad JSON is exercised.
+    for (const body of [
+      "{not json",
+      ...[
+        [],
+        [123],
+        ["not a url"],
+        [`https://a.example/${"x".repeat(2000)}`],
+        ["https://a.example/cb#f"],
+      ].map((redirect_uris) => JSON.stringify({ redirect_uris })),
+    ]) {
+      const res = await fetch("http://eyes.test/oauth/register", { method: "POST", body });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ error: "invalid_redirect_uri" });
+    }
+    const loop = await fetch("http://eyes.test/oauth/register", {
+      method: "POST",
+      body: JSON.stringify({ redirect_uris: ["http://127.0.0.1:3000/cb"], client_name: 7 }),
+    });
+    expect(loop.status).toBe(201);
+    expect(await loop.json()).toMatchObject({
+      client_name: "MCP client",
+      redirect_uris: ["http://127.0.0.1:3000/cb"],
+    });
+  });
+
+  it("refuses authorize without a client, with a code as client_id, or without S256 PKCE", async () => {
+    const { submit, params, fetch } = await begin();
+    const code = new URL(
+      (await submit({ action: "key", api_key: KEY })).headers.get("location") ?? "",
+    ).searchParams.get("code") as string;
+    const { client_id: _, ...noClient } = params;
+    const { code_challenge: __, ...noChallenge } = params;
+    const refused: [Record<string, string>, string][] = [
+      [noClient, "This app is not registered with Eyes"],
+      [{ ...params, client_id: code }, "This app is not registered with Eyes"],
+      [{ ...params, code_challenge_method: "plain" }, "PKCE (S256)"],
+      [noChallenge, "PKCE (S256)"],
+    ];
+    for (const [q, message] of refused) {
+      const res = await fetch(`http://eyes.test/oauth/authorize?${new URLSearchParams(q)}`);
+      expect(res.status).toBe(400);
+      expect(await res.text()).toContain(message);
+    }
+    const post = await submit({ action: "key", api_key: KEY, client_id: "nope" });
+    expect(post.status).toBe(400);
+    expect(await post.text()).toContain("Can't connect");
+  });
+
+  it("omits state when absent and treats a missing api_key as invalid", async () => {
+    const { submit } = await begin();
+    const back = new URL(
+      (await submit({ action: "key", api_key: KEY, state: "" })).headers.get("location") ?? "",
+    );
+    expect(back.searchParams.has("state")).toBe(false);
+    expect(back.searchParams.get("code")).toBeTruthy();
+    const missing = await submit({ action: "key" });
+    expect(missing.status).toBe(400);
+    expect(await missing.text()).toContain("That key is not valid");
+  });
+
+  it("shows the signup error message, or a generic one when the failure has no body", async () => {
+    const withMessage = await begin({
+      signupAgent: async () => {
+        throw Object.assign(new Error("x"), { toBody: () => ({ message: "Signups are paused." }) });
+      },
+    });
+    const paused = await withMessage.submit({ action: "create" });
+    expect(paused.status).toBe(400);
+    expect(await paused.text()).toContain("Signups are paused.");
+    const plain = await begin({
+      signupAgent: async () => {
+        throw new Error("db down");
+      },
+    });
+    const generic = await plain.submit({ action: "create" });
+    expect(generic.status).toBe(400);
+    const text = await generic.text();
+    expect(text).toContain("Could not create a key. Try again later.");
+    expect(text).not.toContain("db down");
+  });
+
+  it("rejects other grant types and a missing code_verifier at the token endpoint", async () => {
+    const { submit, token, fetch, client_id } = await begin();
+    const code = new URL(
+      (await submit({ action: "key", api_key: KEY })).headers.get("location") ?? "",
+    ).searchParams.get("code") as string;
+    const refresh = await token({ code, grant_type: "refresh_token" });
+    expect(refresh.status).toBe(400);
+    expect(await refresh.json()).toMatchObject({ error: "unsupported_grant_type" });
+    const noVerifier = await fetch("http://eyes.test/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        client_id,
+        redirect_uri: REDIRECT,
+      }),
+    });
+    expect(noVerifier.status).toBe(400);
+    expect(await noVerifier.json()).toMatchObject({
+      error: "invalid_grant",
+      error_description: "code_verifier does not match the code_challenge.",
+    });
+    expect((await token({ code })).status).toBe(200);
+  });
 });
 
 describe("ops data routes", () => {
