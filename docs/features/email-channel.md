@@ -9,8 +9,8 @@ Workers can add one optional email address. Eyes uses it to send task offers, ca
 - After START, text EMAIL to Eyes in your existing iMessage thread. Eyes replies with a one-time link, valid for 24 hours, to send your first email. An authenticated message carrying that code connects its sender's email address.
 - An email entered at join stays pending until your phone texts START. For that separate flow, Eyes sends a one-time verification link valid for 24 hours. A join-form email is dropped if START comes more than 24 hours after joining.
 - Email replies YES, STOP and HELP work the same as texts.
-- Eyes emails come from `work@glad-marsh.primitive.email`. Reply to that address.
-- STOP by text or email deletes your email. Removing your account does too.
+- Worker email uses `work@<PRIMITIVE_DOMAIN>` as its reply address, from the configured Primitive domain. Reply to the address supplied in the message.
+- STOP pauses task offers, clears the stored location and revokes location codes. Known implementation gap: SMS STOP does not delete the saved email address. To remove it, text EMAIL OFF or use **Remove** on `/me`.
 
 ## How to try it
 
