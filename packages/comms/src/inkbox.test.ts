@@ -704,6 +704,8 @@ describe("parseReplyIntent", () => {
     ["SHORTCUT", "shortcut"],
     ["AUTO", "shortcut"],
     ["Automation", "shortcut"],
+    ["APP", "app"],
+    ["app", "app"],
     ["here?", "unknown"],
   ])("%j -> %s", (text, intent) => {
     expect(parseReplyIntent(text)).toBe(intent);

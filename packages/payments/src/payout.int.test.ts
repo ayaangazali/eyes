@@ -119,7 +119,9 @@ describe.skipIf(!url)("a payout whose first try Stripe runs late while a retry i
       const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
       await service.joinWorker({ name: "Worker", phone, lat: at.lat + 0.0005, lng: at.lng });
       await service.handleWorkerReply({ phone, intent: "start", text: "START" });
-      const start = String(outbox.findLast((m) => m.to === phone && m.kind === "text")?.payload);
+      const start = String(
+        outbox.findLast((m) => m.to === phone && String(m.payload).includes("/w/connect/"))?.payload,
+      );
       await service.workerConnectUrl(start.split("/w/connect/")[1] ?? "");
       const account = stripe.accounts.at(-1) ?? "";
       const agent = (await service.authenticate(

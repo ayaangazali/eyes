@@ -82,6 +82,7 @@ const POLL_MS = 1000;
 const WORKER_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 const PAYOUT_BATCH = 25;
 const HERE_LINK_MS = 30 * 60 * 1000;
+const HOUR_MS = 3_600_000;
 const PING_MAX = 5;
 const PING_WAIT_MS = 30_000;
 const PING_IN_INPUT = /Eyes ping ([0-9a-f]{8})/i;
@@ -125,7 +126,7 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
 const REPLY_TEXT: Record<"no" | "released" | "help" | "unknown", string> = {
   no: "No problem, we will text you the next task nearby.",
   released: "Got it, the task is released. Thanks.",
-  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out.",
+  help: "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, STOP to opt out.",
   unknown: "Sorry, we did not get that. Reply YES to claim the task, NO to skip it, or HELP for help.",
 };
 const SIMULATED_PAY = "This is a test server and payouts are simulated, so no real money is paid.";
@@ -204,6 +205,18 @@ export function createEyesService(deps: EngineDeps): EyesService {
   const hereUrl = (workerId: string) =>
     `${config.worker_web_url}/here.html?t=${signToken(config.link_secret, `l:${workerId}`, new Date(now().getTime() + HERE_LINK_MS))}`;
   const maxAge = `${config.location_max_age_h} hours`;
+  // A location code for one device: adds a code, the 5 newest work (the RPC name is from when it
+  // replaced the one code). Returns the code so it can be texted once; only its hash is stored.
+  const mintLocationCode = async (workerId: string) => {
+    const code = randomBytes(32).toString("base64url");
+    await one("eyes_rotate_location_token", { p_worker_id: workerId, p_token_hash: sha256(code) });
+    return code;
+  };
+  // The code rides in the URL fragment, so no server (ours or a CDN) ever logs it.
+  const appText = (code: string) =>
+    `Get the Eyes app so tasks find you: ${config.worker_web_url}/app#c=${code}`;
+  // ponytail: in memory (one server instance); a restart allows one extra code on the next START.
+  const appLinkSentAt = new Map<string, number>();
 
   const newApiKey = () =>
     `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
@@ -926,9 +939,15 @@ export function createEyesService(deps: EngineDeps): EyesService {
             phone,
             `You are in. Eyes will text you paid tasks nearby. ${config.live_payouts ? `Set up payouts here: ${connectUrl(worker.id)}` : SIMULATED_PAY}${stale ? ` Tap to update your spot so we offer you tasks near where you are: ${hereUrl(worker.id)}` : ""}`,
           );
+          // START again within the hour (a retry, a double tap) reuses the link already sent.
+          const last = appLinkSentAt.get(worker.id);
+          if (last !== undefined && now().getTime() - last < HOUR_MS) return;
+          appLinkSentAt.set(worker.id, now().getTime());
+          await messaging.sendText(phone, appText(await mintLocationCode(worker.id)));
         },
         stop: async () => {
           await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false });
+          appLinkSentAt.delete(worker.id); // STOP deleted every code, so the next START sends a fresh one
           await messaging.sendText(
             phone,
             "Eyes: you're opted out and won't get task texts. Text START to rejoin.",
@@ -963,10 +982,12 @@ export function createEyesService(deps: EngineDeps): EyesService {
             phone,
             `Thanks! iMessage locations don't reach us, so tap this to update your spot: ${hereUrl(worker.id)}`,
           ),
+        app: async () => {
+          appLinkSentAt.set(worker.id, now().getTime());
+          await messaging.sendText(phone, appText(await mintLocationCode(worker.id)));
+        },
         shortcut: async () => {
-          const code = randomBytes(32).toString("base64url");
-          // Adds a code (one per device); the 5 newest work. The RPC name is from when it replaced the one code.
-          await one("eyes_rotate_location_token", { p_worker_id: worker.id, p_token_hash: sha256(code) });
+          const code = await mintLocationCode(worker.id);
           await messaging.sendText(
             phone,
             `Eyes: your location code is in the next text. Set up automatic location with these steps and paste the code where they say: ${config.worker_web_url}/automation.html Use one code per device; your earlier codes keep working (the 5 newest do). Text STOP to delete your location and turn all codes off.`,

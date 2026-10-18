@@ -120,6 +120,7 @@ const INTENTS: Record<string, ReplyIntent> = {
   shortcut: "shortcut",
   auto: "shortcut",
   automation: "shortcut",
+  app: "app",
 };
 
 export function parseReplyIntent(text: string): ReplyIntent {

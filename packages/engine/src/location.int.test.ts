@@ -57,6 +57,8 @@ describe.skipIf(!url)("worker location on Postgres", () => {
   const lastText = (phone: string) => String(outbox.findLast((m) => m.to === phone)?.payload);
   const hereToken = (text: string) =>
     new URL(/https:\S+/.exec(text)?.[0] ?? "x:").searchParams.get("t") ?? "";
+  const welcome = (phone: string) =>
+    String(outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You are in."))?.payload);
   const row = async (phone: string) => (await sql`select * from workers where phone = ${phone}`)[0];
 
   async function worker(at: LatLng) {
@@ -67,7 +69,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
   }
   const say = (
     phone: string,
-    intent: "here" | "shortcut" | "location_share" | "stop" | "start" | "unknown",
+    intent: "here" | "shortcut" | "app" | "location_share" | "stop" | "start" | "unknown",
     text = "",
   ) => service.handleWorkerReply({ phone, intent, text });
   const code = async (err: Promise<unknown>) => ((await err.catch((e) => e)) as EyesError).code;
@@ -166,7 +168,48 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     for (const c of codes.slice(1))
       expect(await code(service.updateWorkerLocation(c, fix))).toBe("unauthorized");
     await say(w.phone, "start", "START");
-    expect(lastText(w.phone)).toContain("/here.html?t=");
+    const after = outbox.filter((m) => m.to === w.phone).map((m) => String(m.payload));
+    expect(after.at(-2)).toContain("/here.html?t=");
+    // STOP deleted every code, so this START sends a fresh app link even within the hour.
+    expect(after.at(-1)).toMatch(
+      /^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=[\w-]{43}$/,
+    );
+  });
+
+  it("START texts the app link with a fresh code in the fragment, once per hour; APP always mints", async () => {
+    const appCode = (text: string) => /\/app#c=([\w-]{43})$/.exec(text)?.[1] ?? "";
+    const w = await worker(somewhere());
+    const first = appCode(lastText(w.phone));
+    expect(first).not.toBe("");
+    expect(lastText(w.phone)).not.toContain("?");
+    // The code in the link works as a location code.
+    await service.updateWorkerLocation(first, { lat: 37.7, lng: -122.4, source: "app" });
+    expect(await row(w.phone)).toMatchObject({ lat: 37.7, location_source: "app" });
+    const sent = () => outbox.filter((m) => m.to === w.phone).length;
+    const codes = async () =>
+      (await sql`select count(*)::int as n from worker_location_tokens where worker_id = ${w.id}`)[0]?.n;
+    expect(await codes()).toBe(1);
+
+    // START again within the hour: the welcome text only, no new code.
+    const before = sent();
+    await say(w.phone, "start", "START");
+    expect(sent()).toBe(before + 1);
+    expect(lastText(w.phone)).toContain("You are in.");
+    expect(await codes()).toBe(1);
+
+    // APP mints even within the hour, as one text.
+    await say(w.phone, "app", "APP");
+    const second = appCode(lastText(w.phone));
+    expect(second).not.toBe("");
+    expect(second).not.toBe(first);
+    expect(sent()).toBe(before + 2);
+    expect(await codes()).toBe(2);
+
+    // An hour after the last link, START sends a new one.
+    providers.clock.advance(61 * 60_000);
+    await say(w.phone, "start", "START");
+    expect(appCode(lastText(w.phone))).not.toBe("");
+    expect(await codes()).toBe(3);
   });
 
   it("finds the worker by any stored code hash and records when it was last used", async () => {
@@ -175,7 +218,8 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     await sql`insert into worker_location_tokens (token_hash, worker_id)
       values (encode(sha256(${legacy}::bytea), 'hex'), ${w.id})`;
     await service.updateWorkerLocation(legacy, { lat: 37.7, lng: -122.4, source: "shortcut" });
-    const [t] = await sql`select last_used_at from worker_location_tokens where worker_id = ${w.id}`;
+    const [t] = await sql`select last_used_at from worker_location_tokens
+      where token_hash = encode(sha256(${legacy}::bytea), 'hex')`;
     expect(t?.last_used_at).not.toBeNull();
   });
 
@@ -223,15 +267,15 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     const w = await worker(north(at, 100));
     providers.clock.advance(25 * HOUR);
     await say(w.phone, "start", "START");
-    expect(lastText(w.phone)).toContain("/here.html?t=");
+    expect(welcome(w.phone)).toContain("/here.html?t=");
     expect(await code(ask(service, a, at))).toBe("no_workers_nearby");
-    await service.updateWorkerLocation(hereToken(lastText(w.phone)), {
+    await service.updateWorkerLocation(hereToken(welcome(w.phone)), {
       ...north(at, 50),
       source: "here_link",
     });
     expect(await ask(service, a, at)).toMatchObject({ workers_notified: 1 });
     await say(w.phone, "start", "START");
-    expect(lastText(w.phone)).not.toContain("/here.html");
+    expect(welcome(w.phone)).not.toContain("/here.html");
   });
 
   it("a submitted capture updates the worker's fix", async () => {

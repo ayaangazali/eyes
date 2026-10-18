@@ -79,8 +79,9 @@ describe.skipIf(!url)("engine on Postgres", () => {
   const newPhone = () => `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
 
   const connectToken = (phone: string) =>
-    String(outbox.findLast((m) => m.to === phone && m.kind === "text")?.payload).split("/w/connect/")[1] ??
-    "";
+    String(
+      outbox.findLast((m) => m.to === phone && String(m.payload).includes("/w/connect/"))?.payload,
+    ).split("/w/connect/")[1] ?? "";
 
   const earningsToken = (url: unknown) => String(url).split("/w/earnings/")[1] ?? "";
   async function helpEarnings(phone: string) {
@@ -256,7 +257,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(after).toEqual(["Eyes: you're opted out and won't get task texts. Text START to rejoin."]);
     expect(String(after[0]).length).toBeLessThanOrEqual(159);
     await service.handleWorkerReply({ phone, intent: "start", text: "START" });
-    expect(sent().slice(before + 1)).toEqual([expect.stringMatching(/^You are in\. .*\/w\/connect\//)]);
+    // STOP reset the app link (it deleted every code), so START also texts a fresh one.
+    expect(sent().slice(before + 1)).toEqual([
+      expect.stringMatching(/^You are in\. .*\/w\/connect\//),
+      expect.stringMatching(/^Get the Eyes app so tasks find you: https:\/\/w\.eyes\.test\/app#c=/),
+    ]);
   });
 
   it("HELP says what Eyes is, how to opt out, where to read more and links the worker's earnings", async () => {
@@ -265,7 +270,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const help = String(outbox.findLast((m) => m.to === phone)?.payload);
     const [text, url] = help.split(" Your earnings: ");
     expect(text).toBe(
-      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, STOP to opt out. More: https://w.eyes.test",
+      "Eyes texts you paid tasks to check public places nearby. Reply YES to claim a task, APP for your Eyes app link, STOP to opt out. More: https://w.eyes.test",
     );
     expect(url).toMatch(/^https:\/\/api\.eyes\.test\/w\/earnings\/[\w-]+\.[\w-]+$/);
     expect(await service.workerEarnings(earningsToken(url))).toEqual({
@@ -669,7 +674,9 @@ describe.skipIf(!url)("engine on Postgres", () => {
       `Text START to the Eyes number to start getting paid tasks near you. When a task text arrives, reply YES to claim it. Text STOP any time to pause. ${simulated}`,
     );
     await sim.handleWorkerReply({ phone, intent: "start", text: "START" });
-    expect(last("text")).toBe(`You are in. Eyes will text you paid tasks nearby. ${simulated}`);
+    const texts = outbox.filter((m) => m.to === phone && m.kind === "text").map((m) => m.payload);
+    expect(texts.at(-2)).toBe(`You are in. Eyes will text you paid tasks nearby. ${simulated}`);
+    expect(String(texts.at(-1))).toMatch(/^Get the Eyes app so tasks find you: /);
     await sim.handleWorkerReply({ phone, intent: "help", text: "HELP" });
     expect(String(last("text"))).toContain(`STOP to opt out. ${simulated} More: `);
 

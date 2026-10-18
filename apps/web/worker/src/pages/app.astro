@@ -1,0 +1,45 @@
+---
+import Icon from "../components/Icon.astro";
+import Layout from "../layouts/Layout.astro";
+---
+
+<Layout
+  title="Open the Eyes app"
+  ogTitle="Eyes: open the app"
+  description="Connect the Eyes app so paid tasks near you find you."
+  noindex
+>
+  <h1 class="ui-h1">Open the Eyes app</h1>
+  <p class="ui-text-secondary">
+    The app tells Eyes roughly where you are, so paid tasks near you find you. One tap connects it to your number.
+  </p>
+
+  <div id="ready" hidden>
+    <a id="open" class="ui-button ui-button--primary ui-button--block" href="eyes://connect">
+      <Icon name="expand" /> Open in the Eyes app
+    </a>
+    <p class="ui-field__hint" style="margin-top:.75rem">Don't have the app yet? Ask the Eyes team for an invite (TestFlight coming).</p>
+  </div>
+
+  <p id="missing" class="ui-notice" hidden>
+    <Icon name="message" /> This link has no code. Text APP to the Eyes number for a new link.
+  </p>
+</Layout>
+
+<script>
+  // The code arrives in the URL fragment (#c=...), which browsers never send to a server. Read it,
+  // hand it only to the app, and clear it from the address bar so a shared screenshot or copied
+  // URL does not carry it.
+  const code = new URLSearchParams(location.hash.slice(1)).get("c") ?? "";
+  if (location.hash) history.replaceState(null, "", location.pathname + location.search);
+
+  if (/^[\w-]{20,200}$/.test(code)) {
+    const deep = `eyes://connect#c=${code}`;
+    (document.getElementById("open") as HTMLAnchorElement).href = deep;
+    (document.getElementById("ready") as HTMLElement).hidden = false;
+    // Opens the app at once when it is installed; after load, so the page is there to fall back on.
+    addEventListener("load", () => setTimeout(() => (location.href = deep), 300));
+  } else {
+    (document.getElementById("missing") as HTMLElement).hidden = false;
+  }
+</script>

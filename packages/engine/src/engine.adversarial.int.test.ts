@@ -68,6 +68,12 @@ describe.skipIf(!url)("engine under races and guards", () => {
   const north = (p: LatLng, m: number): LatLng => ({ lat: p.lat + m / 111_320, lng: p.lng });
   const lastText = (env: Env, phone: string) =>
     String(env.outbox.findLast((m) => m.to === phone && m.kind === "text")?.payload ?? "");
+  // START sends the welcome (with the payout link) and then the app link.
+  const welcomeText = (env: Env, phone: string) =>
+    String(
+      env.outbox.findLast((m) => m.to === phone && String(m.payload).startsWith("You are in."))?.payload ??
+        "",
+    );
 
   async function worker(at: LatLng, env: Env = main) {
     const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
@@ -78,7 +84,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
       ...joined,
       worker_id: String(row?.id),
       phone,
-      connectToken: lastText(env, phone).split("/w/connect/")[1] ?? "",
+      connectToken: welcomeText(env, phone).split("/w/connect/")[1] ?? "",
     };
   }
   async function agent(env: Env = main) {
@@ -715,7 +721,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
     }
     expect(outbox.slice(before).filter((m) => m.to === phone)).toEqual([]);
     await service.handleWorkerReply({ phone, intent: "start", text: "START" });
-    expect(lastText(main, phone)).toContain("/w/connect/");
+    expect(welcomeText(main, phone)).toContain("/w/connect/");
   });
 
   it("a capture at exactly deadline_at does not settle", async () => {

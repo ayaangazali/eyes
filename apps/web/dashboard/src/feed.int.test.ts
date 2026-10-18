@@ -125,9 +125,9 @@ describe.skipIf(!url)("eyes_dashboard_feed on Postgres", () => {
     const link = outbox.findLast((m) => m.kind === "capture_link" && m.payload.task_id === asked.task_id);
     const token = new URL(String(link?.payload.capture_url)).searchParams.get("t") ?? "";
     await service.workerConnectUrl(
-      String(outbox.findLast((m) => m.to === phones[0] && m.kind === "text")?.payload).split(
-        "/w/connect/",
-      )[1] ?? "",
+      String(
+        outbox.findLast((m) => m.to === phones[0] && String(m.payload).includes("/w/connect/"))?.payload,
+      ).split("/w/connect/")[1] ?? "",
     );
     await service.submitCapture(
       token,

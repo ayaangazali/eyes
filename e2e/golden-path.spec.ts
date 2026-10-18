@@ -142,9 +142,11 @@ test("an agent asks over MCP, a texted worker captures on site, the agent gets a
   for (const w of [...NEAR, FAR]) {
     await post("/w/join", w);
     await textEyes(w.phone, "START");
-    expect(String(sent(w.phone, "text").at(-1)?.payload)).toContain("You are in.");
+    // START sends the welcome, then the app link.
+    expect(String(sent(w.phone, "text").at(-2)?.payload)).toContain("You are in.");
+    expect(String(sent(w.phone, "text").at(-1)?.payload)).toContain("Get the Eyes app");
   }
-  const connectUrl = String(sent(PAYEE.phone, "text").at(-1)?.payload).match(/\S+\/w\/connect\/\S+/)?.[0];
+  const connectUrl = String(sent(PAYEE.phone, "text").at(-2)?.payload).match(/\S+\/w\/connect\/\S+/)?.[0];
   expect(connectUrl?.startsWith(`${API}/w/connect/`)).toBe(true);
   const connect = await fetch(connectUrl ?? "", { redirect: "manual" });
   expect(connect.status).toBe(302);
