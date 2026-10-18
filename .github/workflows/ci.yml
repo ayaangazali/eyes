@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,6 +19,33 @@ env:
   EYES_PROVIDERS: fake
 
 jobs:
+  # Pull requests diff against the base branch. Pushes to main, the nightly run, and manual runs run everything.
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+      changed: ${{ steps.scope.outputs.changed }}
+      coverage_mode: ${{ steps.scope.outputs.coverage_mode }}
+      coverage_include: ${{ steps.scope.outputs.coverage_include }}
+      e2e_worker: ${{ steps.scope.outputs.e2e_worker }}
+      e2e_golden: ${{ steps.scope.outputs.e2e_golden }}
+      web: ${{ steps.scope.outputs.web }}
+      reason: ${{ steps.scope.outputs.reason }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            node scripts/ci-scope.ts "$BASE"
+          else
+            node scripts/ci-scope.ts --full
+          fi
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -31,20 +61,40 @@ jobs:
       - run: pnpm typecheck
 
   unit:
+    needs: scope
+    if: needs.scope.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      - run: pnpm test
+      - name: unit tests (everything)
+        if: needs.scope.outputs.full == 'true'
+        run: pnpm test
+      - name: unit tests (affected by this PR)
+        if: needs.scope.outputs.full != 'true'
+        run: pnpm exec vitest run --project unit --passWithNoTests --changed origin/${{ github.base_ref }}
 
   contract:
+    needs: scope
+    if: needs.scope.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      - run: pnpm test:contract
+      - name: contract tests (everything)
+        if: needs.scope.outputs.full == 'true'
+        run: pnpm test:contract
+      - name: contract tests (affected by this PR)
+        if: needs.scope.outputs.full != 'true'
+        run: pnpm exec vitest run --project contract --passWithNoTests --changed origin/${{ github.base_ref }}
 
   integration:
+    needs: scope
+    if: needs.scope.outputs.changed == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -59,12 +109,22 @@ jobs:
       DATABASE_URL: postgres://postgres:eyes@127.0.0.1:5432/eyes
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: pnpm db:migrate
-      - run: pnpm test:integration
-      - run: pnpm ax:eval
+      - name: integration tests (everything)
+        if: needs.scope.outputs.full == 'true'
+        run: pnpm test:integration
+      - name: integration tests (affected by this PR)
+        if: needs.scope.outputs.full != 'true'
+        run: pnpm exec vitest run --project integration --passWithNoTests --changed origin/${{ github.base_ref }}
+      - name: ax evals
+        run: pnpm ax:eval
 
   coverage:
+    needs: scope
+    if: needs.scope.outputs.full == 'true' || needs.scope.outputs.coverage_mode == 'changed'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -79,11 +139,27 @@ jobs:
       DATABASE_URL: postgres://postgres:eyes@127.0.0.1:5432/eyes
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
       - run: pnpm db:migrate
-      - run: pnpm coverage:all
+      - name: coverage gate (everything)
+        if: needs.scope.outputs.full == 'true'
+        run: pnpm coverage:all
+      - name: coverage gate (changed source files only)
+        if: needs.scope.outputs.full != 'true'
+        env:
+          INCLUDE: ${{ needs.scope.outputs.coverage_include }}
+          BASE: origin/${{ github.base_ref }}
+        run: |
+          args=()
+          IFS=',' read -r -a files <<< "$INCLUDE"
+          for file in "${files[@]}"; do args+=("--coverage.include=$file"); done
+          COVERAGE_GATE=1 pnpm exec vitest run --coverage --project unit --project contract --project safety --project integration --changed "$BASE" "${args[@]}"
 
   e2e:
+    needs: scope
+    if: needs.scope.outputs.full == 'true' || needs.scope.outputs.e2e_worker == 'true' || needs.scope.outputs.e2e_golden == 'true'
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -105,14 +181,31 @@ jobs:
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
       - run: pnpm exec playwright install --with-deps chromium
       - run: pnpm db:migrate
-      - run: pnpm test:e2e
+      - name: e2e (everything)
+        if: needs.scope.outputs.full == 'true'
+        run: pnpm test:e2e
+      - name: e2e worker suite
+        if: needs.scope.outputs.full != 'true' && needs.scope.outputs.e2e_worker == 'true'
+        run: pnpm exec playwright test --project worker
+      - name: e2e golden-path suite
+        if: needs.scope.outputs.full != 'true' && needs.scope.outputs.e2e_golden == 'true'
+        run: pnpm exec playwright test --project golden
 
   safety-rules:
+    needs: scope
+    if: needs.scope.outputs.changed == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: ./.github/actions/setup
-      - run: pnpm test:safety
+      - name: safety rules (everything)
+        if: needs.scope.outputs.full == 'true'
+        run: pnpm test:safety
+      - name: safety rules (affected by this PR)
+        if: needs.scope.outputs.full != 'true'
+        run: pnpm exec vitest run --project safety --passWithNoTests --changed origin/${{ github.base_ref }}
 
   intent:
     runs-on: ubuntu-latest
@@ -136,6 +229,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   build:
+    needs: scope
+    if: needs.scope.outputs.full == 'true' || needs.scope.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
