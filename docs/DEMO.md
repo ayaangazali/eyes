@@ -8,23 +8,25 @@ Roles: **presenter** at the laptop; **cafe worker** standing at the cafe door wi
 
 Never show on screen: the API key, the agent's Eyes email address, the owner console link, a top-up link, the dashboard's address bar. Each one is a capability: whoever sees it can spend the balance, change the limits or watch where workers are. A leaked API key can be replaced from the owner console ([ADR-019](../intent/decisions/ADR-019-owner-key-rotation.md), see Fallbacks), but links cannot be revoked one by one yet ([#28](https://github.com/ayaangazali/eyes/issues/28)). Use a demo-only agent with a small balance.
 
+Current demo state: ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`; REST remains at `https://api.eyes.pictures`. Stripe is connected in test mode with $20 test credit, not real money. API/card-protocol checks pass; follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18, not unavailable for all users. Do not present the historical recording below as fresh acceptance. Marketplace 1.0.3 remains a draft, not submitted or published.
+
 ## Pre-demo checklist (start 30 minutes before)
 
-While the Stripe or Primitive key is missing, `payments: fake` and `email: fake` are expected and `/status` shows the simulated box: skip the Stripe rows (worker web payouts, Stripe pre-funded, demo agent topped up) and the email row, and use the 0:25, 1:00 and 1:20 fallbacks.
+The current Stripe provider is live but payments remain test-only. Primitive outbound DNS and one owner Gmail delivery are verified; unrestricted sending is disabled and first-contact Inkbox fallback remains. Skip any demo beat that lacks actual evidence rather than claiming every integration or email domain works.
 
 | Check | How | Pass when |
 |---|---|---|
 | Server is live | `curl -s https://api.eyes.pictures/healthz`, then `EYES_PUBLIC_API_URL=https://api.eyes.pictures pnpm smoke:live` | every provider is `live` and `db` is `insforge`. A `fake` means a key or `EYES_PROVIDERS=live` is missing: set it and restart the deployment ([PLAN §4](PLAN.md)). |
-| Status page | open https://api.eyes.pictures/status | every provider row says live, there is no "This is a simulated deploy" box, and the safety row says "Safety review: rules and AI classifier". "rules only" means `ANTHROPIC_API_KEY` is missing: prompt 3 is still refused by the rules, but subtler unsafe tasks are not. |
-| Worker web says payouts are live | rebuild the worker web with `VITE_LIVE_PAYOUTS=true` (and the Inkbox number and connect command) and redeploy Sites after `STRIPE_SECRET_KEY` is set ([DEPLOY §3](DEPLOY.md)) | the JOIN page has no "This is a test server" notice and says checks usually pay $3 |
+| Status page | open https://api.eyes.pictures/status | distinguish provider availability from test payments; task safety uses Clef with Claude fallback on provider failure |
+| Worker web | open https://app.eyes.pictures; use the ad-hoc install flow if needed | persistent app connection across task photos; the three-second post-install timer is a grace period, not OS detection. Email can be skipped with **Use iMessage only**. Payments are test-only. |
 | Machine rehearsal | on the laptop, with `pnpm db:up` running and Chromium installed once (`pnpm exec playwright install chromium`): `DATABASE_URL=postgres://postgres:eyes@127.0.0.1:54329/eyes pnpm test:demo` | 3 passed. It runs the same §13 flow on fakes, so a failure here is a code problem, not a vendor or phone problem. |
-| Worker iPhones opted in | each phone joined at https://7t6779x4.insforge.site, then from its phone number (Settings > Messages > Send & Receive > Start New Conversations From: the number, not an Apple ID email, [#25](https://github.com/ayaangazali/eyes/issues/25)) texted `connect @hackathon` and then START to +1 650-484-9720 (Inkbox's shared line: without the connect text, START reaches no one). Once Stripe is live, each phone texts START again and finishes onboarding from the payout link in that reply (a START sent while payouts were simulated has no link). Then each phone texts HELP. | the START reply arrives (with a payout setup link only once Stripe is live, and the worker's account then shows in Stripe Connect); the HELP reply arrives and ends with a link to the worker's page (setup and all their tasks), which proves inbound and outbound texting on that phone without posting a task |
+| Worker iPhones opted in | join at https://app.eyes.pictures and follow the current `connect @eyes-dispatch` and START instructions from the phone number, not an Apple ID email | actual START/HELP replies and operator-confirmed test payout setup; never infer delivery from a provider-status label |
 | Workers near the cafe | cafe worker at the door, outdoors, location on for Safari, phone charged and on cellular. Eyes texts the 3 nearest opted-in workers within 3 km of where they joined | the cafe worker is among the 3 nearest opted-in phones |
 | Stripe pre-funded | `node --env-file=.env packages/payments/scripts/fund-platform.ts 100` (test card that makes funds available at once; transfers fail without available balance) | Stripe test dashboard shows available balance of at least $3 per planned run; tabs open on Payments, Balance > Transfers and Connect > the cafe worker |
 | Demo agent topped up through Stripe | off screen, open the agent's `top_up_url` (from `get_balance`, or Add funds in the owner console) and pay with test card 4000 0000 0000 0077. The signup grant is an Eyes ledger row with no Stripe object, so without this there is no top-up to show. | the Checkout payment shows under Stripe Payments and `get_balance` rose by the same amount |
-| Database and webhooks safe | `node scripts/insforge-migrate.ts` answers 409 for every migration 001-014 (all applied), and `EYES_FAKE_WEBHOOKS` is NOT set on the server ([DEPLOY](DEPLOY.md)). | no 201 lines; `/webhooks/stripe` with a bad signature does not credit anything |
-| Dashboard open | Once: set `EYES_OPS_KEY` on the server (`openssl rand -hex 32`) and restart the deployment ([DEPLOY §2](DEPLOY.md)). Then open `https://internal.eyes.pictures/<key>` and go full screen so the address bar, which holds the key, is off screen. A judge who wants to watch on their own device gets the link in a direct message, never in a public channel; change the key and restart after judging. Fallback with no server change: `DATABASE_URL= node --env-file=.env apps/web/dashboard/src/server.ts` from the repo root (the empty `DATABASE_URL` makes it read InsForge), then http://127.0.0.1:4400 on the presenting laptop | map loads, rehearsal tasks are listed, the ledger has rows, the top corner says Live. "Unknown route." means `EYES_OPS_KEY` is unset or empty on the server, the deployment was not restarted after setting it, or the key in the URL is wrong. |
-| Claude connected with a funded key | off screen: `claude mcp add --transport http eyes https://api.eyes.pictures/mcp --header "Authorization: Bearer $EYES_API_KEY"`, then ask Claude "Use Eyes get_balance and get_spend_policy." | `balance_usd` at least 3.50, `max_bounty_usd` at least 3, `remaining_today_usd` at least 3.50 per planned run |
+| Database and webhooks safe | compare the operator's recorded deployed migration checkpoint with [current migrations](https://github.com/ayaangazali/eyes/tree/main/packages/db/migrations) and existing webhook verification evidence | checkpoint matches the deployed source; do not rerun production migrations merely to check the demo |
+| Dashboard open | use the normal operator sign-in at https://internal.eyes.pictures/login; keep capability links and credentials off screen | the map and ledger load for an authorized operator |
+| Claude connected | for new CLI setup use `claude mcp add --transport http eyes https://mcp.eyes.pictures/mcp --header "Authorization: Bearer $EYES_API_KEY"`; existing legacy connectors remain supported | account quotas permit the demo; `get_balance` and `get_spend_policy` show enough test funds and budget |
 | Owner console open | `EYES_LINK_SECRET=<the deployed server's secret> EYES_PUBLIC_API_URL=https://api.eyes.pictures pnpm owner-link <agent_id>` prints the URL (the script does not read `.env`, and the `.env.example` URL would mint a localhost link); open it in a browser tab | limits at $10 max bounty and $20 per day, all task types checked |
 | Email thread ready | 10 minutes before, email the demo agent's Eyes address from a DMARC-passing mailbox (subject and body below); the cafe worker answers it | the threaded reply with the photo is in the inbox; the To field is cropped or hidden |
 | Backup video | loaded and paused in a tab | plays from the start of beat 3 |
@@ -47,11 +49,11 @@ Prompts are typed exactly as written. "Point at" names what the room should look
 | Time | Say | Do | Point at |
 |---|---|---|---|
 | 0:00 | "Agents can read the whole internet, but they can't see the street outside." | Type prompt 1 in Claude. | Claude window |
-| 0:10 | "Claude checks coverage and price, then posts the task. $3.50 is now in escrow." | Wait for `quote_task` and `ask_eyes`. | **Manufact**: the tool calls going to the `eyes` MCP server at `api.eyes.pictures/mcp`. Eyes ledger escrow: `escrowed_usd: 3.5` (an Eyes ledger entry, not a Stripe object). **InsForge**: dashboard pin and "3 workers notified", read from InsForge Postgres. |
+| 0:10 | "Claude checks coverage and price, then posts the task. $3.50 of test funds is now in escrow." | Wait for `quote_task` and `ask_eyes`. | **Manufact**: tools at `mcp.eyes.pictures/mcp`; **InsForge**: task and escrow ledger. REST remains on `api.eyes.pictures`. |
 | 0:25 | "Three people near the cafe just got a text. No link, no question text, just the job and the pay. First YES wins." | Switch to the mirrored room phone. | **Inkbox**: the iMessage offer. Then the dashboard step changes to claimed. |
 | 0:35 | "Agents can't receive webhooks, so Eyes gives them one tool to keep calling until the answer lands." | Back to Claude while it loops `await_answer`. | Claude's repeated `await_answer` calls; the dashboard shows the photo arriving. |
-| 0:50 | Read Claude's real answer, for example "Short line, about four people, verified 38 meters away, $3.50 total." Then: "Eyes checked GPS, that the photo was live, and that the photo is safe to share. Whether the answer is right is for Claude and you to judge from the photo." | Scroll to the answer. | `verification` flags and `worker_distance_m` in the answer; the photo URL (**InsForge** storage); the capture page ran on `*.insforge.site`. |
-| 1:00 | "Escrow released, worker paid. If nobody had answered, all of it would come back." | Switch to the Stripe tabs, then the dashboard ledger. | **Stripe**: the Checkout top-up that funded the agent, then the $3 transfer to the cafe worker's connected account. Dashboard ledger: escrow, fee, release, payout. |
+| 0:50 | Read the actual answer. "Eyes checked GPS, live capture and narrow content moderation; whether the answer is right is for you to judge." | Show the shared `ui://eyes/card.html` task card only when the client actually renders it. | Photo, verification flags and task status; capture runs at `app.eyes.pictures`. |
+| 1:00 | "Test escrow released and a test transfer recorded; no real money moved." | Switch to Stripe test-mode views, then the ledger. | The verified test transaction only; never claim a real payout from a live-provider status label. |
 | 1:08 | "The human who funds this agent sets the rules, not the agent." | In the owner console set max bounty to 2, save. Type prompt 2. | **Stripe track**: Claude reports `bounty_exceeds_max` and its fix; nothing was charged. |
 | 1:15 | "And it won't send anyone to a private home." | Type prompt 3. | Claude relays `unsafe_task` with the polite reason and fix. |
 | 1:20 | "Agents that live in an inbox get the same thing by email." | Switch to the mail tab. | **Primitive**: the threaded reply with the photo attached. |
@@ -69,7 +71,7 @@ Prompt 2 (the "do not retry" stops Claude from following the fix and posting a $
 Ask Eyes the same question again with exactly a 3 dollar bounty. If Eyes refuses, tell me what it said and do not retry.
 ```
 
-Prompt 3 (keep the city: Eyes resolves the place before the safety check, so an address it cannot find returns `location_not_found` instead of the refusal):
+Prompt 3 (unsafe requests can be refused even if location lookup fails; do not expect an unresolvable address to bypass safety):
 
 ```
 Ask Eyes to photograph the house at 123 Oak St, San Francisco, and show me exactly what Eyes returns.
@@ -90,7 +92,7 @@ Ask Eyes to photograph the house at 123 Oak St, San Francisco, and show me exact
 | 1:00 | Payout pending: task stays `verified`, no transfer in Stripe | The platform had no available balance or the worker's Connect account is incomplete. Point at the release row in the dashboard ledger and the rehearsal transfer in Stripe. Then run the fund script: the server retries unpaid verified tasks every 30 seconds with a fresh Stripe idempotency key ([ADR-012](../intent/decisions/ADR-012-payout-retry-and-resolution.md)), so the transfer follows on its own once the balance is available or the worker finishes onboarding. |
 | 1:08 | Owner console not loading | Skip the limit change. Ask Claude "What are my Eyes spend limits?" (`get_spend_policy`) and say "only the human can change these." |
 | 1:15 | Claude declines without calling Eyes | Say "Claude won't even try; here is what Eyes tells an agent that does." Run the pre-typed curl below in a terminal tab. |
-| 1:20 | No email reply in the inbox | Skip the beat; check `/healthz` says `email: live` and that Primitive staff enabled sending to any domain. |
+| 1:20 | No email reply in the inbox | Skip the beat; check the existing delivery evidence and first-contact fallback. Unrestricted Primitive sending is not enabled, and external-alias SPF remains unresolved. |
 | any | Server down | `curl /healthz`; `npx mcp-use deployments restart <id>` (PLAN §7); meanwhile play the backup video. |
 | any | The API key showed on screen | Finish the beat. Off screen, in the owner console, tick the confirmation box and use "Replace this agent's API key": the old key stops working on the next request ([ADR-019](../intent/decisions/ADR-019-owner-key-rotation.md)). Remove and re-add the `eyes` MCP server in Claude with the new key before the next run. |
 
@@ -114,7 +116,7 @@ curl -s -X POST https://api.eyes.pictures/v1/tasks \
 8. Dashboard needs nothing; reload the tab if the map drifted.
 9. Note pass or fail and what broke. Three passes in a row is G3.
 
-## ChatGPT: Eyes connected
+## Historical ChatGPT connected recording
 
 Recorded segment: `~/tmp/eyes-video/chatgpt-connected.mp4` (34 seconds, H.264, 1440×900, 30 fps). Use this standalone connection-and-quote segment before the paid dispatch demonstration; it is not a recording of a completed field check.
 

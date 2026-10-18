@@ -12,7 +12,7 @@ Open [ChatGPT Plugins](https://chatgpt.com/plugins). This is a custom connector 
 
 The current Plugins flow does **not** require enabling Developer Mode. Access is web-only and depends on your account, workspace policy, and Lockdown settings. Pro supports read/fetch permissions; full MCP is available on Business, Enterprise and Edu. Business requires an admin/owner to create workspace plugins; Enterprise/Edu also permit creators with **Create plugins with MCPs**. Only admins/owners publish to the workspace. Free and Plus access is not guaranteed. If **Add custom MCP server** is missing or disabled, check account/workspace access.
 
-A public directory listing requires OpenAI review, approval, and an explicit publish step. Eyes is not claiming a public marketplace listing or a universal install link.
+A public directory listing requires OpenAI review, approval, and an explicit publish step. Marketplace version 1.0.3 is a configured draft with preflight complete, not submitted or published; legal owner attestations and test-mode limits remain.
 
 Sources: [Connect in ChatGPT](https://developers.openai.com/plugins/deploy/connect-chatgpt), [current account requirements](https://help.openai.com/en/articles/12584461-connecting-custom-mcp-servers-in-chatgpt), [public app review](https://developers.openai.com/plugins/deploy/app-review).
 
@@ -34,19 +34,18 @@ This is custom connector setup, not a one-click install or a claim that Eyes is 
 
 | URL | Use it for |
 | --- | --- |
-| `https://api.eyes.pictures/mcp` | **Existing MCP endpoint.** Supported unchanged; the dedicated host below is ready for connector migration. |
+| `https://mcp.eyes.pictures/mcp` | **Recommended for new connectors.** Live dedicated MCP/OAuth/card host; ChatGPT and Claude are configured here. |
+| `https://api.eyes.pictures/mcp` | **Supported legacy MCP endpoint.** Existing connectors can stay here; REST URLs are not migrated. |
 | `https://dark-steel-ofaoa.run.mcp-use.com/mcp` | **Optional Manufact gateway.** Proxy access for Cursor, VS Code, Claude Code, Gemini CLI, Codex, Instinct and the mcp-use SDKs. |
 | `https://api.eyes.pictures` | **REST base (unchanged).** Signup, `/v1/*`, worker uploads and `/webhooks/*`; not the new MCP connector URL. |
 
-The actual MCP/API server is hosted on **Manufact Cloud**, server `eyes-prod`, at `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare's `eyes-api` Worker only forwards `api.eyes.pictures` and `internal.eyes.pictures` to that origin. Static `eyes.pictures` and `app.eyes.pictures` remain on Cloudflare.
+The actual MCP/API server is hosted on **Manufact Cloud**, server `eyes-prod`, at `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare's `eyes-api` Worker forwards `mcp.eyes.pictures`, `api.eyes.pictures` and `internal.eyes.pictures` to that origin. Static `eyes.pictures` and `app.eyes.pictures` remain on Cloudflare.
 
-Both client URLs reach the same server and the same 13 tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `accept_answer`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`. The optional gateway is a [Manufact](https://docs.manufact.com/dashboard/connect-existing-server) proxy in front of `api.eyes.pictures`. It adds usage analytics and sessions, but is not the server host and does not hold your key. Every client sends its own Eyes API key.
+All MCP endpoints reach the same server and the same 13 tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `accept_answer`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`. `show_task` shares `ui://eyes/card.html` with the other cards; the legacy React-view build was removed. The optional [Manufact gateway](https://docs.manufact.com/dashboard/connect-existing-server) remains a proxy in front of `api.eyes.pictures`, separate from the server host. Every bearer client sends its own Eyes API key.
 
-<a id="dedicated-mcp-domain-prepared-not-active"></a>
+## Dedicated MCP domain: live
 
-## Dedicated MCP domain: ready for connector migration
-
-`https://mcp.eyes.pictures/mcp` supports new ChatGPT and Claude connectors using the web steps above. The domain owner verified the deployed host's OAuth flow, tool registry and matching card metadata on 2026-10-18. It uses the same Manufact-hosted server. Existing ChatGPT, Claude and third-party connectors at `https://api.eyes.pictures/mcp` remain supported.
+`https://mcp.eyes.pictures/mcp` is live, with ChatGPT and Claude configured there. Matching OAuth and card metadata are verified. Existing third-party connectors at `https://api.eyes.pictures/mcp` remain supported; not every client has migrated. Follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18; this is not a general ChatGPT or Claude limitation. See [STATUS](../STATUS.md).
 
 Verified dedicated-host values:
 
@@ -57,7 +56,7 @@ Verified dedicated-host values:
 | Card origins | ChatGPT `openai/widgetDomain`: `https://mcp.eyes.pictures`; Claude `_meta.ui.domain`: `87d4a8d03df273ec472729285f051938.claudemcpcontent.com` (first 32 hex characters of SHA-256 of the exact new connector URL). |
 | REST, uploads and webhooks | Stay at `https://api.eyes.pictures`; existing API keys and optional gateway configuration stay unchanged. Existing `api.eyes.pictures/mcp` connectors retain their API-host OAuth issuer and card origins. |
 
-When the owner chooses to migrate one connector, change its MCP server URL to `https://mcp.eyes.pictures/mcp` and reconnect through OAuth. Leave other connectors unchanged. See [DEPLOY.md](DEPLOY.md#dedicated-mcp-domain-staging) for the 29/29 verification evidence and DNS-cache caveat.
+For a new connector, use the dedicated host in the web steps above. Only when an owner chooses to migrate another existing connector, change its MCP URL to `https://mcp.eyes.pictures/mcp` and reconnect through OAuth. Leave REST URLs unchanged. See [DEPLOY.md](DEPLOY.md#dedicated-mcp-domain-live) for dated verification evidence.
 
 ## 1. Get an Eyes API key
 
@@ -77,7 +76,7 @@ export AUTHORIZATION="Bearer <api_key>"
 
 These are the configs that Manufact's **Add to client** dialog generates for this server (server page > URL chip > **Add to client**). Replace `your-AUTHORIZATION-value` with `Bearer <api_key>`.
 
-For the recommended public endpoint, use these same bearer configurations with the URL changed to `https://api.eyes.pictures/mcp`. The gateway is not required for Manufact hosting.
+For new direct connections, use these same bearer configurations with the URL changed to `https://mcp.eyes.pictures/mcp`. The legacy API-host connector and optional gateway remain supported.
 
 ### Claude Code
 
@@ -173,9 +172,9 @@ Ask the client: "Use Eyes to quote checking whether the Ferry Building in San Fr
 
 ## 3. Public URL: ChatGPT and claude.ai
 
-Use `https://api.eyes.pictures/mcp` for app connectors. Claude checks the card sandbox domain against the exact connector URL, and that domain is derived from `api.eyes.pictures`. Through the gateway, the cards would not render.
+Use `https://mcp.eyes.pictures/mcp` for new app connectors; the legacy `https://api.eyes.pictures/mcp` remains supported. Card sandbox origins are derived from the exact connector URL, so use the matching direct host rather than the optional gateway for app cards.
 
-In ChatGPT and Claude, `quote_task`, `ask_eyes`, `await_answer`, `get_task` and `get_balance` show a card: a quote (workers nearby, ETA, price), the live task (status, photo, answer and the three checks), or your balance with a Top up button. The other tools reply in text.
+In ChatGPT and Claude, `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task` and `get_balance` share `ui://eyes/card.html`. It shows quotes, task status, photos/checks or the balance/top-up link. Other tools reply in text.
 
 ### ChatGPT
 
@@ -189,12 +188,12 @@ When OAuth creates a key, click **Continue to your app** to finish connecting; t
 
 ### Fallback for every other client
 
-For every other client, the public URL also works without the optional gateway. If the gateway returns errors (for example `402` once its plan's monthly credits run out), replace the section 2 URL with `https://api.eyes.pictures/mcp`. For example:
+For every other client, the dedicated MCP URL also works without the optional gateway. If the gateway returns errors (for example `402` once its plan's monthly credits run out), replace the section 2 URL with `https://mcp.eyes.pictures/mcp`. Existing API-host connectors remain supported.
 
 ```sh
-claude mcp add --transport http eyes https://api.eyes.pictures/mcp \
+claude mcp add --transport http eyes https://mcp.eyes.pictures/mcp \
   --header "Authorization: Bearer $EYES_API_KEY"
-codex mcp add eyes --url https://api.eyes.pictures/mcp --bearer-token-env-var EYES_API_KEY
+codex mcp add eyes --url https://mcp.eyes.pictures/mcp --bearer-token-env-var EYES_API_KEY
 ```
 
 ## Troubleshooting
@@ -206,11 +205,11 @@ codex mcp add eyes --url https://api.eyes.pictures/mcp --bearer-token-env-var EY
 
 ## How the sign-in works (for operators)
 
-- **Discovery:** `GET /.well-known/oauth-protected-resource` and `GET /.well-known/oauth-authorization-server`. A 401 from `/mcp` also points to the first one through `WWW-Authenticate`. The public resource must be `https://api.eyes.pictures/mcp` with authorization server `https://api.eyes.pictures`. As of the 2026-10-18 Manufact cutover, edge normalization of Manufact's rewritten resource metadata is pending verification; do not treat OAuth discovery as verified yet. The optional gateway has its own resource URL.
+- **Discovery:** both hosts serve `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, including their `/mcp` variants. The dedicated resource is `https://mcp.eyes.pictures/mcp` with issuer `https://mcp.eyes.pictures`; the legacy API host retains its matching resource and issuer. A 401 challenge points to the same host's resource metadata.
 - **Registration:** `POST /oauth/register` is dynamic client registration. Only https redirect URIs are accepted, plus loopback http.
 - **Sign-in page:** `GET /oauth/authorize`. It requires PKCE S256. **Create a key** counts against the same per-IP limit as `/v1/signup` (5 per hour).
 - **Token:** `POST /oauth/token` returns the Eyes API key as the access token, so existing bearer clients work unchanged. The token does not expire. To revoke it, rotate the key.
 - **Server secret:** set `EYES_OAUTH_SECRET` to at least 32 random characters, for example from `openssl rand -hex 32`. Without it, the OAuth routes are off and only bearer keys work. If you change the secret, open sign-in pages and registered clients stop working; connected apps just register and sign in again.
-- **Claude sandbox origin:** when the client looks like Claude (client name or user agent contains "claude"), the widget resource carries `_meta.ui.domain` = the first 32 hex characters of SHA-256 of `https://api.eyes.pictures/mcp` plus `.claudemcpcontent.com`. Other hosts get no `ui.domain`; ChatGPT reads `openai/widgetDomain` (`https://api.eyes.pictures`).
+- **Card origins:** ChatGPT uses `openai/widgetDomain` matching the connector origin. Claude `_meta.ui.domain` is the first 32 hex characters of SHA-256 of the exact connector URL plus `.claudemcpcontent.com`; the dedicated-host value is listed above. Both `resources/list` and `resources/read` expose matching metadata.
 - **Photos:** the widget CSP allows `https://pagp38bu.us-west.insforge.app` and `https://cdn.insforge.dev`.
 - **Manufact gateway:** external server `Eyes` (slug `dark-steel-ofaoa`) in the operator's Manufact org, in proxy mode, with upstream `https://api.eyes.pictures/mcp`. It does not inject a key for public traffic: an unauthenticated request gets the upstream 401. The dashboard's own bearer key is used only by Manufact's Chat, inspector and checks.

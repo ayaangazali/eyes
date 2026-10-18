@@ -14,16 +14,18 @@ Flow:
 1. An agent (Claude, ChatGPT, Codex, any MCP client) calls an Eyes tool with a question, location, bounty, deadline.
 2. Eyes texts nearby registered humans ("workers") the task.
 3. The first worker to reply YES claims it, walks over, opens a capture page that takes a live photo and GPS.
-4. Eyes verifies: GPS within radius, photo captured live within the deadline, and a moderation check confirms the photo is safe to share (Eyes never judges whether the answer is correct; a human disputes wrong answers, ADR-025).
+4. Eyes checks GPS within radius, live capture freshness and narrowly scoped photo moderation. Only confirmed graphic gore or explicit sexual content is rejected; faces alone are allowed. Task-request privacy restrictions remain separate. Eyes does not judge answer correctness.
 5. The agent receives a structured answer (text, photo URL, timestamp, distance, confidence). The worker is paid automatically.
 
 Pricing: default $3 bounty to the human plus $0.50 Eyes fee, escrowed from the agent's balance on post, refunded if unclaimed or expired.
 
+Current deployment uses test payments and a $20 test signup credit despite the Stripe provider being live; no real money moves. ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`, with 13 tools including `show_task`, `accept_answer`, `report_classifier` and `get_classifier_report`. REST/uploads/webhooks stay at `https://api.eyes.pictures`, whose old MCP connector remains supported. `show_task` shares `ui://eyes/card.html`; no legacy React-view build is required.
+
 Sponsor tracks:
-- Primitive: agents get an Eyes email identity; agents email questions to their private Eyes address (ADR-007) and get threaded answers with the photo attached. Workers are reached by text only; worker email replies were dropped (ADR-007). Inbound mail reaches our signed `/webhooks/primitive` route from Primitive's managed subdomain. Prize: best agent communication setup, demo must show an agent-side email thread.
+- Primitive: agents get an Eyes email identity and threaded replies. Worker email is optional; onboarding can continue with iMessage only. Outbound DNS and one owner Gmail delivery are verified, but unrestricted domain sending is disabled, first-contact Inkbox fallback remains, and external custom-alias SPF is unresolved.
 - Stripe: prepaid agent balance via Checkout; per-API-key spend controls (max bounty, daily cap, allowed task types); escrow, release, Connect Express payout to workers (test mode); refunds on expiry. Prize wants clear user control over what agents can do and spend: spend limits and the refund path must be visible in the demo.
 - Inkbox: the Eyes dispatcher is an Inkbox identity with a phone number; texts or iMessages workers, receives YES claims, sends capture links and payout confirmations.
-- Manufact: actual MCP/API server hosted on Manufact Cloud (`eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`), built with the mcp-use SDK (TypeScript). Public endpoint `https://api.eyes.pictures/mcp` uses the Cloudflare `eyes-api` forwarder. The Manufact CLI connects clients; `dark-steel-ofaoa` is an optional gateway, not the server host. Cloudflare hosts the static landing and worker app.
+- Manufact: actual MCP/API server hosted on Manufact Cloud (`eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`), built with mcp-use. Public MCP `https://mcp.eyes.pictures/mcp` and REST `https://api.eyes.pictures` use the Cloudflare edge; legacy API-host MCP remains supported. Cloudflare also hosts static landing and worker pages.
 - Armature: best Agent Experience (AX), see §9.
 - InsForge: Postgres, storage (photos), functions and earlier Sites hosting for worker pages; the current worker app is https://app.eyes.pictures on Cloudflare.
 
@@ -93,6 +95,8 @@ Phase 4 (6:00 to 9:30 AM Sunday): bug fixes only, demo 5 times, backup video, RE
 
 Every description, parameter doc and error is written for an LLM reader: explicit, with examples, always saying what to do next. Schemas are frozen in `packages/core/src/schemas.ts` (`TOOLS`).
 
+The current registry contains 13 tools. The core calls below are followed by the task-list, card, acceptance and classifier-review additions; `accept_answer` only records feedback and never triggers payment.
+
 1. `quote_task(location, task_type)` -> `{ workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, reason_if_not, resolved_location }`. `location` is `{lat, lng}`, an address, or "place name, city".
 2. `ask_eyes(question, location, task_type, bounty_usd=3, deadline_minutes=30, require_photo=true, idempotency_key)` -> `{ task_id, status: "dispatched", workers_notified, escrowed_usd, deadline_at, next_step }`. `task_type` is one of `is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public`.
 3. `await_answer(task_id, timeout_seconds=50, max 55)` long-polls until answered or timeout (ADR-002). The description must tell the agent to call it immediately after `ask_eyes` and to keep calling it, because agents cannot watch for events in the background.
@@ -100,6 +104,11 @@ Every description, parameter doc and error is written for an LLM reader: explici
 5. `cancel_task(task_id)` -> refund if unclaimed.
 6. `dispute_answer(task_id, reason)` -> holds payout, flags for review.
 7. `get_balance()`, `get_spend_policy()`.
+8. `list_tasks(status?, limit?)` lists this agent's tasks for resuming work.
+9. `show_task(task_id)` renders the same task through shared `ui://eyes/card.html`.
+10. `accept_answer(task_id)` records explicit positive user feedback without changing the payout.
+11. `report_classifier` requests internal review of a refused task.
+12. `get_classifier_report` reads that review; approval requires an explicit retry and does not dispatch automatically.
 
 Answer:
 ```
@@ -199,7 +208,7 @@ Eyes only allows tasks about public, commercial or civic places.
 1. "Agents can read the whole internet but can't see the street outside." In Claude: "Is the line at [DEMO_CAFE] long right now? Use Eyes."
 2. Claude calls `quote_task` then `ask_eyes`; the dashboard shows the pin and "3 workers notified."
 3. A teammate already at the cafe gets the text, replies YES, snaps the photo.
-4. Claude receives: "Short line, about 4 people, photo attached, verified 38 m away, $3.50 total." The Eyes dashboard ledger shows the escrow released; the Stripe dashboard shows the top-up and the $3 transfer to the worker's connected account (escrow is an Eyes ledger entry, not a Stripe object).
+4. Claude receives the actual answer, photo and checks. The ledger and Stripe test dashboard can show test escrow and a test transfer; no real money moves. Only show a card if the client renders it, and never present a quota-blocked visual check as a fresh pass.
 5. A rejected task ("photograph the house at [address]") returns a polite refusal. An agent emails Eyes and gets a threaded answer with the photo attached.
 6. Close: "Eyes turns 8 billion humans into an API agents can pay for."
 
