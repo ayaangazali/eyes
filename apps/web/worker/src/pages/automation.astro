@@ -92,13 +92,9 @@ const url = "https://api.eyes.pictures/w/location";
 
 <script>
   import { $ } from "../api.ts";
+  import { wireCopy } from "../automation.ts";
 
-  const copied = $("copied");
-  for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
-    button.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(button.dataset.copy ?? "");
-      copied.textContent = `Copied: ${button.dataset.copy?.trim()}`;
-      copied.hidden = false;
-    });
-  }
+  wireCopy(document.querySelectorAll<HTMLButtonElement>("[data-copy]"), $("copied"), (text) =>
+    navigator.clipboard.writeText(text),
+  );
 </script>
