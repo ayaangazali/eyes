@@ -22,52 +22,16 @@ import Layout from "../layouts/Layout.astro";
 </Layout>
 
 <script>
-  import { $, call, LOCATION_HELP, Problem, showError } from "../api.ts";
+  import { $, call, showError } from "../api.ts";
+  import { wireHere } from "../here.ts";
 
-  const token = new URLSearchParams(location.search).get("t") ?? "";
-  const button = $<HTMLButtonElement>("update");
-  const done = $("done");
-  const error = $("error");
-
-  const position = () =>
-    new Promise<GeolocationPosition>((resolve, reject) =>
-      navigator.geolocation.getCurrentPosition(resolve, reject, { enableHighAccuracy: true, timeout: 20_000 }),
-    );
-
-  button.addEventListener("click", async () => {
-    button.disabled = true;
-    done.hidden = true;
-    error.hidden = true;
-    try {
-      if (!token) throw new Problem("This link is missing its code.", "Text HERE to the Eyes number for a new link.");
-      if (!navigator.geolocation) throw new Problem("This browser cannot share your location.", LOCATION_HELP);
-      const pos = await position().catch((err: GeolocationPositionError) => {
-        throw err.code === err.PERMISSION_DENIED
-          ? new Problem("Location is blocked for this page.", LOCATION_HELP)
-          : new Problem("Could not find your location.", "Step outside or near a window, then tap again.");
-      });
-      const { latitude, longitude, accuracy } = pos.coords;
-      await call("/w/location", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lat: latitude,
-          lng: longitude,
-          accuracy_m: accuracy,
-          source: "here_link",
-          captured_at: new Date(pos.timestamp).toISOString(),
-        }),
-      }).catch((err: unknown) => {
-        // The server's own words fit here better than the generic ones (expired link, too soon).
-        const body = err instanceof Problem ? err.body : null;
-        throw body?.message ? new Problem(body.message, body.fix ?? "") : err;
-      });
-      done.textContent = `Spot updated. Near ${latitude.toFixed(3)}, ${longitude.toFixed(3)}. You can close this page.`;
-      done.hidden = false;
-    } catch (err) {
-      showError(error, err);
-    } finally {
-      button.disabled = false;
-    }
-  });
+  wireHere(
+    { button: $<HTMLButtonElement>("update"), done: $("done"), error: $("error") },
+    {
+      token: new URLSearchParams(location.search).get("t") ?? "",
+      geolocation: navigator.geolocation,
+      send: call,
+      report: showError,
+    },
+  );
 </script>
