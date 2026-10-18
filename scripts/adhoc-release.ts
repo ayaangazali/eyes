@@ -304,7 +304,9 @@ if (import.meta.main) {
       const { data, error } = await bucket.upload(key, body);
       if (!data) throw error;
       const url = new URL(data.url, baseUrl).href;
-      if (!url.endsWith(`/${key}`)) throw new Error(`storage saved ${key} as ${url}`);
+      // Storage answers `…/objects/eyes-worker%2FEyes.ipa?v=<hash>`; the ?v busts the CDN cache after a replace.
+      if (!decodeURIComponent(new URL(url).pathname).endsWith(`/${key}`))
+        throw new Error(`storage saved ${key} as ${url}`);
       return url;
     },
     sendText: (to, text) => {
