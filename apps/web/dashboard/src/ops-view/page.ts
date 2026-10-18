@@ -66,6 +66,8 @@ export type Task = Checked & {
   claimed_at?: string | null;
   submitted_at?: string | null;
   money_at?: Record<string, string> | null;
+  /** From the paged /ops/tasks list. */
+  agent?: string | null;
 };
 type TaskDetail = Task & {
   fee_cents: number;
@@ -90,7 +92,14 @@ export type Worker = {
   available: boolean;
   opted_in: boolean;
 };
-type LedgerRow = { type: string; created_at: string; task_id?: string | null; amount_cents: number };
+type LedgerRow = {
+  id: string;
+  type: string;
+  created_at: string;
+  task_id?: string | null;
+  amount_cents: number;
+  place_label?: string | null;
+};
 type OpsError = { level: string; at: string; summary: string };
 export type OpsFeed = {
   tasks: Task[];
@@ -144,7 +153,6 @@ export function boot(win: OpsWindow) {
   for (const a of document.querySelectorAll<HTMLAnchorElement>('a[href^="/ops/"]'))
     a.setAttribute("href", `${base}${a.getAttribute("href")?.slice(4)}`);
   const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
-  const value = (id: string) => $<HTMLInputElement>(id).value;
   const json = <T>(res: Response) => res.json().catch(() => ({})) as Promise<T>;
 
   function h<K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string | null, ...kids: Kid[]) {
@@ -153,9 +161,9 @@ export function boot(win: OpsWindow) {
     for (const kid of kids) if (kid != null && kid !== false) el.append(kid);
     return el;
   }
+  const empty = (text: string) => h("li", "muted", text);
   const badge = (text: string, tone?: string) =>
     h("span", `ui-badge${tone ? ` ui-badge--${tone}` : ""}`, text);
-  const empty = (text: string) => h("li", "muted", text);
   const count = (id: string, n: number, hot: boolean) => {
     $(id).textContent = n ? String(n) : "";
     $(id).classList.toggle("hot", Boolean(hot && n));
@@ -216,45 +224,9 @@ export function boot(win: OpsWindow) {
     return photo;
   }
 
-  function taskRow(t: Task) {
-    const li = h("li");
-    li.append(
-      h(
-        "div",
-        "task-head",
-        h("p", "q", cut(t.question, 160)),
-        badge(t.status.replace("_", " "), STATUS_TONE[t.status]),
-      ),
-      h(
-        "div",
-        "line",
-        h("span", null, cut(nearLabel(t.place_label), 70)),
-        h("span", null, "bounty ", h("strong", null, usd(t.bounty_cents))),
-        h("span", null, "notified ", h("strong", null, String(t.workers_notified ?? 0))),
-        checks(t),
-      ),
-      flow(t),
-      h("span", "tiny", t.id),
-    );
-    if (t.status === "needs_review" || t.status === "disputed") {
-      // The review panel replaces the old `pnpm resolve-task` commands.
-      li.className = "open";
-      li.tabIndex = 0;
-      li.setAttribute("role", "button");
-      li.setAttribute("aria-label", `Review: ${cut(t.question, 80)}`);
-      li.addEventListener("click", () => openReview(t.id));
-      li.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          openReview(t.id);
-        }
-      });
-    }
-    return li;
-  }
-
   // Release or refund a needs_review / disputed task. Same server path as `pnpm resolve-task` (resolveTask).
-  async function openReview(id: string) {
+  // From the Tasks list the row also brings the task's timeline (asked, claimed, answered, money).
+  async function openReview(id: string, row?: Task) {
     const review = $<HTMLDialogElement>("review-panel");
     const close = h("button", "ui-button ui-button--ghost ui-button--sm", "Close");
     close.type = "button";
@@ -304,6 +276,7 @@ export function boot(win: OpsWindow) {
           close,
         ),
         photoOf(t),
+        row ? flow(row) : null,
         t.answer_text || t.answer_bool != null
           ? h("p", null, "Answer: ", h("strong", null, t.answer_text || (t.answer_bool ? "Yes" : "No")))
           : h("p", "muted", "No answer submitted."),
@@ -405,7 +378,6 @@ export function boot(win: OpsWindow) {
     }
   }
 
-  let last: Pick<OpsFeed, "tasks" | "ledger" | "workers"> = { tasks: [], ledger: [], workers: [] };
   function render(feed: OpsFeed) {
     const o = feed.ops;
     const hl = o.health;
@@ -432,9 +404,6 @@ export function boot(win: OpsWindow) {
     review.setRows(o.queue);
     count("n-review", o.queue.length, true);
 
-    last = feed;
-    renderTasks();
-
     const w = o.workers;
     $("worker-stats").replaceChildren(
       h(
@@ -446,9 +415,12 @@ export function boot(win: OpsWindow) {
       h("div", "stat live", h("b", null, String(w.online)), h("span", null, "available now")),
       h("div", "stat", h("b", null, String(w.total)), h("span", null, "signed up")),
     );
-    renderMap(feed.workers);
-    renderWorkers();
-    renderLedger();
+    workers.setRows(feed.workers);
+    renderMap(workers.visible());
+    // The list tabs refresh with the feed while they are shown.
+    const tab = tabFor(location.hash);
+    if (tab === "tasks") taskPager.load();
+    if (tab === "money") ledgerPager.load();
 
     $("errors").replaceChildren(
       ...(o.errors.length
@@ -474,66 +446,6 @@ export function boot(win: OpsWindow) {
     );
   }
 
-  function renderTasks() {
-    const s = value("task-status");
-    const shown = s ? last.tasks.filter((t) => t.status === s) : last.tasks;
-    $("tasks-shown").textContent = `${shown.length} of ${last.tasks.length}, newest first`;
-    $("task-list").replaceChildren(
-      ...(shown.length
-        ? shown.map(taskRow)
-        : [empty(last.tasks.length ? "No tasks with this status." : "No tasks yet.")]),
-    );
-  }
-
-  function renderLedger() {
-    const places = new Map(last.tasks.map((t) => [t.id, nearLabel(t.place_label)]));
-    const type = value("ledger-type");
-    const rows = type ? last.ledger.filter((r) => r.type === type) : last.ledger;
-    $("ledger").replaceChildren(
-      ...(rows.length
-        ? rows.flatMap((row) => [
-            h("span", "tiny", stamp(row.created_at)),
-            h(
-              "span",
-              null,
-              LEDGER_LABEL[row.type] || row.type,
-              row.task_id
-                ? h("span", "tiny", ` ${cut(places.get(row.task_id) || row.task_id.slice(0, 8), 40)}`)
-                : null,
-            ),
-            h("span", "amt", usd(row.amount_cents)),
-          ])
-        : [h("span", "muted", type ? "No rows of this type." : "No ledger rows yet.")]),
-    );
-  }
-
-  // No coordinates here: the map already shows rounded positions.
-  function renderWorkers() {
-    const rank = (w: Worker) => (w.available && w.opted_in ? 2 : w.opted_in ? 1 : 0);
-    const all = [...last.workers].sort((a, b) => rank(b) - rank(a));
-    $("workers-list").replaceChildren(
-      ...(all.length
-        ? all.map((w) =>
-            h(
-              "li",
-              null,
-              h(
-                "div",
-                "line",
-                badge(
-                  ["opted out", "opted in", "available"][rank(w)] as string,
-                  ["", "", "success"][rank(w)],
-                ),
-                h("span", "tiny", `worker ${w.id.slice(0, 8)}`),
-                w.lat == null ? h("span", "muted", "no location") : null,
-              ),
-            ),
-          )
-        : [empty("No workers yet.")]),
-    );
-  }
-
-  // Two clicks: the first arms the button for 5 s and says what will happen, the second does it.
   // Ticket decisions. Dispute actions (confirm_fraud, reject_dispute) take only a note; the others also send the task id.
   const decideTicket =
     (t: Ticket, action: string) =>
@@ -675,62 +587,96 @@ export function boot(win: OpsWindow) {
     if (!panel.open) panel.showModal();
   }
 
-  // Support tickets: server-paged; each poll refreshes the first page and keeps older pages loaded.
-  let tickets: Ticket[] = [];
-  let ticketCursor: string | null = null;
-  let ticketTotal: number | null = null;
-  let ticketGen = 0;
-  let ticketsQuery = "";
-  let loadingTickets = false;
-  // Older pages were loaded under the current filters.
-  let paged = false;
-  const ticketQuery = () => {
-    const st = support.state();
+  /**
+   * A server-paged list (tickets, tasks, ledger): newest first by cursor. A filter change starts over;
+   * a poll with the same filters refreshes the first page and keeps older pages already loaded. A
+   * response for filters that have since changed is dropped.
+   */
+  function pager<T extends { id: string | number; created_at?: string | null }>(opts: {
+    path: string;
+    field: string;
+    query: () => URLSearchParams;
+    table: () => { setRows(rows: T[]): void; setEnd(end: "more" | "loading" | "end"): void };
+    onBody?: (body: Record<string, unknown>) => void;
+  }) {
+    let rows: T[] = [];
+    let cursor: string | null = null;
+    let total: number | null = null;
+    let gen = 0;
+    let loaded = "";
+    let busy = false;
+    let paged = false;
+    async function load(older = false) {
+      if (older && (busy || !cursor)) return;
+      const g = older ? gen : ++gen;
+      const query = opts.query();
+      const filters = String(query);
+      query.set("limit", "50");
+      if (older) {
+        busy = true;
+        query.set("cursor", cursor as string);
+        opts.table().setEnd("loading");
+      }
+      // Offline counts as a failed page: the pager stays where it was.
+      const res = await fetch(`${opts.path}?${query}`, { cache: "no-store" }).catch(() => null);
+      if (older) busy = false;
+      if (g !== gen) return;
+      if (!res?.ok) {
+        opts.table().setEnd(cursor ? "more" : "end");
+        return;
+      }
+      const body = (await res.json()) as Record<string, unknown> & {
+        total: number;
+        next_cursor: string | null;
+      };
+      const fresh = body[opts.field] as T[];
+      total = body.total;
+      opts.onBody?.(body);
+      if (older) {
+        rows = [...rows, ...fresh.filter((r) => !rows.some((x) => x.id === r.id))];
+        cursor = body.next_cursor;
+        paged = true;
+      } else {
+        const kept = filters === loaded && paged;
+        const oldest = fresh.at(-1)?.created_at ?? "";
+        rows = [...fresh, ...(kept ? rows.filter((r) => (r.created_at ?? "") < oldest) : [])];
+        if (!kept) {
+          cursor = body.next_cursor;
+          paged = false;
+        }
+        loaded = filters;
+      }
+      opts.table().setRows(rows);
+      opts.table().setEnd(cursor ? "more" : "end");
+    }
+    return {
+      load,
+      total: () => total,
+      // Sorting reorders what is loaded; only a filter or search change asks the server again.
+      changed: () => String(opts.query()) !== loaded && load(),
+    };
+  }
+  const params = (entries: [string, string | undefined][]) => {
     const p = new URLSearchParams();
-    if (st.q.trim()) p.set("q", st.q.trim());
-    if (st.f.state) p.set("state", st.f.state);
-    if (st.f.kind) p.set("kind", st.f.kind);
+    for (const [k, v] of entries) if (v?.trim()) p.set(k, v.trim());
     return p;
   };
-  async function loadTickets(older = false) {
-    if (older && (loadingTickets || !ticketCursor)) return;
-    const gen = older ? ticketGen : ++ticketGen;
-    const query = ticketQuery();
-    const filters = String(query);
-    query.set("limit", "50");
-    if (older) {
-      loadingTickets = true;
-      query.set("cursor", ticketCursor as string);
-      support.setEnd("loading");
-    }
-    const res = await fetch(`/tickets?${query}`, { cache: "no-store" });
-    if (older) loadingTickets = false;
-    if (gen !== ticketGen) return;
-    if (!res.ok) {
-      support.setEnd(ticketCursor ? "more" : "end");
-      return;
-    }
-    const body = (await res.json()) as { tickets: Ticket[]; total: number; next_cursor: string | null };
-    ticketTotal = body.total;
-    if (older) {
-      tickets = [...tickets, ...body.tickets.filter((t) => !tickets.some((x) => x.id === t.id))];
-      ticketCursor = body.next_cursor;
-      paged = true;
-    } else {
-      // A poll with the same filters keeps the older pages already loaded.
-      const kept = filters === ticketsQuery && paged;
-      const oldest = body.tickets.at(-1)?.created_at ?? "";
-      const tail = kept ? tickets.filter((t) => (t.created_at ?? "") < oldest) : [];
-      tickets = [...body.tickets, ...tail];
-      if (!kept) {
-        ticketCursor = body.next_cursor;
-        paged = false;
-      }
-      ticketsQuery = filters;
-    }
-    support.setRows(tickets);
-    support.setEnd(ticketCursor ? "more" : "end");
-  }
+
+  // Support tickets.
+  const ticketPager = pager<Ticket>({
+    path: "/tickets",
+    field: "tickets",
+    query: (): URLSearchParams => {
+      const st: TableState = support.state();
+      return params([
+        ["q", st.q],
+        ["state", st.f.state],
+        ["kind", st.f.kind],
+      ]);
+    },
+    table: () => support,
+  });
+  const loadTickets = (older = false) => ticketPager.load(older);
   // The tab and header counts are open tickets of any kind, whatever the list filters.
   async function countOpenTickets() {
     const res = await fetch("/tickets?state=open&limit=1", { cache: "no-store" });
@@ -858,8 +804,6 @@ export function boot(win: OpsWindow) {
     await fetch("/logout", { method: "POST" }).catch(() => {});
     location.assign(`${base}/login`);
   });
-  $("task-status").addEventListener("change", renderTasks);
-  $("ledger-type").addEventListener("change", renderLedger);
 
   const later = (fn: () => void, ms: number) => {
     const id = win.setTimeout(fn, ms);
@@ -1026,12 +970,16 @@ export function boot(win: OpsWindow) {
   const support = tableFor<Ticket>("support", {
     name: "tickets",
     empty: "No tickets. A worker opens one by texting HELP after an answer is held for review.",
-    remote: { noun: "tickets", more: () => loadTickets(true), total: () => ticketTotal },
+    remote: {
+      noun: "tickets",
+      more: () => loadTickets(true),
+      total: (): number | null => ticketPager.total(),
+    },
     initial: { q: "", sort: "", f: { state: "open" } },
     key: (t) => String(t.id),
     label: (t) => `Ticket ${t.id}: ${cut(t.question, 80)}`,
     open: openTicket,
-    onState: () => String(ticketQuery()) !== ticketsQuery && loadTickets(),
+    onState: () => ticketPager.changed(),
     columns: [
       {
         key: "ticket",
@@ -1094,6 +1042,195 @@ export function boot(win: OpsWindow) {
     ],
   });
   $("tickets").replaceChildren(support.el);
+
+  // Tasks: server-paged; a click opens the task panel.
+  const taskPager = pager<Task>({
+    path: "/tasks",
+    field: "tasks",
+    query: (): URLSearchParams => {
+      const st: TableState = tasks.state();
+      return params([
+        ["q", st.q],
+        ["status", st.f.status],
+      ]);
+    },
+    table: () => tasks,
+  });
+  const tasks = tableFor<Task>("tasks", {
+    name: "tasks",
+    empty: "No tasks yet.",
+    remote: {
+      noun: "tasks",
+      more: () => taskPager.load(true),
+      total: (): number | null => taskPager.total(),
+    },
+    key: (t) => t.id,
+    label: (t) => `Task: ${cut(t.question, 80)}`,
+    open: (t) => openReview(t.id, t),
+    onState: () => taskPager.changed(),
+    columns: [
+      {
+        key: "question",
+        label: "Question",
+        text: (t) => cut(t.question, 140),
+        cell: (t) => h("p", "q", cut(t.question, 140)),
+      },
+      { key: "place", label: "Place", text: (t) => cut(nearLabel(t.place_label), 60) },
+      {
+        key: "bounty",
+        label: "Bounty",
+        num: true,
+        desc: true,
+        text: (t) => usd(t.bounty_cents),
+        sort: (t) => t.bounty_cents ?? 0,
+      },
+      {
+        key: "distance",
+        label: "Worker distance",
+        num: true,
+        text: (t) => (t.distance_m == null ? "" : `${t.distance_m} m`),
+        sort: (t) => t.distance_m ?? -1,
+      },
+      {
+        key: "status",
+        label: "Status",
+        text: (t) => t.status.replace("_", " "),
+        cell: (t) => badge(t.status.replace("_", " "), STATUS_TONE[t.status]),
+      },
+      {
+        key: "age",
+        label: "Age",
+        num: true,
+        desc: true,
+        text: (t) => ago(t.created_at, Date.now()),
+        sort: (t) => -(Date.parse(t.created_at) || 0),
+      },
+      { key: "agent", label: "Agent", text: (t) => t.agent ?? "" },
+    ],
+    filters: [
+      {
+        kind: "select",
+        key: "status",
+        label: "Statuses",
+        options: Object.keys(STATUS_TONE).map((s) => [s, s.replace("_", " ")]),
+      },
+    ],
+  });
+  $("tasks").replaceChildren(tasks.el);
+
+  // Money: the ledger, server-paged, with the total for whatever the filters select.
+  const ledgerPager = pager<LedgerRow>({
+    path: "/ledger",
+    field: "ledger",
+    query: (): URLSearchParams => {
+      const st: TableState = ledger.state();
+      return params([
+        ["q", st.q],
+        ["type", st.f.type],
+      ]);
+    },
+    table: () => ledger,
+    onBody: (body) => {
+      const total = Number(body.total);
+      $("ledger-total").textContent =
+        `${usd(Number(body.total_cents))} across ${total} row${total === 1 ? "" : "s"}`;
+    },
+  });
+  const ledger = tableFor<LedgerRow>("money", {
+    name: "ledger rows",
+    empty: "No ledger rows yet.",
+    remote: {
+      noun: "rows",
+      more: () => ledgerPager.load(true),
+      total: (): number | null => ledgerPager.total(),
+    },
+    key: (r) => r.id,
+    onState: () => ledgerPager.changed(),
+    columns: [
+      {
+        key: "date",
+        label: "Date",
+        desc: true,
+        text: (r) => stamp(r.created_at),
+        sort: (r) => Date.parse(r.created_at) || 0,
+      },
+      { key: "type", label: "Type", text: (r) => LEDGER_LABEL[r.type] || r.type },
+      {
+        key: "amount",
+        label: "Amount",
+        num: true,
+        desc: true,
+        text: (r) => usd(r.amount_cents),
+        sort: (r) => r.amount_cents,
+      },
+      {
+        key: "task",
+        label: "Task",
+        text: (r) => (r.task_id ? `${cut(nearLabel(r.place_label), 50)} ${r.task_id.slice(0, 8)}` : ""),
+        cell: (r) =>
+          r.task_id
+            ? h(
+                "span",
+                null,
+                cut(nearLabel(r.place_label), 50),
+                h("span", "tiny", ` ${r.task_id.slice(0, 8)}`),
+              )
+            : "",
+      },
+    ],
+    filters: [
+      {
+        kind: "select",
+        key: "type",
+        label: "Types",
+        options: Object.entries(LEDGER_LABEL).map(([k, label]) => [k, label]),
+      },
+    ],
+  });
+  $("ledger").replaceChildren(ledger.el);
+
+  // Workers: every worker from the feed; the filters also pick which markers the map shows.
+  const rank = (w: Worker) => (w.available && w.opted_in ? 2 : w.opted_in ? 1 : 0);
+  const RANK = ["opted out", "opted in", "available"];
+  const workers = tableFor<Worker>("workers", {
+    name: "workers",
+    empty: "No workers yet.",
+    initial: { q: "", sort: "-state", f: {} },
+    onState: () => renderMap(workers.visible()),
+    columns: [
+      { key: "worker", label: "Worker", text: (w) => `worker ${w.id.slice(0, 8)}` },
+      {
+        key: "state",
+        label: "State",
+        desc: true,
+        text: (w) => RANK[rank(w)] as string,
+        sort: rank,
+        cell: (w) => badge(RANK[rank(w)] as string, rank(w) === 2 ? "success" : ""),
+      },
+      { key: "location", label: "Location", text: (w) => (w.lat == null ? "no location" : "on the map") },
+    ],
+    filters: [
+      {
+        kind: "select",
+        key: "state",
+        label: "States",
+        options: RANK.map((r) => [r, r]),
+        value: (w) => RANK[rank(w)] as string,
+      },
+      {
+        kind: "select",
+        key: "location",
+        label: "Locations",
+        options: [
+          ["on the map", "On the map"],
+          ["no location", "No location"],
+        ],
+        value: (w) => (w.lat == null ? "no location" : "on the map"),
+      },
+    ],
+  });
+  $("workers").replaceChildren(workers.el);
+
   const toast = createToaster(document, later);
 
   function showTab() {
@@ -1105,11 +1242,13 @@ export function boot(win: OpsWindow) {
       $(`p-${t}`).hidden = t !== name;
     }
     $(`tab-${name}`).scrollIntoView({ block: "nearest", inline: "nearest" });
+    if (name === "tasks") taskPager.load();
+    if (name === "money") ledgerPager.load();
     // Leaflet measured a hidden box; size it again and refit.
     if (name === "workers" && map) {
       map.invalidateSize();
       fitted = false;
-      renderMap(last.workers);
+      renderMap(workers.visible());
     }
   }
   $("tabs").addEventListener("keydown", (e) => {

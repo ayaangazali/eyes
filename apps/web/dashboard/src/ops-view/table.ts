@@ -381,5 +381,7 @@ export function createTable<T>(doc: Document, opts: TableOptions<T>) {
       draw();
     },
     state: () => state,
+    /** The rows the filters and search leave, in the current order. */
+    visible: () => applyTable(rows, columns, filters, state),
   };
 }

@@ -45,9 +45,15 @@ function feed(over: Partial<OpsFeed["ops"]> = {}, rest: Partial<OpsFeed> = {}): 
   return {
     tasks: [held, paid],
     ledger: [
-      { type: "escrow", created_at: "2026-10-17T12:00:00Z", task_id: HELD, amount_cents: 600 },
-      { type: "release", created_at: "2026-10-17T12:05:00Z", task_id: "99999999-0000", amount_cents: 500 },
-      { type: "bonus", created_at: "2026-10-17T12:06:00Z", task_id: null, amount_cents: 100 },
+      { id: "l1", type: "escrow", created_at: "2026-10-17T12:00:00Z", task_id: HELD, amount_cents: 600 },
+      {
+        id: "l2",
+        type: "release",
+        created_at: "2026-10-17T12:05:00Z",
+        task_id: "99999999-0000",
+        amount_cents: 500,
+      },
+      { id: "l3", type: "bonus", created_at: "2026-10-17T12:06:00Z", task_id: null, amount_cents: 100 },
     ],
     workers: [
       { id: "w-out-0000-1", lat: 37.78, lng: -122.41, available: false, opted_in: false },
@@ -163,6 +169,8 @@ async function setup(
   const all: Record<string, Route> = {
     "GET /ops/feed": () => ok(feed()),
     "GET /ops/tickets": () => ok({ tickets: [], total: 0, next_cursor: null }),
+    "GET /ops/tasks": () => ok({ tasks: [], total: 0, next_cursor: null }),
+    "GET /ops/ledger": () => ok({ ledger: [], total: 0, total_cents: 0, next_cursor: null }),
     "GET /ops/events": () => ok({ source: "db", events: [] }),
     "GET /ops/series": () => ok(SERIES),
     ...routes,
@@ -270,57 +278,27 @@ describe("ops page boot", () => {
     expect(text("n-review")).toBe("1");
     expect($("n-review").classList.contains("hot")).toBe(true);
     const decision = $("queue").querySelector("tbody tr") as HTMLElement;
-    expect(decision.getAttribute("aria-label")).toBe(
-      "Review: Is the line at Blue Bottle longer than 5 people?",
-    );
+    const row = () => decision;
     expect([...decision.querySelectorAll("td")].map((td) => td.textContent).slice(0, 3)).toEqual([
       "Is the line at Blue Bottle longer than 5 people?",
       "Near 37.761, -122.386",
       "$5.00",
     ]);
-    const row = $("task-list").querySelector("li") as HTMLElement;
-    expect(row.className).toBe("open");
-    expect(row.getAttribute("aria-label")).toBe("Review: Is the line at Blue Bottle longer than 5 people?");
-    expect(row.textContent).toContain("Near 37.761, -122.386");
-    expect(row.textContent).toContain("bounty $5.00");
-    expect(row.textContent).toContain("notified 3");
-    expect(row.querySelector(".flow-checks")?.textContent).toBe("✓ GPS ✗ fresh ✓ safe photo 82% sure");
-    const flow = [...(row.querySelector(".flow")?.children ?? [])].map((s) => s.textContent);
-    expect(flow.slice(1)).toEqual([
-      "claimed +30s",
-      "answered +4m",
-      "released +5m",
-      "paid out +6m",
-      "refunded +7m",
-      "fee +8m",
-    ]);
-    expect(flow[0]).toMatch(/^asked Oct 17/);
-
-    expect(text("tasks-shown")).toBe("2 of 2, newest first");
-    const paidRow = $("task-list").querySelectorAll("li")[1] as HTMLElement;
-    expect(paidRow.className).toBe("");
-    expect(paidRow.textContent).toContain("Mint Plaza");
-    expect(paidRow.textContent).toContain("notified 0");
-    expect(paidRow.querySelector(".flow-checks")).toBeNull();
+    expect(row().getAttribute("aria-label")).toBe("Review: Is the line at Blue Bottle longer than 5 people?");
 
     expect(text("worker-stats")).toBe("2+opted in1available now3signed up");
-    expect([...$("workers-list").children].map((li) => li.textContent)).toEqual([
-      "availableworker w-avail-",
-      "opted inworker w-in-000no location",
-      "opted outworker w-out-00",
+    expect([...$("workers").querySelectorAll("tbody tr")].map((tr) => tr.textContent)).toEqual([
+      "worker w-avail-availableon the map",
+      "worker w-in-000opted inno location",
+      "worker w-out-00opted outon the map",
     ]);
     expect(calls).toEqual([
       "map map",
       "clear",
-      "marker 37.78,-122.41 #8f8f8f",
       "marker 37.77,-122.42 #ffd60a",
+      "marker 37.78,-122.41 #8f8f8f",
       'fit {"maxZoom":14}',
     ]);
-
-    const ledger = [...$("ledger").children].map((s) => s.textContent);
-    expect(ledger.slice(1, 3)).toEqual(["Escrow Near 37.761, -122.386", "$6.00"]);
-    expect(ledger.slice(4, 6)).toEqual(["Release 99999999", "$5.00"]);
-    expect(ledger.slice(7, 9)).toEqual(["bonus", "$1.00"]);
 
     expect(
       [...$("errors").children].map((li) => li.textContent?.replace(/Oct.*?(AM|PM)?(?=boom|slow)/, "")),
@@ -428,12 +406,10 @@ describe("ops page boot", () => {
     expect($("queue-count").className).toBe("ui-badge ui-badge--success");
     expect($("queue").querySelector(".tbl-empty")?.textContent).toMatch(/^Nothing needs a decision/);
     expect(text("n-review")).toBe("");
-    expect(text("task-list")).toBe("No tasks yet.");
     expect(text("worker-stats")).toBe("0opted in0available now0signed up");
-    expect(text("workers-list")).toBe("No workers yet.");
+    expect($("workers").querySelector(".tbl-empty")?.textContent).toBe("No workers yet.");
     expect($("map").classList.contains("nomap")).toBe(true);
     expect(text("map")).toBe("Map needs Leaflet from unpkg.com.");
-    expect(text("ledger")).toBe("No ledger rows yet.");
     expect(text("n-logs")).toBe("1");
     expect($("n-logs").classList.contains("hot")).toBe(false);
     expect(text("events-source")).toBe("Database unreachable: this process's memory only");
@@ -452,20 +428,6 @@ describe("ops page boot", () => {
     );
     expect(text("tickets-count")).toBe("0 open");
     expect($("tickets-count").className).toBe("ui-badge ui-badge--success");
-
-    page.$<HTMLSelectElement>("ledger-type").value = "fee";
-    await page.change("ledger-type", "fee");
-    expect(text("ledger")).toBe("No rows of this type.");
-  });
-
-  it("filters tasks and ledger rows by their selects", async () => {
-    const { change, text, $ } = await setup();
-    await change("task-status", "paid");
-    expect(text("tasks-shown")).toBe("1 of 2, newest first");
-    await change("task-status", "expired");
-    expect(text("task-list")).toBe("No tasks with this status.");
-    await change("ledger-type", "release");
-    expect($("ledger").children).toHaveLength(3);
   });
 
   it("re-polls, skips unchanged tickets and series, and asks only for newer events", async () => {
@@ -1035,6 +997,199 @@ describe("ops support tickets", () => {
   });
 });
 
+describe("ops tasks, money and workers tabs", () => {
+  const task = (over: Partial<Task> = {}): Task => ({
+    ...(feed().tasks[0] as Task),
+    agent: "trip-planner",
+    distance_m: 14,
+    ...over,
+  });
+
+  it("pages tasks from the server with status and search, shows agent and distance, and opens a task with its timeline", async () => {
+    const page = await setup(
+      {
+        "GET /ops/tasks": (_init, url) =>
+          ok({
+            tasks: url.searchParams.get("cursor")
+              ? [task({ id: TASK_ID, question: "Older", created_at: "2026-10-16T12:00:00Z" })]
+              : [
+                  task(),
+                  task({
+                    id: "33333333-2222-4333-8444-555555555555",
+                    status: "paid",
+                    agent: null,
+                    distance_m: null,
+                    money_at: null,
+                    claimed_at: null,
+                    bounty_cents: undefined,
+                  }),
+                ],
+            total: 3,
+            next_cursor: url.searchParams.get("cursor") ? null : "c1",
+          }),
+        [`GET /ops/tasks/${HELD}`]: () => ok({ ...feed().tasks[0], fee_cents: 100 }),
+        "GET /ops/tasks/33333333-2222-4333-8444-555555555555": () =>
+          ok({
+            ...feed().tasks[0],
+            id: "33333333-2222-4333-8444-555555555555",
+            status: "paid",
+            fee_cents: 100,
+          }),
+      },
+      { hash: "#tasks" },
+    );
+    const { $, requests, click } = page;
+    expect(requests.find((r) => r.path.startsWith("/ops/tasks"))?.path).toBe("/ops/tasks?limit=50");
+    const rows = () => [...$("tasks").querySelectorAll("tbody tr")] as HTMLElement[];
+    expect([...(rows()[0]?.querySelectorAll("td") ?? [])].map((td) => td.textContent)).toEqual([
+      "Is the line at Blue Bottle longer than 5 people?",
+      "Near 37.761, -122.386",
+      "$5.00",
+      "14 m",
+      "needs review",
+      expect.stringMatching(/^(now|\d+[mhd])$/),
+      "trip-planner",
+    ]);
+    expect(rows()[1]?.querySelectorAll("td")[3]?.textContent).toBe("");
+    await click($("tasks").querySelector(".tbl-foot button") as HTMLElement);
+    expect(requests.at(-1)?.path).toBe("/ops/tasks?limit=50&cursor=c1");
+    expect($("tasks").querySelector(".tbl-count")?.textContent).toBe("3 of 3 tasks loaded");
+    const status = $("tasks").querySelector(".tbl-bar select") as HTMLSelectElement;
+    status.value = "paid";
+    status.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    await page.settle();
+    expect(requests.at(-1)?.path).toBe("/ops/tasks?status=paid&limit=50");
+    for (const label of ["Bounty", "Worker distance", "Age", "Agent"])
+      (
+        [...$("tasks").querySelectorAll("th button")].find((b) => b.textContent === label) as HTMLElement
+      ).click();
+    await click(rows().find((tr) => tr.textContent?.includes("trip-planner")) as HTMLElement);
+    const panel = $<HTMLDialogElement>("review-panel");
+    expect(panel.open).toBe(true);
+    const flow = [...(panel.querySelector(".flow")?.children ?? [])].map((s) => s.textContent);
+    expect(flow.slice(1)).toEqual([
+      "claimed +30s",
+      "answered +4m",
+      "released +5m",
+      "paid out +6m",
+      "refunded +7m",
+      "fee +8m",
+    ]);
+    expect(flow[0]).toMatch(/^asked Oct 17/);
+    panel.close();
+    await click(rows().find((tr) => tr.textContent?.includes("paid")) as HTMLElement);
+    expect(
+      [...(panel.querySelector(".flow")?.children ?? [])].map((s) => s.textContent?.split(" ")[0]),
+    ).toEqual(["asked", "answered"]);
+  });
+
+  it("refreshes tasks and the ledger with the feed only while their tab is shown, and survives going offline", async () => {
+    let offline = false;
+    const page = await setup({
+      "GET /ops/tasks": () => {
+        if (offline) throw new TypeError("Failed to fetch");
+        return ok({ tasks: [], total: 0, next_cursor: null });
+      },
+    });
+    const { requests, timers, win, happy } = page;
+    const poll = async () => {
+      timers
+        .filter((t) => t.ms === 10000)
+        .at(-1)
+        ?.fn();
+      await page.settle();
+      await page.settle();
+    };
+    await poll();
+    expect(requests.some((r) => r.path.startsWith("/ops/tasks") || r.path.startsWith("/ops/ledger"))).toBe(
+      false,
+    );
+    win.location.hash = "#money";
+    win.dispatchEvent(new happy.HashChangeEvent("hashchange") as unknown as Event);
+    await page.settle();
+    expect(requests.filter((r) => r.path.startsWith("/ops/ledger"))).toHaveLength(1);
+    await poll();
+    expect(requests.filter((r) => r.path.startsWith("/ops/ledger"))).toHaveLength(2);
+    win.location.hash = "#tasks";
+    win.dispatchEvent(new happy.HashChangeEvent("hashchange") as unknown as Event);
+    await poll();
+    expect(requests.filter((r) => r.path.startsWith("/ops/tasks"))).toHaveLength(2);
+    offline = true;
+    await poll();
+    expect(page.$("tasks").querySelector(".tbl-end")?.textContent).toBe("");
+  });
+
+  it("pages the ledger with type and search, with the total for the filters", async () => {
+    const page = await setup(
+      {
+        "GET /ops/ledger": (_init, url) =>
+          ok({
+            ledger: [
+              {
+                id: "l1",
+                type: "fee",
+                created_at: "2026-10-17T12:00:00Z",
+                task_id: HELD,
+                place_label: "37.76123, -122.38599",
+                amount_cents: 50,
+              },
+              {
+                id: "l2",
+                type: "topup",
+                created_at: "2026-10-17T11:00:00Z",
+                task_id: null,
+                amount_cents: 2000,
+              },
+              { id: "l3", type: "bonus", created_at: "2026-10-17T10:00:00Z", task_id: null, amount_cents: 1 },
+            ],
+            total: url.searchParams.get("type") ? 1 : 3,
+            total_cents: url.searchParams.get("type") ? 50 : 2051,
+            next_cursor: null,
+          }),
+      },
+      { hash: "#money" },
+    );
+    const { $, text, requests } = page;
+    expect(text("ledger-total")).toBe("$20.51 across 3 rows");
+    expect(
+      [...$("ledger").querySelectorAll("tbody tr")].map((tr) =>
+        tr.textContent?.replace(/^Oct 17.*?(AM|PM)/, ""),
+      ),
+    ).toEqual(["Fee$0.50Near 37.761, -122.386 22222222", "Top-up$20.00", "bonus$0.01"]);
+    const type = $("ledger").querySelector(".tbl-bar select") as HTMLSelectElement;
+    type.value = "fee";
+    type.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    await page.settle();
+    await page.settle();
+    expect(requests.at(-1)?.path).toBe("/ops/ledger?type=fee&limit=50");
+    expect(text("ledger-total")).toBe("$0.50 across 1 row");
+    for (const label of ["Date", "Type", "Amount", "Task"])
+      (
+        [...$("ledger").querySelectorAll("th button")].find((b) => b.textContent === label) as HTMLElement
+      ).click();
+  });
+
+  it("filters workers by state and location, and the map shows only those markers", async () => {
+    const { L, calls } = leaflet();
+    const page = await setup({}, { hash: "#workers", L });
+    const { $ } = page;
+    const [state, location] = [...$("workers").querySelectorAll(".tbl-bar select")] as HTMLSelectElement[];
+    const pick = (select: HTMLSelectElement | undefined, value: string) => {
+      (select as HTMLSelectElement).value = value;
+      select?.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    };
+    calls.length = 0;
+    pick(state, "available");
+    expect([...$("workers").querySelectorAll("tbody tr")]).toHaveLength(1);
+    expect(calls).toEqual(["clear", "marker 37.77,-122.42 #ffd60a"]);
+    pick(state, "");
+    calls.length = 0;
+    pick(location, "no location");
+    expect($("workers").querySelector("tbody tr")?.textContent).toContain("no location");
+    expect(calls).toEqual(["clear"]);
+  });
+});
+
 describe("ops event log and tabs", () => {
   const ev = (id: number, extra: object = {}) => ({
     id,
@@ -1342,7 +1497,7 @@ describe("ops review table", () => {
     expect(age).toMatch(/^(now|\d+[mhd])$/);
   });
 
-  it("filters by created day and bounty, sorts by age, and opens rows from the recent tasks list too", async () => {
+  it("filters by created day and bounty, and sorts by age", async () => {
     const page = await setup({
       "GET /ops/feed": () => ok(two()),
       [`GET /ops/tasks/${HELD}`]: () => ok({ ...feed().tasks[0], fee_cents: 100 }),
@@ -1375,19 +1530,6 @@ describe("ops review table", () => {
     search.dispatchEvent(new page.happy.Event("input") as unknown as Event);
     search.dispatchEvent(new page.happy.Event("input") as unknown as Event);
     expect(cleared).toContain(timers.length - 1);
-
-    const item = $("task-list").querySelector("li.open") as HTMLElement;
-    item.dispatchEvent(new page.happy.KeyboardEvent("keydown", { key: "x" }) as unknown as Event);
-    expect(page.requests.some((r) => r.path.startsWith("/ops/tasks/"))).toBe(false);
-    item.dispatchEvent(
-      new page.happy.KeyboardEvent("keydown", { key: " ", cancelable: true }) as unknown as Event,
-    );
-    await page.settle();
-    await page.settle();
-    expect($<HTMLDialogElement>("review-panel").open).toBe(true);
-    $<HTMLDialogElement>("review-panel").close();
-    await page.click(item);
-    expect($<HTMLDialogElement>("review-panel").open).toBe(true);
   });
 
   it("remembers a tab's table state when you leave and come back", async () => {
