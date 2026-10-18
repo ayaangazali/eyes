@@ -65,6 +65,7 @@ export const Worker = z.object({
   available: z.boolean(),
   opted_in: z.boolean(),
   rating: z.number().min(0).max(5),
+  banned: z.boolean().optional(),
   created_at: Timestamp,
 });
 export type Worker = z.infer<typeof Worker>;
@@ -270,6 +271,17 @@ export const GetTaskOutput = z.object({
   created_at: Timestamp,
   claimed_at: Timestamp.nullable(),
   answer: Answer.nullable(),
+  dispute: z
+    .object({
+      status: z
+        .enum(["open", "upheld", "rejected"])
+        .describe(
+          "open: a person is reviewing your dispute. upheld: the answer was fake; bounty and fee were refunded to your balance. rejected: the answer stands and the worker keeps the pay.",
+        ),
+      refunded_usd: Usd.nullable().describe("What was refunded to your balance when the dispute was upheld."),
+    })
+    .nullable()
+    .describe("Your dispute_answer on this task and its outcome; null if you never disputed it."),
 });
 
 export const ListTasksInput = z.object({

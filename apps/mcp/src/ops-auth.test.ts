@@ -69,9 +69,19 @@ function setup(values = [PHONE, EMAIL]) {
     task_id: TASK_ID,
     status: "resolved" as const,
   }));
+  const confirmFraud = vi.fn(async ({ ticket_id }: { ticket_id: number }) => ({
+    ticket_id,
+    task_id: TASK_ID,
+    dispute_status: "upheld",
+    agent_refund_cents: 350,
+    reversal: "owed",
+    reversal_owed_cents: 300,
+    worker_banned: true,
+    already_resolved: false,
+  }));
   const events = createEventLog();
   const server = createServer({
-    service: { resolveTask, resolveTicket } as unknown as EyesService,
+    service: { resolveTask, resolveTicket, confirmFraud } as unknown as EyesService,
     providers,
     config: AppConfig.parse({
       public_api_url: ORIGIN,
@@ -109,7 +119,19 @@ function setup(values = [PHONE, EMAIL]) {
     expect(res.status).toBe(200);
     return (res.headers.get("set-cookie") ?? "").split(";")[0] ?? "";
   };
-  return { fetch, post, codeFor, signIn, providers, calls, allowlist, events, resolveTask, resolveTicket };
+  return {
+    fetch,
+    post,
+    codeFor,
+    signIn,
+    providers,
+    calls,
+    allowlist,
+    events,
+    resolveTask,
+    resolveTicket,
+    confirmFraud,
+  };
 }
 
 describe("ops sign-in", () => {
@@ -279,5 +301,22 @@ describe("ops ticket actions", () => {
       400,
     );
     expect(resolveTicket).not.toHaveBeenCalled();
+  });
+
+  it("confirm_fraud needs a session, the right origin and a note, then logs the outcome", async () => {
+    const { post, signIn, confirmFraud, events } = setup();
+    expect((await post("/ops/tickets/9/confirm_fraud", { note: "fake" })).status).toBe(401);
+    const cookie = await signIn();
+    const evil = { cookie, origin: "https://evil.test" };
+    expect((await post("/ops/tickets/9/confirm_fraud", { note: "fake" }, evil)).status).toBe(403);
+    expect((await post("/ops/tickets/9/confirm_fraud", { note: " " }, { cookie })).status).toBe(400);
+    expect(confirmFraud).not.toHaveBeenCalled();
+    const res = await post("/ops/tickets/9/confirm_fraud", { note: "fake" }, { cookie });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ticket_id: 9, reversal: "owed", already_resolved: false });
+    expect(confirmFraud).toHaveBeenCalledWith({ ticket_id: 9, note: "fake" });
+    expect(events.recent()).toContainEqual(
+      expect.objectContaining({ kind: "ops", level: "warn", summary: "ticket #9 confirm_fraud by ***0100" }),
+    );
   });
 });

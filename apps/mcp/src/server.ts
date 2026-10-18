@@ -114,6 +114,10 @@ const TicketAction = z.object({
   task_id: z.uuid(),
   note: z.string().trim().min(1).max(500),
 });
+const DisputeAction = z.object({
+  ticket_id: z.coerce.number().int().positive(),
+  note: z.string().trim().min(1).max(500),
+});
 type Ticket = {
   worker_id: string;
   lat: number;
@@ -574,7 +578,7 @@ Next: call get_balance to see the refund, or keep calling await_answer if the ta
     {
       name: "dispute_answer",
       title: "Dispute an answer",
-      description: `Flag a delivered answer as wrong or unhelpful. If the worker has not been paid yet, the payout is held; either way the task goes to human review. Works on tasks whose status is verified, paid or needs_review. Give a specific reason of at least 5 characters.
+      description: `Flag a delivered answer as wrong or fake. Eyes does not check whether answers are correct, so this is how a wrong answer gets reviewed. If the worker has not been paid yet, the payout is held, and a person reviews the dispute. If they confirm the answer was fake, the full bounty and fee are refunded to your balance. get_task shows dispute.status: open, upheld (refunded) or rejected (the answer stands). Works on tasks whose status is verified, paid or needs_review. Give a specific reason of at least 5 characters.
 Example: dispute_answer({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b", "reason": "The photo shows a different cafe, not Blue Bottle." })
 Next: call get_task later to see the outcome. To get a fresh answer now, call ask_eyes again with a new idempotency_key.`,
       inputSchema: TOOLS.dispute_answer.input,
@@ -940,6 +944,26 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       }));
       return c.json({ tickets }, 200, FEED_HEADERS);
     });
+    // Dispute tickets (ADR-026): confirm fraud (refund + reverse + ban) or reject. Each runs once;
+    // a second click returns the same shape with already_resolved true and moves no money.
+    for (const [action, decide] of [
+      ["confirm_fraud", service.confirmFraud],
+      ["reject_dispute", service.rejectDispute],
+    ] as const) {
+      server.app.post(`/ops/tickets/:id/${action}`, ops.sameOrigin, ops.operator, async (c) => {
+        const body = parse(DisputeAction, { ...(await readJson(c)), ticket_id: c.req.param("id") });
+        const operator = c.get("operator").label;
+        const result = await decide({ ticket_id: body.ticket_id, note: body.note });
+        log({
+          kind: "ops",
+          level: result.reversal === "owed" ? "warn" : "info",
+          task_id: result.task_id,
+          summary: `ticket #${result.ticket_id} ${action} by ${operator}${result.already_resolved ? " (already resolved)" : ""}`,
+          data: { action, operator, ...result },
+        });
+        return c.json(result, 200, FEED_HEADERS);
+      });
+    }
     server.app.post("/ops/tickets/:id/:action", ops.sameOrigin, ops.operator, async (c) => {
       const { id, action } = c.req.param();
       const body = parse(TicketAction, { ...(await readJson(c)), ticket_id: id, outcome: action });

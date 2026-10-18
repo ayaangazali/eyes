@@ -500,7 +500,7 @@ describe.skipIf(!url)("engine under races and guards", () => {
     const onboard = slowPay.service.markWorkerOnboarded(`acct_fake_${w.worker_id}`);
     await inTransfer;
     const disputed = await slowPay.service.disputeAnswer(a, { task_id, reason: "wrong store" });
-    expect(disputed.next_step).toContain("not reversed automatically");
+    expect(disputed.next_step).toContain("If the answer was fake, the full bounty and fee are refunded");
     release();
     await onboard;
     expect((await task(task_id)).status).toBe("disputed");

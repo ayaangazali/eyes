@@ -6,6 +6,7 @@ import {
   agentEmailAddress,
   CaptureFields,
   centsToUsd,
+  type DisputeOutcome,
   distanceMeters,
   type EngineDeps,
   ERRORS,
@@ -99,6 +100,22 @@ const ResolveTicketInput = z.object({
   outcome: z.enum(["release", "refund", "close"]),
   note: z.string().trim().min(1),
 });
+const DisputeDecision = z.object({
+  ticket_id: z.number().int().positive(),
+  note: z.string().trim().min(1).max(500),
+});
+type DisputeTicket = Ticket & {
+  dispute_status: "open" | "upheld" | "rejected" | null;
+  reversal_owed_cents: number | string | null;
+};
+// bigint columns may arrive as strings, so amounts are read with Number().
+type FraudRow = {
+  ticket: DisputeTicket;
+  already: boolean;
+  refund_cents: number | string | null;
+  transfer_id: string | null;
+  payout_cents: number | string | null;
+};
 const TICKET_OUTCOME: Record<z.output<typeof ResolveTicketInput>["outcome"], string> = {
   release: "Your answer was approved and you are being paid.",
   refund: "Your answer was not approved, so this task is not paid.",
@@ -495,6 +512,29 @@ export function createEyesService(deps: EngineDeps): EyesService {
     });
   let retryAfter: string | null = null;
 
+  async function resolveTask(task_id: string, decision: "refund" | "release", note: string) {
+    const input = parse(ResolveInput, { task_id, decision, note });
+    const resolved = await one<Task>("eyes_resolve_task", {
+      p_task_id: input.task_id,
+      p_decision: input.decision,
+      p_note: input.note,
+      p_now: nowIso(),
+    });
+    const worker = await one<Worker>("eyes_worker", { p_worker_id: resolved.claimed_by, p_phone: null });
+    const settled = await settle(resolved, worker);
+    return { task_id: settled.id, status: settled.status };
+  }
+
+  async function disputeOf(task: Task) {
+    const t = await maybe<DisputeTicket>("eyes_task_dispute", { p_task_id: task.id });
+    if (!t?.dispute_status) return null;
+    const upheld = t.dispute_status === "upheld";
+    return {
+      status: t.dispute_status,
+      refunded_usd: upheld ? centsToUsd(task.bounty_cents + task.fee_cents) : null,
+    };
+  }
+
   return {
     async authenticate(apiKey) {
       return (await maybe<Agent>("eyes_agent_by_key_hash", { p_api_key_hash: sha256(apiKey) })) ?? null;
@@ -714,6 +754,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         created_at: iso(task.created_at),
         claimed_at: task.claimed_at && iso(task.claimed_at),
         answer: answerOf(found),
+        dispute: await disputeOf(task),
       };
     },
 
@@ -760,7 +801,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
         task_id,
         status: "disputed",
         next_step:
-          "Recorded. The task is flagged for human review. If the worker payout has not been sent yet it is held; a payout already sent is not reversed automatically. Call get_task later to see the outcome.",
+          "Recorded. A person reviews the dispute; an unpaid payout is held meanwhile. If the answer was fake, the full bounty and fee are refunded to your balance. Call get_task later: dispute.status is open, upheld (refunded) or rejected (the answer stands).",
       };
     },
 
@@ -928,6 +969,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
           phone,
           `You are not signed up for Eyes yet. Join at ${config.worker_web_url} to get paid tasks near you.${simulatedPay}`,
         );
+        return;
+      }
+      if (worker.banned) {
+        // Banned after confirmed fraud (ADR-026): no tasks, no rejoining with this phone.
+        if (intent === "start") await messaging.sendText(phone, "This number can't take Eyes tasks.");
         return;
       }
       if (!worker.opted_in && intent !== "start") return;
@@ -1243,18 +1289,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
       return { paid };
     },
 
-    async resolveTask(task_id, decision, note) {
-      const input = parse(ResolveInput, { task_id, decision, note });
-      const resolved = await one<Task>("eyes_resolve_task", {
-        p_task_id: input.task_id,
-        p_decision: input.decision,
-        p_note: input.note,
-        p_now: nowIso(),
-      });
-      const worker = await one<Worker>("eyes_worker", { p_worker_id: resolved.claimed_by, p_phone: null });
-      const settled = await settle(resolved, worker);
-      return { task_id: settled.id, status: settled.status };
-    },
+    resolveTask,
 
     async resolveTicket(input) {
       const { ticket_id, outcome, note } = parse(ResolveTicketInput, input);
@@ -1269,6 +1304,65 @@ export function createEyesService(deps: EngineDeps): EyesService {
         messaging.sendText(worker.phone, body.filter(Boolean).join(" ")),
       );
       return { ticket_id: Number(ticket.id), task_id: ticket.task_id, status: "resolved" };
+    },
+
+    async confirmFraud(input) {
+      const { ticket_id, note } = parse(DisputeDecision, input);
+      const r = await one<FraudRow>("eyes_confirm_fraud", {
+        p_ticket_id: ticket_id,
+        p_note: note,
+        p_now: nowIso(),
+      });
+      const { ticket } = r;
+      let owed = ticket.reversal_owed_cents === null ? null : Number(ticket.reversal_owed_cents);
+      let reversal: DisputeOutcome["reversal"] = owed ? "owed" : "none";
+      if (!r.already && r.transfer_id && r.payout_cents) {
+        try {
+          await payments.reverseTransfer({
+            transfer_id: r.transfer_id,
+            amount_cents: Number(r.payout_cents),
+            idempotency_key: `reverse-${ticket.task_id}`,
+          });
+          reversal = "reversed";
+        } catch (err) {
+          // Usually balance_insufficient: the worker already moved the money out. Recorded as owed.
+          const code = err instanceof Error && "code" in err ? String(err.code) : errorName(err);
+          console.error(`transfer reversal for task ${ticket.task_id} failed: ${code}`);
+          owed = Number(r.payout_cents);
+          reversal = "owed";
+          await rpc("eyes_record_reversal", { p_ticket_id: ticket_id, p_owed_cents: owed });
+        }
+      }
+      return {
+        ticket_id: Number(ticket.id),
+        task_id: ticket.task_id,
+        dispute_status: "upheld",
+        agent_refund_cents: r.already ? 0 : Number(r.refund_cents ?? 0),
+        reversal,
+        reversal_owed_cents: owed,
+        worker_banned: true,
+        already_resolved: r.already,
+      };
+    },
+
+    async rejectDispute(input) {
+      const { ticket_id, note } = parse(DisputeDecision, input);
+      const r = await one<{ ticket: DisputeTicket; already: boolean }>("eyes_reject_dispute", {
+        p_ticket_id: ticket_id,
+        p_note: note,
+        p_now: nowIso(),
+      });
+      if (!r.already) await resolveTask(r.ticket.task_id, "release", `dispute rejected: ${note}`);
+      return {
+        ticket_id: Number(r.ticket.id),
+        task_id: r.ticket.task_id,
+        dispute_status: "rejected",
+        agent_refund_cents: 0,
+        reversal: "none",
+        reversal_owed_cents: null,
+        worker_banned: false,
+        already_resolved: r.already,
+      };
     },
   };
 }

@@ -61,6 +61,8 @@ export function fakePayments() {
   const transfers: { account_id: string; amount_cents: number; task_id: string; idempotency_key: string }[] =
     [];
   const byKey = new Map<string, string>();
+  const reversals: { transfer_id: string; amount_cents: number; idempotency_key: string }[] = [];
+  let reversalError: string | null = null;
   let seq = 0;
   const payments: Payments = {
     createTopupCheckout: async (i) => {
@@ -79,12 +81,25 @@ export function fakePayments() {
       byKey.set(i.idempotency_key, transfer_id);
       return { transfer_id };
     },
+    reverseTransfer: async (i) => {
+      if (reversalError) throw Object.assign(new Error(reversalError), { code: reversalError });
+      const at = reversals.findIndex((r) => r.idempotency_key === i.idempotency_key);
+      if (at < 0) reversals.push(i);
+      return { reversal_id: `trr_fake_${at < 0 ? reversals.length : at + 1}` };
+    },
     parseWebhook: async (rawBody, signature) => {
       if (signature !== FAKE_STRIPE_SIGNATURE) throw new Error("invalid webhook signature");
       return JSON.parse(rawBody) as PaymentsEvent;
     },
   };
-  return Object.assign(payments, { transfers });
+  return Object.assign(payments, {
+    transfers,
+    reversals,
+    // Make the next reversals fail with this Stripe error code (null: succeed).
+    failReversals: (code: string | null) => {
+      reversalError = code;
+    },
+  });
 }
 
 export function fakeStorage() {

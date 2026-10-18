@@ -129,6 +129,15 @@ export function createStripePayments(env: Env): Payments {
       return { transfer_id: transfer.id };
     },
 
+    async reverseTransfer({ transfer_id, amount_cents, idempotency_key }) {
+      const reversal = await stripe.transfers.createReversal(
+        transfer_id,
+        { amount: amount_cents, metadata: { reason: "fraud" } },
+        { idempotencyKey: idempotency_key },
+      );
+      return { reversal_id: reversal.id };
+    },
+
     async parseWebhook(rawBody, signature) {
       const secrets = [env.STRIPE_WEBHOOK_SECRET, env.STRIPE_CONNECT_WEBHOOK_SECRET].filter(
         (s): s is string => !!s,

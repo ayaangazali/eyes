@@ -901,6 +901,30 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "dispute": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string",
+                              "enum": ["open", "upheld", "rejected"],
+                              "description": "open: a person is reviewing your dispute. upheld: the answer was fake; bounty and fee were refunded to your balance. rejected: the answer stands and the worker keeps the pay."
+                            },
+                            "refunded_usd": {
+                              "description": "What was refunded to your balance when the dispute was upheld.",
+                              "type": ["number", "null"]
+                            }
+                          },
+                          "required": ["status", "refunded_usd"],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "description": "Your dispute_answer on this task and its outcome; null if you never disputed it."
                     }
                   },
                   "required": [
@@ -914,7 +938,8 @@
                     "deadline_at",
                     "created_at",
                     "claimed_at",
-                    "answer"
+                    "answer",
+                    "dispute"
                   ],
                   "additionalProperties": false
                 }

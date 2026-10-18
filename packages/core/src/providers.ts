@@ -92,6 +92,11 @@ export interface Payments {
     task_id: string;
     idempotency_key: string;
   }): Promise<{ transfer_id: string }>;
+  // Reverses a payout transfer (confirmed fraud). Throws when Stripe refuses, e.g. the connected
+  // account has no balance left (code balance_insufficient).
+  reverseTransfer(i: { transfer_id: string; amount_cents: number; idempotency_key: string }): Promise<{
+    reversal_id: string;
+  }>;
   parseWebhook(rawBody: string, signature: string | null): Promise<PaymentsEvent | null>;
 }
 

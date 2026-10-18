@@ -121,7 +121,23 @@ export interface EyesService {
     outcome: "release" | "refund" | "close";
     note: string;
   }): Promise<{ ticket_id: number; task_id: string; status: "resolved" }>;
+  /** Ops confirms a dispute is fraud, once: refund the agent, reverse the payout, ban the worker. */
+  confirmFraud(input: { ticket_id: number; note: string }): Promise<DisputeOutcome>;
+  /** Ops rejects a dispute, once: the answer stands and the worker keeps (or gets) the pay. */
+  rejectDispute(input: { ticket_id: number; note: string }): Promise<DisputeOutcome>;
 }
+
+export type DisputeOutcome = {
+  ticket_id: number;
+  task_id: string;
+  dispute_status: "upheld" | "rejected";
+  agent_refund_cents: number;
+  /** Only reported on the first call; a repeat call says "none" unless money is still owed. */
+  reversal: "reversed" | "owed" | "none";
+  reversal_owed_cents: number | null;
+  worker_banned: boolean;
+  already_resolved: boolean;
+};
 
 export const AppConfig = z.object({
   public_api_url: z.url(),

@@ -1268,4 +1268,137 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(offersTo(other.phone)).toHaveLength(2);
     expect(offersTo(releaser.phone)).toHaveLength(1);
   });
+
+  describe("disputes (ADR-026)", () => {
+    // A paid task: the worker finished payout setup, so the capture pays out a fake transfer.
+    async function paidTask() {
+      const at = somewhere();
+      const { a, w, task_id, token } = await claimed(at);
+      await service.workerConnectUrl(connectToken(w.phone));
+      expect(await capture(token, at)).toMatchObject({ status: "paid" });
+      return { a, w, task_id, at };
+    }
+    const balance = async (a: Agent) => (await service.getBalance(a)).balance_usd;
+    const disputeTicket = async (task_id: string) =>
+      Number((await sql`select id from tickets where task_id = ${task_id} and kind = 'dispute'`)[0]?.id);
+
+    it("dispute_answer opens a dispute ticket that get_task reports as open", async () => {
+      const { a, task_id } = await paidTask();
+      await service.disputeAnswer(a, { task_id, reason: "The photo shows a different cafe." });
+      const [t] =
+        await sql`select kind, status, dispute_status, message from tickets where task_id = ${task_id}`;
+      expect(t).toMatchObject({
+        kind: "dispute",
+        status: "open",
+        dispute_status: "open",
+        message: "The photo shows a different cafe.",
+      });
+      expect((await service.getTask(a, { task_id })).dispute).toEqual({ status: "open", refunded_usd: null });
+    });
+
+    it("confirm fraud refunds bounty + fee, reverses the transfer once, bans the worker; a double click moves nothing", async () => {
+      const { a, w, task_id, at } = await paidTask();
+      await service.disputeAnswer(a, { task_id, reason: "Fake: the cafe was closed." });
+      const before = await balance(a);
+      const ticket_id = await disputeTicket(task_id);
+      const results = (
+        await Promise.all([
+          service.confirmFraud({ ticket_id, note: "fake photo" }),
+          service.confirmFraud({ ticket_id, note: "fake photo" }),
+        ])
+      ).sort((x, y) => Number(x.already_resolved) - Number(y.already_resolved));
+      expect(results[0]).toMatchObject({
+        dispute_status: "upheld",
+        agent_refund_cents: 350,
+        reversal: "reversed",
+        worker_banned: true,
+        already_resolved: false,
+      });
+      expect(results[1]).toMatchObject({
+        dispute_status: "upheld",
+        agent_refund_cents: 0,
+        already_resolved: true,
+      });
+      expect(await balance(a)).toBeCloseTo(before + 3.5);
+      expect(
+        providers.payments.reversals.filter((r) => r.idempotency_key === `reverse-${task_id}`),
+      ).toHaveLength(1);
+      expect(await ledger(task_id)).toContainEqual(
+        expect.objectContaining({ type: "fraud_refund", amount: 350 }),
+      );
+      expect((await service.getBalance(a)).escrowed_usd).toBeGreaterThanOrEqual(0);
+      expect((await service.getTask(a, { task_id })).dispute).toEqual({
+        status: "upheld",
+        refunded_usd: 3.5,
+      });
+      const [banned] = await sql`select banned, opted_in from workers where id = ${w.worker_id}`;
+      expect(banned).toMatchObject({ banned: true, opted_in: false });
+      expect(await sql`select 1 from worker_location_tokens where worker_id = ${w.worker_id}`).toHaveLength(
+        0,
+      );
+      await service.handleWorkerReply({ phone: w.phone, intent: "start", text: "START" });
+      expect(outbox.findLast((m) => m.to === w.phone)?.payload).toBe("This number can't take Eyes tasks.");
+      expect((await sql`select opted_in from workers where id = ${w.worker_id}`)[0]?.opted_in).toBe(false);
+      // The banned worker was the only one here: no offer goes out, the new task finds nobody.
+      await expect(ask(a, at)).rejects.toMatchObject({ code: "no_workers_nearby" });
+    });
+
+    it("records the reversal as owed when the connected account has no balance", async () => {
+      const { a, task_id } = await paidTask();
+      await service.disputeAnswer(a, { task_id, reason: "Fake answer, wrong place." });
+      const ticket_id = await disputeTicket(task_id);
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      providers.payments.failReversals("balance_insufficient");
+      try {
+        expect(await service.confirmFraud({ ticket_id, note: "fake" })).toMatchObject({
+          reversal: "owed",
+          reversal_owed_cents: 300,
+        });
+      } finally {
+        providers.payments.failReversals(null);
+        error.mockRestore();
+      }
+      const [row] = await sql`select reversal_owed_cents::int as owed from tickets where id = ${ticket_id}`;
+      expect(row?.owed).toBe(300);
+      expect(await service.confirmFraud({ ticket_id, note: "again" })).toMatchObject({
+        reversal: "owed",
+        reversal_owed_cents: 300,
+        already_resolved: true,
+      });
+    });
+
+    it("reject dispute closes the ticket once and the worker keeps the pay", async () => {
+      const { a, task_id } = await paidTask();
+      await service.disputeAnswer(a, { task_id, reason: "I think the line was longer." });
+      const before = await balance(a);
+      const ticket_id = await disputeTicket(task_id);
+      expect(await service.rejectDispute({ ticket_id, note: "photo matches" })).toMatchObject({
+        dispute_status: "rejected",
+        already_resolved: false,
+      });
+      expect(await service.rejectDispute({ ticket_id, note: "photo matches" })).toMatchObject({
+        already_resolved: true,
+      });
+      expect(await service.getTask(a, { task_id })).toMatchObject({
+        status: "paid",
+        dispute: { status: "rejected", refunded_usd: null },
+      });
+      expect(await balance(a)).toBe(before);
+      expect(providers.payments.reversals.some((r) => r.idempotency_key === `reverse-${task_id}`)).toBe(
+        false,
+      );
+    });
+
+    it("confirm fraud on an unpaid needs_review answer refunds through escrow and reverses nothing", async () => {
+      const at = somewhere();
+      const { a, task_id, token } = await claimed(at);
+      providers.vision.setVerdict({ allowed: false });
+      await capture(token, at);
+      await service.disputeAnswer(a, { task_id, reason: "Fake answer, wrong place." });
+      const r = await service.confirmFraud({ ticket_id: await disputeTicket(task_id), note: "fake" });
+      expect(r).toMatchObject({ agent_refund_cents: 350, reversal: "none" });
+      expect(await ledger(task_id)).toContainEqual(expect.objectContaining({ type: "refund", amount: 350 }));
+      expect((await service.getBalance(a)).escrowed_usd).toBe(0);
+    });
+  });
 });
