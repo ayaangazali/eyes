@@ -26,6 +26,7 @@ export default defineConfig({
         "**/dist/**",
         "**/node_modules/**",
         "**/.wrangler/**",
+        "**/.astro/**",
         "scripts/**",
         "apps/mobile/ios/**",
       ],

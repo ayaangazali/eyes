@@ -1,9 +1,9 @@
 import { once } from "node:events";
 import { request } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, connect, Server } from "node:net";
 import type { Rpc } from "@eyes/db";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createDashboardServer, dbFromEnv } from "./server.ts";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createDashboardServer, dbFromEnv, startFromEnv } from "./server.ts";
 
 const FEED = {
   tasks: [],
@@ -117,3 +117,59 @@ describe("dbFromEnv", () => {
     expect(() => dbFromEnv({})).toThrow("to read the feed.");
   });
 });
+
+describe("startFromEnv", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("listens on PORT on loopback and logs the URL", () => {
+    const listen = mockListen();
+    const log = vi.fn();
+    startFromEnv({ INSFORGE_BASE_URL: "https://insforge.test", INSFORGE_API_KEY: "key", PORT: "5123" }, log);
+    expect(listen).toHaveBeenCalledWith(5123, "127.0.0.1", expect.any(Function));
+    expect(log).toHaveBeenCalledWith("EYES dashboard on http://127.0.0.1:5123");
+  });
+
+  it("defaults to port 4400 when PORT is unset", () => {
+    const listen = mockListen();
+    const log = vi.fn();
+    startFromEnv({ INSFORGE_BASE_URL: "https://insforge.test", INSFORGE_API_KEY: "key" }, log);
+    expect(listen).toHaveBeenCalledWith(4400, "127.0.0.1", expect.any(Function));
+    expect(log).toHaveBeenCalledWith("EYES dashboard on http://127.0.0.1:4400");
+  });
+
+  it("throws before listening when no database is configured", () => {
+    const listen = mockListen();
+    expect(() => startFromEnv({}, vi.fn())).toThrow("Set DATABASE_URL");
+    expect(listen).not.toHaveBeenCalled();
+  });
+});
+
+describe("host guard", () => {
+  it("answers 403 and never calls the database when the Host header is missing", async () => {
+    const before = calls.length;
+    expect(await getWithoutHost("/feed")).toBe(403);
+    expect(calls).toHaveLength(before);
+  });
+});
+
+function mockListen() {
+  return vi.spyOn(Server.prototype, "listen").mockImplementation(function (this: Server, ...args: unknown[]) {
+    const done = args.find((arg): arg is () => void => typeof arg === "function");
+    done?.();
+    return this;
+  } as never);
+}
+
+async function getWithoutHost(path: string): Promise<number> {
+  const socket = connect(port, "127.0.0.1");
+  socket.setEncoding("utf8");
+  let raw = "";
+  socket.on("data", (chunk: string) => {
+    raw += chunk;
+  });
+  socket.end(`GET ${path} HTTP/1.0\r\n\r\n`);
+  await once(socket, "end");
+  return Number(raw.match(/^HTTP\/1\.[01] (\d{3})/)?.[1] ?? 0);
+}

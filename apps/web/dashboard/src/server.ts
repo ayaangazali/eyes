@@ -75,9 +75,16 @@ export function dbFromEnv(env: Record<string, string | undefined>): DbConfig {
   throw new Error("Set DATABASE_URL, or INSFORGE_BASE_URL and INSFORGE_API_KEY, to read the feed.");
 }
 
-if (import.meta.main) {
-  const { PORT = "4400" } = process.env;
-  createDashboardServer(createRpc(dbFromEnv(process.env))).listen(Number(PORT), "127.0.0.1", () =>
-    console.log(`EYES dashboard on http://127.0.0.1:${PORT}`),
+export function startFromEnv(
+  env: Record<string, string | undefined>,
+  log: (line: string) => void = console.log,
+) {
+  const port = Number(env.PORT ?? "4400");
+  return createDashboardServer(createRpc(dbFromEnv(env))).listen(port, "127.0.0.1", () =>
+    log(`EYES dashboard on http://127.0.0.1:${port}`),
   );
 }
+
+/* v8 ignore start -- process entry: only runs when this file is the main module */
+if (import.meta.main) startFromEnv(process.env);
+/* v8 ignore stop */
