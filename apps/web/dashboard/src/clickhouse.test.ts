@@ -7,6 +7,7 @@ import {
   createClickHouseSink,
   fallbackRows,
   mirrorTriggerEvents,
+  readClickHouseSeries,
   toRow,
 } from "./clickhouse.ts";
 import { createEventLog, type LoggedEvent } from "./ops.ts";
@@ -37,6 +38,22 @@ function fakeClickHouse() {
     return state.down ? new Response("Connection refused", { status: 500 }) : new Response("");
   }) as typeof globalThis.fetch;
   return { fetch, requests, state };
+}
+
+/** Collects what the code under test writes to stderr, so a test can assert the exact log line. */
+function captureStderr() {
+  const lines: string[] = [];
+  const write = process.stderr.write;
+  process.stderr.write = ((chunk: string) => {
+    lines.push(String(chunk));
+    return true;
+  }) as typeof process.stderr.write;
+  return {
+    lines,
+    restore: () => {
+      process.stderr.write = write;
+    },
+  };
 }
 
 describe("clickhouse config", () => {
@@ -171,6 +188,47 @@ describe("clickhouse sink", () => {
     sink.stop();
     expect(ch.requests[0]?.body.split("\n").map((l) => JSON.parse(l).name)).toEqual(["/c", "/d", "/e"]);
   });
+
+  it("logs a failed insert when fetch throws a plain value rather than an Error", async () => {
+    const fetch = (async () => {
+      throw "dns failure";
+    }) as typeof globalThis.fetch;
+    const cap = captureStderr();
+    const sink = createClickHouseSink(CFG, { fetch, flushMs: 60_000 });
+    sink.push(event());
+    await sink.flush();
+    cap.restore();
+    sink.stop();
+    expect(cap.lines).toEqual(["clickhouse insert failed (1): dns failure\n"]);
+    expect(sink.dropped()).toBe(0);
+  });
+
+  it("query posts the SQL, parses one JSON row per line, and surfaces HTTP errors", async () => {
+    const seen: { url: URL; body: string }[] = [];
+    let status = 200;
+    const fetch = (async (url: string, init?: RequestInit) => {
+      seen.push({ url: new URL(url), body: String(init?.body) });
+      return status === 200
+        ? new Response(
+            '{"minute":"2026-10-17 20:30:00","requests":4}\n{"minute":"2026-10-17 20:31:00","requests":1}\n',
+          )
+        : new Response("Code: 62. Syntax error", { status });
+    }) as typeof globalThis.fetch;
+    const sink = createClickHouseSink(CFG, { fetch, flushMs: 60_000 });
+    const rows = await sink.query<{ minute: string; requests: number }>(
+      "select minute, requests from requests_per_minute",
+    );
+    expect(rows).toEqual([
+      { minute: "2026-10-17 20:30:00", requests: 4 },
+      { minute: "2026-10-17 20:31:00", requests: 1 },
+    ]);
+    expect(seen[0]?.url.searchParams.get("default_format")).toBe("JSONEachRow");
+    expect(seen[0]?.url.searchParams.get("database")).toBe("eyes");
+    expect(seen[0]?.body).toBe("select minute, requests from requests_per_minute");
+    status = 500;
+    await expect(sink.query("select 1")).rejects.toThrow("ClickHouse 500: Code: 62. Syntax error");
+    sink.stop();
+  });
 });
 
 describe("mirrorTriggerEvents", () => {
@@ -192,6 +250,45 @@ describe("mirrorTriggerEvents", () => {
     mirror.stop();
     expect(pushed.map((e) => e.summary)).toEqual(["dispatched", "escrow 300c"]);
     expect(pushed[0]).not.toHaveProperty("id");
+  });
+
+  it("keeps a trigger row with null data as an empty object", async () => {
+    let rows: (LoggedEvent & { id: number })[] = [{ ...event({ kind: "task" }), id: 1 }];
+    const rpc = (async () => rows) as Rpc;
+    const pushed: LoggedEvent[] = [];
+    const mirror = mirrorTriggerEvents(rpc, (e) => pushed.push(e), 60_000);
+    await mirror.tick();
+    rows = [{ ...event({ kind: "ledger" }), id: 2, data: null }] as unknown as typeof rows;
+    await mirror.tick();
+    mirror.stop();
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.data).toEqual({});
+  });
+
+  it("logs a failed read for an Error or a plain value, then resumes from the same cursor", async () => {
+    const state = { rows: [{ ...event({ kind: "task" }), id: 1 }], fail: null as unknown };
+    const rpc = (async () => {
+      if (state.fail !== null) throw state.fail;
+      return state.rows;
+    }) as Rpc;
+    const pushed: LoggedEvent[] = [];
+    const cap = captureStderr();
+    const mirror = mirrorTriggerEvents(rpc, (e) => pushed.push(e), 60_000);
+    await mirror.tick();
+    state.fail = new Error("connection reset");
+    await mirror.tick();
+    state.fail = "socket hang up";
+    await mirror.tick();
+    state.fail = null;
+    state.rows = [{ ...event({ kind: "task", summary: "dispatched" }), id: 2 }];
+    await mirror.tick();
+    cap.restore();
+    mirror.stop();
+    expect(cap.lines).toEqual([
+      "clickhouse mirror read failed: connection reset\n",
+      "clickhouse mirror read failed: socket hang up\n",
+    ]);
+    expect(pushed.map((e) => e.summary)).toEqual(["dispatched"]);
   });
 });
 
@@ -236,5 +333,40 @@ describe("series", () => {
     expect([s.requests.at(-1), s.errors.at(-1), s.p95_ms.at(-1)]).toEqual([2, 1, 900]);
     expect(s.tasks.paid?.at(-1)).toBe(1);
     expect(s.payouts.ok.at(-1)).toBe(1);
+  });
+
+  it("counts an http event with no ms, and reports p95 0 when the minute has no timing", () => {
+    const rows = fallbackRows(
+      [event({ at: "2026-10-17T20:30:20.000Z", data: { path: "/b", status: 200 } })],
+      {
+        tasks: [],
+        ledger: [],
+      },
+    );
+    const s = buildSeries(rows, now, "postgres");
+    expect([s.requests.at(-1), s.errors.at(-1), s.p95_ms.at(-1)]).toEqual([1, 0, 0]);
+  });
+
+  it("reads the four views with one query each and returns their rows", async () => {
+    const sql: string[] = [];
+    const rowsFor = (q: string): unknown[] => {
+      if (q.includes("from requests_per_minute"))
+        return [{ minute: "2026-10-17 20:30:00", requests: 4, errors: 1 }];
+      if (q.includes("from latency_per_minute")) return [{ minute: "2026-10-17 20:30:00", p95: 120 }];
+      if (q.includes("from tasks_per_hour"))
+        return [{ hour: "2026-10-17 20:00:00", status: "paid", tasks: 2 }];
+      return [{ hour: "2026-10-17 19:00:00", ok: 1, failed: 1 }];
+    };
+    const rows = await readClickHouseSeries({
+      query: async <T>(q: string) => {
+        sql.push(q);
+        return rowsFor(q) as T[];
+      },
+    });
+    expect(sql).toHaveLength(4);
+    expect(rows.requests).toEqual([{ minute: "2026-10-17 20:30:00", requests: 4, errors: 1 }]);
+    expect(rows.latency).toEqual([{ minute: "2026-10-17 20:30:00", p95: 120 }]);
+    expect(rows.tasks).toEqual([{ hour: "2026-10-17 20:00:00", status: "paid", tasks: 2 }]);
+    expect(rows.payouts).toEqual([{ hour: "2026-10-17 19:00:00", ok: 1, failed: 1 }]);
   });
 });
