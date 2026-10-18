@@ -264,15 +264,15 @@ export function createEyesService(deps: EngineDeps): EyesService {
     const steps: string[] = [];
     const appSending =
       worker.location_source === "app" && t - Date.parse(worker.location_at ?? "") <= APP_SENDING_MS;
-    // Again within the hour (a retry, a double tap) mints no second code; /me has the button.
-    const last = appLinkSentAt.get(worker.id);
-    if (!appSending && (last === undefined || t - last >= HOUR_MS)) {
-      appLinkSentAt.set(worker.id, t);
-      steps.push(`Get the app (keeps your spot fresh): ${appUrl(await mintLocationCode(worker.id))}`);
+    // Again within the hour (a retry, a double tap) mints no second code (each one evicts an older
+    // device's): the step links to the setup page, which has the app button.
+    if (!appSending) {
+      const last = appLinkSentAt.get(worker.id);
+      const mint = last === undefined || t - last >= HOUR_MS;
+      if (mint) appLinkSentAt.set(worker.id, t);
+      const link = mint ? appUrl(await mintLocationCode(worker.id)) : meUrl(worker.id);
+      steps.push(`Get the app (keeps your spot fresh): ${link}`);
     }
-    const fixAt = worker.lat === null ? 0 : Date.parse(worker.location_at ?? worker.created_at);
-    if (t - fixAt > config.location_max_age_h * HOUR_MS)
-      steps.push(`Update your spot: ${hereUrl(worker.id)}`);
     if (config.live_payouts) {
       const e = await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: worker.id });
       if (!e?.payouts_set_up) steps.push(`Set up payouts: ${connectUrl(worker.id)}`);

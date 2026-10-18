@@ -173,9 +173,9 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     // One text. STOP deleted every code, so this START sends a fresh app link even within the hour.
     expect(lastText(w.phone).split("\n").slice(1, 3)).toEqual([
       expect.stringMatching(
-        /^1\. Get the app \(keeps your spot fresh\): https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/,
+        /^Get the app \(keeps your spot fresh\): https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/,
       ),
-      expect.stringMatching(/^2\. Update your spot: https:\/\/w\.eyes\.test\/here\.html\?t=/),
+      "This is a test server and payouts are simulated, so no real money is paid.",
     ]);
   });
 
@@ -274,9 +274,10 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     const w = await worker(north(at, 100));
     providers.clock.advance(25 * HOUR);
     await say(w.phone, "start", "START");
-    expect(welcome(w.phone)).toContain("/here.html?t=");
+    expect(welcome(w.phone)).not.toContain("/here.html"); // the app step keeps the spot fresh now
     expect(await code(ask(service, a, at))).toBe("no_workers_nearby");
-    await service.updateWorkerLocation(hereToken(welcome(w.phone)), {
+    await say(w.phone, "here");
+    await service.updateWorkerLocation(hereToken(lastText(w.phone)), {
       ...north(at, 50),
       source: "here_link",
     });
