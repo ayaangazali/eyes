@@ -83,6 +83,8 @@ export const WIDGET_SCRIPT = String.raw`
 const root = document.getElementById("root");
 let input = {}, last = null, seq = 0, askKey = null, refusal = null, acceptancePending = false, retry = null;
 let submitted = null, completed = null, askPending = false, uncertain = false, edited = {}, contextCapability = null, contextSent = null;
+let readFlight = null, refreshTimer = null, viewVersion = 0, actionsPending = 0, tornDown = false;
+let bridgeReady = Boolean(window.openai?.callTool);
 let saved;
 try { saved = window.openai?.widgetState?.privateContent ?? window.openai?.widgetState; } catch {}
 if (!saved && window.name.startsWith("eyes.intent.")) {
@@ -217,11 +219,62 @@ function errorText(value) {
   const detail = errorDetail(value);
   return [detail.message, detail.fix].filter((v) => typeof v === "string" && v.trim()).join(" ") || "The tool failed. Retry the request.";
 }
-async function call(name, args) {
+async function callHost(name, args) {
   const r = window.openai?.callTool ? await window.openai.callTool(name, args) : await request("tools/call", { name, arguments: args });
   const text = r?.content?.find?.((c) => c.type === "text")?.text;
   if (r?.isError) throw errorDetail(r.structuredContent ?? text);
   return r?.structuredContent ?? JSON.parse(text ?? r?.result ?? "null");
+}
+async function call(name, args) {
+  if (name !== "get_task" && name !== "await_answer") return callHost(name, args);
+  if (readFlight) {
+    if (readFlight.taskId === args.task_id) return readFlight.promise;
+    await readFlight.promise.catch(() => {});
+    return call(name, args);
+  }
+  const promise = callHost(name, args);
+  readFlight = { taskId: args.task_id, promise };
+  try { return await promise; }
+  finally { if (readFlight?.promise === promise) readFlight = null; }
+}
+function canRefresh() {
+  return !tornDown && root.isConnected && !document.hidden && bridgeReady && !actionsPending &&
+    !askPending && !acceptancePending && !retry && last?.task_id && !last.answer &&
+    ["dispatched", "claimed", "submitted"].includes(last.status);
+}
+function scheduleRefresh() {
+  window.clearTimeout(refreshTimer);
+  refreshTimer = null;
+  if (!canRefresh() || readFlight) return;
+  const version = viewVersion, taskId = last.task_id;
+  refreshTimer = window.setTimeout(async () => {
+    refreshTimer = null;
+    if (!canRefresh() || version !== viewVersion) return;
+    let failed = false;
+    try {
+      const out = await call("get_task", { task_id: taskId });
+      if (!canRefresh() || version !== viewVersion || last.task_id !== taskId) return;
+      if (out?.task_id !== taskId || typeof out.status !== "string")
+        throw new Error("Task refresh was incomplete.");
+      const next = { ...last, ...out };
+      if (JSON.stringify(next) !== JSON.stringify(last)) render(next);
+    } catch (err) {
+      failed = true;
+      if (canRefresh() && version === viewVersion) {
+        root.firstElementChild.insertAdjacentHTML("beforeend",
+          '<div class="ui-notice ui-notice--danger" data-error role="alert">' + esc(errorText(err)) +
+          ' Automatic refresh paused. Use Refresh to try again.</div>');
+        size();
+      }
+    } finally {
+      if (!failed) scheduleRefresh();
+    }
+  }, 5000);
+}
+function stopRefresh() {
+  tornDown = true;
+  viewVersion++;
+  scheduleRefresh();
 }
 function theme(t) { if (t === "dark" || t === "light") document.documentElement.dataset.theme = t; }
 
@@ -385,6 +438,7 @@ function render(out) {
     completed = out;
     refusal = null;
   }
+  viewVersion++;
   last = out;
   root.innerHTML = "workers_nearby" in out ? quote(out) : "balance_usd" in out ? balance(out)
     : out.status === "not_sent" ? notSent(out) : "task_id" in out ? task(out) : "";
@@ -404,6 +458,7 @@ function render(out) {
     restore.focus({ preventScroll: true });
     if (focused.start != null) restore.setSelectionRange(focused.start, focused.end, focused.direction);
   }
+  scheduleRefresh();
 }
 const field = (name) => name === "question" && retry ? retry.args.question : root.querySelector('[data-field="' + name + '"]')?.value.trim() ?? "";
 const ACTS = {
@@ -506,6 +561,9 @@ async function act(b) {
   const [name, args, merge] = ACTS[b.dataset.act](last);
   const original = last;
   const submittedArgs = name === "confirm_ask" ? structuredClone(args) : args;
+  const reading = name === "get_task" || name === "await_answer", version = ++viewVersion;
+  actionsPending++;
+  scheduleRefresh();
   const card = root.firstElementChild;
   card.querySelector("[data-error]")?.remove();
   card.querySelector("[data-report]")?.remove();
@@ -514,6 +572,7 @@ async function act(b) {
   if (name === "confirm_ask") setAskBusy(true);
   try {
     const out = name === "confirm_ask" ? await confirmAsk(args) : await call(name, args);
+    if (reading && (tornDown || version !== viewVersion || last?.task_id !== args.task_id)) return;
     if (name === "accept_answer") {
       if (out?.status !== "accepted" || out.task_id !== args.task_id || !out.accepted_at)
         throw new Error("Acceptance was not confirmed. Refresh the task or try again.");
@@ -538,6 +597,7 @@ async function act(b) {
       render(merge ? { ...original, ...out } : out);
     }
   } catch (err) {
+    if (reading && (tornDown || version !== viewVersion || last?.task_id !== args.task_id)) return;
     if (name === "accept_answer") setAcceptanceBusy(false);
     if (name === "confirm_ask" && completed) return;
     const card = root.firstElementChild;
@@ -558,6 +618,8 @@ async function act(b) {
   } finally {
     if (name === "confirm_ask") setAskBusy(false);
     saveDraft();
+    actionsPending--;
+    scheduleRefresh();
   }
 }
 function size() {
@@ -567,6 +629,11 @@ function size() {
 window.addEventListener("message", (e) => {
   const m = e.data;
   if (!m || m.jsonrpc !== "2.0") return;
+  if (m.method === "ui/resource-teardown") {
+    stopRefresh();
+    if (m.id != null) post({ id: m.id, result: {} });
+    return;
+  }
   if (m.id != null && pending.has(m.id)) {
     const p = pending.get(m.id);
     pending.delete(m.id);
@@ -582,6 +649,9 @@ window.addEventListener("message", (e) => {
   if (m.method === "ui/notifications/host-context-changed") theme(m.params?.theme);
 });
 new ResizeObserver(size).observe(document.body);
+document.addEventListener("visibilitychange", () => { viewVersion++; scheduleRefresh(); });
+window.addEventListener("pagehide", stopRefresh);
+window.addEventListener("pageshow", () => { tornDown = false; scheduleRefresh(); });
 
 if (window.openai) {
   theme(window.openai.theme);
@@ -601,6 +671,8 @@ request("ui/initialize", { protocolVersion: "2026-01-26", appInfo: { name: "eyes
   post({ method: "ui/notifications/initialized" });
   contextCapability = r?.hostCapabilities?.updateModelContext ?? null;
   publishTask();
+  bridgeReady = true;
+  scheduleRefresh();
 });
 `;
 
