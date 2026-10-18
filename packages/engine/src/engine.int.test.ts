@@ -767,7 +767,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
   it("emails the owner a private link that sets the limits ask_eyes enforces, and never shows it to the agent", async () => {
     const at = somewhere();
     await worker(north(at, 100));
-    const ownerEmail = `owner-${randomUUID()}@example.com`;
+    const ownerEmail = `owner-${randomUUID()}@owners.eyes.pictures`;
     const signup = await service.signupAgent({ name: "owned-agent", owner_email: ownerEmail });
     const mail = providers.email.outbox.find((m) => m.to === ownerEmail);
     const ownerToken = mail?.text.match(/\/owner\/([\w.-]+)/)?.[1] ?? "";
@@ -840,7 +840,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
   it("claims the owner email was sent only when email delivery is live", async () => {
     expect(deps.config.email_delivery).toBe(false);
-    const ownerEmail = `owner-${randomUUID()}@example.com`;
+    const ownerEmail = `owner-${randomUUID()}@owners.eyes.pictures`;
     const simulated = await service.signupAgent({ name: "simulated-mail-agent", owner_email: ownerEmail });
     expect(simulated.next_step).not.toMatch(/emailed/i);
     expect(simulated.next_step).toContain(`nothing was sent to ${ownerEmail}`);
@@ -936,8 +936,11 @@ describe.skipIf(!url)("engine on Postgres", () => {
       throw new Error(`relay refused: ${msg.text}`);
     };
     try {
-      const signup = await service.signupAgent({ name: "unlucky-agent", owner_email: "owner@example.com" });
-      expect(signup.next_step).toContain("could not email your user at owner@example.com");
+      const signup = await service.signupAgent({
+        name: "unlucky-agent",
+        owner_email: "owner@owners.eyes.pictures",
+      });
+      expect(signup.next_step).toContain("could not email your user at owner@owners.eyes.pictures");
       expect(error).toHaveBeenCalled();
       expect(JSON.stringify(error.mock.calls)).not.toContain("/owner/");
     } finally {
@@ -948,7 +951,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
   it("emails only the first payer a working owner link, once, and never shows the link to the agent", async () => {
     const a = await agent();
-    const payer = `payer-${randomUUID()}@example.com`;
+    const payer = `payer-${randomUUID()}@owners.eyes.pictures`;
     const topup = {
       agent_id: a.id,
       amount_cents: 1500,
@@ -968,7 +971,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await service.getBalance(a)).toMatchObject({ balance_usd: 35 });
     expect(providers.email.outbox).toHaveLength(before + 1);
 
-    const later = `later-${randomUUID()}@example.com`;
+    const later = `later-${randomUUID()}@owners.eyes.pictures`;
     await service.creditTopup({ ...topup, stripe_ref: `cs_${randomUUID()}`, payer_email: later });
     expect(await service.getBalance(a)).toMatchObject({ balance_usd: 50 });
     expect(providers.email.outbox).toHaveLength(before + 1);
@@ -992,7 +995,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       service.creditTopup({ agent_id: agentId, amount_cents: 1500, stripe_ref, payer_email });
 
     const a = await agent();
-    const payer = `payer-${randomUUID()}@example.com`;
+    const payer = `payer-${randomUUID()}@owners.eyes.pictures`;
     const ref = `cs_${randomUUID()}`;
     const before = providers.email.outbox.length;
     await overlapping(a.id, () => Array.from({ length: 5 }, () => topup(a.id, ref, payer)));
@@ -1000,7 +1003,10 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(providers.email.outbox.slice(before).map((m) => m.to)).toEqual([payer]);
 
     const b = await agent();
-    const payers = [`first-${randomUUID()}@example.com`, `second-${randomUUID()}@example.com`];
+    const payers = [
+      `first-${randomUUID()}@owners.eyes.pictures`,
+      `second-${randomUUID()}@owners.eyes.pictures`,
+    ];
     const start = providers.email.outbox.length;
     await overlapping(b.id, () => payers.map((p) => topup(b.id, `cs_${randomUUID()}`, p)));
     expect(await service.getBalance(b)).toMatchObject({ balance_usd: 50 });
@@ -1021,7 +1027,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
         agent_id: a.id,
         amount_cents: 500,
         stripe_ref: `cs_${randomUUID()}`,
-        payer_email: "payer@example.com",
+        payer_email: "payer@owners.eyes.pictures",
       });
       expect(await service.getBalance(a)).toMatchObject({ balance_usd: 25 });
       expect(error).toHaveBeenCalled();
@@ -1204,7 +1210,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     try {
       const { api_key: oldKey } = await service.signupAgent({
         name: "leaky-agent",
-        owner_email: "o@example.com",
+        owner_email: "o@owners.eyes.pictures",
       });
       const a = (await service.authenticate(oldKey)) as Agent;
       const ownerToken = signToken(deps.config.link_secret, `p:${a.id}`);
@@ -1772,15 +1778,23 @@ describe.skipIf(!url)("engine on Postgres", () => {
         .spyOn(providers.email, "send")
         .mockRejectedValueOnce("smtp down")
         .mockRejectedValueOnce(
-          Object.assign(new Error("rejected owner@example.com, see https://smtp.example/x"), { status: 550 }),
+          Object.assign(new Error("rejected owner@owners.eyes.pictures, see https://smtp.example/x"), {
+            status: 550,
+          }),
         );
       const error = vi.spyOn(console, "error").mockImplementation(() => {});
       try {
-        const first = await live.signupAgent({ name: "live-agent", owner_email: "owner@example.com" });
+        const first = await live.signupAgent({
+          name: "live-agent",
+          owner_email: "owner@owners.eyes.pictures",
+        });
         expect(first.api_key).toMatch(/^eyes_live_/);
         expect(first.balance_usd).toBe(0);
-        expect(first.next_step).toContain("We could not email your user at owner@example.com");
-        const second = await live.signupAgent({ name: "live-agent", owner_email: "owner@example.com" });
+        expect(first.next_step).toContain("We could not email your user at owner@owners.eyes.pictures");
+        const second = await live.signupAgent({
+          name: "live-agent",
+          owner_email: "owner@owners.eyes.pictures",
+        });
         expect(error.mock.calls.map((call) => String(call[0]))).toEqual([
           `owner email for agent ${first.agent_id} failed: unknown`,
           `owner email for agent ${second.agent_id} failed: Error status 550: rejected <redacted> see <redacted>`,
@@ -1788,6 +1802,49 @@ describe.skipIf(!url)("engine on Postgres", () => {
       } finally {
         send.mockRestore();
         error.mockRestore();
+      }
+    });
+
+    it("skips owner email to reserved test domains at debug level and logs a provider 403 recipient denial as a warning", async () => {
+      const send = vi.spyOn(providers.email, "send");
+      const logs = (["debug", "warn", "error"] as const).map((m) =>
+        vi.spyOn(console, m).mockImplementation(() => {}),
+      );
+      const [debug, warn, error] = logs;
+      try {
+        for (const to of [
+          "o@example.com",
+          "o@a.example.net",
+          "o@x.test",
+          "o@x.example",
+          "o@x.invalid",
+          "o@app.localhost",
+        ]) {
+          const s = await service.signupAgent({ name: "smoke-agent", owner_email: to });
+          expect(s.next_step).toContain(`could not email your user at ${to}`);
+        }
+        expect(send).not.toHaveBeenCalled();
+        expect(debug).toHaveBeenCalledTimes(6);
+        expect(String(debug?.mock.calls[0]?.[0])).toMatch(/skipped: reserved test domain$/);
+
+        send.mockRejectedValueOnce(
+          Object.assign(
+            new Error("cannot send to o@x.co: x.co is not a Primitive-managed recipient domain"),
+            {
+              name: "PrimitiveApiError",
+              status: 403,
+            },
+          ),
+        );
+        const denied = await service.signupAgent({ name: "scoped-agent", owner_email: "o@notexample.com" });
+        expect(denied.next_step).toContain("could not email your user at o@notexample.com");
+        expect(error).not.toHaveBeenCalled();
+        expect(warn?.mock.calls.map((call) => String(call[0]))).toEqual([
+          `owner email for agent ${denied.agent_id} not sent: the email provider refused the recipient domain (403, outside the sending account's allowed recipients)`,
+        ]);
+      } finally {
+        send.mockRestore();
+        for (const log of logs) log.mockRestore();
       }
     });
 

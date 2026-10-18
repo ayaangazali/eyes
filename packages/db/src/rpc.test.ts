@@ -1,6 +1,6 @@
 import { type DbConfig, EyesError } from "@eyes/core";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createRpc } from "./rpc.ts";
+import { createRpc, pgSafe } from "./rpc.ts";
 
 const { unsafe, postgresCtor } = vi.hoisted(() => ({ unsafe: vi.fn(), postgresCtor: vi.fn() }));
 vi.mock("postgres", () => ({ default: postgresCtor }));
@@ -129,5 +129,34 @@ describe("createRpc over Postgres", () => {
     options.onnotice({ message: "NOTICE: function already exists" });
     for (const spy of spies) expect(spy).not.toHaveBeenCalled();
     for (const spy of spies) spy.mockRestore();
+  });
+});
+
+describe("pgSafe", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("drops NUL and replaces lone surrogates in nested strings and keys, keeping everything else", () => {
+    const when = new Date(0);
+    const input = {
+      "k\u0000": "a\u0000b",
+      emoji: "\u{1F4CD} ok",
+      lone: "x\ud800y",
+      list: [{ deep: "\u0000\u0000" }, 7, null, true],
+      when,
+    };
+    expect(pgSafe(input)).toEqual({
+      k: "ab",
+      emoji: "\u{1F4CD} ok",
+      lone: "x\ufffdy",
+      list: [{ deep: "" }, 7, null, true],
+      when,
+    });
+    expect(pgSafe(input).when).toBe(when);
+  });
+
+  it("sanitizes every arg before it goes over the wire", async () => {
+    const fetch = stubFetch(200, "[]");
+    await createRpc(insforge)("eyes_append_ticket", { p_message: "loc\u0000" });
+    expect(fetch.mock.calls[0]?.[1].body).toBe('{"p_message":"loc"}');
   });
 });

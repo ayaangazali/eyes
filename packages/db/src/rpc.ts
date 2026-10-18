@@ -5,12 +5,23 @@ export type RpcArgs = Record<string, unknown>;
 export type Rpc = <T>(fn: string, args: RpcArgs) => Promise<T[]>;
 
 const DB_ERROR = /^eyes:(\w+)\s*(.*)$/s;
+const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g;
+
+/** Postgres text and jsonb can't hold NUL or unpaired surrogates: drop NUL, turn lone surrogates into U+FFFD. */
+export function pgSafe<T>(value: T): T {
+  if (typeof value === "string") return value.replaceAll("\0", "").replace(LONE_SURROGATE, "\ufffd") as T;
+  if (Array.isArray(value)) return value.map(pgSafe) as T;
+  if (value && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [pgSafe(k), pgSafe(v)])) as T;
+  }
+  return value;
+}
 
 export function createRpc(db: DbConfig): Rpc {
   const call = db.kind === "postgres" ? postgresRpc(db.url) : insforgeRpc(db.base_url, db.api_key);
   return async <T>(fn: string, args: RpcArgs) => {
     try {
-      return (await call(fn, args)) as T[];
+      return (await call(fn, pgSafe(args))) as T[];
     } catch (err) {
       const m = err instanceof Error ? DB_ERROR.exec(err.message) : null;
       if (!m) throw err;

@@ -83,6 +83,8 @@ const CAPTURE_MINUTES = 3;
 const POLL_MS = 1000;
 const WORKER_LINK_MS = 7 * 24 * 60 * 60 * 1000;
 const PAYOUT_BATCH = 25;
+// RFC 2606 and RFC 6761 reserved names: example.com/.org/.net and the .example, .test, .invalid, .localhost TLDs.
+const RESERVED_EMAIL_DOMAIN = /(^|\.)(example\.(com|org|net)|example|test|invalid|localhost)\.?$/i;
 const HERE_LINK_MS = 30 * 60 * 1000;
 const DEVICE_LINK_EXPIRED = {
   message: "This install link is invalid or has expired.",
@@ -289,6 +291,11 @@ export function createEyesService(deps: EngineDeps): EyesService {
   }
 
   async function emailOwner(to: string, agentId: string, subject: string, intro: string): Promise<boolean> {
+    // RFC 2606/6761 names never reach a mailbox (smoke and test agents sign up with them): don't try.
+    if (RESERVED_EMAIL_DOMAIN.test(to.split("@").pop() ?? "")) {
+      console.debug(`owner email for agent ${agentId} skipped: reserved test domain`);
+      return false;
+    }
     try {
       await providers.email.send({
         to,
@@ -303,7 +310,13 @@ export function createEyesService(deps: EngineDeps): EyesService {
       });
       return true;
     } catch (err) {
-      console.error(`owner email for agent ${agentId} failed: ${describeSendError(err)}`);
+      if (err instanceof Error && "status" in err && err.status === 403 && /recipient/i.test(err.message)) {
+        console.warn(
+          `owner email for agent ${agentId} not sent: the email provider refused the recipient domain (403, outside the sending account's allowed recipients)`,
+        );
+      } else {
+        console.error(`owner email for agent ${agentId} failed: ${describeSendError(err)}`);
+      }
       return false;
     }
   }
