@@ -25,7 +25,7 @@ async function fill(page: Page, name: string, phone: string, locate = true) {
   await page.getByRole("button", { name: "Join" }).click();
 }
 
-test("join posts a normalized phone and location, then shows the START and payout steps", async ({
+test("join posts a normalized phone and location, then shows the connect, START and payout steps", async ({
   page,
 }) => {
   const posts = await mockJoin(page, { json: joined });
@@ -33,10 +33,13 @@ test("join posts a normalized phone and location, then shows the START and payou
   await expect(page.getByRole("heading", { name: "Worker sign-up opens soon" })).toBeHidden();
   await fill(page, "Ada Lovelace", "(415) 555-0123");
 
-  await expect(page.getByRole("link", { name: "Text START to +14155550199" })).toHaveAttribute(
-    "href",
-    "sms:+14155550199?&body=START",
-  );
+  const texts = page.locator("#start a");
+  await expect(texts).toHaveText([
+    'First text "connect @eyes-test" to +14155550199',
+    "Then text START to +14155550199",
+  ]);
+  await expect(texts.first()).toHaveAttribute("href", "sms:+14155550199?&body=connect%20%40eyes-test");
+  await expect(texts.last()).toHaveAttribute("href", "sms:+14155550199?&body=START");
   await expect(page.getByText("we'll text you a link to set up payouts")).toBeVisible();
   await expect(page.getByRole("link", { name: /payouts/i })).toHaveCount(0);
   await expect(page.getByText("Reply YES to claim a task")).toBeVisible();
@@ -61,10 +64,9 @@ test("phone formats normalize to E.164 and the build-time number is the START fa
   for (const phone of ["1 (415) 555-0123", "+1 415.555.0123", "+44 20 7946 0958"]) {
     await page.goto("/");
     await fill(page, "Ada Lovelace", phone);
-    await expect(page.getByRole("link", { name: "Text START to +14155550100" })).toHaveAttribute(
-      "href",
-      "sms:+14155550100?&body=START",
-    );
+    await expect(
+      page.getByRole("link", { name: "Then text START to +14155550100", exact: true }),
+    ).toHaveAttribute("href", "sms:+14155550100?&body=START");
   }
   expect(posts.map((p) => p.phone)).toEqual(["+14155550123", "+14155550123", "+442079460958"]);
 });
@@ -105,5 +107,5 @@ test("join errors show worker wording, not the agent-facing fix", async ({ page 
   await expect(alert).toContainText("Eyes could not accept that.");
   await expect(alert).toContainText("Check what you entered, then try again.");
   await expect(alert).not.toContainText("issues");
-  await expect(page.getByRole("link", { name: /Text START/ })).toHaveCount(0);
+  await expect(page.locator("#start a")).toHaveCount(0);
 });

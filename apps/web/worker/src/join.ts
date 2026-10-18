@@ -4,6 +4,7 @@ import { $, call, LOCATION_HELP, Problem, showError } from "./api.ts";
 const form = $<HTMLFormElement>("join");
 const error = $("error");
 const inkboxNumber = import.meta.env.VITE_INKBOX_NUMBER;
+const connectCommand = import.meta.env.VITE_INKBOX_CONNECT;
 let spot: { lat: number; lng: number } | null = null;
 
 form.hidden = !inkboxNumber;
@@ -88,12 +89,19 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ name, phone, ...spot }),
     });
     const number = out.inkbox_number || inkboxNumber;
-    $("start").prepend(
+    const textLink = (body: string, label: string) =>
       Object.assign(document.createElement("a"), {
-        href: `sms:${number}?&body=START`,
+        href: `sms:${number}?&body=${encodeURIComponent(body)}`,
         className: "button",
-        textContent: `Text START to ${number}`,
-      }),
+        textContent: label,
+      });
+    $("start").prepend(
+      ...(connectCommand
+        ? [
+            textLink(connectCommand, `First text "${connectCommand}" to ${number}`),
+            textLink("START", `Then text START to ${number}`),
+          ]
+        : [textLink("START", `Text START to ${number}`)]),
     );
     $("start").hidden = false;
     form.hidden = true;
