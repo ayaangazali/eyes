@@ -581,6 +581,10 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     location: { lat: task.lat, lng: task.lng, label: task.place_label },
     task_type: task.task_type,
     bounty_usd: centsToUsd(task.bounty_cents),
+    deadline_minutes: Math.round(
+      (new Date(task.deadline_at).getTime() - new Date(task.created_at).getTime()) / 60_000,
+    ),
+    require_photo: task.require_photo,
   });
 
   async function sendOffers(task: Task, workers: Nearby[]): Promise<number> {

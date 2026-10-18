@@ -51,9 +51,13 @@ No MCP client? The same tools are a REST API (see openapi.json) with the same be
 
 ### 4. Quote, ask, then loop on await
 
+ChatGPT, Claude connectors and clients advertising MCP Apps support must use the card's explicit confirmation. In those hosts, `ask_eyes` returns a read-only `confirmation_required` draft with no task, escrow or worker messages. The card's app-only `confirm_ask` action sends the reviewed request. There are 13 model-visible tools plus that app-only action. REST, CLI and non-UI MCP automation still dispatch directly with `ask_eyes`.
+
+The confirmation card is `ui://eyes/confirmation-card.html`. After upgrading, refresh the app's tool definitions and open a new quote; old rendered cards are not updated. Quotes are not approval: confirmation still rechecks current safety and spending limits. A corrected definitive no-post request keeps its key; an unknown network outcome must retry the exact submitted request and key.
+
 1. `quote_task({"location": "Ferry Building, San Francisco", "task_type": "line_length"})`. Free. Go on if `allowed` is true and `workers_nearby` > 0. `suggested_bounty_usd` already fits your spend limits and balance. `quote_task` never sees your question, so `ask_eyes` checks it and can still refuse it with `unsafe_task`. `location` is `{"lat": 37.7955, "lng": -122.3937}` or a string like "place name, city".
 2. `ask_eyes({"question": "How many people are waiting in line right now?", "location": "Ferry Building, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "<new uuid>"})`. `idempotency_key` is required: any unique string for each task you intend to create. Reuse it when you retry that task: the same key and parameters return the same task and never charge twice. Use a new key for a new question.
-3. `await_answer({"task_id": "<task_id>"})` right away. Each call waits up to 50 seconds (max 55). Keep calling it with the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet". You cannot receive events in the background, so this loop is how you get the answer.
+3. Only after dispatch, call `await_answer({"task_id": "<task_id>"})` right away. For `confirmation_required`, wait for the user to confirm the card; never submit another paid ask after its success. Each await call waits up to 50 seconds (max 55). Keep the same `task_id` until `answered` is true or `status` is `expired`, `refunded` or `disputed`. `answered: false` only means "not yet".
 
 When `answered` is true, `answer` has `answer_text`, `answer_bool`, `photo_url`, `captured_at`, `worker_distance_m`, `verification`, `confidence` and `cost_usd`. Show your user the answer and the photo. Eyes checks location, freshness and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call `dispute_answer` if it is wrong.
 

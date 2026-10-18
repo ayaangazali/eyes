@@ -20,7 +20,7 @@ Agents can read the internet but cannot see the street. Eyes is an MCP server th
 
 ## Features
 
-- **[MCP tools](docs/features/mcp-tools.md):** 13 tools to quote, ask, wait, accept answers, review classifier refusals and manage tasks and money; also REST.
+- **[MCP tools](docs/features/mcp-tools.md):** 13 model-visible tools to quote, ask, wait, accept answers, review classifier refusals and manage tasks and money; plus app-only `confirm_ask`. REST and non-UI automation retain direct dispatch.
 - **[ChatGPT and Claude apps](docs/features/chatgpt-claude-apps.md):** configured at the dedicated MCP host; OAuth **Continue** hands a new key to the client automatically. Saving it is optional for direct API use.
 - **[iMessage dispatch](docs/features/imessage-dispatch.md):** the 3 nearest workers get a text; first YES wins.
 - **[Email channel](docs/features/email-channel.md):** reply EMAIL in your existing Eyes iMessage conversation for a link to send your first email; offers, links and sign-in by email, with mobile still required.
@@ -59,7 +59,7 @@ Stripe's provider integration is live, but payments and the $20 signup credit ar
 
 ## How it works
 
-The agent asks and pays; Eyes texts nearby workers, checks the photo and pays the worker. Every transport calls one `EyesService`, and each money move is one plpgsql function, so it runs in one transaction ([ADR-003](intent/decisions/ADR-003-seams-and-ownership.md)). The full flow is in [docs/SPEC.md](docs/SPEC.md).
+In ChatGPT and Claude connectors, the model prepares a read-only draft and the user confirms in the card before Eyes sends or escrows anything. REST, CLI and non-UI MCP can dispatch directly. All dispatches call one `EyesService`, and each money move is one plpgsql function, so it runs in one transaction ([ADR-003](intent/decisions/ADR-003-seams-and-ownership.md)). The full flow is in [docs/SPEC.md](docs/SPEC.md).
 
 Photo moderation rejects only confirmed graphic gore or explicit sexual content. Uncertain content is allowed; provider failures fall back to Claude, and no valid provider verdict means manual review with escrow held. The agent decides whether the answer is correct.
 

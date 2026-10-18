@@ -19,7 +19,7 @@ Flow:
 
 Pricing: default $3 bounty to the human plus $0.50 Eyes fee, escrowed from the agent's balance on post, refunded if unclaimed or expired.
 
-Current deployment uses test payments and a $20 test signup credit despite the Stripe provider being live; no real money moves. ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`, with 13 tools including `show_task`, `accept_answer`, `report_classifier` and `get_classifier_report`. REST/uploads/webhooks stay at `https://api.eyes.pictures`, whose old MCP connector remains supported. `show_task` shares `ui://eyes/card.html`; no legacy React-view build is required.
+Current deployment uses test payments and a $20 test signup credit despite the Stripe provider being live; no real money moves. ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`, with 13 model-visible tools plus app-only `confirm_ask`. REST/uploads/webhooks stay at `https://api.eyes.pictures`, whose old MCP connector remains supported. `show_task` shares `ui://eyes/confirmation-card.html`; no legacy React-view build is required.
 
 Sponsor tracks:
 - Primitive: agents get an Eyes email identity and threaded replies. Worker email is optional; onboarding can continue with iMessage only. Outbound DNS and one owner Gmail delivery are verified, but unrestricted domain sending is disabled, first-contact Inkbox fallback remains, and external custom-alias SPF is unresolved.
@@ -95,17 +95,17 @@ Phase 4 (6:00 to 9:30 AM Sunday): bug fixes only, demo 5 times, backup video, RE
 
 Every description, parameter doc and error is written for an LLM reader: explicit, with examples, always saying what to do next. Schemas are frozen in `packages/core/src/schemas.ts` (`TOOLS`).
 
-The current registry contains 13 tools. The core calls below are followed by the task-list, card, acceptance and classifier-review additions; `accept_answer` only records feedback and never triggers payment.
+The current registry contains 13 model-visible tools plus app-only `confirm_ask`. The core calls below are followed by the task-list, card, acceptance and classifier-review additions; `accept_answer` only records feedback and never triggers payment.
 
 1. `quote_task(location, task_type)` -> `{ workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, reason_if_not, resolved_location }`. `location` is `{lat, lng}`, an address, or "place name, city".
-2. `ask_eyes(question, location, task_type, bounty_usd=3, deadline_minutes=30, require_photo=true, idempotency_key)` -> `{ task_id, status: "dispatched", workers_notified, escrowed_usd, deadline_at, next_step }`. `task_type` is one of `is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public`.
-3. `await_answer(task_id, timeout_seconds=50, max 55)` long-polls until answered or timeout (ADR-002). The description must tell the agent to call it immediately after `ask_eyes` and to keep calling it, because agents cannot watch for events in the background.
+2. `ask_eyes(question, location, task_type, bounty_usd=3, deadline_minutes=30, require_photo=true, idempotency_key)` returns a read-only `confirmation_required` draft for ChatGPT, Claude connectors and clients advertising MCP Apps. It creates no task, escrow or worker messages. The card's explicit confirmation calls app-only `confirm_ask` with the same intent key. REST and non-UI MCP retain `{ task_id, status: "dispatched", workers_notified, escrowed_usd, deadline_at, next_step }`. `task_type` is one of `is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public`.
+3. After dispatch, `await_answer(task_id, timeout_seconds=50, max 55)` long-polls until answered or timeout (ADR-002). Do not await a draft or create another paid task after the card confirms.
 4. `get_task(task_id)` -> status in `dispatched|claimed|submitted|verified|paid|expired|refunded|disputed|needs_review`.
 5. `cancel_task(task_id)` -> refund if unclaimed.
 6. `dispute_answer(task_id, reason)` -> holds payout, flags for review.
 7. `get_balance()`, `get_spend_policy()`.
 8. `list_tasks(status?, limit?)` lists this agent's tasks for resuming work.
-9. `show_task(task_id)` renders the same task through shared `ui://eyes/card.html`.
+9. `show_task(task_id)` renders the same task through shared `ui://eyes/confirmation-card.html`.
 10. `accept_answer(task_id)` records explicit positive user feedback without changing the payout.
 11. `report_classifier` requests internal review of a refused task.
 12. `get_classifier_report` reads that review; approval requires an explicit retry and does not dispatch automatically.
@@ -206,7 +206,7 @@ Eyes only allows tasks about public, commercial or civic places.
 ## §13 Demo script (90 seconds)
 
 1. "Agents can read the whole internet but can't see the street outside." In Claude: "Is the line at [DEMO_CAFE] long right now? Use Eyes."
-2. Claude calls `quote_task` then `ask_eyes`; the dashboard shows the pin and "3 workers notified."
+2. Claude calls `quote_task` then `ask_eyes`; the user reviews the read-only card and presses **Ask** to confirm. Only then does the dashboard show the dispatched pin and notified workers.
 3. A teammate already at the cafe gets the text, replies YES, snaps the photo.
 4. Claude receives the actual answer, photo and checks. The ledger and Stripe test dashboard can show test escrow and a test transfer; no real money moves. Only show a card if the client renders it, and never present a quota-blocked visual check as a fresh pass.
 5. A rejected task ("photograph the house at [address]") returns a polite refusal. An agent emails Eyes and gets a threaded answer with the photo attached.

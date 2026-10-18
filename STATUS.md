@@ -2,7 +2,7 @@
 
 ## Current state (2026-10-18)
 
-Dedicated MCP is live at `https://mcp.eyes.pictures/mcp`, with ChatGPT and Claude configured there. All 13 tools include `show_task`, `accept_answer`, `report_classifier` and `get_classifier_report`; `show_task` uses the shared `ui://eyes/card.html`. Legacy API-host MCP remains supported. REST/uploads/webhooks stay at `https://api.eyes.pictures`; Manufact hosts the application and Cloudflare provides edge/static hosting.
+Dedicated MCP is live at `https://mcp.eyes.pictures/mcp`, with ChatGPT and Claude configured there. The registry has 13 model-visible tools plus app-only `confirm_ask`; `show_task` uses shared `ui://eyes/confirmation-card.html`. Interactive `ask_eyes` only prepares a read-only draft; the card's explicit confirmation dispatches through the existing idempotent service. REST, CLI and non-UI MCP remain direct. Refresh app tool metadata and open a new quote after the cutover; old messages do not update retroactively. Legacy API-host MCP remains supported. REST/uploads/webhooks stay at `https://api.eyes.pictures`; Manufact hosts the application and Cloudflare provides edge/static hosting.
 
 Native iPhone distribution is ad hoc, not TestFlight; the app stays connected across task photos. Optional email can be skipped with **Use iMessage only**. The three-second post-install timer is a grace period, not OS detection. OAuth **Continue** passes a new key to each web client automatically.
 

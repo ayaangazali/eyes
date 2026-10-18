@@ -1,21 +1,22 @@
 // One MCP Apps widget for ChatGPT and Claude: an HTML resource (text/html;profile=mcp-app) with the
 // Eyes design system inlined and a small vanilla script. It speaks the MCP Apps postMessage bridge
 // (ui/initialize, ui/notifications/tool-result), which both hosts implement, and falls back to
-// window.openai.toolOutput. It renders by result shape: quote, task (ask_eyes, get_task,
+// window.openai.toolOutput. It renders by result shape: quote/draft, task (confirm_ask, get_task,
 // await_answer) or balance. Card buttons call tools through call(): window.openai.callTool in
 // ChatGPT, the MCP Apps tools/call request elsewhere, and render the result into the same card.
 // No React, no bundler: the markup reuses the classes in packages/ui.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 
-export const WIDGET_URI = "ui://eyes/card.html";
+// This resource revision changes the paid-call contract; cached pre-confirmation cards stay obsolete.
+export const WIDGET_URI = "ui://eyes/confirmation-card.html";
 export const WIDGET_MIME = "text/html;profile=mcp-app";
 
 /** Photos load from InsForge storage; signed URLs redirect to the CDN. */
 /** Tools the card's buttons call; tools/list marks them callable from the widget in both hosts. */
 export const WIDGET_CALLABLE = [
   "quote_task",
-  "ask_eyes",
+  "confirm_ask",
   "get_task",
   "await_answer",
   "cancel_task",
@@ -81,6 +82,16 @@ body.ui{background:transparent}
 export const WIDGET_SCRIPT = String.raw`
 const root = document.getElementById("root");
 let input = {}, last = null, seq = 0, askKey = null, refusal = null, acceptancePending = false, retry = null;
+let submitted = null, completed = null, askPending = false, uncertain = false, edited = {}, contextCapability = null, contextSent = null;
+let saved;
+try { saved = window.openai?.widgetState?.privateContent ?? window.openai?.widgetState; } catch {}
+if (!saved && window.name.startsWith("eyes.intent.")) {
+  try {
+    const local = JSON.parse(window.sessionStorage.getItem("eyes.card." + window.name));
+    if (local?.askKey && window.name === "eyes.intent." + local.askKey) saved = local;
+  } catch {}
+}
+if (saved) ({ input = {}, last = null, askKey = null, retry = null, submitted = null, completed = null, uncertain = false, edited = {} } = saved);
 const pending = new Map();
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const icon = (n) => '<svg class="ui-icon" aria-hidden="true"><use href="#i-' + n + '"></use></svg>';
@@ -88,6 +99,82 @@ const usd = (n) => "$" + Number(n ?? 0).toFixed(2);
 const time = (t) => (t ? new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
 const label = (s) => esc(String(s).replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()));
 const TYPES = { is_open: "Open now?", line_length: "Line length", in_stock: "In stock?", photo_of_place: "Photo of place", price_check: "Price check", crowd_level: "Crowd level", other_public: "Look at a public place" };
+function saveDraft() {
+  const state = { input, last, askKey, retry, submitted, completed, uncertain, edited };
+  try {
+    window.openai?.setWidgetState?.({
+      ...(completed ? { modelContent: taskContext() }
+        : askKey ? { modelContent: { status: "confirmation_required", idempotency_key: askKey } } : {}),
+      privateContent: state,
+    });
+  } catch {}
+  if (askKey) {
+    window.name = "eyes.intent." + askKey;
+    try { window.sessionStorage.setItem("eyes.card." + window.name, JSON.stringify(state)); } catch {}
+  }
+}
+function captureDraft() {
+  if (submitted || retry) return;
+  for (const name of ["question", "location", "bounty_usd"]) {
+    const el = root.querySelector('[data-field="' + name + '"]');
+    if (!el || el.value === el.defaultValue) continue;
+    input[name] = name === "bounty_usd" ? Number(el.value) : el.value;
+    edited[name] = true;
+  }
+  const ask = root.querySelector('[data-act="ask"]');
+  if (ask && input.bounty_usd !== undefined) ask.textContent = "Ask for " + usd(input.bounty_usd);
+}
+function prefill(args) {
+  captureDraft();
+  if (submitted || completed || retry) return;
+  for (const name of ["question", "location", "task_type", "bounty_usd", "deadline_minutes", "require_photo", "classifier_report_id"]) {
+    if (args[name] !== undefined && !edited[name]) input[name] = args[name];
+  }
+  askKey ??= args.idempotency_key ?? null;
+  saveDraft();
+}
+function taskContext() {
+  return { task_id: completed.task_id, status: completed.status, idempotency_key: askKey,
+    next_step: ["dispatched", "claimed", "submitted"].includes(completed.status) ? "await_answer" : "get_task" };
+}
+function publishTask() {
+  if (!completed || !contextCapability) return;
+  const context = taskContext(), key = JSON.stringify(context);
+  if (contextSent === key) return;
+  const params = contextCapability.structuredContent ? { structuredContent: context }
+    : contextCapability.text ? { content: [{ type: "text", text: key }] } : null;
+  if (!params) return;
+  contextSent = key;
+  request("ui/update-model-context", params).catch(() => { contextSent = null; });
+}
+function releaseDraft() {
+  input = { ...(submitted ?? retry?.args ?? input) };
+  delete input.idempotency_key;
+  submitted = null;
+  retry = null;
+  uncertain = false;
+}
+async function confirmAsk(args) {
+  submitted = structuredClone(args);
+  const retryingUnknown = uncertain;
+  uncertain = true;
+  saveDraft();
+  setAskBusy(true);
+  try {
+    const out = await call("confirm_ask", args);
+    if (!out?.task_id && out?.status !== "not_sent")
+      throw new Error("The request was not confirmed. Retry with the same request; no new intent will be created.");
+    uncertain = false;
+    return out;
+  } catch (err) {
+    const code = errorDetail(err).error;
+    if (!retryingUnknown && ["invalid_input", "unsafe_task", "insufficient_balance", "bounty_exceeds_max",
+      "daily_cap_exceeded", "task_type_not_allowed", "location_not_found", "no_workers_nearby"].includes(code))
+      releaseDraft();
+    else uncertain = true;
+    throw err;
+  }
+}
 
 function post(msg) { window.parent.postMessage({ jsonrpc: "2.0", ...msg }, "*"); }
 function request(method, params) {
@@ -181,7 +268,14 @@ function retryContext(t) {
   return c && typeof c.question === "string" && c.question.trim() && Object.hasOwn(TYPES, c.task_type) &&
     typeof l?.label === "string" && l.label.trim() && Number.isFinite(l.lat) && Number.isFinite(l.lng) &&
     Number.isFinite(c.bounty_usd) && c.bounty_usd > 0
-    ? { question: c.question, location: l, task_type: c.task_type, bounty_usd: c.bounty_usd } : null;
+    ? { question: c.question, location: l, task_type: c.task_type, bounty_usd: c.bounty_usd,
+        ...(c.deadline_minutes !== undefined && { deadline_minutes: c.deadline_minutes }),
+        ...(c.require_photo !== undefined && { require_photo: c.require_photo }) } : null;
+}
+function draftFields(context, place, price, locked = "") {
+  return '<input class="ui-input" data-field="question" aria-label="Your question" placeholder="Your question" value="' + esc(context.question) + '"' + locked + '>' +
+    '<input class="ui-input" data-field="location" aria-label="Public place" value="' + esc(place) + '"' + locked + '>' +
+    '<input class="ui-input" data-field="bounty_usd" aria-label="Bounty in USD" type="number" min="1" step="0.01" value="' + esc(price) + '"' + locked + '>';
 }
 
 function quote(q) {
@@ -199,11 +293,14 @@ function quote(q) {
   const why = q.allowed ? (nobody ? '<div class="ui-notice">' + icon("info") + "<span>Nobody is nearby right now. Try a busier place or ask later.</span></div>" : "")
     : '<div class="ui-notice ui-notice--danger">' + icon("alert") + "<span>" + esc(q.reason_if_not) + "</span></div>";
   const canAsk = q.allowed && q.workers_nearby > 0;
-  const price = retry ? retry.args.bounty_usd : q.suggested_bounty_usd;
+  const price = retry ? retry.args.bounty_usd : input.bounty_usd ?? q.suggested_bounty_usd;
+  const place = typeof context.location === "string" ? context.location : context.location?.label ?? q.resolved_location.label;
+  const locked = retry || submitted ? " readonly" : "";
   const note = retry ? '<div class="ui-notice">' + icon("info") + "<span>New request with the original bounty: " + usd(price) +
-    " + $0.50 fee. The quote is free. Only Ask sends the request and charges your balance.</span></div>" : "";
+    " + $0.50 fee. The quote is free. Only Ask sends the request and charges your balance.</span></div>"
+    : '<div class="ui-notice">' + icon("info") + "<span>Not sent. Review your question, public place and bounty, then press Ask to confirm. Only confirmation sends the request and holds the bounty plus $0.50 fee.</span></div>";
   const act = canAsk || retry
-    ? '<footer class="ui-card__actions"' + (retry ? " data-retry" : "") + '><input class="ui-input" data-field="question" aria-label="Your question" placeholder="Your question" value="' + esc(context.question) + '"' + (retry ? " readonly" : "") + '>' +
+    ? '<footer class="ui-card__actions" data-retry>' + draftFields(context, place, price, locked) +
       (canAsk ? '<button class="ui-button ui-button--primary" data-act="ask">Ask for ' + usd(price) + (retry ? " + $0.50 fee" : "") + "</button>" : "") +
       (retry ? '<button class="ui-button" data-act="requote">Check availability</button>' : "") + "</footer>" : "";
   return '<article class="ui-card">' + head + (type ? '<p class="ui-text-sm ui-text-secondary" style="margin:0">' + type + "</p>" : "") + meta + why + note + act + "</article>";
@@ -263,40 +360,76 @@ function notSent(n) {
     '<span class="ui-badge ui-badge--warning">' + icon("pending") + "Not sent</span></header>" +
     (place ? '<p class="ui-place">' + icon("pin") + '<span class="ui-place__name">' + esc(place) + "</span></p>" : "") +
     '<div class="ui-notice">' + icon("info") + "<span>Not sent: no one nearby. Nothing was charged. Try a busier place or ask later.</span></div>" +
-    '<dl class="ui-kv"><dt>' + icon("cash") + "Charged</dt><dd>" + usd(n.charged_usd) + "</dd></dl></article>";
+    '<dl class="ui-kv"><dt>' + icon("cash") + "Charged</dt><dd>" + usd(n.charged_usd) + "</dd></dl>" +
+    '<footer class="ui-card__actions" data-retry>' + draftFields(context, place, context.bounty_usd) +
+    '<button class="ui-button" data-act="requote">Check availability</button></footer></article>';
 }
 
 function render(out) {
   if (!out || typeof out !== "object" || !("workers_nearby" in out || "balance_usd" in out || out.status === "not_sent" || "task_id" in out)) return;
+  captureDraft();
+  if (out.status === "not_sent") releaseDraft();
+  const active = document.activeElement;
+  const focused = root.contains(active) && active.dataset.field ? {
+    field: active.dataset.field, start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection
+  } : null;
+  if (out.status === "confirmation_required") prefill(out);
+  if (completed && "workers_nearby" in out) out = completed;
+  if (retry && retry.fromTask === out.task_id) return;
   if (out.status === "accepted") {
     if (last?.task_id !== out.task_id || !out.accepted_at) return;
     out = { ...last, accepted_at: out.accepted_at };
   }
-  if ("task_id" in out) retry = null;
-  refusal = null;
+  if ("task_id" in out) {
+    retry = null;
+    completed = out;
+    refusal = null;
+  }
   last = out;
   root.innerHTML = "workers_nearby" in out ? quote(out) : "balance_usd" in out ? balance(out)
     : out.status === "not_sent" ? notSent(out) : "task_id" in out ? task(out) : "";
   for (const b of root.querySelectorAll("[data-act]")) b.onclick = () => act(b);
+  for (const el of root.querySelectorAll("[data-field]")) el.addEventListener("input", () => { captureDraft(); saveDraft(); });
+  if (refusal && "workers_nearby" in out) {
+    root.firstElementChild.insertAdjacentHTML("beforeend", '<div data-report></div>');
+    renderReport();
+  }
+  publishTask();
+  saveDraft();
+  if (askPending) setAskBusy(true);
   size();
   if (acceptancePending) setAcceptanceBusy(true);
+  const restore = focused && root.querySelector('[data-field="' + focused.field + '"]');
+  if (restore && !restore.disabled) {
+    restore.focus({ preventScroll: true });
+    if (focused.start != null) restore.setSelectionRange(focused.start, focused.end, focused.direction);
+  }
 }
 const field = (name) => name === "question" && retry ? retry.args.question : root.querySelector('[data-field="' + name + '"]')?.value.trim() ?? "";
 const ACTS = {
   ask: (q) => {
-    if (retry) {
-      retry.key ??= crypto.randomUUID();
-      return ["ask_eyes", { ...retry.args, idempotency_key: retry.key }];
+    captureDraft();
+    if (!submitted) {
+      askKey ??= crypto.randomUUID();
+      submitted = { ...(retry?.args ?? input), question: field("question"),
+        location: retry?.args.location ?? input.location ?? q.resolved_location.label,
+        task_type: retry?.args.task_type ?? input.task_type ?? "other_public",
+        bounty_usd: retry?.args.bounty_usd ?? input.bounty_usd ?? q.suggested_bounty_usd,
+        idempotency_key: askKey };
+      saveDraft();
     }
-    askKey ??= crypto.randomUUID();
-    return ["ask_eyes", { question: field("question"), location: input.location ?? q.resolved_location.label, task_type: input.task_type ?? "other_public", bounty_usd: q.suggested_bounty_usd, idempotency_key: askKey }];
+    return ["confirm_ask", { ...submitted }];
   },
   refresh: (t) => ["get_task", { task_id: t.task_id }, true],
   wait: (t) => ["await_answer", { task_id: t.task_id }, true],
   cancel: (t) => ["cancel_task", { task_id: t.task_id }, true],
   accept: (t) => ["accept_answer", { task_id: t.task_id }],
   again: (t) => ["quote_task", { location: retryContext(t).location, task_type: retryContext(t).task_type }],
-  requote: () => ["quote_task", { location: retry.args.location, task_type: retry.args.task_type }],
+  requote: () => {
+    captureDraft();
+    const context = retry?.args ?? input;
+    return ["quote_task", { location: context.location, task_type: context.task_type }];
+  },
   dispute: (t) => ["dispute_answer", { task_id: t.task_id, reason: field("reason") }, true],
   balance: () => ["get_balance", {}],
 };
@@ -320,7 +453,7 @@ function renderReport() {
     b.onclick = () => reportAction(b.dataset.reportAct);
   }
   const ask = root.querySelector('[data-act="ask"]');
-  if (ask) ask.disabled = refusal.busy;
+  if (ask) ask.disabled = refusal.busy || askPending;
   size();
 }
 async function reportAction(action) {
@@ -328,6 +461,7 @@ async function reportAction(action) {
   if (!current || current.busy) return;
   if (action === "submit" && current.ticket) return;
   if (action === "retry" && (current.ticket?.status !== "approved" || field("question") !== current.args.question)) return;
+  if (askPending) return;
   current.busy = true;
   current.failure = null;
   renderReport();
@@ -335,7 +469,8 @@ async function reportAction(action) {
     if (action === "view") {
       render(await call("get_task", { task_id: current.ticket.task_id }));
     } else if (action === "retry") {
-      render(await call("ask_eyes", { ...current.args, classifier_report_id: current.ticket.ticket_id }));
+      setAskBusy(true);
+      render(await confirmAsk({ ...current.args, classifier_report_id: current.ticket.ticket_id }));
     } else {
       const a = current.args;
       const ticket = action === "submit"
@@ -348,8 +483,10 @@ async function reportAction(action) {
   } catch (err) {
     current.failure = errorText(err);
   } finally {
+    if (action === "retry") setAskBusy(false);
     current.busy = false;
     if (refusal === current) renderReport();
+    saveDraft();
   }
 }
 function setAcceptanceBusy(busy) {
@@ -357,19 +494,26 @@ function setAcceptanceBusy(busy) {
   for (const button of root.querySelectorAll("[data-act]")) button.disabled = busy;
   root.querySelector('[data-act="accept"]')?.setAttribute("aria-busy", String(busy));
 }
+function setAskBusy(busy) {
+  askPending = busy;
+  for (const el of root.querySelectorAll("[data-act], [data-field]")) el.disabled = busy;
+  for (const el of root.querySelectorAll("[data-field]")) el.readOnly = Boolean(retry || submitted);
+  root.querySelector('[data-act="ask"]')?.setAttribute("aria-busy", String(busy));
+}
 async function act(b) {
-  if (acceptancePending || b.disabled) return;
+  if (acceptancePending || askPending || b.disabled) return;
   if (b.dataset.act === "topup") return openLink(last.top_up_url);
   const [name, args, merge] = ACTS[b.dataset.act](last);
   const original = last;
-  const submitted = name === "ask_eyes" ? structuredClone(args) : args;
+  const submittedArgs = name === "confirm_ask" ? structuredClone(args) : args;
   const card = root.firstElementChild;
   card.querySelector("[data-error]")?.remove();
   card.querySelector("[data-report]")?.remove();
   b.disabled = true;
   if (name === "accept_answer") setAcceptanceBusy(true);
+  if (name === "confirm_ask") setAskBusy(true);
   try {
-    const out = await call(name, args);
+    const out = name === "confirm_ask" ? await confirmAsk(args) : await call(name, args);
     if (name === "accept_answer") {
       if (out?.status !== "accepted" || out.task_id !== args.task_id || !out.accepted_at)
         throw new Error("Acceptance was not confirmed. Refresh the task or try again.");
@@ -379,7 +523,14 @@ async function act(b) {
       if (!out || typeof out.allowed !== "boolean" || !Number.isFinite(out.workers_nearby) ||
           !Number.isFinite(out.suggested_bounty_usd) || !out.resolved_location)
         throw new Error("The quote was incomplete. Check availability again; nothing was charged.");
-      if (b.dataset.act === "again") retry = { args: structuredClone(retryContext(original)), key: null };
+      if (b.dataset.act === "again") {
+        retry = { args: structuredClone(retryContext(original)), fromTask: original.task_id };
+        askKey = crypto.randomUUID();
+        submitted = null;
+        completed = null;
+        edited = {};
+        uncertain = false;
+      }
       render(out);
     } else {
       if (name === "dispute_answer" && (out?.status !== "disputed" || out.task_id !== args.task_id))
@@ -388,12 +539,14 @@ async function act(b) {
     }
   } catch (err) {
     if (name === "accept_answer") setAcceptanceBusy(false);
+    if (name === "confirm_ask" && completed) return;
+    const card = root.firstElementChild;
     b.disabled = false;
     const detail = errorDetail(err);
     card.insertAdjacentHTML("beforeend", '<div class="ui-notice ui-notice--danger" data-error role="alert">' + icon("alert") + "<span>" + esc(errorText(detail)) + "</span></div>");
-    if (name === "ask_eyes" && detail.error === "unsafe_task" && detail.layer !== "rules") {
-      if (!refusal || JSON.stringify(refusal.args) !== JSON.stringify(submitted))
-        refusal = { args: submitted, error: detail, key: crypto.randomUUID(), ticket: null, busy: false, failure: null };
+    if (name === "confirm_ask" && !uncertain && detail.error === "unsafe_task" && detail.layer !== "rules") {
+      if (!refusal || JSON.stringify(refusal.args) !== JSON.stringify(submittedArgs))
+        refusal = { args: submittedArgs, error: detail, key: crypto.randomUUID(), ticket: null, busy: false, failure: null };
       card.insertAdjacentHTML("beforeend", '<div data-report></div>');
       root.querySelector('[data-field="question"]')?.addEventListener("input", renderReport);
       renderReport();
@@ -402,6 +555,9 @@ async function act(b) {
       card.querySelector("[data-report]")?.remove();
     }
     size();
+  } finally {
+    if (name === "confirm_ask") setAskBusy(false);
+    saveDraft();
   }
 }
 function size() {
@@ -419,7 +575,7 @@ window.addEventListener("message", (e) => {
   if (m.method === "ui/notifications/tool-input") {
     const args = m.params?.arguments ?? {};
     if (args.classifier_error || args.ticket_id) return;
-    input = args;
+    prefill(args);
     if (last) render(last);
   }
   if (m.method === "ui/notifications/tool-result") render(m.params?.structuredContent);
@@ -429,19 +585,22 @@ new ResizeObserver(size).observe(document.body);
 
 if (window.openai) {
   theme(window.openai.theme);
-  input = window.openai.toolInput ?? {};
-  render(window.openai.toolOutput);
+  prefill(window.openai.toolInput ?? {});
+  render(completed ?? window.openai.toolOutput ?? last);
   window.addEventListener("openai:set_globals", (e) => {
     const g = e.detail?.globals ?? {};
     if (g.theme) theme(g.theme);
     const report = g.toolInput?.classifier_error || g.toolInput?.ticket_id || g.toolOutput?.ticket_id;
-    if (g.toolInput && !report) input = g.toolInput;
+    if (g.toolInput && !report) prefill(g.toolInput);
     if (g.toolOutput && !report) render(g.toolOutput);
   });
 }
+if (!window.openai && last) render(last);
 request("ui/initialize", { protocolVersion: "2026-01-26", appInfo: { name: "eyes", version: "1" }, appCapabilities: {} }).then((r) => {
   theme(r?.hostContext?.theme);
   post({ method: "ui/notifications/initialized" });
+  contextCapability = r?.hostCapabilities?.updateModelContext ?? null;
+  publishTask();
 });
 `;
 
