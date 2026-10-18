@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "eyes",
-  "version": "1.0.0",
-  "description": "Request a nearby human check of a public place and inspect the returned answer and photo. Payments currently use Stripe test mode; no real money moves.",
+  "version": "1.0.3",
+  "description": "Request a nearby human check of a public place and inspect the returned answer and photo.",
   "homepage": "https://eyes.pictures",
   "repository": "https://github.com/ayaangazali/eyes",
   "keywords": ["public places", "local checks", "photos"],
@@ -11,7 +11,7 @@
       "interface": {
         "displayName": "Eyes",
         "shortDescription": "Human checks of public places",
-        "longDescription": "Eyes connects AI assistants with nearby humans who check public, commercial or civic places. Check worker availability, request a current observation, and inspect the answer, photo and task status. Examples include whether a store is open, how long a line is, or whether an item is in stock.\n\nConnect an Eyes account through OAuth. Requests use a prepaid balance and are subject to the owner's spending limits. Payments currently use Stripe test mode; no real money moves. Availability depends on nearby workers. With no nearby workers, no task is sent and nothing is charged. Answers can be delayed, missing or wrong.\n\nLocation and freshness checks do not establish that an answer is correct. Photo moderation rejects only confirmed graphic gore or explicit sexual content; it does not judge answer correctness. Request safety is separate and disallows targeting private people, homes or vehicles, trespassing, and illegal or dangerous tasks. Inspect the evidence and dispute an incorrect answer. Do not rely on Eyes for safety-critical, medical, legal or financial decisions.",
+        "longDescription": "Eyes connects AI assistants with nearby humans who check public, commercial or civic places. Check worker availability, request a current observation, and inspect the answer, photo and task status. Examples include whether a store is open, how long a line is, or whether an item is in stock.\n\nConnect an Eyes account through OAuth. Availability depends on nearby workers and your account permissions. With no nearby workers, no task is sent. Answers can be delayed, missing or wrong.\n\nLocation and freshness checks do not establish that an answer is correct. Photo moderation rejects only confirmed graphic gore or explicit sexual content; it does not judge answer correctness. Request safety is separate and disallows targeting private people, homes or vehicles, trespassing, and illegal or dangerous tasks. Inspect the evidence and dispute an incorrect answer. Do not rely on Eyes for safety-critical, medical, legal or financial decisions.",
         "category": "Productivity",
         "capabilities": [
           "Check worker availability",
@@ -38,31 +38,31 @@
         "test_cases": {
           "positive": [
             {
-              "description": "Preview public-place coverage without dispatching. Prepared case; not executed by the package author with a dedicated reviewer account.",
+              "description": "Preview public-place coverage without dispatching. The direct MCP tool check passed with the dedicated reviewer account; the full ChatGPT prompt workflow has not been executed.",
               "prompt": "Check worker availability for a line-length check at the Ferry Building in San Francisco. Do not send a task or spend anything.",
               "tools_triggered": "quote_task",
               "expected_behavior": "Call quote_task with location Ferry Building, San Francisco and task_type line_length. Report resolved_location, workers_nearby, allowed and reason_if_not without promising coverage. If no workers are nearby, say so. Do not call ask_eyes. No task, worker message or charge is created."
             },
             {
-              "description": "Read the connected account's test balance. Prepared case; not executed by the package author with a dedicated reviewer account.",
+              "description": "Read the connected account's test balance. The direct MCP tool check passed with the dedicated reviewer account; the full ChatGPT prompt workflow has not been executed.",
               "prompt": "Show my Eyes balance and the amount reserved for open tasks. Do not top up or open checkout.",
               "tools_triggered": "get_balance",
               "expected_behavior": "Report balance_usd and escrowed_usd from get_balance. Clearly identify current Stripe test mode and do not initiate checkout, transfer money, or invent available funds."
             },
             {
-              "description": "Read owner-controlled spending limits without modifying them. Prepared case; not executed by the package author with a dedicated reviewer account.",
+              "description": "Read owner-controlled spending limits without modifying them. The direct MCP tool check passed with the dedicated reviewer account; the full ChatGPT prompt workflow has not been executed.",
               "prompt": "What are my Eyes per-task and daily spending limits, and which task types can I request? Do not change anything.",
               "tools_triggered": "get_spend_policy",
               "expected_behavior": "Report max_bounty_usd, daily_cap_usd, spent_today_usd, remaining_today_usd and allowed_task_types exactly as returned. Explain that the owner controls these limits. No policy change or task creation occurs."
             },
             {
-              "description": "Recover recent tasks without posting a duplicate request. Prepared case; not executed by the package author with a dedicated reviewer account.",
+              "description": "Recover recent tasks without posting a duplicate request. The direct MCP tool check passed with the dedicated reviewer account; the full ChatGPT prompt workflow has not been executed.",
               "prompt": "List my five most recent Eyes tasks without creating a new request.",
               "tools_triggered": "list_tasks",
               "expected_behavior": "Call list_tasks with limit 5. Show only tasks returned for the connected account, preserving their statuses. If none exist, report an empty history rather than inventing tasks. Do not call ask_eyes."
             },
             {
-              "description": "Inspect an existing sample answer owned by the reviewer account. Prepared case; not executed. Requires a pre-existing completed sample task; no new human dispatch is authorized by this case.",
+              "description": "Inspect an existing sample answer owned by the reviewer account. Not executed: the dedicated account has no completed sample task. No new human dispatch is authorized by this case.",
               "prompt": "Find my latest completed Eyes task and show its answer, photo if available, and verification checks. Do not accept, dispute, or create a task.",
               "tools_triggered": "list_tasks, get_task, show_task",
               "expected_behavior": "Use list_tasks to identify an owned verified or paid sample task, then get_task and show_task to inspect it. Report the returned answer and the location, freshness and moderation checks without equating them with answer correctness. A null photo must stay unavailable. If no completed sample task exists, explain the missing sample data and stop; this does not complete the answer-rendering test."
@@ -89,11 +89,12 @@
             }
           ]
         },
+        "demo_recording_url": "https://eyes.pictures/marketplace-review/chatgpt-quote-balance.mp4",
         "commerce": true,
-        "commerce_description": "Eyes is a paid human-check service using a prepaid balance, task bounty and service fee. Published service documentation describes a 20 USD test grant at signup. Stripe is currently in TEST MODE: no real money moves. The service returns observations and photos, not physical goods. Screenshots show a legacy developer-mode connection at api.eyes.pictures, quote with no nearby workers, and test balance with Top up retained; they are not evidence of authenticated testing on the new MCP hostname. A reviewer-accessible video URL is not available. Eligibility under OpenAI's physical-goods-only commerce policy, restrictions on services/credits and checkout links, and rejection of trial/demo plugins remains unresolved; do not represent this package as approved for production commerce."
+        "commerce_description": "Eyes is a paid human-check service using a prepaid balance, task bounty and service fee. Published service documentation describes a 20 USD test grant at signup. Stripe is currently in TEST MODE: no real money moves. The service returns observations and photos, not physical goods. The screenshots and linked walkthrough show a legacy developer-mode connection at api.eyes.pictures, a quote with no nearby workers, and test balance with Top up retained; they are not evidence of the new MCP hostname, paid dispatch or all review cases. Separate direct read-only checks used the new hostname and dedicated reviewer account. Eligibility under OpenAI's physical-goods-only commerce policy, restrictions on services/credits and checkout links, and rejection of trial/demo plugins remains unresolved; do not represent this package as approved for production commerce."
       },
       "publication": {
-        "release_notes": "Initial remote MCP package for Eyes at https://mcp.eyes.pictures/mcp, using OAuth dynamic client registration. Includes local listing assets and five positive plus three negative prepared review scenarios. These scenarios have not been run by the package author with a dedicated reviewer account. The screenshots show quote and test balance on a legacy developer-mode connection, not a verified new-host connection. No public review video URL is supplied. Stripe remains in test mode."
+        "release_notes": "Remote MCP package for Eyes at https://mcp.eyes.pictures/mcp, using OAuth dynamic client registration. Authenticated discovery returned 13 tools, and direct quote, balance, spending-policy and task-history checks passed with the dedicated reviewer account. Full ChatGPT review prompts and the completed-answer case have not been executed; no completed sample task exists. The screenshots and linked walkthrough show only quote and test balance on a legacy developer-mode connection, not full-flow test coverage. Stripe remains in test mode."
       }
     }
   }
