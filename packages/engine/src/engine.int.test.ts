@@ -124,6 +124,28 @@ describe.skipIf(!url)("engine on Postgres", () => {
         where datname = current_database() and wait_event_type = 'Lock' and query like '%eyes_claim(%'`
     )[0]?.n as number;
 
+  it("logs each offer that fails to send by its error name and counts only delivered offers", async () => {
+    const at = somewhere();
+    const a = await agent();
+    await worker(north(at, 100));
+    await worker(north(at, 200));
+    const failure = Object.assign(new Error("send failed for +14155550100"), {
+      name: "InkboxSendError(403 recipient_not_connected)",
+    });
+    const send = vi.spyOn(providers.messaging, "sendOffer").mockRejectedValueOnce(failure);
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const asked = await ask(a, at);
+      expect(asked.workers_notified).toBe(1);
+      expect(error.mock.calls.map((call) => String(call[0]))).toEqual([
+        `offer for task ${asked.task_id} failed: InkboxSendError(403 recipient_not_connected)`,
+      ]);
+    } finally {
+      send.mockRestore();
+      error.mockRestore();
+    }
+  });
+
   it("dispatches to the nearest opted-in workers, lets exactly one YES win, and pays out a verified capture", async () => {
     const at = somewhere();
     const a = await agent();

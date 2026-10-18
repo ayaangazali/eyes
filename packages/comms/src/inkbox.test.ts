@@ -8,6 +8,7 @@ import {
   signToken,
   TASK_TYPES,
 } from "@eyes/core";
+import { InkboxAPIError } from "@inkbox/sdk";
 import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import {
   alreadyClaimedText,
@@ -383,9 +384,13 @@ describe("createInkboxMessaging", () => {
       status,
       errorCode: "imessage_reply_required_for_links_or_media",
     });
-    await expect(createInkboxMessaging(env).sendText(TO, "a")).rejects.toThrow(
-      `Inkbox iMessage ${status}: imessage_reply_required_for_links_or_media`,
-    );
+    const err = await createInkboxMessaging(env)
+      .sendText(TO, "a")
+      .catch((e: Error) => e);
+    expect(err).toMatchObject({
+      message: `Inkbox iMessage ${status}: imessage_reply_required_for_links_or_media`,
+      name: `InkboxSendError(${status} imessage_reply_required_for_links_or_media)`,
+    });
   });
 
   it("fetches the identity once for concurrent sends", async () => {
@@ -401,6 +406,33 @@ describe("createInkboxMessaging", () => {
     await expect(m.sendText(TO, "a")).rejects.toThrow("identity lookup failed");
     await expect(m.sendText(TO, "b")).resolves.toEqual({ id: "im_1" });
     expect(sdk.getIdentity).toHaveBeenCalledTimes(2);
+  });
+
+  it("names the Inkbox HTTP status and error code on a failed send, without the phone number", async () => {
+    const m = createInkboxMessaging(env);
+    sdk.sendIMessage.mockRejectedValueOnce(
+      new InkboxAPIError(403, { error: "recipient_not_connected", message: `${TO} has not connected` }),
+    );
+    sdk.sendIMessage.mockRejectedValueOnce(new InkboxAPIError(400, `no route to ${TO} (415) 555-0123`));
+    const first = await m.sendOffer(TO, offer()).catch((err: Error) => err);
+    const second = await m.sendText(TO, "a").catch((err: Error) => err);
+    expect(first).toMatchObject({ name: "InkboxSendError(403 recipient_not_connected)" });
+    expect(second).toMatchObject({ name: "InkboxSendError(400 no route to <number>)" });
+    expect(`${first} ${second}`).not.toMatch(/4155550123|555-0123/);
+  });
+
+  it("names a failed identity lookup and a nested error code the same way", async () => {
+    sdk.getIdentity.mockRejectedValueOnce(new InkboxAPIError(404, { error: "identity_not_found" }));
+    sdk.sendIMessage.mockRejectedValueOnce(
+      new InkboxAPIError(422, { error: { field: "to" }, code: "invalid_recipient" }),
+    );
+    const m = createInkboxMessaging(env);
+    expect(await m.sendText(TO, "a").catch((err: Error) => err.name)).toBe(
+      "InkboxSendError(404 identity_not_found)",
+    );
+    expect(await m.sendText(TO, "b").catch((err: Error) => err.name)).toBe(
+      "InkboxSendError(422 invalid_recipient)",
+    );
   });
 
   it("propagates SDK send errors", async () => {

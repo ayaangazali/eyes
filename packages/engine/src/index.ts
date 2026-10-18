@@ -111,6 +111,13 @@ const SIMULATED_PAY = "This is a test server and payouts are simulated, so no re
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const iso = (s: string) => new Date(s).toISOString();
+const errorName = (err: unknown) => (err instanceof Error ? err.name : typeof err);
+
+function logFailedOffers(taskId: string, sent: PromiseSettledResult<unknown>[]) {
+  for (const s of sent) {
+    if (s.status === "rejected") console.error(`offer for task ${taskId} failed: ${errorName(s.reason)}`);
+  }
+}
 const dollars = (cents: number) => `$${centsToUsd(cents).toFixed(2)}`;
 
 const policyOf = (s: Summary) => ({
@@ -295,7 +302,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
 
   async function textWorker(worker: Worker, taskId: string, send: () => Promise<unknown>) {
     if (!worker.opted_in) return;
-    await send().catch(() => console.error(`text to the worker for task ${taskId} failed`));
+    await send().catch((err) =>
+      console.error(`text to the worker for task ${taskId} failed: ${errorName(err)}`),
+    );
   }
 
   const notifyPaid = (task: Task, worker: Worker) =>
@@ -538,6 +547,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           ),
         );
         notified = sent.filter((s) => s.status === "fulfilled").length;
+        logFailedOffers(task.id, sent);
       }
       return {
         task_id: task.id,
@@ -821,7 +831,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
             p_released_by: worker.id,
             p_now: nowIso(),
           });
-          await Promise.allSettled(
+          const sent = await Promise.allSettled(
             idle.map((w) =>
               messaging.sendOffer(w.phone, {
                 task_id: released.id,
@@ -835,6 +845,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
               }),
             ),
           );
+          logFailedOffers(released.id, sent);
         },
         help: () =>
           messaging.sendText(
