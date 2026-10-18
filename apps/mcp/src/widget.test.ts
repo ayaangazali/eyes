@@ -1,10 +1,16 @@
 import { Window } from "happy-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WIDGET_CALLABLE, WIDGET_HTML, WIDGET_SCRIPT } from "./widget.ts";
 
 type Msg = { jsonrpc: "2.0"; id?: number; method?: string; params?: Record<string, unknown> };
 type Result = { structuredContent?: unknown; content?: { type: string; text: string }[]; isError?: boolean };
 type HostResult = Result | { error: { message: string } };
+
+const windows: Window[] = [];
+afterEach(async () => {
+  await Promise.all(windows.splice(0).map((win) => win.happyDOM.close()));
+  vi.useRealTimers();
+});
 
 const QUOTE = {
   workers_nearby: 2,
@@ -39,12 +45,19 @@ function boot(
     restore?: { name: string; state: string };
     hostCapabilities?: Record<string, unknown>;
     denyStorage?: boolean;
+    clock?: boolean;
+    initialize?: boolean;
   } = {},
 ) {
   const happy = new Window({ url: "https://card.test/" });
+  windows.push(happy);
   const win = happy as unknown as globalThis.Window & {
     openai?: unknown;
   };
+  if (opts.clock) {
+    Object.defineProperty(win, "setTimeout", { value: setTimeout });
+    Object.defineProperty(win, "clearTimeout", { value: clearTimeout });
+  }
   win.document.body.innerHTML = '<main id="root"></main>';
   const sent: Msg[] = [];
   const reply = (data: unknown) =>
@@ -53,8 +66,9 @@ function boot(
     value: {
       postMessage: (m: Msg) => {
         sent.push(m);
-        if (m.id == null) return;
-        if (m.method === "ui/initialize")
+        if (m.id == null || !m.method) return;
+        if (m.method === "ui/initialize") {
+          if (opts.initialize === false) return;
           return reply({
             jsonrpc: "2.0",
             id: m.id,
@@ -63,6 +77,7 @@ function boot(
               hostCapabilities: opts.hostCapabilities,
             },
           });
+        }
         const r = opts.host?.(m) ?? {};
         void Promise.resolve(r).then((result) =>
           reply({ jsonrpc: "2.0", id: m.id, ...("error" in result ? result : { result }) }),
@@ -100,7 +115,7 @@ function boot(
   const settle = async () => {
     for (let i = 0; i < 20; i++) await Promise.resolve();
   };
-  return { win, root, sent, show, button, settle };
+  return { win, root, sent, show, button, settle, reply };
 }
 
 describe("widget call bridge (MCP Apps host)", () => {
@@ -1245,6 +1260,185 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
     expect(w.sent.some((m) => m.method === "ui/message")).toBe(false);
     expect(invoke).toHaveBeenCalledTimes(1);
   });
+});
+
+describe.each(["MCP Apps", "ChatGPT"])("%s pending task auto-refresh", (bridge) => {
+  const photo = "https://cdn.insforge.dev/answer.jpg";
+  const answered = { ...TASK, status: "paid", answer: { ...ANSWER, photo_url: photo } };
+  beforeEach(() => vi.useFakeTimers());
+  function setup(handler: (name: string, args: Record<string, unknown>) => Result | Promise<Result>) {
+    const invoke = vi.fn(handler);
+    const w = boot({
+      clock: true,
+      ...(bridge === "ChatGPT"
+        ? { openai: { callTool: invoke } }
+        : {
+            host: (m: Msg) => invoke(String(m.params?.name), m.params?.arguments as Record<string, unknown>),
+          }),
+    });
+    return { ...w, invoke };
+  }
+
+  it("automatically displays the submitted photo without another paid request and stops on the answer", async () => {
+    let reads = 0;
+    const w = setup(async (name) => ({
+      structuredContent:
+        name === "confirm_ask" ? TASK : ++reads === 1 ? { ...TASK, status: "submitted" } : answered,
+    }));
+    w.show(QUOTE, { question: TASK.question, location: TASK.place_label });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(w.invoke).not.toHaveBeenCalled();
+    w.button("ask").click();
+    await w.settle();
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(w.root.querySelector("img")?.getAttribute("src")).toBe(photo);
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["confirm_ask", "get_task", "get_task"]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(w.invoke).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps an unchanged snapshot in place and shares one in-flight read with manual Refresh", async () => {
+    let reads = 0;
+    let finish!: (result: Result) => void;
+    const waiting = new Promise<Result>((resolve) => {
+      finish = resolve;
+    });
+    const w = setup(() => (++reads === 1 ? Promise.resolve({ structuredContent: TASK }) : waiting));
+    w.show(TASK);
+    const button = w.button("wait");
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(w.button("wait")).toBe(button);
+    await vi.advanceTimersByTimeAsync(5_000);
+    w.button("refresh").click();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(w.invoke).toHaveBeenCalledTimes(2);
+    finish({ structuredContent: answered });
+    await w.settle();
+    expect(w.root.querySelector("img")?.getAttribute("src")).toBe(photo);
+  });
+
+  it.each(["needs_review", "expired", "refunded", "disputed"])(
+    "ignores a pending response after host status becomes %s",
+    async (status) => {
+      let finish!: (result: Result) => void;
+      const w = setup(
+        () =>
+          new Promise<Result>((resolve) => {
+            finish = resolve;
+          }),
+      );
+      w.show(TASK);
+      await vi.advanceTimersByTimeAsync(5_000);
+      w.show({ ...TASK, status });
+      finish({ structuredContent: answered });
+      await w.settle();
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(w.root.querySelector("img")).toBeNull();
+      expect(w.invoke).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not replace an intentional new draft with an older pending read", async () => {
+    let finish!: (result: Result) => void;
+    const waiting = new Promise<Result>((resolve) => {
+      finish = resolve;
+    });
+    const w = setup((name) =>
+      name === "quote_task" ? Promise.resolve({ structuredContent: QUOTE }) : waiting,
+    );
+    w.show(TASK);
+    await vi.advanceTimersByTimeAsync(5_000);
+    w.show({
+      ...TASK,
+      status: "disputed",
+      retry_context: {
+        question: TASK.question,
+        location: { label: "Ferry Building", lat: 37.7, lng: -122.4 },
+        task_type: "line_length",
+        bounty_usd: 3,
+      },
+    });
+    w.button("again").click();
+    await w.settle();
+    finish({ structuredContent: answered });
+    await w.settle();
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(w.button("ask")).not.toBeNull();
+    expect(w.root.querySelector("img")).toBeNull();
+    expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["get_task", "quote_task"]);
+  });
+
+  it("pauses while hidden and stops after teardown", async () => {
+    const w = setup(async () => ({ structuredContent: TASK }));
+    w.show(TASK);
+    Object.defineProperty(w.win.document, "hidden", { configurable: true, value: true });
+    const event = w.win.document.createEvent("Event");
+    event.initEvent("visibilitychange", false, false);
+    w.win.document.dispatchEvent(event);
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(w.invoke).not.toHaveBeenCalled();
+    Object.defineProperty(w.win.document, "hidden", { configurable: true, value: false });
+    w.win.document.dispatchEvent(event);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(w.invoke).toHaveBeenCalledTimes(1);
+    w.reply({ jsonrpc: "2.0", id: 99, method: "ui/resource-teardown", params: {} });
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(w.invoke).toHaveBeenCalledTimes(1);
+    expect(w.sent).toContainEqual({ jsonrpc: "2.0", id: 99, result: {} });
+  });
+
+  it("stops on a failed automatic read and lets the existing Refresh button recover", async () => {
+    let attempts = 0;
+    const w = setup(async () =>
+      ++attempts === 1
+        ? { isError: true, structuredContent: { message: "Read unavailable." } }
+        : { structuredContent: answered },
+    );
+    w.show(TASK);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(w.invoke).toHaveBeenCalledTimes(1);
+    expect(w.root.querySelector("[data-error]")?.textContent).toContain("Read unavailable.");
+    w.button("refresh").click();
+    await w.settle();
+    expect(w.root.querySelector("img")?.getAttribute("src")).toBe(photo);
+    expect(w.invoke).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops without rendering a late response after the card is detached", async () => {
+    let finish!: (result: Result) => void;
+    const w = setup(
+      () =>
+        new Promise<Result>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    w.show(TASK);
+    await vi.advanceTimersByTimeAsync(5_000);
+    w.root.remove();
+    finish({ structuredContent: answered });
+    await w.settle();
+    await vi.advanceTimersByTimeAsync(15_000);
+    expect(w.invoke).toHaveBeenCalledTimes(1);
+    expect(w.root.querySelector("img")).toBeNull();
+  });
+});
+
+it("does not poll an MCP task until the host finishes initialization", async () => {
+  vi.useFakeTimers();
+  const host = vi.fn(() => ({ structuredContent: TASK }));
+  const w = boot({ clock: true, initialize: false, host });
+  w.show(TASK);
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(host).not.toHaveBeenCalled();
+  w.reply({ jsonrpc: "2.0", id: 1, result: {} });
+  await w.settle();
+  await vi.advanceTimersByTimeAsync(5_000);
+  expect(host).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({
+      method: "tools/call",
+      params: { name: "get_task", arguments: { task_id: "t1" } },
+    }),
+  );
 });
 
 it.each([
