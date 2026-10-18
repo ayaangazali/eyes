@@ -40,7 +40,9 @@ export function opsHost(
     const bare = `${url.pathname.replace(LEGACY, "") || "/"}${url.search}`;
     if (seen === host) {
       if (legacy) return c.redirect(bare, 301);
-      url.pathname = url.pathname === "/" ? "/ops" : `/ops${url.pathname}`;
+      // Shared static files (the header font) keep their path.
+      if (!url.pathname.startsWith("/fonts/"))
+        url.pathname = url.pathname === "/" ? "/ops" : `/ops${url.pathname}`;
       const req = new Request(url, c.req.raw);
       req.headers.set(HOP, token);
       return fetch(req);
