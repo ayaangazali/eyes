@@ -18,6 +18,7 @@
     "test:demo": "playwright test e2e/demo.spec.ts --repeat-each=3 --workers=1",
     "coverage": "vitest run --coverage --project unit --project contract --project safety",
     "coverage:integration": "vitest run --coverage --project integration",
+    "coverage:all": "COVERAGE_GATE=1 DATABASE_URL=${DATABASE_URL:-postgres://postgres:eyes@127.0.0.1:54329/eyes} vitest run --coverage --project unit --project contract --project safety --project integration",
     "swarm": "node scripts/swarm.ts",
     "build": "pnpm -r --if-present build",
     "db:up": "docker run -d --rm --name eyes-pg -e POSTGRES_PASSWORD=eyes -e POSTGRES_DB=eyes -p 54329:5432 postgres:17",
