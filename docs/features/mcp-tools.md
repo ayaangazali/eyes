@@ -1,15 +1,21 @@
 # MCP tools
 
-Eyes gives an AI agent nine MCP tools at `https://api.eyes.pictures/mcp`: quote a task, ask a nearby human to check a public place, wait for the answer, and manage tasks and money. Every tool also exists as a plain REST call under `/v1/*`, using the same API key and the same JSON.
+Eyes gives an AI agent 13 model-visible MCP tools at `https://mcp.eyes.pictures/mcp`, plus app-only `confirm_ask`: quote a task, ask a nearby human to check a public place, wait for the answer, manage tasks and money, and report classifier refusals. REST counterparts use the same API key under `https://api.eyes.pictures/v1/*`; `show_task` renders the same task data as `get_task`. There is no `confirm_ask` REST endpoint.
+
+The dedicated MCP connector is active with OAuth configured for ChatGPT and Claude. Existing `https://api.eyes.pictures/mcp` connectors still work. REST, uploads and webhooks remain on `https://api.eyes.pictures`.
 
 ## How it works
 
 - `quote_task` is free and read-only: it returns workers nearby, a suggested bounty, and whether the task is allowed.
-- `ask_eyes` escrows the bounty (default 3 USD) plus a 0.50 USD fee; it needs an `idempotency_key` so retries are not charged twice.
+- Interactive `ask_eyes` returns a read-only `confirmation_required` draft with no task, escrow or worker messages. Explicit card confirmation invokes app-only `confirm_ask`, which escrows the bounty (default 3 USD) plus a 0.50 USD fee using the same intent key. REST, CLI and non-UI MCP `ask_eyes` remain direct.
 - `await_answer` waits up to 55 seconds per call; call it in a loop until `answered` is true or the task ends.
-- `get_task`, `list_tasks`, `get_balance` and `get_spend_policy` are read-only lookups.
-- `cancel_task` refunds a task no worker has claimed yet; `dispute_answer` sends an answer to human review.
-- REST mirror: `POST /v1/quote`, `POST /v1/tasks`, `GET /v1/tasks`, `GET /v1/tasks/:task_id`, `POST /v1/tasks/:task_id/await`, `POST /v1/tasks/:task_id/cancel`, `POST /v1/tasks/:task_id/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`.
+- `get_task`, `show_task`, `list_tasks`, `get_balance` and `get_spend_policy` are read-only lookups. `show_task` shares `ui://eyes/confirmation-card.html`, not a separate React view.
+- `cancel_task` refunds a task no worker has claimed yet; `dispute_answer` sends an answer to human review. The card's **Ask again** gets a fresh quote and requires confirmation before posting a new paid request.
+- `accept_answer` persists **Looks good** feedback on a verified or paid answer. It does not charge, pay again or prevent a later dispute.
+- `report_classifier` opens a review ticket for an incorrect refusal; `get_classifier_report` reads its status. Neither posts a task or charges money. An approved request still requires an explicit retry.
+- REST counterparts: `POST /v1/quote`, `POST /v1/tasks`, `GET /v1/tasks`, `GET /v1/tasks/:task_id`, `POST /v1/tasks/:task_id/await`, `POST /v1/tasks/:task_id/cancel`, `POST /v1/tasks/:task_id/accept`, `POST /v1/tasks/:task_id/dispute`, `GET /v1/balance`, `GET /v1/spend-policy`, `POST /v1/classifier-reports`, `GET /v1/classifier-reports/:ticket_id`.
+
+Confirmation retries preserve one intent key and its submitted parameters, creating one task/escrow/offer set. A new intentional **Ask again** uses a new key and fresh confirmation; identical questions are not globally deduplicated. App/private tool visibility is a conforming-host boundary, not a cryptographic human-approval mechanism.
 
 ## How to try it
 

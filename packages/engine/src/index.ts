@@ -29,6 +29,7 @@ import {
   usdToCents,
   verifyToken,
   type Worker,
+  type WorkerEarnings,
   WorkerLocationInput,
 } from "@eyes/core";
 import { createRpc, type RpcArgs } from "@eyes/db";
@@ -86,6 +87,11 @@ const HERE_LINK_MS = 30 * 60 * 1000;
 const DEVICE_LINK_EXPIRED = {
   message: "This install link is invalid or has expired.",
   fix: "Text APP to the Eyes number for a new link.",
+};
+// The setup page's code (ADR-028) is the earnings token, which HELP renews.
+const SETUP_LINK_INVALID = {
+  message: "This link is invalid or has expired.",
+  fix: "Text HELP to the Eyes number for a fresh link.",
 };
 const HOUR_MS = 3_600_000;
 const PING_MAX = 5;
@@ -155,6 +161,12 @@ const SIMULATED_PAY = "This is a test server and payouts are simulated, so no re
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
 const iso = (s: string) => new Date(s).toISOString();
 const errorName = (err: unknown) => (err instanceof Error ? err.name : typeof err);
+// The payout label rule (ADR-020), shared by the earnings and setup pages so they never disagree.
+const payoutOf = (
+  t: EarningsRow["tasks"][number],
+  payoutsSetUp: boolean,
+): WorkerEarnings["tasks"][number]["payout"] =>
+  t.paid_at ? "paid" : !t.released ? null : payoutsSetUp ? "pending" : "waiting_for_payout_setup";
 
 function logFailedOffers(taskId: string, sent: PromiseSettledResult<unknown>[]) {
   for (const s of sent) {
@@ -222,6 +234,9 @@ export function createEyesService(deps: EngineDeps): EyesService {
     `${config.public_api_url}/w/connect/${signToken(config.link_secret, `c:${workerId}`, new Date(now().getTime() + WORKER_LINK_MS))}`;
   const earningsUrl = (workerId: string) =>
     `${config.public_api_url}/w/earnings/${signToken(config.link_secret, `e:${workerId}`, new Date(now().getTime() + WORKER_LINK_MS))}`;
+  // The setup page (ADR-028) takes the same "e:" token, in the fragment so no server logs it.
+  const meUrl = (workerId: string) =>
+    `${config.worker_web_url}/me#c=${signToken(config.link_secret, `e:${workerId}`, new Date(now().getTime() + WORKER_LINK_MS))}`;
   const captureUrl = (task: Task, workerId: string) =>
     `${config.worker_web_url}/capture.html?t=${signToken(config.link_secret, `o:${task.id}:${workerId}`, new Date(task.deadline_at))}`;
   const hereUrl = (workerId: string) =>
@@ -996,7 +1011,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
           const stale = now().getTime() - fixAt > config.location_max_age_h * 3_600_000;
           await messaging.sendText(
             phone,
-            `You are in. Eyes will text you paid tasks nearby. ${config.live_payouts ? `Set up payouts here: ${connectUrl(worker.id)}` : SIMULATED_PAY}${stale ? ` Tap to update your spot so we offer you tasks near where you are: ${hereUrl(worker.id)}` : ""}`,
+            `You are in. Eyes will text you paid tasks nearby. ${config.live_payouts ? `Set up payouts here: ${connectUrl(worker.id)}` : SIMULATED_PAY}${stale ? ` Tap to update your spot so we offer you tasks near where you are: ${hereUrl(worker.id)}` : ""} Your setup: ${meUrl(worker.id)}`,
           );
           // START again within the hour (a retry, a double tap) reuses the link already sent.
           const last = appLinkSentAt.get(worker.id);
@@ -1090,7 +1105,7 @@ export function createEyesService(deps: EngineDeps): EyesService {
             phone,
             ticket
               ? `Eyes: ticket #${ticket.id} opened. Someone will check your answer by hand and text you the outcome. Reply here to add details.`
-              : `${REPLY_TEXT.help}${simulatedPay} More: ${config.worker_web_url} Your earnings: ${earningsUrl(worker.id)}`,
+              : `${REPLY_TEXT.help}${simulatedPay} More: ${config.worker_web_url} Your setup: ${meUrl(worker.id)}`,
           );
         },
         unknown: async () => {
@@ -1154,16 +1169,61 @@ export function createEyesService(deps: EngineDeps): EyesService {
           place_label: t.place_label,
           status: t.status,
           bounty_usd: centsToUsd(t.bounty_cents),
-          payout: t.paid_at
-            ? "paid"
-            : !t.released
-              ? null
-              : e.payouts_set_up
-                ? "pending"
-                : "waiting_for_payout_setup",
+          payout: payoutOf(t, e.payouts_set_up),
           claimed_at: iso(t.claimed_at),
           paid_at: t.paid_at && iso(t.paid_at),
         })),
+      };
+    },
+
+    async workerSetup(token) {
+      const workerId = tokenPayload(token, "e");
+      const [w, e] = workerId
+        ? await Promise.all([
+            maybe<Worker & { location_source: string | null }>("eyes_worker", {
+              p_worker_id: workerId,
+              p_phone: null,
+            }),
+            maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: workerId }),
+          ])
+        : [];
+      if (!w || !e) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      // Same spot rule as START: a fix, or the sign-up location until the first fix.
+      const at = w.lat === null ? null : iso(w.location_at ?? w.created_at);
+      const fresh = at !== null && now().getTime() - Date.parse(at) <= config.location_max_age_h * 3_600_000;
+      const app = w.location_source === "app";
+      return {
+        opted_in: w.opted_in,
+        spot: { at, fresh, max_age_h: config.location_max_age_h },
+        app: { last_at: app ? at : null, sending: app && fresh },
+        payouts: {
+          set_up: e.payouts_set_up,
+          live: config.live_payouts,
+          setup_url: config.live_payouts && !e.payouts_set_up ? connectUrl(w.id) : null,
+        },
+        here_url: hereUrl(w.id),
+        earnings_url: earningsUrl(w.id),
+        tasks: e.tasks.slice(0, 5).map((t) => ({
+          question: t.question,
+          place_label: t.place_label,
+          status: t.status,
+          bounty_usd: centsToUsd(t.bounty_cents),
+          payout: payoutOf(t, e.payouts_set_up),
+          claimed_at: iso(t.claimed_at),
+        })),
+      };
+    },
+
+    async workerInstallLink(token) {
+      const workerId = tokenPayload(token, "e");
+      const w = workerId
+        ? await maybe<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null })
+        : undefined;
+      // Codes only work for an opted-in worker (eyes_rotate_location_token skips the others).
+      if (!w?.opted_in) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      const code = await mintLocationCode(w.id);
+      return {
+        install_url: config.testflight_url ? `${config.worker_web_url}/app#c=${code}` : installUrl(code),
       };
     },
 

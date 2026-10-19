@@ -479,6 +479,27 @@ export const WorkerEarnings = z.object({
     )
     .max(50),
 });
+// The worker's setup page, /me (ADR-028). tasks: the 5 newest claims, rows as in WorkerEarnings.
+export const WorkerSetup = z.object({
+  opted_in: z.boolean(),
+  spot: z.object({ at: Timestamp.nullable(), fresh: z.boolean(), max_age_h: z.number() }),
+  app: z.object({ last_at: Timestamp.nullable(), sending: z.boolean() }),
+  payouts: z.object({ set_up: z.boolean(), live: z.boolean(), setup_url: z.string().nullable() }),
+  here_url: z.string(),
+  earnings_url: z.string(),
+  tasks: z
+    .array(
+      WorkerEarnings.shape.tasks.element.pick({
+        question: true,
+        place_label: true,
+        status: true,
+        bounty_usd: true,
+        payout: true,
+        claimed_at: true,
+      }),
+    )
+    .max(5),
+});
 
 export const CaptureResult = z.object({
   task_id: Id,
@@ -500,6 +521,7 @@ export type ResolvedLocation = z.output<typeof ResolvedLocation>;
 export type OwnerPolicyInput = z.output<typeof OwnerPolicyInput>;
 export type OwnerConsole = z.output<typeof OwnerConsole>;
 export type WorkerEarnings = z.output<typeof WorkerEarnings>;
+export type WorkerSetup = z.output<typeof WorkerSetup>;
 
 export const HTTP_ROUTES = {
   health: "GET /healthz",
@@ -521,6 +543,8 @@ export const HTTP_ROUTES = {
   worker_join: "POST /w/join",
   worker_connect_redirect: "GET /w/connect/:token",
   worker_earnings: "GET /w/earnings/:token",
+  worker_me: "GET /w/me",
+  worker_me_install: "POST /w/me/install",
   offer_view: "GET /w/offers/:token",
   offer_capture: "POST /w/offers/:token/capture",
   worker_device: "POST /w/device",

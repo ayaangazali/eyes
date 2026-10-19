@@ -122,7 +122,8 @@ describe.skipIf(!url)("a payout whose first try Stripe runs late while a retry i
       const start = String(
         outbox.findLast((m) => m.to === phone && String(m.payload).includes("/w/connect/"))?.payload,
       );
-      await service.workerConnectUrl(start.split("/w/connect/")[1] ?? "");
+      // START ends with the setup link (ADR-028), so the token stops at the next space.
+      await service.workerConnectUrl(/\/w\/connect\/(\S+)/.exec(start)?.[1] ?? "");
       const account = stripe.accounts.at(-1) ?? "";
       const agent = (await service.authenticate(
         (

@@ -208,7 +208,15 @@ describe("OPS_PAGE", () => {
           errors: [],
         },
       },
-      "/ops/tickets": { tickets: [] },
+      "/ops/tickets": { tickets: [], total: 0, next_cursor: null },
+      "/ops/ledger": {
+        ledger: [
+          { id: "l1", type: "fee", created_at: "2026-10-17T12:00:00Z", task_id: null, amount_cents: 75 },
+        ],
+        total: 1,
+        total_cents: 75,
+        next_cursor: null,
+      },
       "/ops/events": { source: "db", events: [] },
       "/ops/series": {
         source: "postgres",
@@ -226,7 +234,8 @@ describe("OPS_PAGE", () => {
     new Function("window", script)(win);
     await vi.waitFor(() => expect(win.document.getElementById("state")?.textContent).toBe("Live"));
     expect(win.document.getElementById("p-money")?.hidden).toBe(false);
-    expect(win.document.getElementById("ledger")?.textContent).toContain("Fee$0.75");
+    await vi.waitFor(() => expect(win.document.getElementById("ledger")?.textContent).toContain("Fee$0.75"));
+    expect(win.document.getElementById("ledger-total")?.textContent).toBe("$0.75 across 1 row");
     expect(win.document.getElementById("map")?.textContent).toBe("Map needs Leaflet from unpkg.com.");
     await happy.happyDOM.close();
   });

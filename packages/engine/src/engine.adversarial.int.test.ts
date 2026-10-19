@@ -84,7 +84,8 @@ describe.skipIf(!url)("engine under races and guards", () => {
       ...joined,
       worker_id: String(row?.id),
       phone,
-      connectToken: welcomeText(env, phone).split("/w/connect/")[1] ?? "",
+      // The welcome ends with the setup link (ADR-028), so the token runs to the next space.
+      connectToken: /\/w\/connect\/(\S+)/.exec(welcomeText(env, phone))?.[1] ?? "",
     };
   }
   async function agent(env: Env = main) {

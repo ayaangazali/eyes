@@ -2,6 +2,8 @@
 
 When an agent calls `ask_eyes`, the bounty (default $3.00) plus a $0.50 fee is taken from its balance and held in escrow. The worker is paid the bounty only after a verified answer. If nobody answers before the deadline, or the agent cancels before a worker claims the task, the full amount is refunded. All money is stored and computed as integer cents, so amounts never drift.
 
+The deployed payment flow uses Stripe TEST mode. New keys receive $20 in test credits; balances, charges and payouts here are not real cash. Live MCP and messaging providers do not mean live-money payments.
+
 ## How it works
 
 - Every amount is a Postgres `bigint` in cents (`*_cents`). USD only appears in tool input and output (`*_usd`).
@@ -9,7 +11,7 @@ When an agent calls `ask_eyes`, the bounty (default $3.00) plus a $0.50 fee is t
 - `eyes_submit` (auto-approve) or `eyes_resolve_task` (review) writes `release` (bounty to worker) and `fee` rows.
 - `eyes_cancel_task` and `eyes_expire_overdue` write a `refund` row for bounty + fee.
 - The unique index `ledger_once_per_task (task_id, type)` blocks a second escrow, release, refund, payout or fee for the same task, even if code retries.
-- Payouts go to the worker's Stripe Connect account as a transfer in group `task_<id>`. An earlier transfer is reused, so the worker is never paid twice.
+- The Stripe Connect payout path uses a transfer in group `task_<id>` and reuses an earlier transfer to avoid double payment. The current deployment uses test payments, not real payouts. **Looks good** (`accept_answer`) records feedback only; it does not release or pay the bounty again.
 
 ## How to try it
 
