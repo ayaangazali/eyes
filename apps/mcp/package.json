@@ -7,7 +7,8 @@
   },
   "scripts": {
     "start": "node --no-experimental-webstorage src/main.ts",
-    "dev": "node --no-experimental-webstorage --watch src/main.ts"
+    "dev": "node --no-experimental-webstorage --watch src/main.ts",
+    "build": "mcp-use build --inline --entry views/entry.ts"
   },
   "dependencies": {
     "@eyes/comms": "workspace:*",
@@ -25,6 +26,8 @@
     "zod": "4.6.7"
   },
   "devDependencies": {
-    "@modelcontextprotocol/client": "2.3.1"
+    "@modelcontextprotocol/client": "2.3.1",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
   }
 }

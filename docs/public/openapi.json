@@ -186,10 +186,10 @@
                         "type": "string",
                         "minLength": 2,
                         "maxLength": 200,
-                        "description": "Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""
+                        "description": "A public place as \"place name, city\" or its street address, e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\". Never a home address."
                       }
                     ],
-                    "description": "Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."
+                    "description": "The public place to check: a string \"place name, city\" or its numbers {\"lat\": 37.7825, \"lng\": -122.4078}. Never the user's own location or a home address."
                   },
                   "task_type": {
                     "type": "string",
@@ -323,10 +323,10 @@
                         "type": "string",
                         "minLength": 2,
                         "maxLength": 200,
-                        "description": "Address or \"place name, city\", e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\""
+                        "description": "A public place as \"place name, city\" or its street address, e.g. \"Blue Bottle Coffee, Mint Plaza, San Francisco\". Never a home address."
                       }
                     ],
-                    "description": "Where to look. Either numbers {\"lat\": 37.7825, \"lng\": -122.4078} or a string address / \"place name, city\"."
+                    "description": "The public place to check: a string \"place name, city\" or its numbers {\"lat\": 37.7825, \"lng\": -122.4078}. Never the user's own location or a home address."
                   },
                   "task_type": {
                     "type": "string",

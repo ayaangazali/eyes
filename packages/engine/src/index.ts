@@ -648,19 +648,25 @@ export function createEyesService(deps: EngineDeps): EyesService {
 
     async askEyes(agent, input) {
       const ask = parse(TOOLS.ask_eyes.input, input);
-      const place = await resolve(ask.location);
-      const verdict = await deps.assessTask({
-        question: ask.question,
-        task_type: ask.task_type,
-        place_label: place.label,
+      const assess = async (place_label: string) => {
+        const verdict = await deps.assessTask({
+          question: ask.question,
+          task_type: ask.task_type,
+          place_label,
+        });
+        if (!verdict.allowed) {
+          throw new EyesError(
+            "unsafe_task",
+            { category: verdict.category, reason: verdict.reason },
+            { fix: verdict.fix ?? undefined },
+          );
+        }
+      };
+      const place = await resolve(ask.location).catch(async (err) => {
+        if (typeof ask.location === "string") await assess(ask.location);
+        throw err;
       });
-      if (!verdict.allowed) {
-        throw new EyesError(
-          "unsafe_task",
-          { category: verdict.category, reason: verdict.reason },
-          { fix: verdict.fix ?? undefined },
-        );
-      }
+      await assess(place.label);
       if (!agent.allowed_task_types.includes(ask.task_type)) {
         throw new EyesError("task_type_not_allowed", {
           task_type: ask.task_type,

@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, timingSafeEqual } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { isIPv6 } from "node:net";
 import { join } from "node:path";
@@ -50,12 +50,13 @@ import { cors } from "hono/cors";
 import { html, raw } from "hono/html";
 import type { HtmlEscapedString } from "hono/utils/html";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { MCPServer } from "mcp-use";
+import { MCPServer, registerViews, type ViewsManifest } from "mcp-use";
 import { z } from "zod";
 import { deviceProfile, parseDeviceAttributes } from "./device-profile.ts";
 import { oauthRoutes } from "./oauth.ts";
 import { type Operator, opsAuth } from "./ops-auth.ts";
 import { opsHost, opsOriginFor } from "./ops-host.ts";
+import { keylessAgents, SANDBOX, SANDBOX_NOTICE } from "./sandbox.ts";
 import { WIDGET_HTML, WIDGET_MIME, WIDGET_URI, widgetResourceMeta, widgetToolMeta } from "./widget.ts";
 
 type Env = Record<string, string | undefined>;
@@ -85,6 +86,21 @@ const AskEyesToolOutput = z.object({
   fix: z.string().optional(),
 });
 const DOCS_DIR = fileURLToPath(new URL("../../../docs/public/", import.meta.url));
+const VIEWS_MANIFEST = fileURLToPath(new URL("../.mcp-use/build/manifest.json", import.meta.url));
+const TASK_CARD = "task-card";
+const CARD_INVOCATION = { invoking: "Loading the Eyes task card", invoked: "Eyes task card ready" };
+
+function taskCard(file: string) {
+  if (!existsSync(file)) return undefined;
+  try {
+    return (JSON.parse(readFileSync(file, "utf8")) as { views?: ViewsManifest }).views?.[TASK_CARD];
+  } catch (err) {
+    console.error(
+      `views manifest ${file} is unreadable, so show_task has no card: ${err instanceof Error ? err.name : typeof err}`,
+    );
+    return undefined;
+  }
+}
 const AGENT_CARD = "/.well-known/agent-card.json";
 const DOCS = {
   "/llms.txt": "text/plain; charset=utf-8",
@@ -179,20 +195,23 @@ const layout = (
 
 type Live = ReturnType<typeof liveProviders>;
 
-const simulatedNotice = (live: Live) => {
-  const fake = (Object.keys(SIMULATED) as (keyof typeof SIMULATED)[]).filter((name) => !live[name]);
-  return fake.length
-    ? html`<section class="box"><h2>This is a simulated deploy</h2><ul>${fake.map((name) => html`<li>${SIMULATED[name]}</li>`)}</ul></section>`
+const simulatedNotice = (live: Live, sandbox: boolean) => {
+  const fake = (Object.keys(SIMULATED) as (keyof typeof SIMULATED)[])
+    .filter((name) => !live[name] && !(sandbox && (name === "messaging" || name === "geo")))
+    .map((name) => SIMULATED[name]);
+  const lines = sandbox ? [SANDBOX_NOTICE, ...fake] : fake;
+  return lines.length
+    ? html`<section class="box"><h2>This is a simulated deploy</h2><ul>${lines.map((line) => html`<li>${line}</li>`)}</ul></section>`
     : "";
 };
 
-const homePage = (joinUrl: string, live: Live, classifier: boolean) =>
+const homePage = (joinUrl: string, live: Live, classifier: boolean, sandbox: boolean) =>
   layout(
     "Eyes API",
     html`<p class="eyebrow">api.eyes.pictures</p>
 <h1>AI agents pay people nearby about $3 to check public places.</h1>
 <p>Is the cafe open? How long is the line? An AI agent asks, Eyes texts people close by, and the first to reply YES walks over, takes a photo and gets paid.</p>
-${simulatedNotice(live)}
+${simulatedNotice(live, sandbox)}
 <h2>For AI agents</h2>
 <p>Connect over MCP: <code>POST /mcp</code> with <code>Authorization: Bearer &lt;api_key&gt;</code>. No key yet? <code>POST /v1/signup</code>.</p>
 <ul class="docs">
@@ -221,12 +240,18 @@ const statusRow = (
 ) =>
   html`<li><span class="dot ${tone}" aria-hidden="true"></span><b>${title}</b>${detail ? html`<br><span class="muted">${detail}</span>` : ""}</li>`;
 
-const statusPage = (live: Live, classifier: boolean, db: string, commit: string | undefined) =>
+const statusPage = (
+  live: Live,
+  classifier: boolean,
+  db: string,
+  commit: string | undefined,
+  sandbox: boolean,
+) =>
   layout(
     "Eyes status",
     html`<h1>Service status</h1>
 <p>Eyes is up. A live part uses the real service. A simulated part is a test stand-in: nothing real is sent, charged or stored through it.</p>
-${simulatedNotice(live)}
+${simulatedNotice(live, sandbox)}
 <ul class="rows">
 ${Object.entries(PROVIDER_LINES).map(([name, [label, meaning]]) => {
   const on = live[name as keyof typeof live];
@@ -375,12 +400,14 @@ export function createServer(
 ) {
   const { service, config, env } = deps;
   const log = deps.events?.log ?? (() => {});
+  const sandbox = env.EYES_SANDBOX === "1";
+  const note = (text: string) => (sandbox ? `${SANDBOX_NOTICE}\n${text}` : text);
   const server = new MCPServer<never, AppEnv>({
     name: "eyes",
     title: "Eyes",
     version: "0.1.0",
-    description: "Pay a nearby human a few dollars to check something in the physical world right now.",
-    instructions: INSTRUCTIONS,
+    description: `${sandbox ? `${SANDBOX} ` : ""}Pay a nearby human a few dollars to check something in the physical world right now.`,
+    instructions: note(INSTRUCTIONS),
     logging: { enabled: false },
   });
 
@@ -461,11 +488,17 @@ export function createServer(
     c.res = c.json(unknown.toBody(), 404);
   });
 
+  const keyless = sandbox ? keylessAgents(deps) : null;
   const auth: MiddlewareHandler<AppEnv> = async (c, next) => {
     if (c.req.method === "POST" && (c.req.path === "/v1/signup" || c.req.path === "/v1/worker/location"))
       return next();
-    const key = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1];
-    const agent = key ? await service.authenticate(key) : null;
+    const header = c.req.header("authorization");
+    const key = /^Bearer\s+(\S+)\s*$/i.exec(header ?? "")?.[1];
+    const agent = key
+      ? await service.authenticate(key)
+      : keyless && header === undefined
+        ? await keyless(clientKey(c.req.header("x-forwarded-for")))
+        : null;
     if (!agent)
       return c.json(new EyesError("unauthorized").toBody(), 401, {
         "WWW-Authenticate": `Bearer resource_metadata="${new URL("/.well-known/oauth-protected-resource", config.public_api_url).href}"`,
@@ -480,15 +513,16 @@ export function createServer(
     {
       name: "quote_task",
       title: "Quote a task",
-      description: `Check whether Eyes can answer a question at a place before you spend anything. Free and read-only.
+      description:
+        note(`Check whether Eyes can answer a question at a place before you spend anything. Free and read-only.
 Returns workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, reason_if_not and resolved_location (where Eyes thinks you mean).
 suggested_bounty_usd already fits this API key's max_bounty_usd, the daily cap left and your balance, so ask_eyes accepts it. allowed is false only when you cannot post this task right now: the safety rules refuse this task_type at this place, the task_type is not allowed for this key, or even the 1 USD minimum bounty plus the 0.50 USD fee does not fit your limits or balance; reason_if_not says what to do. quote_task never sees your question, so ask_eyes checks the question itself and can still refuse it with unsafe_task.
-location is {lat, lng} or a string such as "Blue Bottle Coffee, Mint Plaza, San Francisco". task_type is one of: is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public.
+location is the public place to check: {lat, lng} or a string such as "Blue Bottle Coffee, Mint Plaza, San Francisco", never your user's location. task_type is one of: is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public.
 Example: quote_task({ "location": "Ferry Building, San Francisco", "task_type": "line_length" })
-Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`,
+Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same location and task_type, using suggested_bounty_usd as bounty_usd. If resolved_location is not the place you meant, retry with a more specific string or {lat, lng}. If workers_nearby is 0, try a nearby busier place or later.`),
       inputSchema: TOOLS.quote_task.input,
       outputSchema: TOOLS.quote_task.output,
-      annotations: { readOnlyHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: widgetToolMeta("Checking the place", "Quote ready"),
     },
     (input, ctx) => run(() => service.quoteTask(ctx.get("agent"), input)),
@@ -498,16 +532,17 @@ Next: if allowed is true and workers_nearby > 0, call ask_eyes with the same loc
     {
       name: "ask_eyes",
       title: "Ask a human to check",
-      description: `Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site. Eyes checks location (GPS within about 150 m), freshness (photo taken live before the deadline) and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call dispute_answer if it is wrong.
+      description:
+        note(`Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site. Eyes checks location (GPS within about 150 m), freshness (photo taken live before the deadline) and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call dispute_answer if it is wrong.
 Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now. The worker is paid only after a verified answer. If nobody answers before deadline_minutes (default 30), or you cancel_task before a worker claims it, everything is refunded.
-Only public, commercial or civic places: stores, cafes, parks, transit stops, venues. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
+Only public, commercial or civic places (stores, cafes, parks, transit stops, venues), never your user's location. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
 idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
 If no worker is near the place right now, nothing is created or charged: the result has status "not_sent", reason "no_workers_nearby", charged_usd 0, message and fix, and no task_id.
-Next: if status is "dispatched", immediately call await_answer with the returned task_id and keep calling it until answered is true. If status is "not_sent", tell your user nobody is nearby and follow fix (a busier place, or later).`,
+Next: if status is "dispatched", immediately call await_answer with the returned task_id and keep calling it until answered is true. If status is "not_sent", tell your user nobody is nearby and follow fix (a busier place, or later).`),
       inputSchema: TOOLS.ask_eyes.input,
       outputSchema: AskEyesToolOutput,
-      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
       _meta: widgetToolMeta("Texting nearby workers", "Task posted"),
     },
     // MCP only: no workers nearby is an answer, not a tool failure (nothing created or charged), so
@@ -546,7 +581,7 @@ Example: await_answer({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
 Next: follow next_step in the response.`,
       inputSchema: TOOLS.await_answer.input,
       outputSchema: TOOLS.await_answer.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       _meta: widgetToolMeta("Waiting for the answer", "Task updated"),
     },
     (input, ctx) =>
@@ -579,8 +614,38 @@ Example: get_task({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
 Next: to wait for an answer call await_answer instead of polling get_task.`,
       inputSchema: TOOLS.get_task.input,
       outputSchema: TOOLS.get_task.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       _meta: widgetToolMeta("Looking up the task", "Task loaded"),
+    },
+    (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
+  );
+
+  const card = taskCard(env.EYES_VIEWS_MANIFEST || VIEWS_MANIFEST);
+  if (card) server[registerViews]({ [TASK_CARD]: card });
+  server.tool(
+    {
+      name: "show_task",
+      title: "Show a task card",
+      description: `Show your user a task as a card: status, place, question, the answer with its photo, the verification checks and what it cost. Read-only and instant; the JSON result is the same as get_task's. Chat apps that render MCP Apps, such as ChatGPT and Claude, draw the card; other clients get only the JSON.
+Example: show_task({ "task_id": "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b" })
+Next: call it once await_answer returns answered true, so your user sees the answer and the photo. To wait for an answer call await_answer instead.`,
+      inputSchema: TOOLS.get_task.input,
+      outputSchema: TOOLS.get_task.output,
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      ...(card && {
+        _meta: {
+          "openai/toolInvocation": CARD_INVOCATION,
+          "openai/toolInvocation/invoking": CARD_INVOCATION.invoking,
+          "openai/toolInvocation/invoked": CARD_INVOCATION.invoked,
+        },
+        view: {
+          name: TASK_CARD,
+          description: "An Eyes task: status, answer, photo, verification checks and cost.",
+          ...(env.INSFORGE_BASE_URL && {
+            csp: { resourceDomains: [new URL(env.INSFORGE_BASE_URL).origin] },
+          }),
+        },
+      }),
     },
     (input, ctx) => run(() => service.getTask(ctx.get("agent"), input)),
   );
@@ -596,7 +661,7 @@ Example: list_tasks({ "status": "dispatched", "limit": 5 })
 Next: for a task with status dispatched, claimed or submitted, call await_answer with its task_id. For a task where answered is true, call get_task to read the answer. Call ask_eyes only if no listed task covers your question.`,
       inputSchema: TOOLS.list_tasks.input,
       outputSchema: TOOLS.list_tasks.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (input, ctx) => run(() => service.listTasks(ctx.get("agent"), input)),
   );
@@ -631,7 +696,7 @@ Next: call get_task later to see the outcome. To get a fresh answer now, call as
       outputSchema: TOOLS.dispute_answer.output,
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: false,
       },
@@ -648,7 +713,7 @@ Example: get_balance({})
 Next: if balance_usd is less than bounty_usd + 0.50, give your user top_up_url and wait for them to fund it, or lower bounty_usd.`,
       inputSchema: TOOLS.get_balance.input,
       outputSchema: TOOLS.get_balance.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
       _meta: widgetToolMeta("Checking your balance", "Balance loaded"),
     },
     (_input, ctx) => run(() => service.getBalance(ctx.get("agent"))),
@@ -663,7 +728,7 @@ Example: get_spend_policy({})
 Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd when you call ask_eyes, and use only allowed_task_types. Only your user can change these limits.`,
       inputSchema: TOOLS.get_spend_policy.input,
       outputSchema: TOOLS.get_spend_policy.output,
-      annotations: { readOnlyHint: true, openWorldHint: false },
+      annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
     },
     (_input, ctx) => run(() => service.getSpendPolicy(ctx.get("agent"))),
   );
@@ -865,7 +930,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
   const classifier = Boolean(
     (env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) || env.ANTHROPIC_API_KEY,
   );
-  const home = homePage(config.worker_web_url, live, classifier);
+  const home = homePage(config.worker_web_url, live, classifier, sandbox);
   server.get("/", (c) => c.html(home, 200, { link: LINK, ...PAGE_HEADERS }));
   for (const [path, contentType] of Object.entries(DOCS)) {
     server.get(path, async (c) => {
@@ -890,7 +955,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     Object.entries(live).map(([name, on]) => [name, on ? "live" : "fake"]),
   );
   server.get("/healthz", (c) => c.json({ ok: true, providers, db }));
-  const status = statusPage(live, classifier, db, env.EYES_COMMIT);
+  const status = statusPage(live, classifier, db, env.EYES_COMMIT, sandbox);
   server.get("/status", (c) => c.html(status, 200, PAGE_HEADERS));
   server.get("/fonts/instrument-sans.woff2", (c) =>
     c.body(DISPLAY_FONT, 200, {
