@@ -48,3 +48,9 @@ MCP Apps capability detection takes precedence. The legacy fallback recognizes o
 The card resource is revised to `ui://eyes/confirmation-card.html` because old HTML calls the former paid tool. Hosts must refresh tool metadata and render a new card; old messages are not retroactively changed. The new task's retry context preserves its original deadline duration and photo requirement. Classifier approval remains tied to its exact original key and is not carried into a new Ask Again intent.
 
 `await_answer` metadata describes its existing bounded read of recorded state, not an exclusive answer channel or a payment action. A dispatched task ID is distinct from a draft intent key; answer/photo fields can be null, `verified` does not prove payout, and human review may settle without rewriting original verification flags. Server error guidance remains bounded by the user's original request and authorization. Only descriptions change; validation, defaults, output, read-only hints and execution remain unchanged.
+
+## Addendum: independent check intents and state-v2 cutover (2026-10-19)
+
+The canonical resource becomes `ui://eyes/scene-card-v2.html`, without registering an old-resource alias. New metadata must cause a new card fetch; an already rendered message keeps its old script. The private `confirm_ask` action remains call-only, with no output template. The widget writes one `{version: 2, active, records}` state envelope and reads the prior format one way.
+
+New check here and other widget-generated intent keys use RFC 9562 UUIDv7 before asynchronous preparation. Supplied idempotency keys remain opaque and stable. A fresh observation is a new intent even at the same location with the same question; a retry preserves the exact original key and parameters. Existing Task, Submission and ledger IDs and transaction protections remain unchanged. No database migration or multi-photo/upload-replay extension is included.

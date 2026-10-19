@@ -1,6 +1,6 @@
 # Eyes task card widget (W1, placeholder)
 
-One compact card prototype for MCP Apps hosts (ChatGPT, Claude). This package runs on fixture data and a mock bridge only. It is **not registered in the MCP server**, makes no network calls, and nothing outside this folder imports it. The deployed `show_task` uses the same vanilla `ui://eyes/confirmation-card.html` widget as `get_task`, implemented in [`apps/mcp/src/widget.ts`](../../mcp/src/widget.ts). The former `apps/mcp/views/task-card/` React view and its build are gone; this prototype is not the live card.
+One compact card prototype for MCP Apps hosts (ChatGPT, Claude). This package runs on fixture data and a mock bridge only. It is **not registered in the MCP server**, makes no network calls, and nothing outside this folder imports it. Current state-v2 server source binds `show_task` to the same vanilla `ui://eyes/scene-card-v2.html` widget as `get_task`, implemented in [`apps/mcp/src/widget.ts`](../../mcp/src/widget.ts). The former `apps/mcp/views/task-card/` React view and its build are gone; this prototype is not the live card.
 
 ## Run it
 

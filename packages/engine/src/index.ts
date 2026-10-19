@@ -1185,7 +1185,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           answered: ANSWERED.includes(t.status),
         })),
         next_step: rows.length
-          ? "Resume instead of asking again: for a task with status dispatched, claimed or submitted, call await_answer with its task_id; for a task where answered is true, call get_task to read the answer and photo_url. Call ask_eyes only if no task here covers your question."
+          ? "To resume an existing check, call await_answer with its task_id while dispatched, claimed or submitted; to read its answer, call get_task. For an explicitly requested new observation, prepare a fresh ask_eyes intent even at the same place with the same question. Location and question are not request identity."
           : status
             ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
             : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",

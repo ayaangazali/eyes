@@ -32,7 +32,7 @@ import { createEventLog, type EventLog, OPS_PAGE } from "@eyes/web-dashboard";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createServer, SMOKE_UA } from "./server.ts";
-import { WIDGET_URI } from "./widget.ts";
+import { WIDGET_HTML, WIDGET_URI } from "./widget.ts";
 
 const KEY = "eyes_test_key";
 const SECRET = "x".repeat(32);
@@ -1002,7 +1002,7 @@ describe("MCP tools", () => {
     expect(show.structuredContent).toEqual(PAID_TASK);
     expect(show).toEqual(await client.callTool({ name: "get_task", arguments: { task_id: TASK_ID } }));
     const { resources } = await client.listResources();
-    expect(resources.map((resource) => resource.uri)).toEqual([WIDGET_URI]);
+    expect(resources.map((resource) => resource.uri)).toEqual(["ui://eyes/scene-card-v2.html"]);
   });
 
   it("turns an EyesError into isError with the catalog body and fix", async () => {
@@ -1945,6 +1945,7 @@ describe("ChatGPT and Claude widget", () => {
       "confirm_ask",
       "get_task",
       "await_answer",
+      "list_tasks",
       "cancel_task",
       "accept_answer",
       "dispute_answer",
@@ -1974,12 +1975,12 @@ describe("ChatGPT and Claude widget", () => {
       _meta: { ui: { csp: { resourceDomains: string[] } } };
     }[];
     expect(card?.mimeType).toBe("text/html;profile=mcp-app");
-    expect(card?.text).toContain('"ui/initialize"');
-    expect(card?.text).toContain("ui/notifications/tool-result");
+    expect(card?.text).toBe(WIDGET_HTML);
     expect(card?._meta.ui.csp.resourceDomains).toEqual([
       "https://pagp38bu.us-west.insforge.app",
       "https://cdn.insforge.dev",
     ]);
+    await expect(client.readResource({ uri: "ui://eyes/confirmation-card.html" })).rejects.toThrow();
   });
 });
 

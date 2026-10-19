@@ -575,7 +575,7 @@ Next: in ChatGPT, Claude or MCP Apps, show the card and let the user review and 
         note(`Pay a nearby human to look at a public place right now and answer your question, usually with a live photo. Eyes texts nearby workers; the first to accept walks over and captures the answer on site. Eyes checks location (GPS within about 150 m), freshness (photo taken live before the deadline) and that the photo is safe to share; it does not judge whether the answer is correct. Look at the photo, and call dispute_answer if it is wrong.
 Money: bounty_usd (default 3) plus a 0.50 USD fee is escrowed from your balance now. The worker is paid only after a verified answer. If nobody answers before deadline_minutes (default 30), or you cancel_task before a worker claims it, everything is refunded.
 Only public, commercial or civic places (stores, cafes, parks, transit stops, venues), never your user's location. Never specific private people, homes, vehicles or private property; those are refused with an unsafe_task error.
-idempotency_key is required: any unique string for each task you intend to create, for example a UUID. Reuse the same key when you retry that task: the same key and parameters return the original task instead of charging again, so retries after a timeout or network error are safe. Use a new key for a new question.
+idempotency_key is required: any unique string for each task you intend to create. Reuse the same key and exact parameters for retries, including an unknown outcome; never rewrite a caller-supplied key. A deliberately new observation uses a new intent even at the same place with the identical question. The card generates UUIDv7 keys for New check here and fallback draft creation.
 Example: ask_eyes({ "question": "How many people are waiting in line right now?", "location": "Blue Bottle Coffee, Mint Plaza, San Francisco", "task_type": "line_length", "bounty_usd": 3, "idempotency_key": "6f1c2a9e-line-check" })
 In ChatGPT, Claude and MCP Apps, this returns status "confirmation_required" and a read-only quote with the request's idempotency_key. Nothing is sent or charged until the user confirms in the card. Keep that intent key; never follow a successful card confirmation with another paid ask.
 Errors include error, message and fix, or an "Input validation error" naming invalid fields. Use them to repair the original authorized request, not to change its goal, raise spending or bypass confirmation. After an unknown dispatch outcome, retry only the same parameters and idempotency_key.
@@ -607,7 +607,7 @@ Next: only if status is "dispatched", call await_answer with the returned task_i
       name: "confirm_ask",
       title: "Confirm and send this task",
       description:
-        "App-only: dispatch the request explicitly confirmed in the Eyes card. Reuse its idempotency_key and exact parameters for retries; a new explicit Ask Again uses a new key. Next: use the returned task_id with await_answer; never create another paid request for this intent.",
+        "App-only: dispatch the request explicitly confirmed in the Eyes card. Reuse its idempotency_key and exact parameters for retries; New check here or an explicit Ask again starts a separate intent. Next: use the returned task_id with await_answer; never create another paid request for this intent.",
       visibility: "app",
       inputSchema: TOOLS.ask_eyes.input,
       outputSchema: AskEyesToolOutput,
@@ -736,10 +736,10 @@ Next: call it once await_answer returns answered true, so your user sees the ans
       name: "list_tasks",
       title: "List your tasks",
       description: `List the tasks this API key created, newest first, with task_id, status, question, place_label, bounty_usd, created_at, deadline_at and answered. Read-only and instant. You only ever see your own tasks.
-Call it when you lost a task_id (context reset, crash, restart) and before you ask a question again, so you resume an open task instead of paying twice. Find yours by question and place_label.
+Use it to recover a task_id or explicitly resume an existing request. Match the intended check by task_id, question, place and requested time; the same location or question alone does not mean a new observation should reuse an old task.
 status keeps only tasks in that status, for example "dispatched" for tasks no worker has claimed yet. limit is 1 to 50 (default 20); raise it if the task you want is older.
 Example: list_tasks({ "status": "dispatched", "limit": 5 })
-Next: for a task with status dispatched, claimed or submitted, call await_answer with its task_id. For a task where answered is true, call get_task to read the answer. Call ask_eyes only if no listed task covers your question.`,
+Next: to resume an existing task with status dispatched, claimed or submitted, call await_answer with its task_id. To read an existing answer, call get_task. For an explicitly requested fresh check, prepare a new ask_eyes intent even when an older task has the same question and place; in the card use New check here, then explicit confirmation.`,
       inputSchema: TOOLS.list_tasks.input,
       outputSchema: TOOLS.list_tasks.output,
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
@@ -873,7 +873,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
               ...listed,
               title: "Prepare a task for confirmation",
               description: note(
-                "Prepare a read-only Eyes card with the question, place, price and intent key. No task, payment or worker notification occurs. The user must press Ask in the card to confirm; never dispatch a second task after that confirmation. Errors include error, message and fix, or an Input validation error naming invalid fields. Use them to repair the original authorized request, not to change its goal, raise spending or bypass confirmation. After an unknown dispatch outcome, retry only the same parameters and idempotency_key.",
+                "Prepare a read-only Eyes card with the question, place, price and intent key. No task, payment or worker notification occurs. The user must press Ask in the card to confirm; never dispatch a second task for that same intent. New check here creates a separate draft for a fresh observation, even at the same place with the same question; reading an old answer or resuming pending work retains its Task. Preserve caller-supplied intent keys unchanged. Errors include error, message and fix, or an Input validation error naming invalid fields. Use them to repair the original authorized request, not to change its goal, raise spending or bypass confirmation. After an unknown dispatch outcome, retry only the same parameters and idempotency_key.",
               ),
               inputSchema: draftInputSchema,
               outputSchema: draftOutputSchema,

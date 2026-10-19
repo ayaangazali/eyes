@@ -4,6 +4,8 @@
 
 Dedicated MCP is live at `https://mcp.eyes.pictures/mcp`, with ChatGPT and Claude configured there. The registry has 13 model-visible tools plus app-only `confirm_ask`; `show_task` uses shared `ui://eyes/confirmation-card.html`. Interactive `ask_eyes` only prepares a read-only draft; the card's explicit confirmation dispatches through the existing idempotent service. REST, CLI and non-UI MCP remain direct. Refresh app tool metadata and open a new quote after the cutover; old messages do not update retroactively. Legacy API-host MCP remains supported. REST/uploads/webhooks stay at `https://api.eyes.pictures`; Manufact hosts the application and Cloudflare provides edge/static hosting.
 
+State-v2 changeset: source now targets `ui://eyes/scene-card-v2.html` with independent UUIDv7 check intents and a versioned recent-state envelope. The paragraph above describes the last verified deployment, not publication of this changeset. After publishing, refresh app tool metadata and open a new card; the old resource is not aliased and old rendered messages do not update.
+
 Native iPhone distribution is ad hoc, not TestFlight; the app stays connected across task photos. Optional email can be skipped with **Use iMessage only**. The three-second post-install timer is a grace period, not OS detection. OAuth **Continue** passes a new key to each web client automatically.
 
 Photo moderation rejects confirmed graphic gore or explicit sexual content, not faces alone; task privacy/safety is separate. Stripe's provider is live, but payments and $20 credit remain test-only. Primitive outbound DNS and one owner Gmail delivery are verified; unrestricted sending is disabled, Inkbox first-contact fallback remains, and external custom-alias SPF is unresolved.

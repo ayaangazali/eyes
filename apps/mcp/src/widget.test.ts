@@ -7,6 +7,7 @@ type Result = { structuredContent?: unknown; content?: { type: string; text: str
 type HostResult = Result | { error: { message: string } };
 
 const windows: Window[] = [];
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 afterEach(async () => {
   await Promise.all(windows.splice(0).map((win) => win.happyDOM.close()));
   vi.useRealTimers();
@@ -96,14 +97,13 @@ function boot(
         throw new Error("Storage denied");
       },
     });
-  let uuid = 0;
   new Function("window", "document", "ResizeObserver", "crypto", WIDGET_SCRIPT)(
     win,
     win.document,
     class {
       observe() {}
     },
-    { randomUUID: () => `key-${++uuid}` },
+    globalThis.crypto,
   );
   const root = win.document.getElementById("root") as HTMLElement;
   const show = (structuredContent: unknown, args: Record<string, unknown> = {}) => {
@@ -141,7 +141,7 @@ describe("widget call bridge (MCP Apps host)", () => {
           location: "Ferry Building, San Francisco",
           task_type: "line_length",
           bounty_usd: 3,
-          idempotency_key: "key-1",
+          idempotency_key: expect.stringMatching(UUID_V7),
         },
       },
     });
@@ -391,7 +391,8 @@ describe.each(["MCP Apps", "ChatGPT"])("%s answer acceptance", (bridge) => {
     ["refunded", null],
   ])("hides acceptance for %s with answer %j", (status, answer) => {
     const w = setup(() => ({}));
-    w.show({ ...answered, status, answer });
+    const task = { ...answered, task_id: `acceptance-${status}`, status, answer };
+    w.show(task, { task_id: task.task_id });
     expect(w.button("accept")).toBeNull();
     expect(w.root.querySelector("[data-accepted]")).toBeNull();
     expect(w.invoke).not.toHaveBeenCalled();
@@ -461,8 +462,8 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     expect(w.invoke.mock.calls.map(([name]) => name)).toEqual(["confirm_ask", "dispute_answer"]);
 
     w.button("again").click();
-    expect(w.button("again").disabled).toBe(true);
-    w.button("again").click();
+    expect(w.button("again")).toBeNull();
+    expect(w.invoke.mock.calls.filter(([name]) => name === "confirm_ask")).toHaveLength(1);
     await w.settle();
     expect(w.invoke).toHaveBeenLastCalledWith("quote_task", {
       location: context.location,
@@ -483,7 +484,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     w.button("ask").click();
     await w.settle();
     const newArgs = w.invoke.mock.calls[3]?.[1];
-    expect(newArgs).toEqual({ ...context, idempotency_key: "key-2" });
+    expect(newArgs).toEqual({ ...context, idempotency_key: expect.stringMatching(UUID_V7) });
     expect(newArgs?.idempotency_key).not.toBe(originalKey);
     expect(asks).toBe(2);
     expect(w.root.textContent).toContain("Finding a worker");
@@ -566,9 +567,9 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     await w.dispute();
     w.button("again").click();
     await w.settle();
-    expect(w.root.textContent).toContain("Dispute submitted.");
-    expect(w.button("again").disabled).toBe(false);
-    w.button("again").click();
+    expect(w.root.querySelector('[role="alert"]')?.textContent).toBe("Network unavailable. Retry.");
+    expect(w.button("requote").disabled).toBe(false);
+    w.button("requote").click();
     await w.settle();
     expect(w.question().value).toBe(context.question);
     expect(w.invoke.mock.calls.map(([name]) => name)).toEqual([
@@ -588,7 +589,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
       if (tool === "quote_task") {
         w.button("again").click();
         await w.settle();
-        expect(w.button("again").disabled).toBe(false);
+        expect(w.button("requote").disabled).toBe(false);
       } else expect(w.button("again")).toBeNull();
       expect(w.root.querySelector('[role="alert"]')?.textContent).toContain(
         tool === "quote_task" ? "quote was incomplete" : "Dispute was not confirmed",
@@ -620,7 +621,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s dispute retry", (bridge) => {
     w.button("ask").click();
     await w.settle();
     expect(w.invoke.mock.calls[4]?.[1]).toEqual(first);
-    expect(first).toEqual({ ...context, idempotency_key: "key-1" });
+    expect(first).toEqual({ ...context, idempotency_key: expect.stringMatching(UUID_V7) });
     expect(w.root.textContent).toContain("Finding a worker");
   });
 
@@ -841,8 +842,8 @@ describe.each(["MCP Apps", "ChatGPT"])("%s classifier report review", (bridge) =
     expect(w.invoke).toHaveBeenNthCalledWith(2, "report_classifier", {
       ...original,
       classifier_error: error,
-      ask_idempotency_key: "key-1",
-      idempotency_key: "key-2",
+      ask_idempotency_key: original?.idempotency_key,
+      idempotency_key: expect.stringMatching(UUID_V7),
     });
     expect(w.root.textContent).toContain("Ticket 42: Awaiting manual review.");
     expect(w.report("submit")).toBeNull();
@@ -991,7 +992,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
     return { ...w, invoke, update, field, edit, snapshot };
   }
 
-  it("preserves user question, place and bounty through late AI updates, and posts only after confirmation", async () => {
+  it("preserves user question, place and bounty through same-intent AI updates, and posts only after confirmation", async () => {
     const w = setup(async () => ({ structuredContent: TASK }));
     w.update(draft, draft);
     w.edit("question", "My own question");
@@ -1002,7 +1003,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
       question: "Late AI",
       location: "Another place",
       bounty_usd: 9,
-      idempotency_key: "late-key",
+      idempotency_key: draft.idempotency_key,
     });
     await w.settle();
     expect([w.field("question").value, w.field("location").value, w.field("bounty_usd").value]).toEqual([
@@ -1023,7 +1024,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
       idempotency_key: "shared-intent",
     });
     expect(w.button("cancel")).not.toBeNull();
-    w.update({ ...draft, idempotency_key: "another-ai-key" });
+    w.update(draft);
     expect(w.button("ask")).toBeNull();
     expect(w.button("cancel")).not.toBeNull();
     expect(w.invoke).toHaveBeenCalledTimes(1);
@@ -1118,7 +1119,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
       restored.button("ask").click();
       await restored.settle();
       expect(restored.field("question").readOnly).toBe(true);
-      restored.update({ ...draft, question: "Different AI request", idempotency_key: "new-ai-key" });
+      restored.update({ ...draft, question: "Different AI request" });
       restored.button("ask").click();
       await restored.settle();
       expect(restored.invoke.mock.calls.map(([, args]) => args)).toEqual([savedArgs, savedArgs]);
@@ -1143,12 +1144,15 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
     expect(second.invoke.mock.calls[0]?.[1].idempotency_key).toBe("second-intent");
   });
 
-  it("restores valid host state when fallback session storage is denied", () => {
+  it("reauthorizes restored host state when fallback session storage is denied", async () => {
     const w = boot({
       openai: { widgetState: { privateContent: { askKey: "saved-intent", completed: TASK, last: TASK } } },
       restore: { name: "eyes.intent.saved-intent", state: "null" },
       denyStorage: true,
+      host: () => ({ structuredContent: TASK }),
     });
+    expect(w.root.textContent).not.toContain(TASK.question);
+    await w.settle();
     expect(w.button("ask")).toBeNull();
     expect(w.button("cancel")).not.toBeNull();
     expect(w.root.textContent).toContain("How long is the line?");
@@ -1171,7 +1175,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
     const w = setup(() => pending);
     w.update(draft);
     w.button("ask").click();
-    w.update({ ...draft, idempotency_key: "late-key" });
+    w.update(draft);
     expect(w.button("ask").disabled).toBe(true);
     w.button("ask").click();
     expect(w.invoke).toHaveBeenCalledTimes(1);
@@ -1189,21 +1193,22 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
     w.update(draft);
     w.edit("question", "User confirmed question");
     w.button("ask").click();
-    w.update({ ...draft, question: "Late question", idempotency_key: "late-key" });
+    w.update({ ...draft, question: "Late question" });
     await w.settle();
     expect(w.root.querySelector("[data-error]")?.textContent).toBe("Connection lost.");
     const first = w.invoke.mock.calls[0]?.[1];
     const restored = setup(async () => ({ structuredContent: TASK }), w.snapshot());
-    restored.update({ ...draft, question: "Late question", idempotency_key: "late-key" });
+    restored.update({ ...draft, question: "Late question" });
     expect(restored.field("question").value).toBe("User confirmed question");
     restored.button("ask").click();
     await restored.settle();
     expect(restored.invoke).toHaveBeenCalledExactlyOnceWith("confirm_ask", first);
     const completed = setup(async () => ({ structuredContent: TASK }), restored.snapshot());
     completed.update(draft);
+    await completed.settle();
     expect(completed.button("ask")).toBeNull();
     expect(completed.button("cancel")).not.toBeNull();
-    expect(completed.invoke).not.toHaveBeenCalled();
+    expect(completed.invoke).toHaveBeenCalledExactlyOnceWith("get_task", { task_id: TASK.task_id });
   });
 
   it("restores an intentional Ask Again draft without posting until fresh confirmation", async () => {
@@ -1228,7 +1233,7 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
     await restored.settle();
     expect(restored.invoke).toHaveBeenCalledExactlyOnceWith("confirm_ask", {
       ...context,
-      idempotency_key: "key-1",
+      idempotency_key: expect.stringMatching(UUID_V7),
     });
   });
 
@@ -1248,12 +1253,13 @@ describe.each(["MCP Apps", "ChatGPT"])("%s request draft", (bridge) => {
       task_id: "t1",
       status: "dispatched",
       idempotency_key: "shared-intent",
+      intent_id: "shared-intent",
       next_step: "await_answer",
     };
     if (bridge === "ChatGPT") {
-      expect(setWidgetState.mock.lastCall?.[0].modelContent).toEqual(expected);
+      expect(setWidgetState.mock.lastCall?.[0].modelContent).toMatchObject(expected);
     } else {
-      expect(w.sent.find((m) => m.method === "ui/update-model-context")?.params).toEqual({
+      expect(w.sent.findLast((m) => m.method === "ui/update-model-context")?.params).toMatchObject({
         structuredContent: expected,
       });
     }

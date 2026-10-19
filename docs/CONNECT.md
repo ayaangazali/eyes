@@ -40,7 +40,7 @@ This is custom connector setup, not a one-click install or a claim that Eyes is 
 
 The actual MCP/API server is hosted on **Manufact Cloud**, server `eyes-prod`, at `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare's `eyes-api` Worker forwards `mcp.eyes.pictures`, `api.eyes.pictures` and `internal.eyes.pictures` to that origin. Static `eyes.pictures` and `app.eyes.pictures` remain on Cloudflare.
 
-All MCP endpoints reach the same server and the same 13 model-visible tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `accept_answer`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`. The additional `confirm_ask` action is app-only. `show_task` shares `ui://eyes/confirmation-card.html`; the legacy React-view build was removed. The optional [Manufact gateway](https://docs.manufact.com/dashboard/connect-existing-server) remains a proxy in front of `api.eyes.pictures`. Every bearer client sends its own Eyes API key.
+All MCP endpoints reach the same server and the same 13 model-visible tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `accept_answer`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`. The additional `confirm_ask` action is app-only. The state-v2 source binds `show_task` to `ui://eyes/scene-card-v2.html`; the legacy React-view build was removed. The optional [Manufact gateway](https://docs.manufact.com/dashboard/connect-existing-server) remains a proxy in front of `api.eyes.pictures`. Every bearer client sends its own Eyes API key.
 
 ## Dedicated MCP domain: live
 
@@ -173,11 +173,11 @@ Ask the client: "Use Eyes to quote checking whether the Ferry Building in San Fr
 
 Use `https://mcp.eyes.pictures/mcp` for new app connectors; the legacy `https://api.eyes.pictures/mcp` remains supported. Card sandbox origins are derived from the exact connector URL, so use the matching direct host rather than the optional gateway for app cards.
 
-In ChatGPT and Claude, `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task` and `get_balance` share `ui://eyes/confirmation-card.html`. It shows quotes, task status, photos/checks or the balance/top-up link. The existing card calls private `confirm_ask` and renders its result locally; that action has no widget template of its own. Other tools reply in text.
+In the state-v2 release, `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task` and `get_balance` share `ui://eyes/scene-card-v2.html` in ChatGPT and Claude. It shows quotes, task status, photos/checks or the balance/top-up link. The existing card calls private `confirm_ask` and renders its result locally; that action has no widget template of its own. Other tools reply in text.
 
 Interactive `ask_eyes` is a read-only draft (`status: "confirmation_required"`). Review the question, place and price in the card, then press **Ask** to confirm. The app-only `confirm_ask` sends that intent; no task, escrow or worker messages occur before confirmation. Retries reuse its key, while **Ask again** requires a new confirmation. The model should use the returned task ID, not dispatch another ask. REST, CLI and non-UI MCP automation remain unchanged.
 
-After upgrading from the old card contract, refresh the app's tool definitions (reconnect if needed) and request a new quote. The confirmation card has a new URI; already rendered messages are not updated retroactively. An old card's `ask_eyes` call cannot dispatch in the interactive host. A preview is not approval: the confirmed request still undergoes current safety and spend checks.
+After publishing state-v2, refresh the app's tool definitions (reconnect if needed) and open a new quote. The canonical resource changes from `ui://eyes/confirmation-card.html` to `ui://eyes/scene-card-v2.html`, with no old-resource alias. Already rendered messages retain their old script and are not updated retroactively; do not reuse them for a new check. A preview is not approval: confirmed requests still undergo current safety and spend checks.
 
 ### ChatGPT
 

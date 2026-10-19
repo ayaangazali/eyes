@@ -21,6 +21,8 @@ Pricing: default $3 bounty to the human plus $0.50 Eyes fee, escrowed from the a
 
 Current deployment uses test payments and a $20 test signup credit despite the Stripe provider being live; no real money moves. ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`, with 13 model-visible tools plus app-only `confirm_ask`. REST/uploads/webhooks stay at `https://api.eyes.pictures`, whose old MCP connector remains supported. `show_task` shares `ui://eyes/confirmation-card.html`; no legacy React-view build is required.
 
+The state-v2 source changes the canonical card to `ui://eyes/scene-card-v2.html`, without an alias for the prior resource. This changeset is distinct from the verified deployment described above. After publication, refresh client tool metadata and create a fresh card; existing messages cannot be retroactively upgraded.
+
 Sponsor tracks:
 - Primitive: agents get an Eyes email identity and threaded replies. Worker email is optional; onboarding can continue with iMessage only. Outbound DNS and one owner Gmail delivery are verified, but unrestricted domain sending is disabled, first-contact Inkbox fallback remains, and external custom-alias SPF is unresolved.
 - Stripe: prepaid agent balance via Checkout; per-API-key spend controls (max bounty, daily cap, allowed task types); escrow, release, Connect Express payout to workers (test mode); refunds on expiry. Prize wants clear user control over what agents can do and spend: spend limits and the refund path must be visible in the demo.
@@ -105,7 +107,7 @@ The current registry contains 13 model-visible tools plus app-only `confirm_ask`
 6. `dispute_answer(task_id, reason)` -> holds payout, flags for review.
 7. `get_balance()`, `get_spend_policy()`.
 8. `list_tasks(status?, limit?)` lists this agent's tasks for resuming work.
-9. `show_task(task_id)` renders the same task through shared `ui://eyes/confirmation-card.html`.
+9. `show_task(task_id)` renders the same task through shared `ui://eyes/scene-card-v2.html`.
 10. `accept_answer(task_id)` records explicit positive user feedback without changing the payout.
 11. `report_classifier` requests internal review of a refused task.
 12. `get_classifier_report` reads that review; approval requires an explicit retry and does not dispatch automatically.

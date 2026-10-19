@@ -1096,6 +1096,37 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
   });
 
+  it("keeps same-place UUIDv7 intents independent and charges nothing for a quote or replay", async () => {
+    const at = somewhere();
+    const w = await worker(north(at, 100));
+    const a = await agent();
+    const firstKey = "017f22e2-79b0-7cc3-98c4-dc0c0c07398f";
+    const secondKey = "017f22e2-79b0-7cc3-98c4-dc0c0c073990";
+    const before = await service.getBalance(a);
+    await service.quoteTask(a, { location: at, task_type: "line_length" });
+    expect(await service.getBalance(a)).toEqual(before);
+    expect((await service.listTasks(a, { limit: 20 })).tasks).toEqual([]);
+    expect(outbox.filter((message) => message.to === w.phone && message.kind === "offer")).toHaveLength(0);
+
+    const first = await ask(a, at, { idempotency_key: firstKey });
+    const replay = await ask(a, at, { idempotency_key: firstKey });
+    const second = await ask(a, at, { idempotency_key: secondKey });
+    expect(replay.task_id).toBe(first.task_id);
+    expect(second.task_id).not.toBe(first.task_id);
+    for (const taskId of [first.task_id, second.task_id]) {
+      expect(taskId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+      expect((await ledger(taskId)).filter((row) => row.type === "escrow")).toHaveLength(1);
+    }
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 13, escrowed_usd: 7 });
+    expect(outbox.filter((message) => message.to === w.phone && message.kind === "offer")).toHaveLength(2);
+
+    await expect(
+      ask(a, at, { idempotency_key: firstKey, question: "A different paid question" }),
+    ).rejects.toMatchObject({ code: "idempotency_conflict" });
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 13, escrowed_usd: 7 });
+    expect((await service.listTasks(a, { limit: 20 })).tasks).toHaveLength(2);
+  });
+
   it("refunds a cancelled task exactly once", async () => {
     const at = somewhere();
     await worker(north(at, 100));
