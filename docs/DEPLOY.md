@@ -11,22 +11,26 @@ Run from the repo root. Keys go in `.env` (never committed). Names are in `.env.
 
 ## 2. MCP server on Manufact Cloud
 
-Current production (2026-10-18): the actual MCP/API server runs on **Manufact Cloud**, server `eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`, deployment `ef011ffa-b963-4d71-85e3-1841779dd1db`. The public MCP URL remains `https://api.eyes.pictures/mcp`.
+Current production (2026-10-18): the actual MCP/API server runs on **Manufact Cloud**, server `eyes-prod`, origin `https://warm-spark-aocdd.run.mcp-use.com`, active deployment `7f7de08a-5412-47c3-b2d7-4a63c9e251c3`, serving source `17ba6b9131d9f7ee916a1503d735422c4f209253`. The public MCP URL remains `https://api.eyes.pictures/mcp`.
 
 Cloudflare's `eyes-api` Worker is a thin forwarder for both `api.eyes.pictures` and `internal.eyes.pictures`. Keep its `ORIGIN` set to `https://warm-spark-aocdd.run.mcp-use.com`. The optional Manufact gateway `https://dark-steel-ofaoa.run.mcp-use.com/mcp` is a separate proxy, not the server host. The landing site and worker app remain on Cloudflare.
 
-### Deployment recovery in progress
+### Permanent deployment
 
-The existing operator deployer is `/Users/xiao/tmp/eyes-deployer/deployer.sh`; it reads `origin/jerry/live-setup` into its own worktree and applies database migrations before deploying. The old API branch of that loop deploys Cloudflare Containers and is paused with `/Users/xiao/tmp/eyes-deployer/api-paused`. Static-site and migration deployment continue separately. **Do not remove that pause or run the old API deploy command:** it would drop the Manufact origin.
+The operator deployer runs with `bash /Users/xiao/tmp/eyes-deployer/deployer.sh`. It is already running; do not start a second copy. It watches `origin/jerry/live-setup`, applies database migrations first, then deploys the actual server to Manufact and updates the Cloudflare forwarder. The API pause was removed only after the successful deployment and smoke checks; static-site deployment remains separate.
 
-The hosting worker is replacing the API deployment path with a clean-origin Manufact deployment. The permanent command and successful post-deploy verification are not confirmed yet. OAuth protected-resource metadata normalization is also pending verification. Do not use the historical commands below as the current production runbook.
+For API changes, the deployer archives the clean source into a temporary directory, copies the existing `.mcp-use/cloud/link.json`, and embeds the source SHA through the staged Dockerfile. Its pinned mcp-use 2.10.1 CLI runs `deploy <source> --no-github --org 79796193-80be-4b65-a1c7-803b0725b39d --branch jerry/live-setup --dockerfile Dockerfile --json`. The wrapper loads local `/Users/xiao/tmp/eyes-manufact/.env.manufact` without passing `--env-file` to the deploy command; production secrets stay on Manufact. It waits for the matching managed deployment and runtime SHA before advancing checkpoints.
+
+The edge-only command, run from the deployer's clean `apps/edge/api` directory, is `env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler@4.151.1 deploy --containers-rollout=none --keep-vars --var ORIGIN:https://warm-spark-aocdd.run.mcp-use.com --var EYES_COMMIT:17ba6b9131d9f7ee916a1503d735422c4f209253`. The deployer substitutes the current source SHA on later deployments. Do not use the historical container commands below for production.
+
+Verified 2026-10-18: source `17ba6b9131d9f7ee916a1503d735422c4f209253`, Worker version `81c8edb5-a943-414a-a9fa-bc1e64b12aea`, migration 034 applied first (201), Cloudflare container inactive. Both OAuth protected-resource paths return `resource: https://api.eyes.pictures/mcp` with identity and actual gzip responses; the authorization-server issuer and unauthenticated MCP `WWW-Authenticate` metadata URL remain public. Ops `/login` returns 200. MCP initialization, 10 tools, free quote and widget domains passed. Latest keyed smoke: 12 PASS, signup and paid ask skipped; earlier unkeyed smoke: 13 PASS. Evidence: `/Users/xiao/tmp/eyes-hosting-evidence` and `/Users/xiao/tmp/eyes-deployer/runs/17ba6b9131d9.{manual,finish}.log`.
 
 Server secrets belong in the Manufact environment, not in committed files. Keep `EYES_PUBLIC_API_URL=https://api.eyes.pictures`, `EYES_WORKER_WEB_URL=https://app.eyes.pictures`, and the existing provider credentials. `EDGE_SECRET` must match between the Manufact server and the Cloudflare Worker so the server can trust forwarded host and client-IP headers.
 
-### Checks after the hosting worker confirms deployment
+### Checks after deployment
 
 1. `curl -s https://api.eyes.pictures/healthz` checks the public route.
-2. `EYES_PUBLIC_API_URL=https://api.eyes.pictures pnpm smoke:live` runs the existing smoke checks; do not infer current success from old results in STATUS.
+2. Review the deployer's smoke log: it reuses a private probe key, skips signup and paid task creation, and must pass before checkpoints advance.
 3. Confirm OAuth discovery names `https://api.eyes.pictures/mcp` as the protected resource and `https://api.eyes.pictures` as the authorization server, not the Manufact origin.
 4. Confirm `https://internal.eyes.pictures/login` still reaches the ops sign-in page.
 
