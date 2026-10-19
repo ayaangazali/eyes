@@ -1,0 +1,2802 @@
+{
+  "repository": "https://github.com/ayaangazali/eyes.git",
+  "production": {
+    "ref": "refs/heads/jerry/live-setup",
+    "sha": "fecb6afd1aa46bd5c776fa00a046384e416db959"
+  },
+  "historical_tags": {
+    "refs/tags/checkpoint/2026-10-19/oauth-cimd": "81e0a449c5ea293372278d175077b00fdf2a71bd",
+    "refs/tags/checkpoint/2026-10-19/marketplace-package": "474a5c2452fbffc1658f0bed8d4adfebfa48a3a1",
+    "refs/tags/checkpoint/2026-10-19/start-help-hub": "e26a4e49428a8d60147184dda6eba2b13b5311d4",
+    "refs/tags/checkpoint/2026-10-19/intent-status": "8814f0c52ba24b0fbb8f35d90f944e91cda70835",
+    "refs/tags/checkpoint/2026-10-19/classifier-report": "d19d4f905fd38a4f00c26ee98ec80e02f6cce069",
+    "refs/tags/checkpoint/2026-10-19/classifier-errors": "e0de90f01168e72294010566d854360e9071eba1",
+    "refs/tags/checkpoint/2026-10-19/classifier-review-ui": "a93b8432439073e09bc65bbf9139c1ed914a13c5",
+    "refs/tags/checkpoint/2026-10-19/historical-uptime-ops": "f556ecf8c752ddfee0ee5b11ac0dca0495c04691"
+  },
+  "dirty_snapshots": [
+    {
+      "ref": "refs/tags/checkpoint/2026-10-19/root-wip",
+      "sha": "501245fccafa44aebaf355388ad2e52e0d813c84",
+      "tree": "4797becde8c96e218a73c436b4d9b00ce27648e9",
+      "parents": [
+        "8a226bbfd9cd1646488e2705c0a2ce390e3b3b9f"
+      ],
+      "coverage": [
+        {
+          "path": "README.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "8c29b72c4acf9377efd37afc3d5f2e0e1776c283",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "a46a5825f2c84a7ff3a8adc96fe4dc1fb17ace9f"
+        },
+        {
+          "path": "STATUS.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "ab10e148fcc90986337fd648b4ddb08a84b91338",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "6b3b14d4d210d02025f81378e1a16cbf77dde5f7"
+        },
+        {
+          "path": "apps/mcp/src/ops-auth.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "f3b4a19a7452df1c5d1cba9db12f50718b97d767",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "0f61ce9fafa0b80669d648fc632c4cbe22579b97"
+        },
+        {
+          "path": "apps/mcp/src/ops-host.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "d7075a9cf120f9b91425a4727cc0ea07bf92b0da",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9164f3daffdf282a6e90b74d8a9b1ca86146d8e4"
+        },
+        {
+          "path": "apps/mcp/src/ops-host.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e4a1f7a63f08cabeadb45251f988ec4f51434135",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b5356bef0ea8e653c214a8152f02caf492f5aecd"
+        },
+        {
+          "path": "apps/mcp/src/server.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "a47eac673f8f165f58e5b52a95271f09aa85d098",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9db4815688cd0e7eb1bafbada76ceaf6fe02a31e"
+        },
+        {
+          "path": "apps/mcp/src/server.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "318c589cc3238057473e9ec2898f247fbbe37fb1",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "32a097193a7759b153ecbcf58a42ff077a239a44"
+        },
+        {
+          "path": "apps/web/dashboard/src/feed.int.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "60b9c85ef5cc8759f8570861ff621ba5568b64e2",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "5e4fd201271ef2cc78290f1cc2fceb1d0c283135"
+        },
+        {
+          "path": "apps/web/dashboard/src/ops-view/page.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7bef28259399945bae0b6f0642e3a14e1425ab30",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "c134bc1e6b6f35cf978fafc9ce21d5ba9029fcb8"
+        },
+        {
+          "path": "apps/web/dashboard/src/ops-view/page.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "ad837479a283c267c39063fd7e17657b79806d03",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "457c8f0bb85655b543ca2d46b9c06c89335b6870"
+        },
+        {
+          "path": "apps/web/dashboard/src/ops-view/table.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c986182043fa49a8b23f09413d83ead52522cf63",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "248a0145338e94e28f4c111ef627244860323fac"
+        },
+        {
+          "path": "apps/web/dashboard/src/ops-view/table.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "a9deea3ebfd850d1427d55a91b181e1b9a9ff685",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "59476d2556e1cf8fa462365ec25893285568ac42"
+        },
+        {
+          "path": "apps/web/dashboard/src/ops.html",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c391fce865b90af2230178b1036305d21426f49a",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "1d2ad92520b619c090817d89504afdfdccb0b975"
+        },
+        {
+          "path": "apps/web/dashboard/src/server.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "2638e2c9de9e8579b4296cfc8c2ff95b58839f94",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "a627db9031b970ee008f12901297c1def9370d34"
+        },
+        {
+          "path": "apps/web/dashboard/src/server.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e906184120d7a11973495356937568f8716d0188",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "aa6cb03565696c1ad6b65d255428cf04eda3afeb"
+        },
+        {
+          "path": "apps/web/worker/src/pages/install.astro",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "5f2eeda55a40d1539cf6cadf391b1aca7ecf50a2",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9777c93c6353a45c5aabd85d1691a6f2cec93518"
+        },
+        {
+          "path": "docs/CONNECT.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "2f407cd66abb162fd88bb977400c4884e6df9eb0",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "df89d643d4a554039c28ec3db791d20672d1f7a7"
+        },
+        {
+          "path": "docs/DEMO.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4efef5663900e08081d7d8aca21a984bf750e912",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "a955aed81cea8e9cc6f0796fa2c7d3043f43fdf0"
+        },
+        {
+          "path": "docs/DEPLOY.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "2cf6dacd86dc84f210c75186a63d61bc1f1b81c4",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "677964ef5df448549d3603313667268947a6b7a9"
+        },
+        {
+          "path": "docs/PLAN.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "030f8acb247f770bc7ef4f65717e7162f28227ae",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "3f8158ec75f982a10a15e9ff3a18db4fa4855f96"
+        },
+        {
+          "path": "docs/SPEC.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7e9ebff68d45ca7048fbfd42d8d5b5b230cb99a5",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "f73056c90dad7bc42368fbef5cddda602a1e0982"
+        },
+        {
+          "path": "docs/SUBMISSION.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "70a9ef0621fa67e960ea16dcbb623facdd275255",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "2ebbff0db5911d5e81146ed9f3a28714486b7512"
+        },
+        {
+          "path": "docs/features/chatgpt-claude-apps.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "54505098bd8ffdf93b0713fee2d4866aa19a5e59",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "04fcbb737229189e3981c18286e62f6c9fad8df6"
+        },
+        {
+          "path": "docs/features/escrow.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "29a51f4a78160abe341a2db3cd413c8fab974dda",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "552910305ff11c95bf593b5c03f6266ed1b32e2d"
+        },
+        {
+          "path": "docs/features/imessage-dispatch.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4ba22c01298fd9321ca7de174e5f3800d6fcc146",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "3d5404c879d3b66a6bd7bcdb9a209fe819ef45eb"
+        },
+        {
+          "path": "docs/features/mcp-tools.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "59b54a43bd83fecaf416a5e21298a5036b74ca33",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "da7213b48ba123fcaa63fb91fedabc67ead5e367"
+        },
+        {
+          "path": "docs/features/owner-controls.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e6f2c6ec559d5cab38ec5fdbeab39ef6bf7c6797",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "f618689f888be9ab6074bc9ac77b16020bd9939e"
+        },
+        {
+          "path": "docs/features/photo-checks.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "2250aadf50597ecf0cf396ff594133c12178287f",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "1fb9478c059d575e8ab281396bf2e7b4873e1453"
+        },
+        {
+          "path": "docs/features/safety.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b36044a6ddc12787d767b6eb637d6523634fe513",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "fa054e6b1f91442ced384ca00387ee6c3fa3b2c4"
+        },
+        {
+          "path": "docs/features/worker-location.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "3cea481a46c32052e324a39ec132a3953ef38c0e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "646cba080d28194f343825c1ff50d7a85e185d2a"
+        },
+        {
+          "path": "docs/public/agents.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "078d124ff235158620841ed3110a72ab476afab8",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "d280ce473ec77cd789de9af8a8e9af71c87bb843"
+        },
+        {
+          "path": "docs/research/eyes-on-shift.shortcut",
+          "status": " D",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7716110e0e8ad194db43b56766f89270dd059ed8",
+              "stage": 0
+            }
+          ],
+          "mode": null,
+          "blob": null
+        },
+        {
+          "path": "intent/INDEX.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "00305d1e02367de964f29a9b1d714bdd6daf2e25",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b5ed1d172b38533f9dfc07edcbc01ac6065e7216"
+        },
+        {
+          "path": "intent/T6.11-hosting.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "de3c41d870ff6ddde109f9054dc370a18113d264",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "ff37d2225a469dc7f5eb91e942b553cdb3ab0bb1"
+        },
+        {
+          "path": "intent/T6.19-vision-is-moderation.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "108136ae53ef46aa9d25fa956eca60662c5126a3",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "f1e150176373887d2ac50b6e553e27d406ce9d35"
+        },
+        {
+          "path": "intent/T6.3-landing-and-domains.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c99ed0e5e6390bfb29d181a37b0e3884d5f9518e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "c9096194cc4f07401fe8bb70a35ce32113fdb667"
+        },
+        {
+          "path": "intent/T6.32-ops-host-and-tables.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c5708aed8321d56d972024cefd9714fdc2036eb6",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "93f44ae9b6804e4fd3a009526afbcdbeb4230a12"
+        },
+        {
+          "path": "intent/T6.35-int-db-isolation.md",
+          "status": " D",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "421aa852d4b63ebcf4e3e07a1174a713520ee743",
+              "stage": 0
+            }
+          ],
+          "mode": null,
+          "blob": null
+        },
+        {
+          "path": "intent/T6.9-chatgpt-app.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4508d1504f5fe97ca09c407a1b73b2f5ac8aaecc",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b5f98404806669af5eb931bbf07b2f666729be4b"
+        },
+        {
+          "path": "intent/decisions/ADR-017-honest-surfaces.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "061fd0c63b5669a286cbf5234b737a7a1ef8052d",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "a289c1d70b94e381e2b2e1653b1cb0af1744758c"
+        },
+        {
+          "path": "packages/core/src/schemas.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "a4958ac06a11deaaad4b4227cadb4bd4b6d69e4b",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "85992c90753bfd6821fa404e493621ea2625a9b5"
+        },
+        {
+          "path": "packages/core/src/service.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "2e94abfce58b039858d6d8c98ddac08ad0e00e47",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "fa9ca92386fba14e6f2136025d393d6a9aedd3e6"
+        },
+        {
+          "path": "packages/engine/src/engine.adversarial.int.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "8505ded8449ac950ce90e243427fcdf137b9f371",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "5ce9dabc1e2bb0197d56430e61de48e93818d626"
+        },
+        {
+          "path": "packages/engine/src/engine.int.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4cff4f7a6ef6461cd80f0171d588b91e03bc1e89",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9cd7dd6cbb4b8e648ac5bd42f1aaf8f55b41fcac"
+        },
+        {
+          "path": "packages/engine/src/index.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b6fc2a894ba364bf15d407de7f740e805ade2f63",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "ebee7255c7818aaf89ad3a4eefdd4a47164f66ed"
+        },
+        {
+          "path": "packages/payments/src/payout.int.test.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "a766c1fc1e42c9477866cdf7c5cdd0c33549d514",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "661cc61a23bd19eda449b4ec9d94cd46a601a55d"
+        },
+        {
+          "path": "scripts/int-db.ts",
+          "status": " D",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e8794424241110bfd3c8b6a513b59085ddcb4d48",
+              "stage": 0
+            }
+          ],
+          "mode": null,
+          "blob": null
+        },
+        {
+          "path": "scripts/swarm.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "1602a49a6b9afd8da89279d7d0d16a6ece37c85e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "ba4a6338426e361e2f7ca4368478a231c2593ff8"
+        },
+        {
+          "path": "vitest.config.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "01cd97a2bf40b25503796e4597c060b025b2120e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b36118d9c9631c344d418aea4d52ab5f376ef9a7"
+        },
+        {
+          "path": "apps/web/dashboard/src/ops-view/actions.test.ts",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "f6672aac19338d7bad8fb1659cf0d57d24c71bdb"
+        },
+        {
+          "path": "apps/web/dashboard/src/ops-view/actions.ts",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "01591a460135989186d86c670fc58806d5b0860c"
+        },
+        {
+          "path": "apps/web/worker/e2e/me.spec.ts",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "e24983fbfea7dcb96aa00f2bb9a7bc097c71daeb"
+        },
+        {
+          "path": "apps/web/worker/src/me.test.ts",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "11c0239b8dff4435abb49d58759ea59e7c8c7d10"
+        },
+        {
+          "path": "apps/web/worker/src/me.ts",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "3308c44ed8def59935885d544d17028fa6669fba"
+        },
+        {
+          "path": "apps/web/worker/src/pages/me.astro",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "535d9181e4bc3675a332858d70ac109092006479"
+        },
+        {
+          "path": "docs/research/load-testing.md",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "f009eddc90f9ae960eae8d7d5ec8ff0cb3cab46b"
+        },
+        {
+          "path": "intent/T6.36-worker-setup-page.md",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "349c0ee11b68c331d4e4b5b205a3b6d7c51b2ca7"
+        },
+        {
+          "path": "intent/decisions/ADR-028-worker-setup-page.md",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "6848d9191c09ba839f8a99f0b84ce1b2db6afd15"
+        }
+      ],
+      "index_snapshot_required": false
+    },
+    {
+      "ref": "refs/tags/checkpoint/2026-10-19/ci-merge",
+      "sha": "c96bdf8c41aac4fb3bcc87bb41a22200f3c236fb",
+      "tree": "84c2f1457b6098914d582e898b0940948ae72450",
+      "parents": [
+        "6cff0321b07dd478022846d85b0b53d542fb0970"
+      ],
+      "coverage": [
+        {
+          "path": ".dockerignore",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "5280d2d501f53e4793d65ac737dc8c47c84c4657",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "5280d2d501f53e4793d65ac737dc8c47c84c4657"
+        },
+        {
+          "path": ".env.example",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c9948cf2005a3ac51d7c921cc67441f5aa6ab12d",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "c9948cf2005a3ac51d7c921cc67441f5aa6ab12d"
+        },
+        {
+          "path": ".gitignore",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "daca50b26e42728918218f3bf1d48304d593fec9",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "daca50b26e42728918218f3bf1d48304d593fec9"
+        },
+        {
+          "path": "Dockerfile",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4add13898bf47afab263477258779aad43376313",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "4add13898bf47afab263477258779aad43376313"
+        },
+        {
+          "path": "STATUS.md",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b0fdf670652b768b72726dcf70a5aeff63116428",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b0fdf670652b768b72726dcf70a5aeff63116428"
+        },
+        {
+          "path": "apps/mcp/package.json",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "862ddd794a2cfae1c10d6f94b6110138228b7b4a",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "862ddd794a2cfae1c10d6f94b6110138228b7b4a"
+        },
+        {
+          "path": "apps/mcp/src/main.test.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "eb61c1e9976f1b4a5428c0b22db66bcef9f9edb4",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "eb61c1e9976f1b4a5428c0b22db66bcef9f9edb4"
+        },
+        {
+          "path": "apps/mcp/src/main.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "945487998055e41868b478edd4b3f3f94c6dad0a",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "945487998055e41868b478edd4b3f3f94c6dad0a"
+        },
+        {
+          "path": "apps/mcp/src/sandbox.int.test.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "0944639a6660f33e4587c35fda82fa925a7ab96e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "0944639a6660f33e4587c35fda82fa925a7ab96e"
+        },
+        {
+          "path": "apps/mcp/src/sandbox.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "857143deb6b6428d524ef7e1761b6da749f40548",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "857143deb6b6428d524ef7e1761b6da749f40548"
+        },
+        {
+          "path": "apps/mcp/src/server.test.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "0c0b04464225528191c9ac1bbc70a2775c142247",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "0c0b04464225528191c9ac1bbc70a2775c142247"
+        },
+        {
+          "path": "apps/mcp/src/server.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b8cf0c4db12a39fd865accefbdcbc598d13fbc6c",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b8cf0c4db12a39fd865accefbdcbc598d13fbc6c"
+        },
+        {
+          "path": "apps/mcp/views/entry.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "49ac05abf5c186a0ef94a49dd24460ceaed18653",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "49ac05abf5c186a0ef94a49dd24460ceaed18653"
+        },
+        {
+          "path": "apps/mcp/views/task-card/view.tsx",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "6ecf53bbfca122ab0d2db9d1a07edf64648b5c9a",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "6ecf53bbfca122ab0d2db9d1a07edf64648b5c9a"
+        },
+        {
+          "path": "apps/web/widget-task-card/README.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "9e75c06122c60bbfc5b7fa1807b3f1f2f4b0005c",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9e75c06122c60bbfc5b7fa1807b3f1f2f4b0005c"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/answered.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b47e2393e4a5cf3aa68a248cb69448208d726646",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b47e2393e4a5cf3aa68a248cb69448208d726646"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/cached.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "f545802efb47ebc526991a56c15d30325db08864",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "f545802efb47ebc526991a56c15d30325db08864"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/claimed.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "993b974e4edd75a2366565ef8ac00d3779a82962",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "993b974e4edd75a2366565ef8ac00d3779a82962"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/dispatched.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c003a7580fc05e5ac1982098dccb7f909a991b0e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "c003a7580fc05e5ac1982098dccb7f909a991b0e"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/error.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "3327bc2b1b9c6381cd9cfcf2f49f0a9ce95fe25c",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "3327bc2b1b9c6381cd9cfcf2f49f0a9ce95fe25c"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/expired_refunded.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "d73c5dbcab2f4ceccee1b68871f76bb536e53e07",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "d73c5dbcab2f4ceccee1b68871f76bb536e53e07"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/index.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e4cdff2a5a47d073f73003361a3bbb6ecf91fd6e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "e4cdff2a5a47d073f73003361a3bbb6ecf91fd6e"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/needs_review.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e9eb39099a65a933f7deacc708b3c15eb6965533",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "e9eb39099a65a933f7deacc708b3c15eb6965533"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/quote.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4be6e63c1e63fc623137e8f48bdf49a0a5a9f4af",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "4be6e63c1e63fc623137e8f48bdf49a0a5a9f4af"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/rejected_safety.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e5075bda88b4ffd0b4457ac5bd93a5aae7209c41",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "e5075bda88b4ffd0b4457ac5bd93a5aae7209c41"
+        },
+        {
+          "path": "apps/web/widget-task-card/fixtures/verifying.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "6b202a1fc06b8d141d97e9befd2df744b53b5242",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "6b202a1fc06b8d141d97e9befd2df744b53b5242"
+        },
+        {
+          "path": "apps/web/widget-task-card/package.json",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "d0a1f7dfc2c14633386ac68e8e283b66b251816a",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "d0a1f7dfc2c14633386ac68e8e283b66b251816a"
+        },
+        {
+          "path": "apps/web/widget-task-card/preview/index.html",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "acffe8156ca58d6327ffbeff8efdabe0460434ab",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "acffe8156ca58d6327ffbeff8efdabe0460434ab"
+        },
+        {
+          "path": "apps/web/widget-task-card/preview/main.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7b8970ce95f91a3a6e4527d474808d6c9fdf71a9",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "7b8970ce95f91a3a6e4527d474808d6c9fdf71a9"
+        },
+        {
+          "path": "apps/web/widget-task-card/scripts/shots.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7838c2fff9878f96acb9850146b0ac2df4277fb9",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "7838c2fff9878f96acb9850146b0ac2df4277fb9"
+        },
+        {
+          "path": "apps/web/widget-task-card/src/bridge.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "373219ee27835a482a9361576bb8935beab6baf2",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "373219ee27835a482a9361576bb8935beab6baf2"
+        },
+        {
+          "path": "apps/web/widget-task-card/src/card.css",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "3710ce030177330aa7747cacb4a74900dc841ea3",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "3710ce030177330aa7747cacb4a74900dc841ea3"
+        },
+        {
+          "path": "apps/web/widget-task-card/src/card.test.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "534e8de5d87bead33e5483390585327186946f37",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "534e8de5d87bead33e5483390585327186946f37"
+        },
+        {
+          "path": "apps/web/widget-task-card/src/card.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "9abf56892a9dd4798d03cb59d43a84feaecee3df",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9abf56892a9dd4798d03cb59d43a84feaecee3df"
+        },
+        {
+          "path": "apps/web/widget-task-card/src/photo.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "ff261d0038b351043c38508c93692d8d6422d195",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "ff261d0038b351043c38508c93692d8d6422d195"
+        },
+        {
+          "path": "apps/web/widget-task-card/src/types.ts",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b33b458fffc70dfabb147bb8c1389eca7251e573",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b33b458fffc70dfabb147bb8c1389eca7251e573"
+        },
+        {
+          "path": "docs/PLAN.md",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "aca71b93ed5172e887fb0a55590c00c1584b5057",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "aca71b93ed5172e887fb0a55590c00c1584b5057"
+        },
+        {
+          "path": "docs/SUBMISSION.md",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4503ebeabbe42afa5b534d2333c51794db41c1b0",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "4503ebeabbe42afa5b534d2333c51794db41c1b0"
+        },
+        {
+          "path": "docs/manufact/README.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "a0b56e72f6d9ad41a21c522a78bdc6f323feb52d",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "a0b56e72f6d9ad41a21c522a78bdc6f323feb52d"
+        },
+        {
+          "path": "docs/public/llms-full.txt",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "6fb0b4ade96f756037cbd41661a5a24372520cc5",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "6fb0b4ade96f756037cbd41661a5a24372520cc5"
+        },
+        {
+          "path": "docs/public/openapi.json",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "74c410144a40f6c76e70f542f85e93e251073c62",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "74c410144a40f6c76e70f542f85e93e251073c62"
+        },
+        {
+          "path": "docs/vendor/mcp-apps.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "862c57c2a4102b2aaf722baede7768a5d61e5791",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "862c57c2a4102b2aaf722baede7768a5d61e5791"
+        },
+        {
+          "path": "intent/INDEX.md",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4a1f925fd840b55a50461c66dac9904f0cc55814",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "4a1f925fd840b55a50461c66dac9904f0cc55814"
+        },
+        {
+          "path": "intent/T4.29-sandbox.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "71e6236602df49b337da46f591ddcf03636bf559",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "71e6236602df49b337da46f591ddcf03636bf559"
+        },
+        {
+          "path": "intent/T4.30-widget.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "700be25d3b7e866ebdd293c749ebbf0159f487ea",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "700be25d3b7e866ebdd293c749ebbf0159f487ea"
+        },
+        {
+          "path": "intent/T4.31-tool-hints.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7ff7827d786dd1bac006608e0dffd71cc38a41bb",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "7ff7827d786dd1bac006608e0dffd71cc38a41bb"
+        },
+        {
+          "path": "intent/T4.32-sandbox-disclosure.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "1dc46e9263d4518d82b6f27b098914300c3971d3",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "1dc46e9263d4518d82b6f27b098914300c3971d3"
+        },
+        {
+          "path": "intent/T4.33-audit-fixes.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "52c04dd3fde39dc08027ef827497d94c07b0757c",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "52c04dd3fde39dc08027ef827497d94c07b0757c"
+        },
+        {
+          "path": "intent/T4.34-safety-before-geocode.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "6265b345fb11f1eaefdf266f7fcc5230e835a6bd",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "6265b345fb11f1eaefdf266f7fcc5230e835a6bd"
+        },
+        {
+          "path": "intent/T4.35-dispute-destructive.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "84534c047f95095af21507ff362cea59dcbe7d8b",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "84534c047f95095af21507ff362cea59dcbe7d8b"
+        },
+        {
+          "path": "intent/T5.5-manufact-docs.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "819b9dc4ea9500f0b30c0e7cec8d460b87ccd70f",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "819b9dc4ea9500f0b30c0e7cec8d460b87ccd70f"
+        },
+        {
+          "path": "intent/W1-task-card-widget.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "422efbd767c2a2ec79590f742f77ebd3264807ad",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "422efbd767c2a2ec79590f742f77ebd3264807ad"
+        },
+        {
+          "path": "intent/decisions/ADR-023-keyless-sandbox.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "2a7f09713eb463fe3f7e9dc4582be02084c2af5e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "2a7f09713eb463fe3f7e9dc4582be02084c2af5e"
+        },
+        {
+          "path": "intent/decisions/ADR-024-location-is-the-public-place.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "fcf891f939f3c69fa28b8ce002a23158835372ea",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "fcf891f939f3c69fa28b8ce002a23158835372ea"
+        },
+        {
+          "path": "intent/verdicts/T4.29-PR84.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "1c77abf222ff89bf264f255d0edb33f3a534205e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "1c77abf222ff89bf264f255d0edb33f3a534205e"
+        },
+        {
+          "path": "intent/verdicts/T4.30-PR85.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "6b69d3384509803d541c4600c56b31efb703893d",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "6b69d3384509803d541c4600c56b31efb703893d"
+        },
+        {
+          "path": "intent/verdicts/T4.31-PR83.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "5d3f29908daa28a53d3e082124ec4d1b48c408e2",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "5d3f29908daa28a53d3e082124ec4d1b48c408e2"
+        },
+        {
+          "path": "intent/verdicts/T4.32-PR88.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "9ca141b89e592bddcd75a691e712ac8e322938e6",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9ca141b89e592bddcd75a691e712ac8e322938e6"
+        },
+        {
+          "path": "intent/verdicts/T4.34-PR90.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "0513f1dd584cb80e539266554801b0bfa49ffc9c",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "0513f1dd584cb80e539266554801b0bfa49ffc9c"
+        },
+        {
+          "path": "intent/verdicts/T5.5-PR92.md",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "63b98cb048c34229c2f40d32d0660abf14d6b752",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "63b98cb048c34229c2f40d32d0660abf14d6b752"
+        },
+        {
+          "path": "packages/core/src/__snapshots__/core.contract.test.ts.snap",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "28d75b4c85e6241ec06ec5d908e35c1ddfe5d8e7",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "28d75b4c85e6241ec06ec5d908e35c1ddfe5d8e7"
+        },
+        {
+          "path": "packages/core/src/schemas.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "23a1db8aa9f97030fb81cd7f4b512d8e3fa793de",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "23a1db8aa9f97030fb81cd7f4b512d8e3fa793de"
+        },
+        {
+          "path": "packages/engine/src/engine.int.test.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "afc701e01da249aa9318e149b81355be00c0de58",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "afc701e01da249aa9318e149b81355be00c0de58"
+        },
+        {
+          "path": "packages/engine/src/index.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "bfbba0ccd854bbda13014c0b0052e4a0f662fbf0",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "bfbba0ccd854bbda13014c0b0052e4a0f662fbf0"
+        },
+        {
+          "path": "pnpm-lock.yaml",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "cc2bf5d38de65a2a52cbab4fe6b5e202324fe73f",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "cc2bf5d38de65a2a52cbab4fe6b5e202324fe73f"
+        },
+        {
+          "path": "scripts/smoke-live.ts",
+          "status": "M ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "a8048bfad51d1c9245d1521d8a82f0b8920bfc5e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "a8048bfad51d1c9245d1521d8a82f0b8920bfc5e"
+        },
+        {
+          "path": "docs/manufact/catalog-score.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "9b1abd75ed41673d3ccffcefb199187edc0e310c",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9b1abd75ed41673d3ccffcefb199187edc0e310c",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/eval-chatgpt-consent.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c4e2fbad6ba0f3cad1f3fbfd51ce91e1cd1111bb",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "c4e2fbad6ba0f3cad1f3fbfd51ce91e1cd1111bb",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/inspector-tools.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "37739d30c2cf1527b251b2aed40130cc700862da",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "37739d30c2cf1527b251b2aed40130cc700862da",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/public-chat.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b23fa21945ed9c6a2de612118d013ba4dc476079",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b23fa21945ed9c6a2de612118d013ba4dc476079",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/stripe-checkout.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "248c8f6c1db1ce5f5bbdc1353e6e54c855055891",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "248c8f6c1db1ce5f5bbdc1353e6e54c855055891",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/stripe-topup-done.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "d2b9923776e785428ce05aac02120b1cdb0d3af1",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "d2b9923776e785428ce05aac02120b1cdb0d3af1",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget-task-card.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "43a6207f7d58f3060ac619257400833382efa3fa",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "43a6207f7d58f3060ac619257400833382efa3fa",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/answered-dark-320.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "e5d96a7b4dd3cf21834bc0f554667276200d8490",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "e5d96a7b4dd3cf21834bc0f554667276200d8490",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/answered-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "9cb05f6b36604aeb6a53221db87855ac723f31f3",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "9cb05f6b36604aeb6a53221db87855ac723f31f3",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/answered-light-320.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7c2527023ed63e3b4ca9d05c9f8ef988dc9a5db1",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "7c2527023ed63e3b4ca9d05c9f8ef988dc9a5db1",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/answered-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c2f743f3b285349618d8f2f0e016506ddf658381",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "c2f743f3b285349618d8f2f0e016506ddf658381",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/cached-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "ae159e21f4a2e16fffdba8c8aa2d620c5d67a971",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "ae159e21f4a2e16fffdba8c8aa2d620c5d67a971",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/cached-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "22a7042114fd1dfab7f621782a20ba9bce968911",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "22a7042114fd1dfab7f621782a20ba9bce968911",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/claimed-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "930614628997ea6aba024e6df240531af2f50bbc",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "930614628997ea6aba024e6df240531af2f50bbc",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/claimed-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "f3fcf5991f51fc0112bada73c29550bf2fec5167",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "f3fcf5991f51fc0112bada73c29550bf2fec5167",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/dispatched-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "3a6c8d07ac04fd259bab71a46cbba3f225c23722",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "3a6c8d07ac04fd259bab71a46cbba3f225c23722",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/dispatched-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "ebec4ce189914c441f1a5d96d4d0244774c3ecc1",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "ebec4ce189914c441f1a5d96d4d0244774c3ecc1",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/error-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "0554f6e3892e0528b5e149e48117f070aa3eb60b",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "0554f6e3892e0528b5e149e48117f070aa3eb60b",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/error-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "b410a66765dc46f3f42a54572acef2e89b70ce1e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b410a66765dc46f3f42a54572acef2e89b70ce1e",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/expired_refunded-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "5ab8d051eefe76a1355818712d46a5541d2d3f9e",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "5ab8d051eefe76a1355818712d46a5541d2d3f9e",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/expired_refunded-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "444161abfe90a049b8c3120a01601265dfdcbb6a",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "444161abfe90a049b8c3120a01601265dfdcbb6a",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/needs_review-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "909fff58649061f128c5e9e083ec01caf913d8c7",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "909fff58649061f128c5e9e083ec01caf913d8c7",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/needs_review-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "7a9378718b3a95934bf37e38658199d970e7aadd",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "7a9378718b3a95934bf37e38658199d970e7aadd",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/quote-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "cd3b21a7923762d8cd584464f3dfdc55f343b911",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "cd3b21a7923762d8cd584464f3dfdc55f343b911",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/quote-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "d3de738a5faddacfe7c98e3ff8ded956f6a9f352",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "d3de738a5faddacfe7c98e3ff8ded956f6a9f352",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/rejected_safety-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "6fd915df41c5e8ee73a203d640a9aec52a028d73",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "6fd915df41c5e8ee73a203d640a9aec52a028d73",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/rejected_safety-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "811ed37fc957700b1aad50ff92adb6450773af98",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "811ed37fc957700b1aad50ff92adb6450773af98",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/verifying-dark.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "ec09de0d66e03a9a5424be756ccd64783fe682d1",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "ec09de0d66e03a9a5424be756ccd64783fe682d1",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "docs/manufact/widget/verifying-light.png",
+          "status": "A ",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "40490ef1eb0c749cc9cec2a47204bdcba1602adc",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "40490ef1eb0c749cc9cec2a47204bdcba1602adc",
+          "reason": "exact current production blob already published",
+          "privacy_review": "GO"
+        }
+      ],
+      "index_snapshot_required": false
+    },
+    {
+      "ref": "refs/tags/checkpoint/2026-10-19/cov95-verify",
+      "sha": "fc6f7de3aadc0274e3f30b8c03f1bceb73eb8740",
+      "tree": "b329dfedded97f4d333fafd5f556ddc9288e0b80",
+      "parents": [
+        "3ac50324f0b86483e6395beb9519cd92f3be3efa"
+      ],
+      "coverage": [
+        {
+          "path": ".github/workflows/ci.yml",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "40cc73cd8fd14ecf998c3388b4d7fc6a03b04678",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "23ce4bb78840e6fd0910a6d9b27541b11f4876cb"
+        },
+        {
+          "path": "intent/INDEX.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "860ba92e789d8f123fed4aee96d54f4c60bd10c5",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "263520fdd58b1fc6e7ff5a85a1bb788b3022b2ca"
+        },
+        {
+          "path": "intent/T6.28-coverage-95-web.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "c757129c5b95db1ce904146097fc0f32035d2067",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "e6d77dfe468862c9ba5f032a26d85c0b9bb81674"
+        },
+        {
+          "path": "package.json",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "8da28bedd04350251a78f99ec2bc34aad2957ff9",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "fa5a1cdf6cd4fd3136d49a66cb626b92532fcd83"
+        },
+        {
+          "path": "vitest.config.ts",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4ef9d21fdcdde7275d91b6ecbc671a571b884fe2",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "b36118d9c9631c344d418aea4d52ab5f376ef9a7"
+        }
+      ],
+      "index_snapshot_required": false
+    },
+    {
+      "ref": "refs/tags/checkpoint/2026-10-19/manufact-docs",
+      "sha": "9d8b0925603f2cd56aacf99002755ea5b6340780",
+      "tree": "33d7a3fe50300ed65223aad18ec9a411fc861459",
+      "parents": [
+        "17ba6b9131d9f7ee916a1503d735422c4f209253"
+      ],
+      "coverage": [
+        {
+          "path": "docs/DEPLOY.md",
+          "status": " M",
+          "index": [
+            {
+              "mode": "100644",
+              "blob": "4cff74015da8871a51963a479e73d904e7b345b9",
+              "stage": 0
+            }
+          ],
+          "mode": "100644",
+          "blob": "a5b34816dd1a0ac46f894c363916b491b417b8f2"
+        }
+      ],
+      "index_snapshot_required": false
+    },
+    {
+      "ref": "refs/tags/checkpoint/2026-10-19/start-preview-helper",
+      "sha": "72bd8471184f6e0ea68b29d6ac50b7a2e38f4b1e",
+      "tree": "78ca6630364bdfb0e2d666b71472f23379d3d0d4",
+      "parents": [
+        "af4c5ea8203d71a01c756c3c73c4e6e2b9a3e9ce"
+      ],
+      "coverage": [
+        {
+          "path": "scripts/preview-start.local.ts",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "0673bae773622defa0df441a3a6794a796742417"
+        }
+      ],
+      "index_snapshot_required": false
+    },
+    {
+      "ref": "refs/tags/checkpoint/2026-10-19/review-assets",
+      "sha": "cd6e577960acb3f35ddc2dec3375017659dcdda5",
+      "tree": "0232a13a7e25bb086cdd34758a5b4bdb406fdd69",
+      "parents": [
+        "c13a17c06b26df4de3bae6d6814bfff581a492db"
+      ],
+      "coverage": [
+        {
+          "path": "apps/web/landing/public/marketplace-review/balance.png",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "d3ce24d8afdc962ac40b197af4b52da560b6be5b",
+          "reason": "same visually reviewed marketplace image blob",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "apps/web/landing/public/marketplace-review/connector.png",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "b600b1bbcbfdec41ea6aa9211113b996596f8a48",
+          "reason": "same visually reviewed marketplace image blob",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "apps/web/landing/public/marketplace-review/icon-dark.png",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "131c81fc6f5f5d24dcbf4f287d7c81e3a904561d",
+          "reason": "same visually reviewed marketplace image blob",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "apps/web/landing/public/marketplace-review/icon.png",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "131c81fc6f5f5d24dcbf4f287d7c81e3a904561d",
+          "reason": "same visually reviewed marketplace image blob",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "apps/web/landing/public/marketplace-review/logo-dark.png",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "10ed85dea0b48974bff87430fbc52f8ca3eb5026",
+          "reason": "same visually reviewed marketplace image blob",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "apps/web/landing/public/marketplace-review/logo.png",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "10ed85dea0b48974bff87430fbc52f8ca3eb5026",
+          "reason": "same visually reviewed marketplace image blob",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "apps/web/landing/public/marketplace-review/quote.png",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "01c863be490178e4166c9a64175e17f94fdd9033",
+          "reason": "same visually reviewed marketplace image blob",
+          "privacy_review": "GO"
+        },
+        {
+          "path": "apps/web/landing/public/marketplace-review/chatgpt-quote-balance.mp4",
+          "status": "??",
+          "index": [],
+          "mode": "100644",
+          "blob": "1bd63153f3ef49ada9173b38bd2fd3032f33b96f",
+          "reason": "product marketplace-review clip, not classified as social; exact current-release blob already published; include to preserve original asset combination",
+          "privacy_review": "already-public exact blob; no claim of fresh frame review"
+        }
+      ],
+      "index_snapshot_required": false
+    }
+  ],
+  "historical_variants": [
+    {
+      "sha": "8814f0c52ba24b0fbb8f35d90f944e91cda70835",
+      "classification": "documentation_variant"
+    },
+    {
+      "sha": "474a5c2452fbffc1658f0bed8d4adfebfa48a3a1",
+      "classification": "unfinished_product_packaging"
+    },
+    {
+      "sha": "e6dbc23d998c35a7197fbc86a42e9bba96c09f09",
+      "classification": "unfinished_product_packaging"
+    },
+    {
+      "sha": "d19d4f905fd38a4f00c26ee98ec80e02f6cce069",
+      "classification": "integrated_feature_leftovers"
+    },
+    {
+      "sha": "e0de90f01168e72294010566d854360e9071eba1",
+      "classification": "integrated_feature_leftovers"
+    },
+    {
+      "sha": "a93b8432439073e09bc65bbf9139c1ed914a13c5",
+      "classification": "integrated_feature_test_leftovers"
+    },
+    {
+      "sha": "81e0a449c5ea293372278d175077b00fdf2a71bd",
+      "classification": "unfinished_production_feature"
+    },
+    {
+      "sha": "e26a4e49428a8d60147184dda6eba2b13b5311d4",
+      "classification": "production_feature_variant"
+    },
+    {
+      "sha": "f556ecf8c752ddfee0ee5b11ac0dca0495c04691",
+      "classification": "historical_production_variant"
+    },
+    {
+      "sha": "3c4803f992fa164384a4e7a36575e700a6af6cae",
+      "classification": "historical_production_documentation"
+    },
+    {
+      "sha": "74e08ee8076e658e92c5f0df71c0abb2cc52f462",
+      "classification": "historical_production_variant"
+    }
+  ],
+  "already_published": {
+    "patch_equivalent_commit_ids": 283,
+    "historical_merges": [
+      {
+        "sha": "acaa71b2bc0e9837734a48d4dc5845f5794d5a38",
+        "subject": "Merge remote-tracking branch 'origin/jerry/live-setup' into pr94-merge",
+        "parents": [
+          "f2bfc3eb7cd8a43e16f4a594c6fa6bef4ab2a747",
+          "228dbfdd09853ea55d132a88c473653ed505c4ea"
+        ],
+        "combined_diff_paths": [
+          "intent/INDEX.md"
+        ],
+        "kind": "merge",
+        "classification": "historical_integration_merge_variant",
+        "file_snapshots": [
+          {
+            "path": "intent/INDEX.md",
+            "blob": "d091d81dbea39d0f9e3215d4bc4a2a322aaa06a6",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          }
+        ]
+      },
+      {
+        "sha": "f2bfc3eb7cd8a43e16f4a594c6fa6bef4ab2a747",
+        "subject": "Merge remote-tracking branch 'origin/jerry/live-setup' into pr94-merge",
+        "parents": [
+          "eb88441489644bcb5421dffc2aaa71580a4001c9",
+          "3f8d5a86dd91a35ae1f4ad0aa7a5402401fd9757"
+        ],
+        "combined_diff_paths": [
+          "apps/mcp/src/server.test.ts",
+          "apps/mcp/src/server.ts",
+          "intent/INDEX.md"
+        ],
+        "kind": "merge",
+        "classification": "historical_integration_merge_variant",
+        "file_snapshots": [
+          {
+            "path": "apps/mcp/src/server.test.ts",
+            "blob": "a714ae841c995d2203e096ee72f3d342a40629b9",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/mcp/src/server.ts",
+            "blob": "1baf33cd05579de0b942284f1a30905966e91576",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "intent/INDEX.md",
+            "blob": "6ef53f85dfe67ffd0436d42008f056c531f2b888",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          }
+        ]
+      },
+      {
+        "sha": "713c778915c44d4f638f96250801affcb315725f",
+        "subject": "Merge remote-tracking branch 'origin/jerry/live-setup' into pr94-merge",
+        "parents": [
+          "a10f6979ed86347e99c83d069577de00902b6c82",
+          "16e1eecf9575db1103fe5d5b6dd13deff30deb8a"
+        ],
+        "combined_diff_paths": [
+          "intent/INDEX.md",
+          "intent/T6.36-merge-main.md"
+        ],
+        "kind": "merge",
+        "classification": "historical_integration_merge_variant",
+        "file_snapshots": [
+          {
+            "path": "intent/INDEX.md",
+            "blob": "304a9ad8b80b07ab9645433368a21ce5ed6adf15",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "intent/T6.36-merge-main.md",
+            "blob": "8e00e09e9d6c517d13d69e9bc543c54168a0c978",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          }
+        ]
+      },
+      {
+        "sha": "a10f6979ed86347e99c83d069577de00902b6c82",
+        "subject": "Merge remote-tracking branch 'origin/main' into pr94-merge",
+        "parents": [
+          "2944e3011148a84e8e2446c250269b3eb90bd13e",
+          "b3f60452eeaf092444e172004ae77c78b69225c4"
+        ],
+        "combined_diff_paths": [
+          ".dockerignore",
+          ".env.example",
+          ".gitignore",
+          "Dockerfile",
+          "apps/mcp/package.json",
+          "apps/mcp/src/main.test.ts",
+          "apps/mcp/src/main.ts",
+          "apps/mcp/src/server.test.ts",
+          "apps/mcp/src/server.ts",
+          "apps/web/widget-task-card/fixtures/answered.json",
+          "apps/web/widget-task-card/fixtures/claimed.json",
+          "apps/web/widget-task-card/fixtures/dispatched.json",
+          "apps/web/widget-task-card/fixtures/expired_refunded.json",
+          "apps/web/widget-task-card/fixtures/needs_review.json",
+          "apps/web/widget-task-card/fixtures/verifying.json",
+          "docs/SUBMISSION.md",
+          "docs/public/llms-full.txt",
+          "docs/public/openapi.json",
+          "intent/INDEX.md",
+          "packages/core/src/__snapshots__/core.contract.test.ts.snap",
+          "packages/core/src/schemas.ts",
+          "packages/engine/src/engine.int.test.ts",
+          "packages/engine/src/index.ts",
+          "pnpm-lock.yaml",
+          "scripts/smoke-live.ts"
+        ],
+        "kind": "merge",
+        "classification": "historical_integration_merge_variant",
+        "file_snapshots": [
+          {
+            "path": ".dockerignore",
+            "blob": "5280d2d501f53e4793d65ac737dc8c47c84c4657",
+            "remote_history_has_blob": true,
+            "matches_release": true
+          },
+          {
+            "path": ".env.example",
+            "blob": "c9948cf2005a3ac51d7c921cc67441f5aa6ab12d",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": ".gitignore",
+            "blob": "daca50b26e42728918218f3bf1d48304d593fec9",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "Dockerfile",
+            "blob": "4add13898bf47afab263477258779aad43376313",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/mcp/package.json",
+            "blob": "862ddd794a2cfae1c10d6f94b6110138228b7b4a",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/mcp/src/main.test.ts",
+            "blob": "930350abed0296d84563b96f4523b6aa3e4943ef",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/mcp/src/main.ts",
+            "blob": "945487998055e41868b478edd4b3f3f94c6dad0a",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/mcp/src/server.test.ts",
+            "blob": "67bd1184c31abd07e1c4af2e94d01412ac2a548c",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/mcp/src/server.ts",
+            "blob": "df8e8068f5f6cbeae33e210a00d757af8c9b8ecf",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/web/widget-task-card/fixtures/answered.json",
+            "blob": "c0dff672f2efc65339528f3e1f591366c5b99ad1",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/web/widget-task-card/fixtures/claimed.json",
+            "blob": "bb045f4947c294e2c478be824f1c10e334f3ccc8",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/web/widget-task-card/fixtures/dispatched.json",
+            "blob": "0e415cfa123f2d5a980579d8625609e3ecf590e6",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/web/widget-task-card/fixtures/expired_refunded.json",
+            "blob": "1872a678f4a09ae7a6d5a775a27554195d7fb41c",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/web/widget-task-card/fixtures/needs_review.json",
+            "blob": "7ced8ebee51a3d2e24c47f36e22ad4fbbb6b4b3b",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "apps/web/widget-task-card/fixtures/verifying.json",
+            "blob": "286bf695e8bf799edb63c34fa1c61c27f337a0cb",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "docs/SUBMISSION.md",
+            "blob": "4503ebeabbe42afa5b534d2333c51794db41c1b0",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "docs/public/llms-full.txt",
+            "blob": "6fb0b4ade96f756037cbd41661a5a24372520cc5",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "docs/public/openapi.json",
+            "blob": "74c410144a40f6c76e70f542f85e93e251073c62",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "intent/INDEX.md",
+            "blob": "4a1f925fd840b55a50461c66dac9904f0cc55814",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "packages/core/src/__snapshots__/core.contract.test.ts.snap",
+            "blob": "28d75b4c85e6241ec06ec5d908e35c1ddfe5d8e7",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "packages/core/src/schemas.ts",
+            "blob": "2db9fa7dea6a394d0e5c65892866bdfe125f610d",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "packages/engine/src/engine.int.test.ts",
+            "blob": "afc701e01da249aa9318e149b81355be00c0de58",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "packages/engine/src/index.ts",
+            "blob": "bfbba0ccd854bbda13014c0b0052e4a0f662fbf0",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "pnpm-lock.yaml",
+            "blob": "cc2bf5d38de65a2a52cbab4fe6b5e202324fe73f",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          },
+          {
+            "path": "scripts/smoke-live.ts",
+            "blob": "a8048bfad51d1c9245d1521d8a82f0b8920bfc5e",
+            "remote_history_has_blob": true,
+            "matches_release": false
+          }
+        ]
+      }
+    ],
+    "branch_evidence": [
+      {
+        "branch": "backup/live-setup-pre-clean",
+        "head": "419a0951d810981aec734c461d87413db1acb250",
+        "exact_local_only_count": 132,
+        "patch_equivalent_count": 129,
+        "non_equivalent_count": 3,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": [
+          "f556ecf8c7",
+          "3c4803f992",
+          "74e08ee807"
+        ]
+      },
+      {
+        "branch": "docs/feature-refresh-20261018",
+        "head": "405d21a0002457c618339eda678fea92c95d9e88",
+        "exact_local_only_count": 3,
+        "patch_equivalent_count": 3,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "docs/intent-current-status-20261018",
+        "head": "8814f0c52ba24b0fbb8f35d90f944e91cda70835",
+        "exact_local_only_count": 3,
+        "patch_equivalent_count": 2,
+        "non_equivalent_count": 1,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": [
+          "8814f0c52b"
+        ]
+      },
+      {
+        "branch": "feat/chatgpt-marketplace-package",
+        "head": "474a5c2452fbffc1658f0bed8d4adfebfa48a3a1",
+        "exact_local_only_count": 2,
+        "patch_equivalent_count": 0,
+        "non_equivalent_count": 2,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": [
+          "474a5c2452",
+          "e6dbc23d99"
+        ]
+      },
+      {
+        "branch": "feat/classifier-report-ultra",
+        "head": "d19d4f905fd38a4f00c26ee98ec80e02f6cce069",
+        "exact_local_only_count": 1,
+        "patch_equivalent_count": 0,
+        "non_equivalent_count": 1,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": [
+          "d19d4f905f"
+        ]
+      },
+      {
+        "branch": "feat/classifier-review-ui-ultra",
+        "head": "a93b8432439073e09bc65bbf9139c1ed914a13c5",
+        "exact_local_only_count": 1,
+        "patch_equivalent_count": 0,
+        "non_equivalent_count": 1,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": [
+          "a93b843243"
+        ]
+      },
+      {
+        "branch": "feat/dispute-hold-ui",
+        "head": "c9bf3efe947d147ba6ef184ed80fd10e72031bdf",
+        "exact_local_only_count": 1,
+        "patch_equivalent_count": 1,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "feat/dispute-retry-ui",
+        "head": "00cb6795b499d041e055e92f9eb4906e45af584a",
+        "exact_local_only_count": 1,
+        "patch_equivalent_count": 1,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "feat/looks-good-widget",
+        "head": "0962a2671af5c8f8f2235c4edc851e87ff9ab5c7",
+        "exact_local_only_count": 119,
+        "patch_equivalent_count": 119,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "feat/looks-good-widget-main",
+        "head": "682b9b219016719252bc778860ee1f39ffba877e",
+        "exact_local_only_count": 1,
+        "patch_equivalent_count": 1,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "fix/safety-unsure-1792319106",
+        "head": "e0de90f01168e72294010566d854360e9071eba1",
+        "exact_local_only_count": 1,
+        "patch_equivalent_count": 0,
+        "non_equivalent_count": 1,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": [
+          "e0de90f011"
+        ]
+      },
+      {
+        "branch": "fix/task-confirmation-widget-20261018",
+        "head": "b78469deeaf5c52a6fe7b184356de3be8fa9abc6",
+        "exact_local_only_count": 2,
+        "patch_equivalent_count": 2,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "fix/widget-auto-refresh-20261018",
+        "head": "73e93166ec2206409686c6166104915c50f4bc0d",
+        "exact_local_only_count": 2,
+        "patch_equivalent_count": 2,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "fix/worker-setup-state-ui-20261018",
+        "head": "240543eedf3d2544a4bc232a534a88e450c151fc",
+        "exact_local_only_count": 3,
+        "patch_equivalent_count": 3,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "hub-mine",
+        "head": "e26a4e49428a8d60147184dda6eba2b13b5311d4",
+        "exact_local_only_count": 254,
+        "patch_equivalent_count": 249,
+        "non_equivalent_count": 1,
+        "merges_or_empty_count": 4,
+        "non_equivalent_commits": [
+          "e26a4e4942"
+        ]
+      },
+      {
+        "branch": "install-step3",
+        "head": "fd0de5537df65924302a39427141fd56cc9467f8",
+        "exact_local_only_count": 256,
+        "patch_equivalent_count": 252,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 4,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "jerry/live-setup",
+        "head": "8a226bbfd9cd1646488e2705c0a2ce390e3b3b9f",
+        "exact_local_only_count": 213,
+        "patch_equivalent_count": 213,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "jerry/ops-polish-wt",
+        "head": "a74f7285e51e61d56edbbbc1e90dcedb02ba014d",
+        "exact_local_only_count": 247,
+        "patch_equivalent_count": 243,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 4,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "jerry/readme",
+        "head": "0ea4c825823ffec6ee3dc4a8f952f1f726579920",
+        "exact_local_only_count": 137,
+        "patch_equivalent_count": 137,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "jerry/readme-features",
+        "head": "2c13a7fbb92f6b8ffbf78198b43d71412c104823",
+        "exact_local_only_count": 137,
+        "patch_equivalent_count": 137,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "live-readme",
+        "head": "26150b8b8638f2ee564641cb98d7462eccc1abae",
+        "exact_local_only_count": 187,
+        "patch_equivalent_count": 187,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "main",
+        "head": "0962a2671af5c8f8f2235c4edc851e87ff9ab5c7",
+        "exact_local_only_count": 119,
+        "patch_equivalent_count": 119,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 0,
+        "non_equivalent_commits": []
+      },
+      {
+        "branch": "pr94-merge",
+        "head": "473d3ab5d92da599391a35536dc52aed83967302",
+        "exact_local_only_count": 240,
+        "patch_equivalent_count": 236,
+        "non_equivalent_count": 0,
+        "merges_or_empty_count": 4,
+        "non_equivalent_commits": []
+      }
+    ]
+  },
+  "exclusions": [
+    {
+      "worktree_label": "eyes-cutover",
+      "path": "apps/edge/api/.wrangler/cache/wrangler-account.json",
+      "reason": "generated Wrangler account cache; local only"
+    },
+    {
+      "worktree_label": "eyes-manufact",
+      "path": "apps/edge/api/.wrangler/cache/wrangler-account.json",
+      "reason": "generated Wrangler account cache; local only"
+    },
+    {
+      "worktree_label": "eyes-mc",
+      "path": "apps/edge/api/.wrangler/cache/wrangler-account.json",
+      "reason": "generated Wrangler account cache; local only"
+    }
+  ]
+}
