@@ -97,10 +97,10 @@ const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
     <h2 id="done-heading" class="ui-h2" tabindex="-1">You're in. Finish these steps.</h2>
     <ol class="ui-steps">
       <li id="start" hidden>
-        <div class="grid gap-2">
-          <span id="connect-help" hidden>The connect message links this conversation to Eyes so we can send you tasks.</span>
-          <span>We can only text you tasks after you send START.</span>
-        </div>
+        <div class="grid gap-2"></div>
+      </li>
+      <li id="start-contact" hidden>
+        <span>Text START to the Eyes contact Inkbox sends back, not the connect number.</span>
       </li>
       {
         livePayouts && (

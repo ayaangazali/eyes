@@ -92,24 +92,16 @@ form.addEventListener("submit", async (event) => {
     });
     const number = out.inkbox_number || inkboxNumber;
     const displayNumber = String(number).replace(/^\+1(\d{3})(\d{3})(\d{4})$/, "+1 ($1) $2-$3");
-    const textLink = (body: string, label: string) =>
-      Object.assign(document.createElement("a"), {
-        href: `sms:${number}?&body=${encodeURIComponent(body)}`,
-        className: "ui-button ui-button--primary ui-button--block",
-        textContent: label,
-      });
     ($("start").firstElementChild as HTMLElement).prepend(
-      ...(connectCommand
-        ? [
-            textLink(connectCommand, `First text "${connectCommand}" to ${displayNumber}`),
-            Object.assign(document.createElement("span"), {
-              textContent: "Then text START to the Eyes contact Inkbox sends back, not the connect number.",
-            }),
-          ]
-        : [textLink("START", `Text START to ${displayNumber}`)]),
+      Object.assign(document.createElement("a"), {
+        href: `sms:${number}?&body=${encodeURIComponent(connectCommand || "START")}`,
+        className: "ui-button ui-button--primary ui-button--block",
+        textContent: connectCommand ? `Text ${connectCommand}` : "Text START",
+      }),
+      Object.assign(document.createElement("span"), { textContent: `To ${displayNumber}` }),
     );
     $("start").hidden = false;
-    $("connect-help").hidden = !connectCommand;
+    $("start-contact").hidden = !connectCommand;
     form.hidden = true;
     $("done").hidden = false;
     $("done-heading").focus();

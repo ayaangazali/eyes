@@ -40,7 +40,14 @@ test("join posts a normalized phone and location, then shows the connect and STA
   const texts = page.locator("#start a");
   await expect(texts).toHaveCount(1);
   await expect(texts).toHaveAttribute("href", "sms:+14155550199?&body=connect%20%40eyes-test");
-  await expect(page.locator("#start")).toContainText("Then text START to the Eyes contact Inkbox sends back");
+  await expect(page.locator("#start-contact")).toBeVisible();
+  await expect(page.locator("#start-contact a, #start-contact button")).toHaveCount(0);
+  await expect(page.locator("#start")).toContainText("+1 (415) 555-0199");
+  await expect(texts).not.toContainText("+1 (415) 555-0199");
+  const button = await texts.boundingBox();
+  expect(button?.height).toBeGreaterThanOrEqual(44);
+  const lineHeight = await texts.evaluate((el) => Number.parseFloat(getComputedStyle(el).lineHeight));
+  expect(button?.height).toBeLessThan(lineHeight * 2);
   await expect(page.getByText("we'll text you a link to set up payouts")).toBeHidden();
   await expect(page.getByRole("link", { name: /payouts/i })).toHaveCount(0);
   await expect(page.getByText("Reply YES to claim a task")).toBeVisible();
@@ -82,7 +89,7 @@ test("phone formats normalize to E.164 and the build-time number is the router f
   for (const phone of ["1 (415) 555-0123", "+1 415.555.0123", "+44 20 7946 0958"]) {
     await page.goto("/");
     await fill(page, "Ada Lovelace", phone);
-    await expect(page.getByRole("link", { name: /connect.*\+1 \(415\) 555-0100/ })).toHaveAttribute(
+    await expect(page.locator("#start a")).toHaveAttribute(
       "href",
       "sms:+14155550100?&body=connect%20%40eyes-test",
     );
