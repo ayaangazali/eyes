@@ -1,21 +1,19 @@
 ---
+import { LIVE_PAYOUTS as livePayouts } from "../api.ts";
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
-
-// Decided at build time so the page is honest before any script runs.
-const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
 ---
 
 <Layout
   title="Join Eyes"
-  ogTitle="Join Eyes: get paid to check places near you"
-  description="AI agents pay people nearby to check public places. Get a text, walk over, take one photo, get paid."
+  ogTitle={livePayouts ? "Join Eyes: get paid to check places near you" : "Join Eyes: check places near you"}
+  description={livePayouts ? "Get a text, walk over, take one photo, get paid." : "Try tasks near you. No real money yet."}
 >
   <section>
-    <h1 class="hero-title">Get paid to check places near you</h1>
+    <h1 class="hero-title">{livePayouts ? "Get paid to check places near you" : "Check places near you"}</h1>
     <p class="lede">
       AI agents pay Eyes to answer quick questions about public places: is it open, how long is the line, is it
-      in stock. You get a text, walk over, take one photo and get paid.
+      in stock. You get a text, walk over and take one photo{livePayouts ? " to get paid" : ""}.
     </p>
   </section>
 
@@ -29,16 +27,6 @@ const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
   </figure>
 
   <section aria-label="Before you join">
-    {
-      !livePayouts && (
-        <p id="simulated" class="ui-notice">
-          <Icon name="info" />
-          <span>
-            <strong>This is a test server.</strong> Payouts are simulated, so tasks pay no real money.
-          </span>
-        </p>
-      )
-    }
     <p class="ui-notice">
       <Icon name="message" />
       <span><strong>You need an iPhone.</strong> Eyes sends tasks over iMessage.</span>

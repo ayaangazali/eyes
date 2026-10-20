@@ -210,7 +210,10 @@ type Live = ReturnType<typeof liveProviders>;
 
 const simulatedNotice = (live: Live, sandbox: boolean) => {
   const fake = (Object.keys(SIMULATED) as (keyof typeof SIMULATED)[])
-    .filter((name) => !live[name] && !(sandbox && (name === "messaging" || name === "geo")))
+    .filter(
+      (name) =>
+        (!live[name] || live[name] === "test") && !(sandbox && (name === "messaging" || name === "geo")),
+    )
     .map((name) => SIMULATED[name]);
   const lines = sandbox ? [SANDBOX_NOTICE, ...fake] : fake;
   return lines.length
@@ -269,8 +272,14 @@ ${simulatedNotice(live, sandbox)}
 <ul class="rows">
 ${Object.entries(PROVIDER_LINES).map(([name, [label, meaning]]) => {
   const on = live[name as keyof typeof live];
-  const state = !on ? "simulated" : name === "email" && emailNote ? `live (${emailNote})` : "live";
-  return statusRow(on ? "live" : "simulated", `${label}: ${state}`, meaning);
+  const state = !on
+    ? "simulated"
+    : on === "test"
+      ? "test mode, no real money"
+      : name === "email" && emailNote
+        ? `live (${emailNote})`
+        : "live";
+  return statusRow(on && on !== "test" ? "live" : "simulated", `${label}: ${state}`, meaning);
 })}
 ${statusRow(
   classifier ? "live" : "neutral",
@@ -304,7 +313,12 @@ export function liveProviders(env: Env) {
   return {
     messaging: live && Boolean(env.INKBOX_API_KEY),
     email: live && Boolean(env.PRIMITIVE_API_KEY),
-    payments: live && Boolean(env.STRIPE_SECRET_KEY),
+    payments:
+      live && env.STRIPE_SECRET_KEY
+        ? /^[rs]k_live_/.test(env.STRIPE_SECRET_KEY)
+          ? ("live" as const)
+          : ("test" as const)
+        : false,
     storage: live && Boolean(env.INSFORGE_BASE_URL && env.INSFORGE_API_KEY),
     vision: live && Boolean((env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN) || env.ANTHROPIC_API_KEY),
     geo: live,

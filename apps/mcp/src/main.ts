@@ -55,7 +55,7 @@ export function start(env: Record<string, string | undefined>, exit: Exit = fail
     testflight_url: env.EYES_TESTFLIGHT_URL || undefined,
     email_domain: env.PRIMITIVE_DOMAIN || undefined,
     email_delivery: live.email,
-    live_payouts: live.payments,
+    live_payouts: live.payments === "live",
   });
   if (!parsed.success)
     exit(`Invalid EYES_* environment (see .env.example):\n${z.prettifyError(parsed.error)}`);
@@ -108,7 +108,7 @@ export function start(env: Record<string, string | undefined>, exit: Exit = fail
     clock: { now: () => new Date() },
   };
   for (const name of Object.keys(live) as (keyof typeof live)[])
-    console.log(`provider ${name}: ${providers[name] === fakes[name] ? "FAKE" : "live"}`);
+    console.log(`provider ${name}: ${!live[name] ? "FAKE" : live[name] === "test" ? "test" : "live"}`);
   console.log(`db: ${db.kind}`);
 
   const rpc = createRpc(db);

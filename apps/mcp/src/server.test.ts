@@ -1520,6 +1520,19 @@ describe("routes", () => {
     expect(await health(insforge)).toMatchObject({ storage: "fake", geo: "fake" });
   });
 
+  it.each(["sk_test_fixture", "rk_test_fixture"])(
+    "labels %s as test payments without exposing the key",
+    async (key) => {
+      const server = setup({}, { EYES_PROVIDERS: "live", STRIPE_SECRET_KEY: key });
+      const health = await (await server.fetch("http://eyes.test/healthz")).json();
+      expect(health.providers.payments).toBe("live");
+      const status = await (await server.fetch("http://eyes.test/status")).text();
+      expect(status).toContain("Payments: test mode, no real money");
+      expect(status).not.toContain(key);
+      expect(await (await server.fetch("http://eyes.test/")).text()).toContain("Payments are simulated");
+    },
+  );
+
   it("shows each provider, the database and the deployed commit on /status", async () => {
     const env = { EYES_PROVIDERS: "live", INKBOX_API_KEY: "ik_test", EYES_COMMIT: "0123456789abcdef" };
     const res = await setup({}, env).fetch("http://eyes.test/status");
@@ -1572,7 +1585,7 @@ describe("routes", () => {
     const live = {
       EYES_PROVIDERS: "live",
       INKBOX_API_KEY: "ik_test",
-      STRIPE_SECRET_KEY: "sk_test",
+      STRIPE_SECRET_KEY: "sk_live_fixture",
       PRIMITIVE_API_KEY: "pk_test",
       ANTHROPIC_API_KEY: secret,
     };

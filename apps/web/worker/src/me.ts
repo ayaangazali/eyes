@@ -121,7 +121,7 @@ export function ago(iso: string, now: number): string {
   return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-/** The four setup rows. The first row with an action gets the primary button, the rest secondary. */
+/** The first setup row with an action gets the primary button, the rest secondary. */
 export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START")): Row[] {
   const { spot, app, payouts } = s;
   const todo = (id: Row["id"], title: string, detail: string, label: string, href: string | null) =>
@@ -132,7 +132,9 @@ export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START
           id: "texts",
           state: "done",
           title: "Number joined",
-          detail: "Eyes texts you paid tasks near you.",
+          detail: payouts.live
+            ? "Eyes texts you paid tasks near you."
+            : "Eyes texts you test tasks near you.",
           action: null,
         }
       : startSms
@@ -183,7 +185,7 @@ export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START
             detail: "Text START first, then open the app.",
             action: null,
           },
-    payouts.set_up && !payouts.setup_url
+    payouts.live && payouts.set_up && !payouts.setup_url
       ? {
           id: "payouts",
           state: "done",
@@ -202,14 +204,14 @@ export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START
         : {
             id: "payouts",
             state: "neutral",
-            title: "Test payouts",
-            detail: "Payouts are simulated on this test server.",
+            title: "Payout setup unavailable",
+            detail: "",
             action: null,
           },
   ];
   const first = rows.find((r) => r.action);
   if (first?.action) first.action.primary = true;
-  return rows;
+  return rows.filter((row) => payouts.live || row.id !== "payouts");
 }
 
 /** "Oct 17, 2026" in the worker's zone; the server search formats dates the same way (eyes_shown_date). */

@@ -1,6 +1,8 @@
 ---
 import { siteHeader } from "@eyes/ui/header";
 import sprite from "@eyes/ui/icons.svg?raw";
+import { LIVE_PAYOUTS } from "../api.ts";
+import Icon from "../components/Icon.astro";
 import "../styles/global.css";
 
 interface Props {
@@ -24,13 +26,19 @@ const { title, ogTitle, description, wide = false, noindex = false } = Astro.pro
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     {noindex && <meta name="robots" content="noindex" />}
     <title>{title}</title>
-    {ogTitle && <meta property="og:title" content={ogTitle} />}
-    {description && <meta property="og:description" content={description} />}
+    {ogTitle && <meta property="og:title" content={LIVE_PAYOUTS ? ogTitle : title} />}
+    {description && <meta property="og:description" content={LIVE_PAYOUTS ? description : "No real money yet. These are test tasks."} />}
   </head>
   <body class="ui">
     <Fragment set:html={sprite} />
     <Fragment set:html={siteHeader()} />
     <main class:list={["page", { "page--wide": wide }]}>
+      {!LIVE_PAYOUTS && (
+        <p id="simulated" class="ui-notice">
+          <Icon name="info" />
+          <span><strong>No real money yet.</strong> These are test tasks.</span>
+        </p>
+      )}
       <slot />
     </main>
   </body>

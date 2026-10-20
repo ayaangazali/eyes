@@ -74,7 +74,12 @@ Ops and ClickHouse settings (any host):
 
 ## 3. Static worker web and landing on Cloudflare
 
-1. Build the worker app with `VITE_EYES_API_URL=https://api.eyes.pictures` and existing private environment values. The current dispatcher is `connect @eyes-dispatch`. A live Stripe provider or `VITE_LIVE_PAYOUTS=true` is not proof of real payments: the deployment still uses test payments and a $20 test credit.
+1. Build the worker app with `VITE_EYES_API_URL=https://api.eyes.pictures` and existing private environment values. The current dispatcher is `connect @eyes-dispatch`.
+   Keep `VITE_LIVE_PAYOUTS=false` while Stripe uses test keys. This static build flag controls worker notices, previews, and capture wording.
+   The API derives `live_payouts` from `EYES_PROVIDERS=live` and an `sk_live_` or `rk_live_` key. A test key never enables real payout wording or setup.
+   `/status` identifies test payments. `/healthz` keeps reporting provider availability, so test keys do not create a false outage alert.
+   Set `VITE_LIVE_PAYOUTS=true` only when the API uses live payouts, then rebuild the worker site.
+   This change follows the default in issue #180. It does not change Stripe settings, keys, or the deployed build.
 2. The deployer builds with `pnpm --filter @eyes/web-worker build`, then runs `env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler@4 deploy` from `apps/web/worker`. This serves `https://app.eyes.pictures`.
 3. For the landing page, it runs `pnpm --filter @eyes/web-landing build`, then the same Wrangler command from `apps/web/landing`. This serves `https://eyes.pictures`.
 
@@ -90,10 +95,12 @@ For this section, `<public>` remains `https://api.eyes.pictures`; the MCP-domain
 
 ## 5. Live smoke checklist (G1, then G2)
 1. `GET <public>/healthz`: every provider `live`, db `insforge`.
-2. Each worker phone (iPhone, with Settings > Messages > Send & Receive > Start New Conversations From set to the phone number, not an Apple ID email): JOIN at `<worker web>/`, text START, receive the payout setup link, finish Stripe test onboarding (SMS code 000-000, SSN 222222222, routing 110000000, account 000123456789).
+2. Each worker phone must use its phone number for iMessage. JOIN at `<worker web>/` and text START.
+   Test keys intentionally provide no payout setup link. Workers see that no real money moves.
 3. Agent: connect to `https://mcp.eyes.pictures/mcp` with an existing key or the web OAuth flow; signup and all REST calls remain under `https://api.eyes.pictures`.
 4. Ask about the demo cafe; a nearby phone gets the offer text, replies YES, gets the capture link, takes the photo; Claude's `await_answer` returns the verified answer with `photo_url`.
-5. G2: the Stripe dashboard shows the top-up, then the transfer to the worker's connected account; `get_balance` drops by 3.50; "Photograph the house at 123 Oak St" is refused with `unsafe_task`.
+5. Check the Stripe test top-up and the Eyes ledger. The old G2 onboarding-and-transfer flow is disabled for new workers on test keys.
+   Existing test accounts can still receive test transfers; none move real money.
 6. Record each result in STATUS.md "Live verification" with the time and what was seen.
 
 ## Ad hoc releases (iPhone app)
