@@ -24,7 +24,7 @@
   --eyes-fb-border-strong: rgb(13 13 13 / 15%);
   --eyes-fb-ring: #0169cc;
   --eyes-fb-success-bg: #d9f4e4;
-  --eyes-fb-success-text: #008635;
+  --eyes-fb-success-text: #007b30;
   --eyes-fb-warning-bg: #ffe7d9;
   --eyes-fb-warning-text: #923b0f;
   --eyes-fb-danger-bg: #ffd9d9;
@@ -46,9 +46,9 @@
   --eyes-fb-success-bg: rgb(4 184 76 / 16%);
   --eyes-fb-success-text: #04b84c;
   --eyes-fb-warning-bg: rgb(251 106 34 / 16%);
-  --eyes-fb-warning-text: #fb6a22;
+  --eyes-fb-warning-text: #ff7633;
   --eyes-fb-danger-bg: rgb(250 66 62 / 16%);
-  --eyes-fb-danger-text: #fa423e;
+  --eyes-fb-danger-text: #ff625e;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -67,9 +67,9 @@
     --eyes-fb-success-bg: rgb(4 184 76 / 16%);
     --eyes-fb-success-text: #04b84c;
     --eyes-fb-warning-bg: rgb(251 106 34 / 16%);
-    --eyes-fb-warning-text: #fb6a22;
+    --eyes-fb-warning-text: #ff7633;
     --eyes-fb-danger-bg: rgb(250 66 62 / 16%);
-    --eyes-fb-danger-text: #fa423e;
+    --eyes-fb-danger-text: #ff625e;
   }
 }
 
