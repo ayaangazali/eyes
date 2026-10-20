@@ -142,9 +142,3 @@ Every outside provider and service Eyes uses, and how. "Live" means the deployed
 | GitHub | Code, PRs, issues; Actions run CI, live smoke and the safety LLM eval | [.github/workflows](.github/workflows) | live |
 
 `.env.example` also lists keys for Armature analytics and Blaxel sandboxes; no code uses them yet.
-
-## Contributors
-
-- [Reggiebro](https://github.com/Reggiebro) contributed the whole-cent bounty fix ([PR #178](https://github.com/ayaangazali/eyes/pull/178), [issue #117](https://github.com/ayaangazali/eyes/issues/117)).
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) to get started as a contributor.
