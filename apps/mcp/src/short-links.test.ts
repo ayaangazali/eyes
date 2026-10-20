@@ -19,9 +19,9 @@ function setup(worker: { id: string } | null = { id: "w1" }) {
 }
 
 describe("withShortLinks", () => {
-  it("swaps every link on our origins for a 33-character /s/ link and stores the full target", async () => {
+  it("shortens ordinary links on our origins and stores their full targets", async () => {
     const { short, outbox, stored } = setup();
-    const me = "https://w.eyes.test/me#c=abc.def";
+    const me = "https://w.eyes.test/me#tasks";
     const pay = "https://api.eyes.test/w/connect/tok.sig";
     await short.sendText(
       "+15550000000",
@@ -72,7 +72,7 @@ describe("withShortLinks", () => {
       task_id: "t1",
       place_label: "Cafe",
       amount_cents: 500,
-      me_url: "https://w.eyes.test/me#c=e.f",
+      me_url: "https://w.eyes.test/me",
       live_payouts: true,
     });
     const [sentCapture, sentPaid] = outbox.slice(-2).map((m) => m.payload as Record<string, string>);
@@ -80,7 +80,35 @@ describe("withShortLinks", () => {
     expect(sentPaid?.me_url).toMatch(/^https:\/\/api\.eyes\.test\/s\/[0-9A-Za-z]{8}$/);
     expect(stored().map((a) => [a.p_target, a.p_worker_id])).toEqual([
       [capture, null],
-      ["https://w.eyes.test/me#c=e.f", null],
+      ["https://w.eyes.test/me", null],
     ]);
   });
+
+  it.each(["install", "app", "automation.html", "me", "login"])(
+    "sends %s links with #c= unchanged through every message method without storing them",
+    async (path) => {
+      const { short, outbox, stored } = setup();
+      const url = `https://w.eyes.test/${path}#c=secret`;
+      await short.sendText("+15550000000", `Open ${url}.`);
+      await short.sendCaptureLink("+15550000000", {
+        task_id: "t1",
+        place_label: "Cafe",
+        capture_url: url,
+        deadline_at: "2026-10-18T01:00:00Z",
+      });
+      await short.sendPaid("+15550000000", {
+        task_id: "t1",
+        place_label: "Cafe",
+        amount_cents: 500,
+        me_url: url,
+        live_payouts: true,
+      });
+      expect(outbox.map((m) => m.payload)).toEqual([
+        `Open ${url}.`,
+        expect.objectContaining({ capture_url: url }),
+        expect.objectContaining({ me_url: url }),
+      ]);
+      expect(stored()).toEqual([]);
+    },
+  );
 });

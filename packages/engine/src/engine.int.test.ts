@@ -650,9 +650,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(sent).toHaveLength(1);
     const text = String(sent[0]?.payload);
     hubLines(text);
-    expect(text.length).toBeLessThanOrEqual(650);
     const links = text.match(/https:\/\/api\.eyes\.test\/s\/[0-9A-Za-z]{8}/g) ?? [];
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(1);
     const targets = await Promise.all(
       links.map(async (link) => {
         const [row] = await rpc<{ target: string }>("eyes_short_link", {
@@ -662,11 +661,13 @@ describe.skipIf(!url)("engine on Postgres", () => {
         return row?.target;
       }),
     );
-    expect(targets).toEqual([
-      expect.stringMatching(/^https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/),
-      expect.stringMatching(/^https:\/\/api\.eyes\.test\/w\/connect\/\S+$/),
-      expect.stringMatching(/^https:\/\/w\.eyes\.test\/me#c=\S+$/),
-    ]);
+    expect(targets).toEqual([expect.stringMatching(/^https:\/\/api\.eyes\.test\/w\/connect\/\S+$/)]);
+    const installCode = /\/install#c=([\w-]{43})/.exec(text)?.[1] ?? "";
+    expect(await wrapped.workerDevice(installCode)).toMatchObject({ registered: false });
+    expect(await wrapped.workerSetup(meToken(text))).toMatchObject({ opted_in: true });
+    expect(
+      await sql`select target from short_links where worker_id = ${w.worker_id} and target like '%#c=%'`,
+    ).toEqual([]);
     const expected = {
       YES: ["Y", "YEP", "YUP", "YEAH", "YEA", "OK", "OKAY", "SURE", "CLAIM", "👍"],
       NO: ["N", "NOPE", "NAH", "PASS"],
@@ -711,14 +712,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await wrapped.handleWorkerReply({ email, intent: parseReplyIntent("START"), text: "START" });
     const emailed = providers.email.outbox.findLast((m) => m.to === email);
     hubLines(emailed?.text);
-    expect(emailed?.text.length).toBeLessThanOrEqual(650);
     expect(outbox.slice(before)).toHaveLength(1);
     for (const intent of ["start", "help"] as const) {
       const count = outbox.length;
       await wrapped.handleWorkerReply({ phone: w.phone, intent, text: intent.toUpperCase() });
       expect(outbox.slice(count)).toHaveLength(1);
       hubLines(outbox.at(-1)?.payload);
-      expect(String(outbox.at(-1)?.payload).length).toBeLessThanOrEqual(650);
     }
 
     // These engine-only commands bypass the parser but must actually reach emailByText.

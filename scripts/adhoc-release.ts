@@ -9,9 +9,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs as parseCli } from "node:util";
 import { createAdminClient } from "@insforge/sdk";
-import { withShortLinks } from "../apps/mcp/src/short-links.ts";
 import { createInkboxMessaging } from "../packages/comms/src/index.ts";
-import { createRpc } from "../packages/db/src/rpc.ts";
 
 const TEAM_ID = "2BPG8N4Z33";
 const INSTALL_TEXT = "Eyes is ready: tap to install";
@@ -334,20 +332,7 @@ if (import.meta.main) {
       return url;
     },
     sendText: (to, text) => {
-      // Same short links as live texts: <api>/s/<id> instead of the ~80-character #c= link.
-      messaging ??= withShortLinks(
-        createInkboxMessaging(env),
-        createRpc({
-          kind: "insforge",
-          base_url: String(env.INSFORGE_BASE_URL),
-          api_key: String(env.INSFORGE_API_KEY),
-        }),
-        {
-          public_api_url: env.EYES_PUBLIC_API_URL ?? "https://api.eyes.pictures",
-          worker_web_url: env.EYES_WORKER_WEB_URL ?? "https://app.eyes.pictures",
-        },
-        () => new Date(),
-      );
+      messaging ??= createInkboxMessaging(env);
       return messaging.sendText(to, text);
     },
     now: () => new Date(),
