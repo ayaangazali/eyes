@@ -38,9 +38,9 @@ test("join posts a normalized phone and location, then shows the connect and STA
   await fill(page, "Ada Lovelace", "(415) 555-0123");
 
   const texts = page.locator("#start a");
-  await expect(texts).toHaveText([/connect @eyes-test.*\+1 \(415\) 555-0199/, /START.*\+1 \(415\) 555-0199/]);
-  await expect(texts.first()).toHaveAttribute("href", "sms:+14155550199?&body=connect%20%40eyes-test");
-  await expect(texts.last()).toHaveAttribute("href", "sms:+14155550199?&body=START");
+  await expect(texts).toHaveCount(1);
+  await expect(texts).toHaveAttribute("href", "sms:+14155550199?&body=connect%20%40eyes-test");
+  await expect(page.locator("#start")).toContainText("Then text START to the Eyes contact Inkbox sends back");
   await expect(page.getByText("we'll text you a link to set up payouts")).toBeHidden();
   await expect(page.getByRole("link", { name: /payouts/i })).toHaveCount(0);
   await expect(page.getByText("Reply YES to claim a task")).toBeVisible();
@@ -75,14 +75,16 @@ test("the payout notice is right in the static page, before any script runs", as
   await context.close();
 });
 
-test("phone formats normalize to E.164 and the build-time number is the START fallback", async ({ page }) => {
+test("phone formats normalize to E.164 and the build-time number is the router fallback", async ({
+  page,
+}) => {
   const posts = await mockJoin(page, { json: { ...joined, inkbox_number: null } });
   for (const phone of ["1 (415) 555-0123", "+1 415.555.0123", "+44 20 7946 0958"]) {
     await page.goto("/");
     await fill(page, "Ada Lovelace", phone);
-    await expect(page.getByRole("link", { name: /START.*\+1 \(415\) 555-0100/ })).toHaveAttribute(
+    await expect(page.getByRole("link", { name: /connect.*\+1 \(415\) 555-0100/ })).toHaveAttribute(
       "href",
-      "sms:+14155550100?&body=START",
+      "sms:+14155550100?&body=connect%20%40eyes-test",
     );
   }
   expect(posts.map((p) => p.phone)).toEqual(["+14155550123", "+14155550123", "+442079460958"]);

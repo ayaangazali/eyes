@@ -102,7 +102,9 @@ form.addEventListener("submit", async (event) => {
       ...(connectCommand
         ? [
             textLink(connectCommand, `First text "${connectCommand}" to ${displayNumber}`),
-            textLink("START", `Then text START to ${displayNumber}`),
+            Object.assign(document.createElement("span"), {
+              textContent: "Then text START to the Eyes contact Inkbox sends back, not the connect number.",
+            }),
           ]
         : [textLink("START", `Text START to ${displayNumber}`)]),
     );

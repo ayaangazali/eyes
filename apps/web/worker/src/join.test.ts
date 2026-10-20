@@ -260,7 +260,7 @@ describe("join form", () => {
     expect(byId("connect-help").hidden).toBe(true);
   });
 
-  it("offers the connect command first, then START, when a connect command is configured", async () => {
+  it("uses the router for connect but leaves START to the contact Inkbox sends", async () => {
     vi.stubEnv("VITE_INKBOX_CONNECT", "JOIN eyes");
     await loadJoin();
     gpsOk();
@@ -273,9 +273,10 @@ describe("join form", () => {
       textContent: expect.stringContaining("+1 (415) 555-0199"),
     });
     expect(second).toMatchObject({
-      href: "sms:+14155550199?&body=START",
-      textContent: expect.stringContaining("+1 (415) 555-0199"),
+      tagName: "span",
+      textContent: expect.stringMatching(/START.*Eyes contact.*Inkbox/),
     });
+    expect(second).not.toHaveProperty("href");
     expect(byId("connect-help").hidden).toBe(false);
   });
 
