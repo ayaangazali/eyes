@@ -6,8 +6,13 @@ Eyes works as an app inside ChatGPT, claude.ai and Claude Desktop. You sign in w
 
 - OAuth 2.1 with PKCE (S256) and dynamic client registration, served next to the existing API keys.
 - The sign-in page at `/oauth/authorize` takes an existing Eyes key or creates one. New keys start with $20 in test credits, not real cash. Copy is optional for direct API use; **Continue** automatically connects the new key in both ChatGPT and Claude.
-- `/oauth/token` returns the Eyes API key as the access token, so the `/mcp` bearer check does not change. The token does not expire. To revoke it, rotate the key.
-- OAuth client registrations and authorization codes use AES-GCM sealed blobs keyed by `EYES_OAUTH_SECRET`. PostgreSQL stores each redeemed code's hash to enforce single use. Sign-in requires the database and the OAuth redemption migration. If the secret is unset, the OAuth routes are off and only bearer keys work.
+- `/oauth/token` returns an encrypted token bound to the exact MCP resource.
+  It cannot access REST or the other connector host.
+  The token does not expire; rotating the underlying API key revokes it.
+- OAuth client registrations, authorization codes, and access tokens use AES-GCM sealed blobs keyed by `EYES_OAUTH_SECRET`.
+  PostgreSQL stores each redeemed code's hash to enforce single use.
+  Sign-in requires the database and the OAuth redemption migration.
+  If the secret is unset, OAuth routes are off and only bearer keys work.
 - A single widget resource, `ui://eyes/confirmation-card.html` (`text/html;profile=mcp-app`), renders `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task` and `get_balance` results as cards. `show_task` uses the same current photo, theme, review and action UI as `get_task`; no separate view build is needed. The existing card calls private `confirm_ask` and renders its result locally; the private action has no widget template of its own.
 - ChatGPT finds the widget through `openai/outputTemplate`. Claude gets `ui/resourceUri` plus a per-connector `ui.domain`. Photos load from InsForge storage and the CDN.
 - Interactive `ask_eyes` only prepares a read-only draft. Review the question, place and price, then press **Ask** to confirm and dispatch through app-only `confirm_ask`. No task, escrow or worker messages exist before that click.

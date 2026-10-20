@@ -1,11 +1,15 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { matchesGlob } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 const GOVERNED = /^(apps|packages|cli|scripts|db)\//;
 const CONTRACT = /^(packages\/core\/src\/|packages\/db\/migrations\/)/;
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 const INDEX_PATH = "intent/INDEX.md";
+const MANIFEST = /(^|\/)package\.json$/;
+const DEPENDENCY_FILE =
+  /(^|\/)(package\.json|pnpm-lock\.yaml|package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|bun\.lockb?)$/;
 
 type Intent = { path: string; task: string; files: string[]; why: string; verification: string };
 
@@ -31,6 +35,37 @@ function changedFiles(base: string): Map<string, string> {
   }
   for (const file of lines(git("ls-files", "--others", "--exclude-standard"))) status.set(file, "A");
   return status;
+}
+
+function manifestWithoutVersions(text: string) {
+  const manifest = JSON.parse(text);
+  const versionPattern = /^[~^]?\d+\.\d+\.\d+(?:-[\da-zA-Z.-]+)?(?:\+[\da-zA-Z.-]+)?$/;
+  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    if (!(field in manifest)) continue;
+    const versions = manifest[field];
+    if (!versions || typeof versions !== "object" || Array.isArray(versions))
+      throw new TypeError("Invalid dependency map");
+    for (const [name, version] of Object.entries(versions)) {
+      if (typeof version !== "string") throw new TypeError("Invalid dependency version");
+      if (versionPattern.test(version)) versions[name] = null;
+    }
+  }
+  return manifest;
+}
+
+function dependencyVersionsOnly(base: string, changed: Map<string, string>): boolean {
+  for (const [file, status] of changed) {
+    if (status !== "M" || !DEPENDENCY_FILE.test(file)) return false;
+    if (!MANIFEST.test(file)) continue;
+    try {
+      const before = manifestWithoutVersions(git("show", `${base}:${file}`));
+      const after = manifestWithoutVersions(readFileSync(file, "utf8"));
+      if (!isDeepStrictEqual(before, after)) return false;
+    } catch {
+      return false;
+    }
+  }
+  return changed.size > 0;
 }
 
 function parseIntent(path: string): Intent {
@@ -95,7 +130,9 @@ if (process.argv.includes("--write-index")) {
 }
 
 const errors: string[] = [];
-const changed = changedFiles(resolveBase());
+const base = resolveBase();
+const changed = changedFiles(base);
+const dependencyOnly = dependencyVersionsOnly(base, changed);
 const changedIntents = intents.filter((i) => changed.has(i.path));
 
 for (const intent of changedIntents) {
@@ -106,7 +143,7 @@ for (const intent of changedIntents) {
 }
 
 for (const file of changed.keys()) {
-  if (!GOVERNED.test(file)) continue;
+  if (dependencyOnly || !GOVERNED.test(file)) continue;
   if (!changedIntents.some((i) => covers(i, file))) {
     errors.push(`${file}: changed but no intent file changed in this diff lists it under "files"`);
   }

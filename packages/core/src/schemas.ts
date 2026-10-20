@@ -34,6 +34,11 @@ const Id = z.uuid();
 const Cents = z.int();
 const Timestamp = z.iso.datetime({ offset: true });
 const Phone = z.string().regex(/^\+[1-9]\d{6,14}$/, "E.164 phone number, e.g. +14155550123");
+const ValidText = z.refine<string>(
+  (value) => !/[\uD800-\uDFFF]/u.test(value) && !value.includes("\0"),
+  "Remove NUL characters and replace unpaired Unicode surrogates.",
+);
+const InputText = z.string().check(ValidText);
 
 export const LatLng = z.object({
   lat: z.number().min(-90).max(90).describe("Latitude in decimal degrees, e.g. 37.7825"),
@@ -111,7 +116,7 @@ export const Submission = z.object({
   captured_at: Timestamp,
   gps_ok: z.boolean(),
   fresh_ok: z.boolean(),
-  vision_ok: z.boolean(),
+  vision_ok: z.boolean().nullable(),
   vision_reason: z.string(),
   confidence: z.number().min(0).max(1),
   source: z.enum(["capture", "email"]),
@@ -134,9 +139,11 @@ export type LedgerEntry = z.infer<typeof LedgerEntry>;
 export const LocationInput = z
   .union([
     LatLng,
-    z
-      .string()
-      .min(2)
+    InputText.min(2)
+      .refine((value) => {
+        const coords = /^\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*$/.exec(value);
+        return !coords || LatLng.safeParse({ lat: Number(coords[1]), lng: Number(coords[2]) }).success;
+      }, "Coordinates must have latitude from -90 to 90 and longitude from -180 to 180.")
       .max(200)
       .describe(
         'A public place as "place name, city" or its street address, e.g. "Blue Bottle Coffee, Mint Plaza, San Francisco". Never a home address.',
@@ -146,7 +153,7 @@ export const LocationInput = z
     'The public place to check: a string "place name, city" or its numbers {"lat": 37.7825, "lng": -122.4078}. Never the user\'s own location or a home address.',
   );
 
-export const ResolvedLocation = z.object({ lat: z.number(), lng: z.number(), label: z.string() });
+export const ResolvedLocation = LatLng.extend({ label: z.string() });
 
 const TaskId = Id.describe("The task_id returned by ask_eyes.");
 const Usd = z.number();
@@ -206,9 +213,7 @@ export const ClassifierReportId = z
     "Ticket id exceeds the supported range.",
   );
 export const AskEyesInput = z.object({
-  question: z
-    .string()
-    .min(5)
+  question: InputText.min(5)
     .max(500)
     .describe('What the human should check, in plain words, e.g. "How many people are in line right now?"'),
   location: LocationInput,
@@ -240,6 +245,7 @@ export const AskEyesInput = z.object({
       error:
         "Required. Pass any unique string for each task you intend to create, for example a UUID, and send the same key again when you retry that task, so the retry returns the original task instead of charging twice.",
     })
+    .check(ValidText)
     .min(1, "Must not be empty. Pass any unique string for each task, for example a UUID.")
     .max(128, "At most 128 characters. Pass a shorter unique string, for example a UUID (36 characters).")
     .describe(
@@ -251,6 +257,7 @@ export const AskEyesInput = z.object({
 });
 export const AskEyesOutput = z.object({
   task_id: Id,
+  resolved_location: ResolvedLocation,
   status: TaskStatus.describe(
     "New tasks are dispatched. A retry returns the stored task status, without another charge or policy check.",
   ),
@@ -310,8 +317,8 @@ export const ReportClassifierInput = AskEyesInput.omit({ classifier_report_id: t
   classifier_error: z
     .object({
       error: z.literal("unsafe_task"),
-      message: z.string().max(4000).optional(),
-      fix: z.string().max(4000).optional(),
+      message: InputText.max(4000).optional(),
+      fix: InputText.max(4000).optional(),
     })
     .catchall(z.json())
     .refine((value) => JSON.stringify(value).length <= 16000, "Classifier context exceeds 16000 characters."),
@@ -395,6 +402,9 @@ export const ListTasksInput = z.object({
     'Only return tasks in this status, e.g. "dispatched" for tasks no worker has claimed yet. Omit for every status.',
   ),
   limit: z.int().min(1).max(50).default(20).describe("How many tasks to return, newest first. 1 to 50."),
+  before: Id.optional().describe(
+    "Cursor from next_cursor for the next page. Keep the same status filter. Omit for the newest tasks.",
+  ),
 });
 export const ListTasksOutput = z.object({
   tasks: z
@@ -414,6 +424,7 @@ export const ListTasksOutput = z.object({
       }),
     )
     .max(50),
+  next_cursor: Id.nullable().describe("Pass as before for older tasks; null means no more tasks."),
   next_step: z.string(),
 });
 
@@ -433,9 +444,7 @@ export const AcceptAnswerOutput = z.object({
 
 export const DisputeAnswerInput = z.object({
   task_id: TaskId,
-  reason: z
-    .string()
-    .min(5)
+  reason: InputText.min(5)
     .max(1000)
     .describe('What is wrong with the answer, e.g. "photo shows a different store".'),
 });
@@ -492,7 +501,7 @@ export const OwnerConsole = z.object({
 });
 
 export const SignupInput = z.object({
-  name: z.string().min(2).max(80),
+  name: InputText.min(2).max(80),
   owner_email: z.email().optional(),
 });
 export const SignupOutput = z.object({
@@ -531,7 +540,7 @@ export const WorkerEmail = z.email().max(254).toLowerCase();
 
 export const JoinWorkerInput = z
   .object({
-    name: z.string().min(2).max(80),
+    name: InputText.min(2).max(80),
     phone: Phone,
     email: WorkerEmail.optional(),
     lat: z.number().min(-90).max(90),
@@ -564,7 +573,7 @@ export const CaptureFields = z.object({
   lng: z.coerce.number().min(-180).max(180),
   accuracy_m: z.coerce.number().min(0),
   captured_at: Timestamp,
-  answer_text: z.string().max(1000).nullable().default(null),
+  answer_text: InputText.max(1000).nullable().default(null),
   answer_bool: z.boolean().nullable().default(null),
 });
 // iPhone Shortcuts send numbers as strings, with a comma decimal in many locales.

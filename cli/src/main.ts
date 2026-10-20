@@ -67,8 +67,9 @@ const COMMANDS = {
   },
   tasks: {
     args: 0,
-    usage: "eyes tasks [--status <status>] [--limit <1-50, default 20>]",
-    about: "List your tasks, newest first. Use it to find a task_id you lost before asking again.",
+    usage: "eyes tasks [--status <status>] [--limit <1-50, default 20>] [--before <cursor>]",
+    about:
+      "List your tasks, newest first. Pass next_cursor as --before for older tasks with the same status filter.",
   },
   cancel: {
     args: 1,
@@ -99,6 +100,7 @@ const FLAGS: Record<string, string> = {
   reason: "--reason",
   status: "--status",
   limit: "--limit",
+  before: "--before",
   name: "--name",
   owner_email: "--email",
 };
@@ -235,6 +237,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         reason: { type: "string" },
         status: { type: "string" },
         limit: { type: "string" },
+        before: { type: "string" },
         "idempotency-key": { type: "string" },
         "no-photo": { type: "boolean" },
         "no-wait": { type: "boolean" },
@@ -292,7 +295,7 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
             "config_error",
           );
       const url = `${base}${path}`;
-      const headers: Record<string, string> = { "content-type": "application/json" };
+      const headers: Record<string, string> = body ? { "content-type": "application/json" } : {};
       if (config.api_key) headers.authorization = `Bearer ${config.api_key}`;
       let res: Response;
       try {
@@ -507,10 +510,11 @@ export async function run(argv: string[], deps: Deps): Promise<number> {
         print(await call(`GET /v1/tasks/${arg}`));
         return 0;
       case "tasks": {
-        check(ListTasksInput, { status: o.status, limit: num(o.limit) }, usage);
+        check(ListTasksInput, { status: o.status, limit: num(o.limit), before: o.before }, usage);
         const query = new URLSearchParams();
         if (o.status) query.set("status", o.status);
         if (o.limit) query.set("limit", o.limit);
+        if (o.before) query.set("before", o.before);
         print(await call(`GET /v1/tasks${query.size ? `?${query}` : ""}`));
         return 0;
       }

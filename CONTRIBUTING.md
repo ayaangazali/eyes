@@ -41,7 +41,9 @@ Intent, secret scanning, and the four quality gates below still run.
 
 Each quality gate has its own job: `audit`, `sentrux`, `actionlint`, and `docker-build`.
 The audit runs `pnpm audit --prod` without installing the workspace.
-Mobile remains outside CI: its isolated `npm ci` and `npm run typecheck` fail because its tests import root-only `vitest`.
+The `mobile-typecheck` job runs `npm ci` and `npm run typecheck` in `apps/mobile`, without installing the root workspace.
+The mobile app tsconfig excludes test files.
+The root Vitest unit suite runs them without typechecking.
 The Docker job runs `docker build .` without a registry login, push, or deployment.
 
 The Sentrux job requires the committed `.sentrux/baseline.json` from the first run.
@@ -63,6 +65,11 @@ Dependabot checks root npm dependencies and GitHub Actions weekly, with minor an
 ## Intent and architecture decisions
 
 For changes under `apps/`, `packages/`, `cli/`, `scripts/`, or `db/`, add or update an `intent/*.md` file.
+A dependency-only diff needs no intent file.
+It must only modify package manifests and lockfiles, with manifest edits limited to existing dependency versions.
+Versions may use exact, caret, or tilde ranges.
+This exemption does not depend on the author.
+Other changes under the governed paths still need intent coverage, including dependency additions, removals, source changes, scripts, and code.
 List the changed paths under `files`, set `task`, and include `## Why` and `## Verification` sections.
 See [this intent example](intent/S6-https-security-headers.md) and [the checker](scripts/check-intent.ts).
 

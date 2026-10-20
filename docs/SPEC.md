@@ -37,8 +37,8 @@ Sponsor tracks:
 - Contracts are frozen after Gate G0: `packages/core`, MCP tool signatures, merged migrations, provider interfaces, route factory signatures. Changing one needs orchestrator approval, an ADR in `intent/decisions/`, and a notice to every running builder.
 - A PR merges (squash) only when: required CI is green, required verifiers returned `VERDICT: PASS` (recorded in the intent file), the intent file is complete, and no contract conflict is open. Policy for this event: auto-merge on PASS plus green CI.
 - Three failed verifications on one task escalate to the humans with a summary and two options.
-- ADR-010 (humans, 2026-10-17): findings on money, auth/secrets, data integrity, the safety classifier or the demo path block a merge; defense-in-depth edges (log formatting, perf on authenticated input, hardening of already-guarded paths) merge and get a follow-up issue or PR, listed in STATUS.md "Deferred" and in the intent file's Known gaps, triaged at feature freeze.
-- `STATUS.md` is the task board. No sponsor integration is called working until it has worked live once (`live-verified: yes/no`).
+- ADR-010 (humans, 2026-10-17): findings on money, auth/secrets, data integrity, the safety classifier or the demo path block a merge; defense-in-depth edges (log formatting, perf on authenticated input, hardening of already-guarded paths) merge and get a follow-up issue or PR, listed in docs/archive/hackathon/STATUS.md "Deferred" and in the intent file's Known gaps, triaged at feature freeze.
+- `docs/archive/hackathon/STATUS.md` is the task board. No sponsor integration is called working until it has worked live once (`live-verified: yes/no`).
 
 ## §3 Agents
 
@@ -89,7 +89,7 @@ Phase 3, Primitive, AX, dashboard (feature freeze at 6:00 AM Sunday):
 - T3.4 orchestrator or `ax-builder`: Armature analytics and a golden-path eval across Claude and one other client. Verifiers: ax, integration.
 - Gate G3: the demo script (§13) passes 3 times in a row. Feature freeze.
 
-Phase 4 (6:00 to 9:30 AM Sunday): bug fixes only, demo 5 times, backup video, README, submission text. Submissions are due 10:00 AM Sunday (docs/vendor/hackathon.md).
+Phase 4 (6:00 to 9:30 AM Sunday): bug fixes only, demo 5 times, backup video, README, submission text. Submissions are due 10:00 AM Sunday (docs/archive/hackathon/hackathon.md).
 
 ## §6 MCP tool surface (the product)
 
@@ -159,6 +159,9 @@ status: verified | needs-follow-up
 ```
 
 Enforcement (`scripts/check-intent.ts`, CI job `intent`): every changed file under `apps/`, `packages/`, `cli/`, `scripts/`, `db/` must be listed (globs allowed) in the `files` of an intent file changed in the same diff, with non-empty Why and Verification. Modifying (not adding) a file under `packages/core/src/` or `packages/db/migrations/` also needs an ADR in the same diff. `intent/INDEX.md` must be fresh.
+Dependency-only diffs are exempt when they only modify package manifests and lockfiles.
+Manifest edits must only change existing dependency versions, using exact, caret, or tilde ranges.
+The exemption does not depend on the author.
 
 ## §8 CI
 
@@ -189,7 +192,7 @@ packages/safety     rules + classifier
 cli/                `eyes` CLI
 docs/vendor         researcher notes      docs/public   llms.txt etc.
 evals/safety        classifier eval fixtures
-intent/  scripts/  e2e/  .claude/agents/  .github/workflows/  STATUS.md
+intent/  scripts/  e2e/  .claude/agents/  .github/workflows/  docs/archive/hackathon/STATUS.md
 ```
 
 ## §11 Data model
@@ -218,4 +221,4 @@ Eyes only allows tasks about public, commercial or civic places.
 - Execution mode: single orchestrator.
 - Repo: `ayaangazali/eyes`, public.
 - Merge policy: auto-merge on verifier PASS plus green CI.
-- Worker phones, Stripe Connect status, public domain, demo cafe: collected at Gate G0 (see STATUS.md "Needs from humans").
+- Worker phones, Stripe Connect status, public domain, demo cafe: collected at Gate G0 (see docs/archive/hackathon/STATUS.md "Needs from humans").

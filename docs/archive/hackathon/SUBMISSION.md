@@ -1,6 +1,6 @@
 # Submission draft
 
-Draft text for the hackathon submission form. Lines marked **TODO** need facts that only exist once the vendor keys land and the live demo has run; fill them from [STATUS.md](../STATUS.md) "Live verification" and never ahead of it. Anything not live-verified there must say "on fakes in CI".
+Draft text for the hackathon submission form. Lines marked **TODO** need facts that only exist once the vendor keys land and the live demo has run; fill them from [STATUS.md](STATUS.md) "Live verification" and never ahead of it. Anything not live-verified there must say "on fakes in CI".
 
 Current publication status: Marketplace 1.0.3 is a configured draft with preflight complete, **not submitted or published**. Legal owner attestations and test-mode limits remain. ChatGPT and Claude are configured at the dedicated MCP host; follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18, not a general client limitation.
 
@@ -114,7 +114,7 @@ Money that is owed always moves:
 - Per-link revocation for owner links and agent email addresses (API keys can already be replaced), and withdrawing unused balance back to the card ([#28](https://github.com/ayaangazali/eyes/issues/28), [#29](https://github.com/ayaangazali/eyes/issues/29)).
 - An owner link that never goes to an address the agent picks, and a masked owner email on the top-up page so a payer can see who controls the agent ([#38](https://github.com/ayaangazali/eyes/issues/38), [#54](https://github.com/ayaangazali/eyes/issues/54)).
 - A way for workers to report a task ([#34](https://github.com/ayaangazali/eyes/issues/34)).
-- Expiry and refunds run on a schedule outside the server process, and money or dispatch failures raise an alert instead of only a log line ([#31](https://github.com/ayaangazali/eyes/issues/31), [#30](https://github.com/ayaangazali/eyes/issues/30)).
+- Money or dispatch failures raise an alert instead of only a log line ([#30](https://github.com/ayaangazali/eyes/issues/30)).
 - Recurring checks ("tell me when the line is under 5 people") built on the same escrow and verification.
 
 ## Team

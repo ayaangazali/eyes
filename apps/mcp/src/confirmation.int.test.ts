@@ -6,7 +6,7 @@ import { migrate } from "@eyes/db";
 import { createEyesService } from "@eyes/engine";
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import postgres from "postgres";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { toNodeListener } from "./http.ts";
 import { createServer } from "./server.ts";
 
@@ -34,14 +34,20 @@ describe.skipIf(!url)("confirmed task intents over HTTP and PostgreSQL", () => {
   const clients: Client[] = [];
   let base: string;
   const location = { lat: 37.78246, lng: -122.40776 };
+  let workerNumber = 0;
+
+  async function worker() {
+    const phone = `+1555${String(++workerNumber).padStart(7, "0")}`;
+    await service.joinWorker({ name: "Synthetic confirmation worker", phone, ...location });
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+  }
 
   beforeAll(async () => {
     await migrate(url ?? "");
-    await service.joinWorker({ name: "Synthetic confirmation worker", phone: "+15550001111", ...location });
-    await service.handleWorkerReply({ phone: "+15550001111", intent: "start", text: "START" });
     await new Promise<void>((resolve) => http.listen(0, "127.0.0.1", resolve));
     base = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
   });
+  beforeEach(worker);
   afterAll(async () => {
     await Promise.all(clients.map((client) => client.close()));
     await new Promise<void>((resolve) => http.close(() => resolve()));
@@ -167,6 +173,7 @@ describe.skipIf(!url)("confirmed task intents over HTTP and PostgreSQL", () => {
       expect(await effects(actor.id)).toEqual({ tasks: 1, escrows: 1, offers: 1 });
       const saved = await call(widget, "get_task", { task_id: posted?.task_id });
       expect(saved.retry_context).toMatchObject({ deadline_minutes: 45, require_photo: false });
+      await worker();
       const again = await call(widget, "confirm_ask", {
         ...(saved.retry_context as Record<string, unknown>),
         idempotency_key: randomUUID(),
@@ -188,6 +195,7 @@ describe.skipIf(!url)("confirmed task intents over HTTP and PostgreSQL", () => {
       const ask = request();
       const mcp = await call(client, "ask_eyes", ask);
       expect(mcp.status).toBe("dispatched");
+      await worker();
       const response = await fetch(`${base}/v1/tasks`, {
         method: "POST",
         headers: { authorization: `Bearer ${signup.api_key}`, "content-type": "application/json" },

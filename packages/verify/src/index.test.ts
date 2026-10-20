@@ -123,7 +123,7 @@ describe("verifySubmission", () => {
     });
   });
 
-  it("turns a vision failure into vision_ok false without leaking the error text", async () => {
+  it("records an unavailable verdict without leaking the error text", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const broken: Vision = {
       judge: async () => {
@@ -132,7 +132,7 @@ describe("verifySubmission", () => {
     };
     const r = await verifySubmission(input({}, broken));
     expect(r).toMatchObject({
-      vision_ok: false,
+      vision_ok: null,
       vision_reason: "Safety check unavailable; the photo needs manual review.",
       auto_approve: false,
     });
@@ -148,7 +148,7 @@ describe("verifySubmission", () => {
     const pending = verifySubmission(input({}, stalled));
     await vi.advanceTimersByTimeAsync(25_000);
     const r = await pending;
-    expect(r).toMatchObject({ vision_ok: false, auto_approve: false });
+    expect(r).toMatchObject({ vision_ok: null, auto_approve: false });
     expect(r.vision_reason).toMatch(/unavailable/);
     log.mockRestore();
     vi.useRealTimers();
@@ -401,7 +401,7 @@ describe("createClefVision", () => {
     try {
       await expect(createClefVision(env).judge(judgeInput)).rejects.toThrow();
       const r = await verifySubmission(input(judgeInput, createClefVision(env)));
-      expect(r).toMatchObject({ vision_ok: false, auto_approve: false });
+      expect(r).toMatchObject({ vision_ok: null, auto_approve: false });
       expect(r.vision_reason).toContain("unavailable");
       expect(log).toHaveBeenCalled();
     } finally {
@@ -503,7 +503,7 @@ describe("createClefVision", () => {
       const r = await verifySubmission(
         input(judgeInput, createClefVision({ ...env, ANTHROPIC_API_KEY: "test" })),
       );
-      expect(r).toMatchObject({ vision_ok: false, auto_approve: false });
+      expect(r).toMatchObject({ vision_ok: null, auto_approve: false });
       expect(r.vision_reason).toContain("unavailable");
     } finally {
       log.mockRestore();
@@ -515,7 +515,7 @@ describe("verifySubmission vision failure that is not an Error", () => {
   it("logs the thrown value's type only", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
     const r = await verifySubmission(input({}, { judge: () => Promise.reject("secret detail") }));
-    expect(r).toMatchObject({ vision_ok: false, auto_approve: false });
+    expect(r).toMatchObject({ vision_ok: null, auto_approve: false });
     expect(log).toHaveBeenCalledWith("verifySubmission: vision check failed", "string");
     log.mockRestore();
   });

@@ -25,7 +25,7 @@ Open the link you get back, and allow location access.
 
 ## Where in the code
 
-- [`intent/decisions/ADR-024-worker-location.md`](../../intent/decisions/ADR-024-worker-location.md): the decision and limits
+- [`intent/decisions/ADR-037-worker-location.md`](../../intent/decisions/ADR-037-worker-location.md): the decision and limits
 - [`apps/mobile/src/background.ts`](../../apps/mobile/src/background.ts): background location in the iPhone app
 - [`apps/mcp/src/server.ts`](../../apps/mcp/src/server.ts): the `/w/location` and `/v1/worker/location` routes
 - [`packages/core/src/service.ts`](../../packages/core/src/service.ts): `updateWorkerLocation`

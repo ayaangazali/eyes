@@ -109,7 +109,36 @@ describe.skipIf(!url)("single-use OAuth codes over HTTP and PostgreSQL", () => {
     const { code, redeem } = await authorize();
     const first = await redeem();
     expect(first.status).toBe(200);
-    expect(await first.json()).toEqual({ access_token: key, token_type: "Bearer" });
+    const { access_token } = await first.json();
+    expect(access_token).not.toBe(key);
+    const initialized = await fetch(`${bases[1]}/mcp`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${access_token}`,
+        "content-type": "application/json",
+        accept: "application/json, text/event-stream",
+        origin: "https://inspector.example",
+      },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-03-26",
+          capabilities: {},
+          clientInfo: { name: "oauth-test", version: "1" },
+        },
+      }),
+    });
+    expect(initialized.status).toBe(200);
+    expect(initialized.headers.get("access-control-allow-origin")).toBe("*");
+    expect(await initialized.text()).toContain('"serverInfo"');
+    const refused = await fetch(`${bases[0]}/v1/balance`, {
+      headers: { authorization: `Bearer ${access_token}`, origin: "https://inspector.example" },
+    });
+    expect(refused.status).toBe(401);
+    expect(refused.headers.get("www-authenticate")).toContain('error="invalid_token"');
+    expect(refused.headers.get("access-control-allow-origin")).toBe("*");
     for (const replay of [code, `${code}=`]) {
       const response = await redeem(bases[1], { code: replay });
       expect(response.status).toBe(400);
@@ -123,7 +152,7 @@ describe.skipIf(!url)("single-use OAuth codes over HTTP and PostgreSQL", () => {
     expect(responses.map((response) => response.status).sort()).toEqual([200, 400]);
     for (const response of responses) {
       expect(await response.json()).toMatchObject(
-        response.status === 200 ? { access_token: key, token_type: "Bearer" } : { error: "invalid_grant" },
+        response.status === 200 ? { token_type: "Bearer" } : { error: "invalid_grant" },
       );
     }
   });
@@ -134,15 +163,18 @@ describe.skipIf(!url)("single-use OAuth codes over HTTP and PostgreSQL", () => {
       { code_verifier: "w".repeat(43) },
       { client_id: "wrong-client" },
       { redirect_uri: "https://other.example/callback" },
+      { resource: "https://other.example/mcp" },
     ];
     for (const fields of invalidRequests) {
       const response = await redeem(bases[0], fields);
       expect(response.status).toBe(400);
-      expect(await response.json()).toMatchObject({ error: "invalid_grant" });
+      expect(await response.json()).toMatchObject({
+        error: fields.resource ? "invalid_target" : "invalid_grant",
+      });
     }
     const response = await redeem();
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ access_token: key });
+    expect(await response.json()).toMatchObject({ token_type: "Bearer" });
   });
 
   it("returns no token when redemption storage fails and permits retry after recovery", async () => {
@@ -155,7 +187,7 @@ describe.skipIf(!url)("single-use OAuth codes over HTTP and PostgreSQL", () => {
     } finally {
       await sql`alter table unavailable_redemptions rename to oauth_code_redemptions`;
     }
-    expect(await (await redeem()).json()).toMatchObject({ access_token: key });
+    expect(await (await redeem()).json()).toMatchObject({ token_type: "Bearer" });
   });
 
   it("denies an untrusted database role access to redemption records and the RPC", async () => {

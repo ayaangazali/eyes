@@ -1,5 +1,35 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`error catalog > matches the public error contract 1`] = `
+{
+  "bounty_exceeds_max": 403,
+  "daily_cap_exceeded": 403,
+  "email_taken": 409,
+  "idempotency_conflict": 409,
+  "insufficient_balance": 402,
+  "internal_error": 500,
+  "invalid_input": 400,
+  "location_not_found": 422,
+  "method_not_allowed": 405,
+  "no_workers_nearby": 409,
+  "not_found": 404,
+  "not_implemented": 501,
+  "offer_invalid": 404,
+  "owner_link_invalid": 404,
+  "payload_too_large": 413,
+  "rate_limited": 429,
+  "service_unavailable": 503,
+  "task_already_claimed": 409,
+  "task_not_acceptable": 409,
+  "task_not_cancellable": 409,
+  "task_not_disputable": 409,
+  "task_not_found": 404,
+  "task_type_not_allowed": 403,
+  "unauthorized": 401,
+  "unsafe_task": 422,
+}
+`;
+
 exports[`tool schemas > match the committed snapshot 1`] = `
 {
   "accept_answer": {
@@ -142,6 +172,30 @@ exports[`tool schemas > match the committed snapshot 1`] = `
         "next_step": {
           "type": "string",
         },
+        "resolved_location": {
+          "additionalProperties": false,
+          "properties": {
+            "label": {
+              "type": "string",
+            },
+            "lat": {
+              "maximum": 90,
+              "minimum": -90,
+              "type": "number",
+            },
+            "lng": {
+              "maximum": 180,
+              "minimum": -180,
+              "type": "number",
+            },
+          },
+          "required": [
+            "lat",
+            "lng",
+            "label",
+          ],
+          "type": "object",
+        },
         "status": {
           "enum": [
             "dispatched",
@@ -169,6 +223,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       },
       "required": [
         "task_id",
+        "resolved_location",
         "status",
         "workers_notified",
         "escrowed_usd",
@@ -916,6 +971,11 @@ exports[`tool schemas > match the committed snapshot 1`] = `
     "input": {
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "properties": {
+        "before": {
+          "format": "uuid",
+          "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+          "type": "string",
+        },
         "limit": {
           "default": 20,
           "maximum": 50,
@@ -943,6 +1003,18 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "$schema": "https://json-schema.org/draft/2020-12/schema",
       "additionalProperties": false,
       "properties": {
+        "next_cursor": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string",
+            },
+            {
+              "type": "null",
+            },
+          ],
+        },
         "next_step": {
           "type": "string",
         },
@@ -1022,6 +1094,7 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       },
       "required": [
         "tasks",
+        "next_cursor",
         "next_step",
       ],
       "type": "object",
@@ -1104,9 +1177,13 @@ exports[`tool schemas > match the committed snapshot 1`] = `
               "type": "string",
             },
             "lat": {
+              "maximum": 90,
+              "minimum": -90,
               "type": "number",
             },
             "lng": {
+              "maximum": 180,
+              "minimum": -180,
               "type": "number",
             },
           },

@@ -45,6 +45,7 @@ export const REPLY_INTENTS = [
   "install",
   "task",
   "location_share",
+  "media",
   "unknown",
 ] as const;
 export type ReplyIntent = (typeof REPLY_INTENTS)[number];

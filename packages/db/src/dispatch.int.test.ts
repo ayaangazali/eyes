@@ -132,35 +132,48 @@ describe.skipIf(!url)("dispatch and YES claims for workers who already hold a ta
     expect(await task(second)).toEqual({ status: "dispatched", claimed_by: null });
   });
 
-  it("a YES from a worker who holds a claim returns their own task even if an offer reached them in the dispatch race", async () => {
+  it("rejects a stale worker list after a claim without charging the next task", async () => {
     const place = somewhere();
     const busy = await worker(place, 50);
     const a = await agent();
-    const first = await post(a, place, await nearby(place), 0);
-    const readBeforeTheClaim = await nearby(place);
+    const candidates = await nearby(place);
+    const first = await post(a, place, candidates, 0);
     await yes(busy, 1);
-    const second = await post(a, place, readBeforeTheClaim, 2);
-
+    await expect(post(a, place, candidates, 2)).rejects.toMatchObject({ code: "no_workers_nearby" });
     expect(await yes(busy, 3)).toEqual([{ outcome: "already_yours", task_id: first }]);
-    expect(await task(second)).toEqual({ status: "dispatched", claimed_by: null });
+    expect((await sql`select balance_cents::int as balance from agents where id = ${a}`)[0]?.balance).toBe(
+      1650,
+    );
   });
 
-  it("two YES from one worker with two open offers claim one task even when the first commits mid-claim", async () => {
+  it("rejects a second open offer and accepts one after the first task expires", async () => {
     const place = somewhere();
     const w = await worker(place, 50);
     const a = await agent();
-    const older = await post(a, place, await nearby(place), 0);
-    const newer = await post(a, place, await nearby(place), 1);
+    const first = await post(a, place, [w], 0);
+    await expect(post(a, place, [w], 1)).rejects.toMatchObject({ code: "no_workers_nearby" });
+    const next = await post(a, place, [w], 30 * 60);
+    expect(await yes(w, 30 * 60 + 1)).toEqual([{ outcome: "won", task_id: next }]);
+    expect(await task(first)).toEqual({ status: "dispatched", claimed_by: null });
+  });
+
+  it("two YES replies with overlapping offers retain one claim when the first commits mid-claim", async () => {
+    const place = somewhere();
+    const w = await worker(place, 50);
+    const other = await worker(place, 100);
+    const a = await agent();
+    const older = await post(a, place, [w], 0);
+    const newer = await post(a, place, [other], 1);
+    await sql`insert into offers (task_id, worker_id, sent_at) values (${newer}, ${w}, ${at(1)})`;
     const key = randomInt(1_000_000_000);
     const [fn] = await sql<{ def: string }[]>`
       select pg_get_functiondef('eyes_claim(uuid, timestamptz)'::regprocedure) as def`;
     const paused = String(fn?.def)
       .replace("eyes_claim(", "eyes_claim_paused(")
       .replace("select t.* into v_task", `perform pg_advisory_xact_lock(${key});\n  select t.* into v_task`);
-    expect(paused).toContain("pg_advisory_xact_lock");
     await sql.unsafe(paused);
     const gate = await sql.reserve();
-    const other = await sql.reserve();
+    const otherConnection = await sql.reserve();
     const claims = (rows: postgres.RowList<postgres.Row[]>) =>
       Array.from(rows, (r) => ({ outcome: r.outcome, task_id: r.task_id }));
     try {
@@ -168,7 +181,8 @@ describe.skipIf(!url)("dispatch and YES claims for workers who already hold a ta
       let second: Promise<postgres.RowList<postgres.Row[]>> = Promise.resolve([] as never);
       const first = await sql.begin(async (tx) => {
         const won = await tx`select outcome, (task).id as task_id from eyes_claim(${w}, ${at(2)})`;
-        second = other`select outcome, (task).id as task_id from eyes_claim_paused(${w}, ${at(2)})`.execute();
+        second =
+          otherConnection`select outcome, (task).id as task_id from eyes_claim_paused(${w}, ${at(2)})`.execute();
         let blocked = 0;
         for (let i = 0; i < 500 && !blocked; i++) {
           await sleep(10);
@@ -180,13 +194,12 @@ describe.skipIf(!url)("dispatch and YES claims for workers who already hold a ta
         return won;
       });
       await gate`select pg_advisory_unlock(${key}::bigint)`;
-
       expect(claims(first)).toEqual([{ outcome: "won", task_id: newer }]);
       expect(claims(await second)).toEqual([{ outcome: "already_yours", task_id: newer }]);
       expect(await task(older)).toEqual({ status: "dispatched", claimed_by: null });
     } finally {
       gate.release();
-      other.release();
+      otherConnection.release();
       await sql`drop function eyes_claim_paused(uuid, timestamptz)`;
     }
   });

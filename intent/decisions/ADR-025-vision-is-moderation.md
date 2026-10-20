@@ -10,8 +10,20 @@ Status: accepted (2026-10-17, operator); photo policy narrowed on 2026-10-18. `V
 - The judge sees only the photo. The question, place and worker answer are no longer sent, so the verdict cannot be about correctness (and there is no task data to inject through).
 - clef-omni asks `gore` and `explicit_sexual` as `noul` questions. A category probability >= 0.8 rejects; otherwise content passes, including uncertainty. Actual provider failures use Claude when configured. Claude returns structured content flags and rejects only when a blocked flag is true with confidence >= 0.8. Missing, malformed or out-of-range provider responses throw; if fallback fails or is unavailable, verification remains unavailable and the task needs review.
 - Payout: `gps_ok && fresh_ok && vision_ok` auto-approves, as before; `vision_ok` now means "safe to share". Answer correctness never blocks payout.
-- A blocked or unavailable photo is not delivered (`photo_url: null` in agent answers); stored photos remain available to reviewers. Face-only deletion is removed, superseding ADR-014 for moderation. Lost-claim upload cleanup remains. No existing photos or held tasks are reprocessed, deleted, released or refunded by this change.
+- A blocked photo is never delivered (`photo_url: null` in agent answers).
+  An unavailable photo stays withheld until ops releases the task and the agent's payment is released.
+  Store unavailable checks as `submissions.vision_ok = null`; keep confirmed blocks as `false` and successful checks as `true`.
+  Deliver an unavailable photo only in `verified` or `paid`, when the release transaction has charged the agent.
+  Keep the public `verification.vision_ok` boolean false for unavailable checks, even after release.
+  Stored photos remain available to reviewers.
+  Face-only deletion is removed, superseding ADR-014 for moderation.
+  Lost-claim upload cleanup remains.
+  Do not infer past moderation outcomes from reason text or rewrite old false verdicts.
 - User-facing label: "Photo is safe to share" (capture page, ChatGPT widget card, dashboard, ops review, docs).
+
+The release rule follows the stated default in [issue #180](https://github.com/ayaangazali/eyes/issues/180), applied for [issue #99](https://github.com/ayaangazali/eyes/issues/99).
+The owner has not answered that product question.
+An ops release cannot change a confirmed block.
 
 ## Alternatives rejected
 - New field names (`moderation_ok`): breaks agents already reading `vision_ok`. Redefining the meaning in descriptions is enough because both fields only ever gated the same payout.
@@ -19,4 +31,12 @@ Status: accepted (2026-10-17, operator); photo policy narrowed on 2026-10-18. `V
 - A generic "safe to share" question and face threshold: they conflated task-request privacy restrictions with photo moderation and held ordinary photos. Two explicit content categories keep the policy bounded.
 
 ## Consequences
-The agent still evaluates correctness. An ops-approved blocked photo stays undelivered (ops cannot "unblock" a photo for the agent). The 0.8 clef threshold is a policy cutoff, not a measured accuracy guarantee. Image-ground-truth evaluation is separate from mocked category tests and safe-image runtime smoke.
+The agent still evaluates correctness.
+An ops-approved blocked photo stays undelivered: ops cannot "unblock" a confirmed block for the agent.
+The nullable internal verdict does not change public tool schemas or grant clients access to stored photos.
+Migration 042 permits a missing verdict without changing old rows or moving money.
+Old false verdicts stay withheld because their reason text cannot safely distinguish an outage from a block.
+Apply the migration before the new application code; stop the new writers before reverting the application.
+Preserve nullable rows on rollback rather than reclassifying them as successful checks.
+The 0.8 clef threshold is a policy cutoff, not a measured accuracy guarantee.
+Image-ground-truth evaluation is separate from mocked category tests and safe-image runtime smoke.

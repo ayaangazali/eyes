@@ -11,13 +11,29 @@ const UA = "eyes-monitor/1.0";
 
 export default {
   async scheduled(_event, env) {
-    // The release trigger must not stop the uptime check (or its retry), so its errors only log.
-    await Promise.all([
+    // Neither background trigger may stop the uptime check or its retry.
+    const [health] = await Promise.allSettled([
       check(env),
       release(env).catch((err) => console.log(`release trigger: ${err.message}`)),
+      expire(env).catch((err) => console.log(`expiry trigger: ${err.message}`)),
     ]);
+    if (health.status === "rejected") throw health.reason;
   },
 };
+
+async function expire(env) {
+  if (!env.INSFORGE_BASE_URL || !env.INSFORGE_API_KEY) return;
+  const res = await fetch(
+    `${env.INSFORGE_BASE_URL.replace(/\/+$/, "")}/api/database/rpc/eyes_expire_overdue`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${env.INSFORGE_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ p_now: new Date().toISOString() }),
+      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+    },
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+}
 
 // Ad hoc iPhone releases (T6.31): GitHub's scheduler on i098/eyes-ios-release is unreliable, so each minute
 // count unreleased worker iPhones and, when some wait and no release run is active, start one.

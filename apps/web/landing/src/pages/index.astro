@@ -72,7 +72,7 @@ const flight = [
   title="Eyes: your agent asks, someone nearby looks"
   description="Eyes pays someone near a place to take a live photo, then returns a verified answer to your AI agent in minutes."
 >
-  <link slot="head" rel="preload" as="image" href="/images/storefront.webp" />
+  <link slot="head" rel="preload" as="image" href="/images/storefront.webp" imagesrcset="/images/storefront-640.webp 640w, /images/storefront-1080.webp 1080w, /images/storefront.webp 1536w" imagesizes="(min-width: 1152px) 632px, (min-width: 768px) 55vw, calc(100vw - 40px)" />
 
   <main>
     <section class="mx-auto grid max-w-6xl gap-10 px-5 pt-14 pb-16 md:grid-cols-12 md:pt-20 md:pb-24">
@@ -94,6 +94,8 @@ const flight = [
         <div class="ui-viewfinder focus">
           <img
             src="/images/storefront.webp"
+            srcset="/images/storefront-640.webp 640w, /images/storefront-1080.webp 1080w, /images/storefront.webp 1536w"
+            sizes="(min-width: 1152px) 632px, (min-width: 768px) 55vw, calc(100vw - 40px)"
             width="1536"
             height="1024"
             alt="A corner coffee shop with an OPEN sign on the door and a chalkboard menu on the sidewalk"
@@ -187,6 +189,8 @@ const flight = [
       <div class="band__photo ui-viewfinder">
         <img
           src="/images/shelf.webp"
+          srcset="/images/shelf-640.webp 640w, /images/shelf.webp 1024w"
+          sizes="100vw"
           width="1024"
           height="1536"
           loading="lazy"

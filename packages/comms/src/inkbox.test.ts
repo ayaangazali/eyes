@@ -191,7 +191,13 @@ describe("inkbox webhook", () => {
     ["\ufffc", null, "location_share"],
     ["", null, "location_share"],
     ["", [], "location_share"],
-    ["", [{ url: "https://inkbox.test/photo.jpg" }], "unknown"],
+    ["", [{ url: "https://inkbox.test/photo.jpg" }], "media"],
+    ["\ufffc", [{ url: "https://inkbox.test/photo.jpg" }], "media"],
+    ["\ufffd", [{ url: "https://inkbox.test/photo.jpg" }], "media"],
+    ["YES", [{ url: "https://inkbox.test/photo.jpg" }], "media"],
+    ["STOP", [{ url: "https://inkbox.test/photo.jpg" }], "stop"],
+    ["START", [{ url: "https://inkbox.test/photo.jpg" }], "start"],
+    ["HELP", [{ url: "https://inkbox.test/photo.jpg" }], "help"],
     ["\ufffd here", null, "here"],
   ])(
     "maps an iMessage %j with media %j (how Inkbox delivers Apple location shares) to %s",
@@ -204,6 +210,19 @@ describe("inkbox webhook", () => {
       expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+15555550123", intent, text: content });
     },
   );
+
+  it("directs an MMS photo to capture submission", async () => {
+    const { post, handleWorkerReply } = setup();
+    const evt = textReceived("");
+    evt.data.text_message.media = [{ url: "https://inkbox.test/photo.jpg" }] as never;
+    const body = JSON.stringify(evt);
+    await post(body, signedHeaders(body));
+    expect(handleWorkerReply).toHaveBeenCalledWith({
+      phone: "+14155550999",
+      intent: "media",
+      text: "",
+    });
+  });
 
   it("rejects an imessage.received with a bad signature exactly like a text event", async () => {
     const { post, handleWorkerReply } = setup();
@@ -721,7 +740,9 @@ describe("parseReplyIntent", () => {
     ["yes?", "unknown"],
     ["no way, yes", "unknown"],
     ["maybe later", "unknown"],
-    ["yes please", "unknown"],
+    ["yes please", "yes"],
+    ["Yes, please!", "yes"],
+    ["yes please?", "unknown"],
     ["stop by later", "unknown"],
     ["constructor", "unknown"],
     ["toString", "unknown"],
@@ -751,15 +772,9 @@ describe("parseReplyIntent", () => {
   });
 
   it.each([
-    ["Strat", "start"],
-    ["strt", "start"],
-    ["stat", "start"],
     ["Start!", "start"],
     ["START", "start"],
     ["sTaRt.", "start"],
-    ["yse", "yes"],
-    ["yess", "yes"],
-    ["stpo", "stop"],
     ["hepl", "help"],
     // one edit from both "help" and "here": ambiguous
     ["hele", "unknown"],
@@ -768,10 +783,42 @@ describe("parseReplyIntent", () => {
     ["oen", "unknown"],
     ["xz", "unknown"],
     ["strat now", "unknown"],
-    ["shop?", "stop"],
     ["strat?", "unknown"],
   ])("typo %j -> %s", (text, intent) => {
     expect(parseReplyIntent(text)).toBe(intent);
+  });
+
+  it.each([
+    "send",
+    "step",
+    "shop",
+    "quiet",
+    "quite",
+    "suit",
+    "tend",
+    "bend",
+    "lend",
+    "ends",
+    "none",
+    "note",
+    "past",
+    "bass",
+    "mass",
+    "stat",
+    "smart",
+    "star",
+    "stare",
+    "year",
+    "surely",
+    "clamp",
+    "eyes",
+    "strat",
+    "strt",
+    "stpo",
+    "yse",
+    "yess",
+  ])("does not turn %j into consent or a task decision", (text) => {
+    expect(parseReplyIntent(text)).toBe("unknown");
   });
 });
 

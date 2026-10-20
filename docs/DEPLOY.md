@@ -17,6 +17,11 @@ Current production: the MCP/API application runs on **Manufact Cloud**, server `
 
 Cloudflare's `eyes-api` Worker forwards `mcp.eyes.pictures`, `api.eyes.pictures` and `internal.eyes.pictures` to the same Manufact `ORIGIN`. The optional Manufact gateway is a separate proxy, not the application host. Landing and worker pages remain on Cloudflare.
 
+The keyless sandbox is retired, following the default in [issue #180](https://github.com/ayaangazali/eyes/issues/180).
+Protected MCP and REST calls require authentication; `POST /v1/signup` remains public.
+The old `EYES_SANDBOX` flag no longer changes server behavior.
+The deployment operator must shut down any remaining sandbox server; removing this code does not stop deployed services.
+
 ### Dedicated MCP domain: live
 
 `https://mcp.eyes.pictures/mcp` is **live, with ChatGPT and Claude configured there**. The current registry has 13 model-visible tools plus app-only `confirm_ask`. The shared card resource is `ui://eyes/confirmation-card.html`; the legacy React-view build is removed. Not every third-party connector has migrated; existing API-host and gateway configurations remain supported.
@@ -94,7 +99,7 @@ For this section, `<public>` remains `https://api.eyes.pictures`; the MCP-domain
 3. Agent: connect to `https://mcp.eyes.pictures/mcp` with an existing key or the web OAuth flow; signup and all REST calls remain under `https://api.eyes.pictures`.
 4. Ask about the demo cafe; a nearby phone gets the offer text, replies YES, gets the capture link, takes the photo; Claude's `await_answer` returns the verified answer with `photo_url`.
 5. G2: the Stripe dashboard shows the top-up, then the transfer to the worker's connected account; `get_balance` drops by 3.50; "Photograph the house at 123 Oak St" is refused with `unsafe_task`.
-6. Record each result in STATUS.md "Live verification" with the time and what was seen.
+6. Record each result in docs/archive/hackathon/STATUS.md "Live verification" with the time and what was seen.
 
 ## Ad hoc releases (iPhone app)
 
@@ -148,6 +153,12 @@ Uptime alerts run from a separate Worker, `eyes-monitor` (`apps/edge/monitor`), 
 1. Every minute it checks `https://api.eyes.pictures/healthz`. Healthy = HTTP 200, `ok` true, every provider `live`, `db` `insforge`.
    HTTP 503 with `{"ok":false}` means the database read failed or exceeded two seconds.
    Concurrent probes share one unfinished read to avoid filling the database connection pool.
+   In parallel, the same cron calls InsForge `eyes_expire_overdue` directly to refund overdue tasks even when the API is down.
+   It reuses the monitor's existing `INSFORGE_BASE_URL` and `INSFORGE_API_KEY`; no new environment variable or secret is required.
+   Both values must be set for expiry; this does not depend on `RELEASE_DISPATCH_TOKEN`.
+   The database transaction lock and unique refund entries make concurrent server and cron sweeps safe.
+   Failed requests log `expiry trigger` and retry on the next minute; a database outage still delays refunds.
+   Deploy the updated Worker to enable this trigger; a code change alone does not update the running monitor.
 2. Two failed checks in a row send "Eyes API is down: <reason>". The next healthy check sends "Eyes API is back up (down N min)".
 3. Channel: Inkbox iMessage to `ALERT_PHONE`. `ALERT_PHONE`, `INKBOX_API_KEY` and `INKBOX_AGENT_HANDLE` are Worker secrets, set with `printf %s '<number>' | npx -y wrangler@4 secret put <NAME>` in `apps/edge/monitor`, and never written to files.
 4. Deploy: `cd apps/edge/monitor && CLOUDFLARE_ACCOUNT_ID="<account-id>" npx -y wrangler@4 deploy`.

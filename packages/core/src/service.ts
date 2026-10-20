@@ -41,6 +41,7 @@ export type SafetyVerdict = {
   reason: string | null;
   fix: string | null;
   layer: "rules" | "classifier" | null;
+  unavailable?: true;
 };
 export type AssessTask = (input: SafetyInput) => Promise<SafetyVerdict>;
 
@@ -61,7 +62,7 @@ export type VerifyInput = {
 export type VerificationResult = {
   gps_ok: boolean;
   fresh_ok: boolean;
-  vision_ok: boolean;
+  vision_ok: boolean | null;
   vision_reason: string;
   worker_distance_m: number;
   confidence: number;

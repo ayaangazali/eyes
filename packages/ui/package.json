@@ -3,12 +3,12 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./tokens.css": "./tokens.css",
-    "./components.css": "./components.css",
-    "./tailwind.css": "./tailwind.css",
-    "./chatgpt.css": "./chatgpt.css",
-    "./icons.svg": "./icons.svg",
-    "./header": "./header.ts",
-    "./page": "./page.ts"
+    "./tokens.css": "./src/tokens.css",
+    "./components.css": "./src/components.css",
+    "./tailwind.css": "./src/tailwind.css",
+    "./chatgpt.css": "./src/chatgpt.css",
+    "./icons.svg": "./src/icons.svg",
+    "./header": "./src/header.ts",
+    "./page": "./src/page.ts"
   }
 }

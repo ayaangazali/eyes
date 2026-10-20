@@ -1,6 +1,6 @@
 # Manufact screenshots
 
-Captured on 2026-10-17 for the demo video and pitch. Evidence and context for each is in STATUS.md, "Manufact usage" and "Live verification".
+Captured on 2026-10-17 for the demo video and pitch. Evidence and context for each is in docs/archive/hackathon/STATUS.md, "Manufact usage" and "Live verification".
 
 | File | What it shows |
 |---|---|

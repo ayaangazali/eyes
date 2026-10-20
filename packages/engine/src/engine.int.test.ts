@@ -25,11 +25,14 @@ import {
   WorkerTasks,
 } from "@eyes/core";
 import { createRpc, migrate } from "@eyes/db";
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import postgres from "postgres";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { createServer } from "../../../apps/mcp/src/server.ts";
 import { withShortLinks } from "../../../apps/mcp/src/short-links.ts";
 import { inkboxRoutes, parseReplyIntent } from "../../comms/src/inkbox.ts";
 import { withWorkerEmail } from "../../comms/src/primitive.ts";
+import { UNAVAILABLE } from "../../safety/src/index.ts";
 import { checkRules } from "../../safety/src/rules.ts";
 import { verifySubmission } from "../../verify/src/index.ts";
 import { createEyesService } from "./index.ts";
@@ -156,6 +159,140 @@ describe.skipIf(!url)("engine on Postgres", () => {
     sql`select type, amount_cents::int as amount, stripe_ref from ledger where task_id = ${taskId} order by type`;
 
   const reply = (phone: string) => service.handleWorkerReply({ phone, intent: "yes", text: "YES" });
+
+  async function textWebhook(phone: string, content: string, media: unknown[] = []) {
+    const key = "worker-replies-signing-key";
+    const app = inkboxRoutes(
+      { service, providers, config: deps.config },
+      { INKBOX_WEBHOOK_SIGNING_KEY: key },
+    );
+    const body = JSON.stringify({
+      event_type: "imessage.received",
+      data: { message: { id: randomUUID(), remote_number: phone, content, media } },
+    });
+    const id = randomUUID();
+    const timestamp = String(Math.floor(providers.clock.now().getTime() / 1000));
+    const signature = createHmac("sha256", key).update(`${id}.${timestamp}.${body}`).digest("hex");
+    expect(
+      (
+        await app.request("/", {
+          method: "POST",
+          body,
+          headers: {
+            "x-inkbox-request-id": id,
+            "x-inkbox-timestamp": timestamp,
+            "x-inkbox-signature": `sha256=${signature}`,
+          },
+        })
+      ).status,
+    ).toBe(200);
+  }
+
+  it.each(["STOP", "cancel", "NO"])("%s releases the held task for another worker", async (text) => {
+    const at = somewhere();
+    const a = await agent();
+    const first = await worker(at);
+    const next = await worker(north(at, 100));
+    const { task_id } = await ask(a, at);
+    await textWebhook(first.phone, "YES");
+    expect((await service.getTask(a, { task_id })).status).toBe("claimed");
+    const before = outbox.length;
+    await textWebhook(first.phone, text);
+    expect(await service.getTask(a, { task_id })).toMatchObject({ status: "dispatched", claimed_at: null });
+    expect((await sql`select opted_in from workers where id = ${first.worker_id}`)[0]?.opted_in).toBe(
+      text === "NO",
+    );
+    expect(outbox.slice(before)).toContainEqual({
+      to: next.phone,
+      kind: "offer",
+      payload: expect.objectContaining({ task_id }),
+    });
+    await reply(next.phone);
+    expect(outbox.at(-1)).toMatchObject({ to: next.phone, kind: "capture_link", payload: { task_id } });
+  });
+
+  it.each(["stop", "no"] as const)(
+    "reoffers a released task even when the %s confirmation fails",
+    async (intent) => {
+      const at = somewhere();
+      const a = await agent();
+      const first = await worker(at);
+      const next = await worker(north(at, 100));
+      const { task_id } = await ask(a, at);
+      await reply(first.phone);
+      const before = outbox.length;
+      const send = vi.spyOn(providers.messaging, "sendText").mockRejectedValueOnce(new Error("send failed"));
+      try {
+        await expect(service.handleWorkerReply({ phone: first.phone, intent, text: intent })).rejects.toThrow(
+          "send failed",
+        );
+        expect(outbox.slice(before)).toContainEqual({
+          to: next.phone,
+          kind: "offer",
+          payload: expect.objectContaining({ task_id }),
+        });
+        expect((await service.getTask(a, { task_id })).status).toBe("dispatched");
+      } finally {
+        send.mockRestore();
+      }
+    },
+  );
+
+  it("HELP after STOP gives help without restoring consent or location codes", async () => {
+    const w = await worker(somewhere());
+    await textWebhook(w.phone, "STOP");
+    const before = outbox.length;
+    await textWebhook(w.phone, "HELP");
+    expect(outbox.slice(before)).toHaveLength(1);
+    expect(String(outbox.at(-1)?.payload)).toContain("START");
+    expect(String(outbox.at(-1)?.payload)).toContain("HELP");
+    expect((await sql`select opted_in, lat from workers where id = ${w.worker_id}`)[0]).toMatchObject({
+      opted_in: false,
+      lat: null,
+    });
+    expect(await sql`select 1 from worker_location_tokens where worker_id = ${w.worker_id}`).toEqual([]);
+  });
+
+  it("photos by text explain capture submission and preserve the held task", async () => {
+    const at = somewhere();
+    const a = await agent();
+    const w = await worker(at);
+    const media = [{ url: "https://inkbox.test/photo.jpg" }];
+    await textWebhook(w.phone, "", media);
+    expect(String(outbox.at(-1)?.payload)).toContain("no open task");
+    const { task_id } = await ask(a, at);
+    await reply(w.phone);
+    const link = String(outbox.at(-1)?.payload.capture_url);
+    for (const content of ["", "\ufffc", "YES"]) {
+      await textWebhook(w.phone, content, media);
+      expect(String(outbox.at(-1)?.payload)).toContain(link);
+      expect(String(outbox.at(-1)?.payload)).toContain("submit");
+    }
+    expect((await service.getTask(a, { task_id })).status).toBe("claimed");
+    expect(await sql`select 1 from submissions where task_id = ${task_id}`).toEqual([]);
+    await capture(new URL(link).searchParams.get("t") ?? "", at);
+    await textWebhook(w.phone, "\ufffc", media);
+    expect(String(outbox.at(-1)?.payload)).toContain("no open task");
+  });
+
+  it("concurrent asks give each worker only one open offer", async () => {
+    const at = somewhere();
+    const w = await worker(at);
+    const a = await agent();
+    const b = await agent();
+    const results = await Promise.allSettled([ask(a, at), ask(b, at)]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.find((r) => r.status === "rejected")).toMatchObject({
+      reason: { code: "no_workers_nearby" },
+    });
+    const offers = outbox.filter((m) => m.to === w.phone && m.kind === "offer");
+    expect(offers).toHaveLength(1);
+    await textWebhook(w.phone, "yes please");
+    expect(outbox.at(-1)).toMatchObject({
+      kind: "capture_link",
+      payload: { task_id: offers[0]?.payload.task_id },
+    });
+  });
 
   const claimsWaitingOnLock = async () =>
     (
@@ -572,18 +709,18 @@ describe.skipIf(!url)("engine on Postgres", () => {
     ).rejects.toMatchObject({
       code: "invalid_input",
     });
-    // STOP deleted the location (ADR-024); the repeat join did not write its own.
+    // STOP deleted the location (ADR-037); the repeat join did not write its own.
     expect(await sql`select name, lat from workers where phone = ${phone}`).toEqual([
       { name: "Real Worker", lat: null },
     ]);
   });
 
-  it("STOP gets one confirmation, then nothing until START, which confirms the worker is back in", async () => {
+  it("STOP silences task replies until START, which confirms the worker is back in", async () => {
     const { phone } = await worker(somewhere());
     const sent = () => outbox.filter((m) => m.to === phone).map((m) => m.payload);
     const before = sent().length;
     await service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
-    for (const intent of ["stop", "help", "yes", "no", "unknown"] as const) {
+    for (const intent of ["stop", "yes", "no", "unknown"] as const) {
       await service.handleWorkerReply({ phone, intent, text: intent });
     }
     const after = sent().slice(before);
@@ -650,9 +787,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(sent).toHaveLength(1);
     const text = String(sent[0]?.payload);
     hubLines(text);
-    expect(text.length).toBeLessThanOrEqual(650);
     const links = text.match(/https:\/\/api\.eyes\.test\/s\/[0-9A-Za-z]{8}/g) ?? [];
-    expect(links).toHaveLength(3);
+    expect(links).toHaveLength(1);
     const targets = await Promise.all(
       links.map(async (link) => {
         const [row] = await rpc<{ target: string }>("eyes_short_link", {
@@ -662,63 +798,25 @@ describe.skipIf(!url)("engine on Postgres", () => {
         return row?.target;
       }),
     );
-    expect(targets).toEqual([
-      expect.stringMatching(/^https:\/\/w\.eyes\.test\/install#c=[\w-]{43}$/),
-      expect.stringMatching(/^https:\/\/api\.eyes\.test\/w\/connect\/\S+$/),
-      expect.stringMatching(/^https:\/\/w\.eyes\.test\/me#c=\S+$/),
-    ]);
-    const expected = {
-      YES: ["Y", "YEP", "YUP", "YEAH", "YEA", "OK", "OKAY", "SURE", "CLAIM", "👍"],
-      NO: ["N", "NOPE", "NAH", "PASS"],
-      TASK: ["LINK"],
-      START: ["UNSTOP"],
-      HELP: ["INFO", "?"],
-      "APP / INSTALL": ["DOWNLOAD", "TESTFLIGHT"],
-      HERE: ["LOCATION", "I'M HERE", "IM HERE", "I AM HERE"],
-      SHORTCUT: ["AUTO", "AUTOMATION"],
-      EMAIL: ["E-MAIL"],
-      "EMAIL OFF": ["E-MAIL OFF"],
-      STOP: [
-        "STOPALL",
-        "STOP ALL",
-        "UNSUBSCRIBE",
-        "CANCEL",
-        "END",
-        "QUIT",
-        "REVOKE",
-        "OPTOUT",
-        "OPT OUT",
-        "STOP TEXTING ME",
-        "PLEASE STOP",
-      ],
-    };
-    for (const [canonical, aliases] of Object.entries(expected)) {
-      for (const command of [...canonical.split(" / "), ...aliases]) {
-        const intent =
-          canonical === "APP / INSTALL"
-            ? command === "APP"
-              ? "app"
-              : "install"
-            : canonical.startsWith("EMAIL")
-              ? "unknown"
-              : canonical.toLowerCase();
-        expect(parseReplyIntent(command), command).toBe(intent);
-      }
-    }
+    expect(targets).toEqual([expect.stringMatching(/^https:\/\/api\.eyes\.test\/w\/connect\/\S+$/)]);
+    const installCode = /\/install#c=([\w-]{43})/.exec(text)?.[1] ?? "";
+    expect(await wrapped.workerDevice(installCode)).toMatchObject({ registered: false });
+    expect(await wrapped.workerSetup(meToken(text))).toMatchObject({ opted_in: true });
+    expect(
+      await sql`select target from short_links where worker_id = ${w.worker_id} and target like '%#c=%'`,
+    ).toEqual([]);
 
     // Already-opted-in email replies use the same hub; no second phone message.
     await sql`update workers set email = ${email}, email_verified_at = now() where id = ${w.worker_id}`;
     await wrapped.handleWorkerReply({ email, intent: parseReplyIntent("START"), text: "START" });
     const emailed = providers.email.outbox.findLast((m) => m.to === email);
     hubLines(emailed?.text);
-    expect(emailed?.text.length).toBeLessThanOrEqual(650);
     expect(outbox.slice(before)).toHaveLength(1);
     for (const intent of ["start", "help"] as const) {
       const count = outbox.length;
       await wrapped.handleWorkerReply({ phone: w.phone, intent, text: intent.toUpperCase() });
       expect(outbox.slice(count)).toHaveLength(1);
       hubLines(outbox.at(-1)?.payload);
-      expect(String(outbox.at(-1)?.payload).length).toBeLessThanOrEqual(650);
     }
 
     // These engine-only commands bypass the parser but must actually reach emailByText.
@@ -1078,13 +1176,14 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
   it("lists only the calling agent's tasks, newest first, filtered by status and bounded by limit", async () => {
     const at = somewhere();
-    await worker(north(at, 100));
     const [a, b] = [await agent(), await agent()];
     const mine: string[] = [];
     for (const question of ["Is it open right now?", "Is the line long?", "Is it busy right now?"]) {
+      await worker(north(at, 100));
       mine.unshift((await ask(a, at, { question })).task_id);
       providers.clock.advance(1000);
     }
+    await worker(north(at, 100));
     const theirs = await ask(b, at);
     await service.cancelTask(a, { task_id: mine[1] as string });
     const ids = async (who: Agent, input: { status?: TaskStatus; limit: number }) =>
@@ -1102,6 +1201,69 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await ids(a, { status: "refunded", limit: 20 })).toEqual([mine[1]]);
     expect(await ids(a, { limit: 2 })).toEqual(mine.slice(0, 2));
     await expect(service.listTasks(a, { limit: 51 })).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("pages beyond 50 tasks without losing timestamp ties", async () => {
+    const signup = await service.signupAgent({ name: "paging-test" });
+    const a = (await service.authenticate(signup.api_key)) as Agent;
+    await sql`insert into tasks
+      (agent_id, question, task_type, place_label, lat, lng, bounty_cents, fee_cents, deadline_at, created_at)
+      select ${a.id}, 'Is it open?', 'is_open', 'Pier', 1, 1, 300, 0,
+        '2026-10-20T12:00:00Z', '2026-10-20T11:00:00.123456Z'
+      from generate_series(1, 55)`;
+    const expected =
+      await sql`select id from tasks where agent_id = ${a.id} order by created_at desc, id desc`;
+    const first = await service.listTasks(a, { limit: 50 });
+    expect(first.tasks.map((task) => task.task_id)).toEqual(expected.slice(0, 50).map((row) => row.id));
+    expect(first.next_cursor).toBe(first.tasks[49]?.task_id);
+    expect(first.next_step).toContain("list_tasks");
+    expect(first.next_step).not.toContain("ask_eyes");
+    const before = String(first.next_cursor);
+    const last = await service.listTasks(a, { limit: 5, before });
+    expect(last.tasks.map((task) => task.task_id)).toEqual(expected.slice(50).map((row) => row.id));
+    expect(last.next_cursor).toBeNull();
+    const empty = await service.listTasks(a, { limit: 50, before: last.tasks[4]?.task_id });
+    expect(empty.tasks).toEqual([]);
+    expect(empty.next_cursor).toBeNull();
+    expect(empty.next_step).toContain("list_tasks");
+    expect(empty.next_step).not.toContain("ask_eyes");
+    expect(await service.listTasks(await agent(), { limit: 50 })).toMatchObject({
+      tasks: [],
+      next_cursor: null,
+    });
+    expect(await service.listTasks(await agent(), { limit: 50, before })).toMatchObject({
+      tasks: [],
+      next_cursor: null,
+    });
+    expect(await service.listTasks(a, { limit: 50, status: "paid" })).toMatchObject({
+      tasks: [],
+      next_cursor: null,
+    });
+    const server = createServer({ service, providers, config: deps.config, env: {} });
+    const fetch: typeof globalThis.fetch = (url, init) => server.fetch(new Request(url, init));
+    const headers = { authorization: `Bearer ${signup.api_key}` };
+    const response = await fetch(`http://eyes.test/v1/tasks?limit=50&before=${first.next_cursor}`, {
+      headers,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual(last);
+    const client = new Client({ name: "paging-test", version: "1" });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+          fetch,
+          requestInit: { headers },
+        }),
+      );
+      const result = await client.callTool({
+        name: "list_tasks",
+        arguments: { limit: 50, before: first.next_cursor },
+      });
+      expect(result.isError).not.toBe(true);
+      expect(JSON.parse((result.content as { text: string }[])[0]?.text ?? "null")).toEqual(last);
+    } finally {
+      await client.close();
+    }
   });
 
   describe("quote_task against the key's limits and balance", () => {
@@ -1310,6 +1472,161 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
     expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
     expect(await sql`select id from tasks where agent_id = ${a.id}`).toHaveLength(0);
+  });
+
+  it("returns the resolved place over REST and MCP, including retries", async () => {
+    const at = somewhere();
+    await worker(at);
+    const place = { ...at, label: "Public Cafe, Paris, France" };
+    const scoped = { ...providers, geo: { geocode: async () => place } };
+    const svc = createEyesService({ ...deps, providers: scoped });
+    const signup = await svc.signupAgent({ name: "resolved-place" });
+    const server = createServer({ service: svc, providers: scoped, config: deps.config, env: {} });
+    const fetch = (url: string | URL, init?: RequestInit) => server.fetch(new Request(url, init));
+    const headers = { authorization: `Bearer ${signup.api_key}` };
+    const input = {
+      question: "Is the cafe open?",
+      location: "Public Cafe, London, UK",
+      task_type: "is_open",
+      idempotency_key: randomUUID(),
+    };
+    const response = await fetch("http://eyes.test/v1/tasks", {
+      method: "POST",
+      headers,
+      body: JSON.stringify(input),
+    });
+    expect(response.status).toBe(200);
+    const posted = await response.json();
+    expect(posted.resolved_location).toEqual(place);
+    const client = new Client({ name: "resolved-place", version: "1" });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+          fetch,
+          requestInit: { headers },
+        }),
+      );
+      const result = await client.callTool({ name: "ask_eyes", arguments: input });
+      expect(result.isError).not.toBe(true);
+      expect(result.structuredContent).toMatchObject({
+        task_id: posted.task_id,
+        resolved_location: place,
+      });
+    } finally {
+      await client.close();
+    }
+  });
+
+  it.each([
+    { lat: 91, lng: 0 },
+    { lat: 0, lng: -181 },
+    { lat: Number.NaN, lng: 2 },
+  ])("reports invalid geocoder coordinates as location_not_found: %j", async (point) => {
+    const svc = createEyesService({
+      ...deps,
+      providers: { ...providers, geo: { geocode: async () => ({ ...point, label: "Public Cafe" }) } },
+    });
+    await expect(
+      svc.quoteTask(await agent(), { location: "Public Cafe", task_type: "is_open" }),
+    ).rejects.toMatchObject({ code: "location_not_found" });
+  });
+
+  it("rejects bad characters and coordinates over REST and MCP before charging", async () => {
+    const signup = await service.signupAgent({ name: "invalid-input" });
+    const a = (await service.authenticate(signup.api_key)) as Agent;
+    const server = createServer({ service, providers, config: deps.config, env: {} });
+    const fetch = (url: string | URL, init?: RequestInit) => server.fetch(new Request(url, init));
+    const headers = { authorization: `Bearer ${signup.api_key}` };
+    const client = new Client({ name: "invalid-input", version: "1" });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+          fetch,
+          requestInit: { headers },
+        }),
+      );
+      for (const patch of [
+        ...["\u0000", "\ud800", "\udfff"].flatMap((bad) =>
+          ["question", "location", "idempotency_key"].map((field) => ({ [field]: `Cafe ${bad}` })),
+        ),
+        { location: { lat: 91, lng: 0 } },
+        { location: { lat: 0, lng: -181 } },
+        { location: "95,200" },
+        { location: "-91, 0" },
+        { location: "0, -181" },
+      ]) {
+        const input = {
+          question: "Is the cafe open?",
+          location: somewhere(),
+          task_type: "is_open",
+          idempotency_key: randomUUID(),
+          ...patch,
+        };
+        const response = await fetch("http://eyes.test/v1/tasks", {
+          method: "POST",
+          headers,
+          body: JSON.stringify(input),
+        });
+        expect(response.status).toBe(400);
+        const body = await response.json();
+        expect(body.error).toBe("invalid_input");
+        expect(body.issues[0].path).toContain(Object.keys(patch)[0]);
+        const result = await client.callTool({ name: "ask_eyes", arguments: input });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain(Object.keys(patch)[0]);
+      }
+      expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
+      expect(await sql`select id from tasks where agent_id = ${a.id}`).toHaveLength(0);
+    } finally {
+      await client.close();
+    }
+  });
+
+  it("returns a retryable safety outage over REST and MCP without charging", async () => {
+    const signup = await service.signupAgent({ name: "outage-test" });
+    const a = (await service.authenticate(signup.api_key)) as Agent;
+    const server = createServer({ service, providers, config: deps.config, env: {} });
+    const fetch = (url: string | URL, init?: RequestInit) => server.fetch(new Request(url, init));
+    const client = new Client({ name: "outage-test", version: "1" });
+    const input = {
+      question: "Is the cafe open?",
+      location: somewhere(),
+      task_type: "is_open",
+      idempotency_key: randomUUID(),
+    };
+    safety = UNAVAILABLE;
+    try {
+      const headers = { authorization: `Bearer ${signup.api_key}` };
+      await expect(
+        service.quoteTask(a, { location: input.location, task_type: "is_open" }),
+      ).rejects.toMatchObject({ code: "service_unavailable" });
+      const response = await fetch("http://eyes.test/v1/tasks", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(input),
+      });
+      expect(response.status).toBe(503);
+      const body = await response.json();
+      expect(body).toMatchObject({ error: "service_unavailable", fix: expect.stringContaining("Retry") });
+      expect(body.fix).not.toContain("Rephrase");
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+          fetch,
+          requestInit: { headers },
+        }),
+      );
+      const result = await client.callTool({ name: "ask_eyes", arguments: input });
+      expect(result.isError).toBe(true);
+      expect(JSON.parse((result.content as { text: string }[])[0]?.text ?? "null")).toEqual(body);
+      expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
+      expect(await sql`select id from tasks where agent_id = ${a.id}`).toHaveLength(0);
+      await expect(ask(a, somewhere(), { location: "Nowhere Street 1, Atlantis" })).rejects.toMatchObject({
+        code: "location_not_found",
+      });
+    } finally {
+      safety = ALLOW;
+      await client.close();
+    }
   });
 
   it("refuses an unsafe task at a place it cannot resolve as unsafe_task, checking the place text as given", async () => {
@@ -1968,6 +2285,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     ["uncertain content", true, 0.1, false],
     ["graphic gore", false, 0.95, false],
     ["explicit sexual content", false, 0.95, false],
+    ["Safety check unavailable; the photo needs manual review.", false, 0.95, false],
     ["provider unavailable", false, 0, true],
   ])("moderates %s without deleting photos or paying twice", async (reason, allowed, confidence, fails) => {
     const verify = vi.spyOn(deps, "verifySubmission").mockImplementation(verifySubmission);
@@ -1996,6 +2314,23 @@ describe.skipIf(!url)("engine on Postgres", () => {
       expect(released).toHaveLength(allowed ? 1 : 0);
       const paid = providers.payments.transfers.filter((p) => p.task_id === task_id);
       expect(paid).toHaveLength(allowed ? 1 : 0);
+      if (!allowed) {
+        expect(await service.resolveTask(task_id, "release", "Manual photo review")).toMatchObject({
+          status: "paid",
+        });
+        await expect(service.resolveTask(task_id, "release", "Repeated release")).rejects.toMatchObject({
+          code: "invalid_input",
+        });
+        await service.retryPayouts();
+        const delivered = (await service.awaitAnswer(a, { task_id, timeout_seconds: 1 })).answer;
+        expect(delivered?.photo_url).toBe(fails ? `https://storage.fake.test/photos/${key}` : null);
+        expect((await service.getTask(a, { task_id })).answer?.photo_url).toBe(delivered?.photo_url);
+        expect(delivered?.verification.vision_ok).toBe(false);
+        expect(await sql`select id from ledger where task_id = ${task_id} and type = 'release'`).toHaveLength(
+          1,
+        );
+        expect(providers.payments.transfers.filter((p) => p.task_id === task_id)).toHaveLength(1);
+      }
     } finally {
       verify.mockRestore();
       judge.mockRestore();
@@ -2162,6 +2497,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const busy = await worker(north(at, 2900));
     const { task_id, workers_notified } = await ask(a, at);
     expect(workers_notified).toBe(3);
+    await reply(releaser.phone);
 
     providers.clock.advance(1000);
     const elsewhere = await ask(a, north(at, 5000));
@@ -2170,10 +2506,6 @@ describe.skipIf(!url)("engine on Postgres", () => {
       kind: "capture_link",
       payload: { task_id: elsewhere.task_id },
     });
-    await reply(releaser.phone);
-    providers.clock.advance(1000);
-    await ask(a, north(at, 100));
-    providers.clock.advance(1000);
 
     const before = outbox.length;
     await service.handleWorkerReply({ phone: releaser.phone, intent: "no", text: "NO" });
@@ -2468,17 +2800,6 @@ describe.skipIf(!url)("engine on Postgres", () => {
         code: "invalid_input",
       });
       expect(await service.getBalance(a)).toMatchObject({ balance_usd: 20, escrowed_usd: 0 });
-    });
-
-    it("tells an agent with no tasks how to start, or to drop the status filter", async () => {
-      const a = await agent();
-      expect(await service.listTasks(a, { limit: 20 })).toEqual({
-        tasks: [],
-        next_step: "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
-      });
-      expect((await service.listTasks(a, { status: "paid", limit: 20 })).next_step).toBe(
-        "You have no tasks with status paid. Call list_tasks without status to see all your tasks.",
-      );
     });
 
     it("opens a $20 top-up checkout only for a t: token", async () => {

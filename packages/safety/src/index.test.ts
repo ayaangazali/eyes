@@ -22,6 +22,7 @@ const failClosed = {
   reason: expect.stringContaining("temporarily unavailable"),
   fix: expect.stringContaining("Retry"),
   layer: "classifier",
+  unavailable: true,
 };
 
 const reply = (text: string, stop_reason = "end_turn") =>

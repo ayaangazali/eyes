@@ -4,7 +4,7 @@ import type { DbConfig } from "@eyes/core";
 import { createRpc, type Rpc } from "@eyes/db";
 
 export const UI_CSS = ["tokens.css", "components.css"]
-  .map((file) => readFileSync(new URL(`../../../../packages/ui/${file}`, import.meta.url), "utf8"))
+  .map((file) => readFileSync(new URL(`../../../../packages/ui/src/${file}`, import.meta.url), "utf8"))
   .join("\n");
 // Both pages inline the shared tokens and components (ui-mark) in place of /* @eyes/ui */.
 export const PAGE = readFileSync(new URL("./index.html", import.meta.url), "utf8").replace(
@@ -19,7 +19,7 @@ export const OPS_PAGE = readFileSync(new URL("./ops.html", import.meta.url), "ut
   .replace("/* @eyes/ops-view */", () => OPS_SCRIPT)
   // The outline icons the page references with <use href="#i-…">.
   .replace("<!-- @eyes/icons -->", () =>
-    readFileSync(new URL("../../../../packages/ui/icons.svg", import.meta.url), "utf8"),
+    readFileSync(new URL("../../../../packages/ui/src/icons.svg", import.meta.url), "utf8"),
   );
 export {
   buildSeries,

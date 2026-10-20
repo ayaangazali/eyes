@@ -6,9 +6,8 @@ const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const LINK_MS = 7 * 24 * 3_600_000;
 
 /**
- * Live texts carry `<api>/s/<id>` (about 33 characters) instead of ~200-character signed URLs.
- * Only URLs on our own origins are shortened; the target keeps its token (and #c= fragment), is
- * stored for the redirect, and is never logged. The target's own expiry still applies.
+ * Shorten links without #c= codes; keep codes out of short_links.
+ * Stored targets keep their tokens and expiry, and are never logged.
  */
 export function withShortLinks(
   messaging: Messaging,
@@ -21,6 +20,7 @@ export function withShortLinks(
   );
   const ours = new RegExp(`(?:${origins.join("|")})/\\S*[^\\s.,)]`, "g");
   const shorten = async (to: string, url: string) => {
+    if (url.includes("#c=")) return url;
     const worker = (await rpc<{ id: string }>("eyes_worker", { p_worker_id: null, p_phone: to }))[0];
     // ponytail: modulo bias over 62 symbols is tiny; 8 symbols is ~47 bits against guessing.
     const id = Array.from(randomBytes(8), (b) => BASE62[b % 62]).join("");

@@ -30,14 +30,14 @@ Every PR: spec + test + intent verifiers, security on money/auth/webhooks/safety
 1. **Client visuals:** record a fresh in-chat ChatGPT/Claude visual result only after account quotas permit it; current API/card-protocol verification is not that result.
 2. **Marketplace:** retain draft status until the legal owner completes attestations and explicitly submits/publishes; keep test-payment limits visible.
 3. **Email:** preserve iMessage-only onboarding and first-contact Inkbox fallback; do not claim unrestricted Primitive delivery or resolved external-alias SPF.
-4. Deferred issues, by demo impact: #28 (link revocation), #29 (withdraw to card), #30 (per-task event trail), #31 (durable expiry), #34 (worker report), #38 (owner link address), #54 (masked owner email), #71.
-5. **Phase 4**: remaining SUBMISSION TODOs from STATUS, the 90 s video from docs/DEMO.md, backup video, final README pass.
+4. Deferred issues, by demo impact: #28 (link revocation), #29 (withdraw to card), #30 (per-task event trail), #34 (worker report), #38 (owner link address), #54 (masked owner email), #71.
+5. **Phase 4**: remaining SUBMISSION TODOs from STATUS, the 90 s video from docs/archive/hackathon/DEMO.md, backup video, final README pass.
 
 ## 4. Historical key-onboarding sequence
 
 Order agreed with the humans: Inkbox (in person) -> Manufact -> InsForge -> Stripe -> Primitive -> Armature. Anthropic is a prerequisite for any live mode: without `ANTHROPIC_API_KEY` the server refuses `EYES_PROVIDERS=live` on purpose (the safety classifier and photo verification would be off).
 
-Current deployment and recovery guidance is in [DEPLOY §2](DEPLOY.md#2-mcp-server-on-manufact-cloud). The dated provisioning rows below record earlier setup, not current instructions to wait for keys or redeploy to InsForge Sites. Preserve the Manufact origin and separate MCP/REST public hosts.
+Current deployment and recovery guidance is in [DEPLOY §2](../../DEPLOY.md#2-mcp-server-on-manufact-cloud). The dated provisioning rows below record earlier setup, not current instructions to wait for keys or redeploy to InsForge Sites. Preserve the Manufact origin and separate MCP/REST public hosts.
 
 | Key | Steps | Proof (live-verified) |
 |---|---|---|
@@ -66,4 +66,4 @@ Claude asks "Is the line at Blue Bottle Coffee, Mint Plaza long right now? Use E
 | Stripe Connect onboarding friction | pre-onboard one teammate worker before demos; show the transfer in the dashboard |
 | Claude API slow or down during the demo | the classifier fails closed within 12 seconds (refusal, nothing charged) and vision sends the task to review; rules still refuse the demo's unsafe task |
 | Venue GPS drift | verify radius 150 m; capture at the cafe door |
-| Manufact server deploy breaks | use the last verified Manufact deployment and the current recovery procedure in [DEPLOY §2](DEPLOY.md#2-mcp-server-on-manufact-cloud); preserve the public domains and Cloudflare forwarder. Do not silently switch the API back to a Cloudflare Container |
+| Manufact server deploy breaks | use the last verified Manufact deployment and the current recovery procedure in [DEPLOY §2](../../DEPLOY.md#2-mcp-server-on-manufact-cloud); preserve the public domains and Cloudflare forwarder. Do not silently switch the API back to a Cloudflare Container |

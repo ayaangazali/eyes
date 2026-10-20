@@ -18,7 +18,7 @@ import {
   OwnerPolicyInput,
   parseMapLink,
   type ReplyIntent,
-  type ResolvedLocation,
+  ResolvedLocation,
   type SafetyInput,
   SignupInput,
   type Submission,
@@ -227,7 +227,7 @@ const AWAIT_NEXT_STEP: Record<TaskStatus, string> = {
     "Answered and verified. Use answer.answer_text and answer.photo_url. If the answer is wrong, call dispute_answer with a reason.",
   paid: "Answered, verified and the worker is paid. Use answer.answer_text and answer.photo_url. If the answer is wrong, call dispute_answer with a reason.",
   needs_review:
-    "A worker answered but automatic verification did not pass (see answer.verification). Use the answer with care; your escrow is held until review. Call dispute_answer if it is wrong.",
+    "A worker answered but automatic verification did not pass (see answer.verification). Use the answer with care; your escrow is held until review. If photo_url is empty, call get_task after review to check for a released photo. Call dispute_answer if it is wrong.",
   expired:
     "No worker answered before the deadline, so the full cost was refunded to your balance. Call ask_eyes again, perhaps with a higher bounty_usd or a longer deadline_minutes.",
   refunded: "This task was cancelled and refunded. Call ask_eyes to ask again.",
@@ -239,6 +239,22 @@ const REPLY_TEXT: Record<"no" | "released", string> = {
   no: "No problem, we will text you the next task nearby.",
   released: "Got it, the task is released. Thanks.",
 };
+const WORKER_HELP = [
+  "YES — take task",
+  "NO — pass/give back",
+  "TASK — get task link",
+  "HERE — update location",
+  "APP — open app",
+  "INSTALL — get app",
+  "SHORTCUT — background location",
+  "EMAIL — add email by text",
+  "EMAIL OFF — remove email by text",
+  "START — join/resume",
+  "STOP — pause, clear spot/email, disable location codes",
+  "HELP — support/review answer",
+  "",
+  "Text a Maps link, coordinates or email address.",
+].join("\n");
 const SIMULATED_PAY = "This is a test server and payouts are simulated, so no real money is paid.";
 
 const sha256 = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -246,6 +262,7 @@ const iso = (s: string) => new Date(s).toISOString();
 function askResult({ task, workers_notified, escrowed_cents }: Replay): ToolOutput<"ask_eyes"> {
   return {
     task_id: task.id,
+    resolved_location: { lat: task.lat, lng: task.lng, label: task.place_label },
     status: task.status,
     workers_notified,
     escrowed_usd: centsToUsd(escrowed_cents),
@@ -291,14 +308,17 @@ function answerOf({ task, submission, worker_rating }: Detail): Answer | null {
     task_id: task.id,
     answer_text: submission.answer_text ?? fallback,
     answer_bool: submission.answer_bool,
-    // A photo that failed moderation (vision_ok false) is never delivered; ops still sees it.
-    photo_url: submission.vision_ok ? submission.photo_url : null,
+    photo_url:
+      submission.vision_ok ||
+      (submission.vision_ok === null && (task.status === "verified" || task.status === "paid"))
+        ? submission.photo_url
+        : null,
     captured_at: iso(submission.captured_at),
     worker_distance_m: Math.round(distanceMeters(task, submission)),
     verification: {
       gps_ok: submission.gps_ok,
       fresh_ok: submission.fresh_ok,
-      vision_ok: submission.vision_ok,
+      vision_ok: submission.vision_ok === true,
       vision_reason: submission.vision_reason,
     },
     confidence: submission.confidence,
@@ -391,20 +411,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       ...(config.live_payouts ? [] : [SIMULATED_PAY]),
       `Your setup: ${meUrl(worker.id)}`,
       "",
-      "YES — take task",
-      "NO — pass/give back",
-      "TASK — get task link",
-      "HERE — update location",
-      "APP — open app",
-      "INSTALL — get app",
-      "SHORTCUT — background location",
-      "EMAIL — add email by text",
-      "EMAIL OFF — remove email by text",
-      "START — join/resume",
-      "STOP — pause, clear spot/email, disable location codes",
-      "HELP — support/review answer",
-      "",
-      "Text a Maps link, coordinates or email address.",
+      WORKER_HELP,
     ].join("\n");
   }
 
@@ -576,9 +583,10 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       typeof location === "string"
         ? await providers.geo.geocode(location)
         : { ...location, label: `${location.lat},${location.lng}` };
-    if (!place || (place.lat === 0 && place.lng === 0))
+    const resolved = ResolvedLocation.safeParse(place);
+    if (!resolved.success || (resolved.data.lat === 0 && resolved.data.lng === 0))
       throw new EyesError("location_not_found", { location });
-    return place;
+    return resolved.data;
   }
 
   async function assessTask(input: SafetyInput, location: LatLng | string) {
@@ -683,6 +691,23 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       p_now: nowIso(),
     });
     await sendOffers(task, more);
+  }
+
+  async function reoffer(task: Task, workerId: string) {
+    const idle = await rpc<Worker & LatLng>("eyes_reoffer", {
+      p_task_id: task.id,
+      p_released_by: workerId,
+      p_now: nowIso(),
+      p_max_age: maxAge,
+    });
+    await sendOffers(
+      task,
+      idle.map((w) => ({
+        worker_id: w.id,
+        ...verified(w),
+        distance_m: distanceMeters(task, w),
+      })),
+    );
   }
 
   type Fix = { lat: number; lng: number; accuracy_m?: number; source: string; captured_at?: string };
@@ -923,6 +948,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         },
         location,
       );
+      if (verdict.unavailable) throw new EyesError("service_unavailable");
       const workers = await nearby(place, null);
       const nearest = workers[0];
       const s = await one<Summary>("eyes_agent_summary", { p_agent_id: agent.id, p_now: nowIso() });
@@ -1080,6 +1106,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           (!verdict.category || verdict.category === "other")
         )
           throw resolutionError;
+        if (verdict.unavailable) throw new EyesError("service_unavailable");
         if (!verdict.allowed && !(approved && verdict.layer === "classifier")) {
           throw new EyesError(
             "unsafe_task",
@@ -1220,14 +1247,18 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async listTasks(agent, input) {
-      const { status, limit } = parse(TOOLS.list_tasks.input, input);
+      const { status, limit, before } = parse(TOOLS.list_tasks.input, input);
       const rows = await rpc<Task>("eyes_list_tasks", {
         p_agent_id: agent.id,
         p_status: status ?? null,
-        p_limit: limit,
+        p_limit: limit + 1,
+        p_before: before ?? null,
       });
+      const page = rows.slice(0, limit);
+      const nextCursor = rows.length > limit ? (page.at(-1)?.id ?? null) : null;
       return {
-        tasks: rows.map((t) => ({
+        next_cursor: nextCursor,
+        tasks: page.map((t) => ({
           task_id: t.id,
           status: t.status,
           accepted_at: t.accepted_at ? iso(t.accepted_at) : null,
@@ -1238,11 +1269,15 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           deadline_at: iso(t.deadline_at),
           answered: ANSWERED.includes(t.status),
         })),
-        next_step: rows.length
-          ? "Resume instead of asking again: for a task with status dispatched, claimed or submitted, call await_answer with its task_id; for a task where answered is true, call get_task to read the answer and photo_url. Call ask_eyes only if no task here covers your question."
-          : status
-            ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
-            : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
+        next_step: nextCursor
+          ? "Resume a listed task with await_answer or get_task. More tasks exist: call list_tasks with next_cursor as before and the same status filter before asking again."
+          : before && !rows.length
+            ? "No older tasks match this cursor, or the cursor is unknown to this API key. Call list_tasks without before to start again."
+            : rows.length
+              ? "Resume instead of asking again: for a task with status dispatched, claimed or submitted, call await_answer with its task_id; for a task where answered is true, call get_task to read the answer and photo_url. Call ask_eyes only if no task here covers your question."
+              : status
+                ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
+                : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
       };
     },
 
@@ -1473,6 +1508,10 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         const off = /^\s*e-?mail\s+off\W*$/i.test(text);
         if (off || /^\s*e-?mail\W*$/i.test(text) || textedEmail(text)) return emailByText(worker, phone, off);
       }
+      if (!worker.opted_in && intent === "help") {
+        await messaging.sendText(phone, `Eyes: you're opted out. Text START to rejoin.\n\n${WORKER_HELP}`);
+        return;
+      }
       if (!worker.opted_in && intent !== "start") return;
       // The phone is the account (one account per number), so only a text from it turns tasks on.
       if (!worker.opted_in && "email" in input) {
@@ -1497,11 +1536,12 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           await messaging.sendText(phone, (await hubReply(worker)) + note);
         },
         stop: async () => {
-          await rpc("eyes_set_worker_opt_in", { p_phone: phone, p_opted_in: false });
+          const released = await maybe<Task>("eyes_stop_worker", { p_worker_id: worker.id, p_now: nowIso() });
           appLinkSentAt.delete(worker.id); // STOP deleted every code, so the next START sends a fresh one
+          if (released) await reoffer(released, worker.id);
           await messaging.sendText(
             phone,
-            "Eyes: you're opted out and won't get task texts. Text START to rejoin.",
+            `${released ? `${REPLY_TEXT.released} ` : ""}Eyes: you're opted out and won't get task texts. Text START to rejoin.`,
           );
         },
         yes: () => claim(worker, phone),
@@ -1510,22 +1550,8 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
             p_worker_id: worker.id,
             p_now: nowIso(),
           });
+          if (released) await reoffer(released, worker.id);
           await messaging.sendText(phone, released ? REPLY_TEXT.released : REPLY_TEXT.no);
-          if (!released) return;
-          const idle = await rpc<Worker & LatLng>("eyes_reoffer", {
-            p_task_id: released.id,
-            p_released_by: worker.id,
-            p_now: nowIso(),
-            p_max_age: maxAge,
-          });
-          await sendOffers(
-            released,
-            idle.map((w) => ({
-              worker_id: w.id,
-              ...verified(w),
-              distance_m: distanceMeters(released, w),
-            })),
-          );
         },
         here: () =>
           messaging.sendText(
@@ -1542,6 +1568,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           await messaging.sendText(phone, `Get the Eyes app: ${appUrl(await mintLocationCode(worker.id))}`);
         },
         install: () => reply.app(),
+        media: () => reply.task(),
         // ADR-027: the live capture link again. Newest claim first; a claim past its deadline
         // stays 'claimed' until the sweep expires it, so the deadline is checked here.
         task: async () => {
@@ -1552,7 +1579,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           await messaging.sendText(
             phone,
             open
-              ? `Eyes: here is the link for your task: ${captureUrl(open, worker.id)}`
+              ? `${intent === "media" ? "Eyes: photos sent by text are not submitted. Open this link to take and submit your photo" : "Eyes: here is the link for your task"}: ${captureUrl(open, worker.id)}`
               : "You have no open task right now. We'll text you when one is near.",
           );
         },
@@ -1847,7 +1874,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         verification: {
           gps_ok: v.gps_ok,
           fresh_ok: v.fresh_ok,
-          vision_ok: v.vision_ok,
+          vision_ok: v.vision_ok === true,
           vision_reason: v.vision_reason,
         },
         message,

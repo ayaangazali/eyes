@@ -323,6 +323,7 @@ describe("release trigger", () => {
         const url = String(input);
         calls.push({ url, init });
         if (url === HEALTH_URL) return healthy();
+        if (url === `${DB}/api/database/rpc/eyes_expire_overdue`) return json([]);
         if (url.startsWith(`${DB}/api/database/records/worker_devices?`))
           return json(
             Array.from({ length: opts.pending ?? 0 }, (_, i) => ({ udid: `u${i}` })),
@@ -392,5 +393,84 @@ describe("release trigger", () => {
     expect(log).toHaveBeenCalledWith(`release trigger: ${msg}`);
     expect(kv.store.has("release")).toBe(false);
     expect(stored(kv)).toEqual({ fails: 0, down: false, since: 0 });
+  });
+});
+
+describe("expiry trigger", () => {
+  const base = "https://db.test";
+  const env = () => fakeEnv(fakeKv(), { INSFORGE_BASE_URL: `${base}/`, INSFORGE_API_KEY: "db-key" });
+
+  it("refunds through the database even when the API is down", async () => {
+    const calls: Call[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return url === HEALTH_URL ? bad503() : json([]);
+    });
+    const before = Date.now();
+    await worker.scheduled({}, env());
+    const call = calls.find((c) => c.url === `${base}/api/database/rpc/eyes_expire_overdue`);
+    expect(call?.init?.method).toBe("POST");
+    expect(new Headers(call?.init?.headers).get("authorization")).toBe("Bearer db-key");
+    expect(new Headers(call?.init?.headers).get("content-type")).toBe("application/json");
+    const time = Date.parse(JSON.parse(String(call?.init?.body)).p_now);
+    expect(time).toBeGreaterThanOrEqual(before);
+    expect(time).toBeLessThanOrEqual(Date.now());
+  });
+
+  it("waits for expiry before returning an alert failure", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let finish!: (response: Response) => void;
+    const expiry = new Promise<Response>((resolve) => {
+      finish = resolve;
+    });
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url === HEALTH_URL) return bad503();
+      if (url.includes("/rpc/")) return expiry;
+      throw new Error("alert unavailable");
+    });
+    const run = worker.scheduled({}, { ...env(), EYES_MONITOR: oneBadCheck() });
+    let settled = false;
+    const markSettled = () => {
+      settled = true;
+    };
+    void run.then(markSettled, markSettled);
+    try {
+      await vi.advanceTimersByTimeAsync(0);
+      expect(settled).toBe(false);
+    } finally {
+      finish(json([]));
+      vi.useRealTimers();
+    }
+    await expect(run).rejects.toThrow("alert unavailable");
+  });
+
+  it.each(["INSFORGE_BASE_URL", "INSFORGE_API_KEY"])("skips expiry without %s", async (key) => {
+    const calls = routeFetch(healthy);
+    await worker.scheduled({}, { ...env(), [key]: "" });
+    expect(calls.map((c) => c.url)).toEqual([HEALTH_URL]);
+  });
+
+  it.each([
+    ["HTTP 503", () => bad503()],
+    [
+      "database timeout",
+      () => {
+        throw new Error("database timeout");
+      },
+    ],
+  ])("logs %s without blocking health or release checks", async (reason, response) => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      calls.push(url);
+      if (url === HEALTH_URL) return healthy();
+      if (url.includes("/rpc/")) return response();
+      return json([]);
+    });
+    const e = { ...env(), RELEASE_DISPATCH_TOKEN: "gh-test" };
+    await worker.scheduled({}, e);
+    expect(log).toHaveBeenCalledWith(`expiry trigger: ${reason}`);
+    expect(stored(e.EYES_MONITOR)).toEqual({ fails: 0, down: false, since: 0 });
+    expect(calls).toContain(`${base}/api/database/records/worker_devices?select=udid&released_at=is.null`);
   });
 });

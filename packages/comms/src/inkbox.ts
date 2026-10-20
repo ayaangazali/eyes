@@ -82,6 +82,7 @@ export function paidText(msg: Parameters<Messaging["sendPaid"]>[1]): string {
 
 const INTENTS: Record<string, ReplyIntent> = {
   yes: "yes",
+  "yes please": "yes",
   y: "yes",
   yep: "yes",
   yup: "yes",
@@ -128,6 +129,9 @@ const INTENTS: Record<string, ReplyIntent> = {
   task: "task",
   link: "task",
 };
+const TYPO_KEYWORDS = Object.entries(INTENTS).filter(
+  ([, i]) => i !== "yes" && i !== "no" && i !== "stop" && i !== "start",
+);
 
 // Optimal string alignment distance: insert, delete, substitute and adjacent swap each cost 1.
 function osa(a: string, b: string): number {
@@ -161,8 +165,7 @@ export function parseReplyIntent(text: string): ReplyIntent {
   // Typo tolerance for a lone word: 4+ letters within one edit, 3 letters only by an adjacent swap.
   if (intent === "unknown" && words.length === 1 && word.length >= 3) {
     const near = new Set(
-      Object.entries(INTENTS)
-        .filter(([k]) => !k.includes(" ") && osa(word, k) === 1)
+      TYPO_KEYWORDS.filter(([k]) => !k.includes(" ") && osa(word, k) === 1)
         .filter(([k]) => word.length > 3 || [...k].sort().join("") === [...word].sort().join(""))
         .map(([, i]) => i),
     );
@@ -310,7 +313,7 @@ const str = (v: unknown) => (typeof v === "string" ? v : "");
 // Inkbox delivers an Apple "Share My Location" as content "\ufffd" (or empty) with no media.
 function inboundReply(
   body: string,
-): { id: string; phone: string; text: string; locationShare?: boolean } | null {
+): { id: string; phone: string; text: string; media?: boolean; locationShare?: boolean } | null {
   let evt: Received | null;
   try {
     evt = JSON.parse(body) as Received | null;
@@ -320,17 +323,22 @@ function inboundReply(
   const sms = evt?.event_type === "text.received" ? evt.data?.text_message : null;
   const imessage = evt?.event_type === "imessage.received" ? evt.data?.message : null;
   if (sms) {
-    return { id: str(evt?.id) || str(sms.id), phone: str(sms.remote_phone_number), text: str(sms.text) };
+    return {
+      id: str(evt?.id) || str(sms.id),
+      phone: str(sms.remote_phone_number),
+      text: str(sms.text),
+      media: Array.isArray(sms.media) ? sms.media.length > 0 : !!sms.media,
+    };
   }
   if (imessage && !imessage.is_group) {
     const text = str(imessage.content);
-    const media = imessage.media;
+    const media = Array.isArray(imessage.media) ? imessage.media.length > 0 : !!imessage.media;
     return {
       id: str(evt?.id) || str(imessage.id),
       phone: str(imessage.remote_number),
       text,
-      locationShare:
-        /^[\ufffc\ufffd]+$/.test(text) || (text === "" && !(Array.isArray(media) ? media.length : media)),
+      media,
+      locationShare: !media && (/^[\ufffc\ufffd]+$/.test(text) || text === ""),
     };
   }
   return null;
@@ -349,7 +357,14 @@ export function inkboxRoutes(deps: RouteDeps, env: Env): Hono {
       return c.text("ignored");
     }
     try {
-      const intent = reply.locationShare ? "location_share" : parseReplyIntent(reply.text);
+      const parsed = parseReplyIntent(reply.text);
+      const intent = ["stop", "start", "help"].includes(parsed)
+        ? parsed
+        : reply.media
+          ? "media"
+          : reply.locationShare
+            ? "location_share"
+            : parsed;
       await deps.service.handleWorkerReply({ phone: reply.phone, intent, text: reply.text });
     } catch (err) {
       const kind =

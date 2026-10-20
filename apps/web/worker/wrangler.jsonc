@@ -1,6 +1,6 @@
 {
   "name": "eyes-app",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "./dist" },
+  "assets": { "directory": "./dist", "not_found_handling": "404-page" },
   "routes": [{ "pattern": "app.eyes.pictures", "custom_domain": true }]
 }

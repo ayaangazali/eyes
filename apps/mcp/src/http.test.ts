@@ -155,8 +155,8 @@ describe("node adapter on a real socket", () => {
     );
 
     expect(res.status).toBe(413);
-    expect(res.body).toMatchObject({ error: "invalid_input", max_bytes: MB });
-    expect(res.body.fix).toEqual(expect.any(String));
+    expect(res.body).toMatchObject({ error: "payload_too_large", max_bytes: MB });
+    expect(res.body.fix).toContain("smaller request");
     expect(authenticate).not.toHaveBeenCalled();
   });
 
@@ -172,7 +172,7 @@ describe("node adapter on a real socket", () => {
     );
 
     expect(res.status).toBe(413);
-    expect(res.body).toMatchObject({ error: "invalid_input", max_bytes: MB });
+    expect(res.body).toMatchObject({ error: "payload_too_large", max_bytes: MB });
     expect(signupAgent).not.toHaveBeenCalled();
   });
 
@@ -189,7 +189,7 @@ describe("node adapter on a real socket", () => {
     );
 
     expect(res.status).toBe(413);
-    expect(res.body).toMatchObject({ error: "invalid_input", max_bytes: MB });
+    expect(res.body).toMatchObject({ error: "payload_too_large", max_bytes: MB });
     expect(process.memoryUsage().rss - rss).toBeLessThan(16 * MB);
     expect(submitCapture).not.toHaveBeenCalled();
   });
@@ -595,7 +595,7 @@ describe("node adapter on a real socket", () => {
     );
 
     expect(res.status).toBe(413);
-    expect(res.body).toMatchObject({ error: "invalid_input", max_bytes: MB });
+    expect(res.body).toMatchObject({ error: "payload_too_large", max_bytes: MB });
   });
 
   it("logs 'unknown error' when the app rejects with something that is not an Error", async () => {

@@ -245,17 +245,27 @@ it("re-running an ask reuses its key while the task is open, gets a new key once
   expect(calls[5]?.body?.idempotency_key).toBe("mine");
 });
 
-it("tasks sends --status and --limit as query parameters and checks the limit before calling", async () => {
-  const listed = { tasks: [], next_step: "Call ask_eyes." };
+it("rejects invalid text and coordinate strings before sending an ask", async () => {
+  for (const value of ["Cafe\u0000", "Cafe\ud800", "Cafe\udfff", "95,200"]) {
+    const { deps, calls, err } = setup([]);
+    expect(await run(["ask", "Is it open?", "--at", value, "--type", "is_open"], deps)).toBe(1);
+    expect(calls).toEqual([]);
+    expect(err.join("\n")).toContain("--at");
+  }
+});
+
+it("tasks sends paging filters and rejects invalid limits and cursors before calling", async () => {
+  const listed = { tasks: [], next_cursor: null, next_step: "Call ask_eyes." };
   const { deps, calls } = setup([
     [200, listed],
     [200, listed],
   ]);
-  expect(await run(["tasks", "--status", "dispatched", "--limit", "5"], deps)).toBe(0);
+  expect(await run(["tasks", "--status", "dispatched", "--limit", "5", "--before", TASK_ID], deps)).toBe(0);
   expect(await run(["tasks"], deps)).toBe(0);
   expect(await run(["tasks", "--limit", "51"], deps)).toBe(1);
+  expect(await run(["tasks", "--before", "bad"], deps)).toBe(1);
   expect(calls.map((c) => [c.method, c.url])).toEqual([
-    ["GET", "https://eyes.test/v1/tasks?status=dispatched&limit=5"],
+    ["GET", `https://eyes.test/v1/tasks?status=dispatched&limit=5&before=${TASK_ID}`],
     ["GET", "https://eyes.test/v1/tasks"],
   ]);
 });

@@ -342,6 +342,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     const quiet = await ask(service, a, at);
     expect(quiet.workers_notified).toBe(1);
     expect(pings()).toHaveLength(0);
+    await service.cancelTask(a, { task_id: quiet.task_id });
 
     const loud = await ask(pinging, a, at);
     expect(loud.workers_notified).toBe(1);
@@ -370,6 +371,7 @@ describe.skipIf(!url)("worker location on Postgres", () => {
     expect(more.map((r) => r.worker_id)).toEqual([first?.id]);
     expect(fresh.id).not.toBe(first?.id);
 
+    await service.cancelTask(a, { task_id: loud.task_id });
     expect(await ask(pinging, a, at)).toMatchObject({ workers_notified: 2 });
     expect(pings()).toHaveLength(2);
   });
