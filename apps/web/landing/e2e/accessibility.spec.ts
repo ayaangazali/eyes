@@ -72,28 +72,33 @@ test("marquee pause persists after focus leaves and reduced motion stops animati
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   const track = page.locator(".marquee__track");
-  const pause = page.getByRole("button", { name: "Pause questions" });
+  const pause = page.getByRole("button", { name: /^(Pause|Play) questions$/ });
   await expect(track).toHaveCSS("animation-play-state", "running");
   await pause.focus();
   await expect(track).toHaveCSS("animation-play-state", "paused");
   await page.keyboard.press("Space");
   await expect(pause).toHaveAttribute("aria-pressed", "true");
+  await expect(pause).toHaveAccessibleName("Play questions");
+  await expect(pause.locator(".marquee__play-icon")).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(track).toHaveCSS("animation-play-state", "paused");
   await pause.focus();
   await page.keyboard.press("Space");
   await expect(pause).toHaveAttribute("aria-pressed", "false");
+  await expect(pause).toHaveAccessibleName("Pause questions");
+  await expect(pause.locator(".marquee__pause-icon")).toBeVisible();
   await page.keyboard.press("Tab");
   await expect(track).toHaveCSS("animation-play-state", "running");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(track).toHaveCSS("animation-name", "none");
+  await expect(pause).toBeHidden();
 });
 
 test("mouse users can resume the marquee without moving focus", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.goto("/");
   const track = page.locator(".marquee__track");
-  const pause = page.getByRole("button", { name: "Pause questions" });
+  const pause = page.getByRole("button", { name: /^(Pause|Play) questions$/ });
   await pause.click();
   await page.mouse.move(0, 0);
   await expect(track).toHaveCSS("animation-play-state", "paused");
@@ -101,4 +106,19 @@ test("mouse users can resume the marquee without moving focus", async ({ page })
   await page.mouse.move(0, 0);
   await expect(pause).toBeFocused();
   await expect(track).toHaveCSS("animation-play-state", "running");
+});
+
+test("marquee controls preserve the band height on phones and desktops", async ({ page }) => {
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/");
+    const band = await page.locator(".marquee").boundingBox();
+    const track = await page.locator(".marquee__track").boundingBox();
+    const button = await page.getByRole("button", { name: "Pause questions" }).boundingBox();
+    expect(band?.height).toBe(track?.height);
+    expect(button?.width).toBe(44);
+    expect(button?.height).toBe(44);
+    expect(button!.y + button!.height / 2).toBeCloseTo(band!.y + band!.height / 2);
+    expect(button!.x).toBeGreaterThan(width / 2);
+  }
 });

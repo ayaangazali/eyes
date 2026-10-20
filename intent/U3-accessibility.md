@@ -12,11 +12,12 @@ Change only the failing status text colors and use the shared 44-pixel tap token
 Let keyboard users focus, identify, and horizontally scroll each code sample without widening the page.
 Pause the marquee when its controls have keyboard focus or its pause toggle is active.
 Keep the existing reduced-motion rule, which prevents the animation from starting.
+Place the round pause/play control over the right edge of the question track without increasing the band height.
 
 ## Verification
 
 The browser regression failed before the fix at 4.04:1 light success contrast, 3.81:1 dark danger contrast, and a 27-pixel header target.
-All six browser checks pass after the fix, including keyboard scrolling, persistent pause, mouse resume, and reduced motion.
+All seven browser checks pass after the fix, including keyboard scrolling, persistent pause, mouse resume, reduced motion, and unchanged band height.
 Capture and inspect the changed areas at 1440 and 390 pixels in both themes, with the header visible.
 Measure the status colors against their composed backgrounds: all named pairs now exceed 4.5:1.
 Run lint, typecheck, the shared-page and landing-motion unit tests, API server tests, contract tests, and relevant API integration tests.
