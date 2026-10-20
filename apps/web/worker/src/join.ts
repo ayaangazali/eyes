@@ -93,6 +93,7 @@ form.addEventListener("submit", async (event) => {
     const number = out.inkbox_number || inkboxNumber;
     const displayNumber = String(number).replace(/^\+1(\d{3})(\d{3})(\d{4})$/, "+1 ($1) $2-$3");
     ($("start").firstElementChild as HTMLElement).prepend(
+      Object.assign(document.createElement("span"), { textContent: "Click below to connect" }),
       Object.assign(document.createElement("a"), {
         href: `sms:${number}?&body=${encodeURIComponent(connectCommand || "START")}`,
         className: "ui-button ui-button--primary ui-button--block",

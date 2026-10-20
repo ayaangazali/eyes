@@ -251,7 +251,7 @@ describe("join form", () => {
     fetchMock.mockResolvedValue(json({}));
     await fire("locate", "click");
     await submitForm("Ada Lovelace", "(415) 555-0123");
-    const [link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    const [, link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
     expect(link.href).toBe("sms:+14155550100?&body=START");
     expect(destination.textContent).toContain("+1 (415) 555-0100");
     expect(byId("closed").hidden).toBe(true);
@@ -265,7 +265,7 @@ describe("join form", () => {
     fetchMock.mockResolvedValue(json({ inkbox_number: "+14155550199" }));
     await fire("locate", "click");
     await submitForm("Ada Lovelace", "(415) 555-0123");
-    const [link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    const [, link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
     expect(link.href).toBe("sms:+14155550199?&body=JOIN%20eyes");
     expect(destination.textContent).toContain("+1 (415) 555-0199");
     expect(byId("start-contact").hidden).toBe(false);
@@ -277,7 +277,7 @@ describe("join form", () => {
     fetchMock.mockResolvedValue(json({ inkbox_number: "+442079460958" }));
     await fire("locate", "click");
     await submitForm("Ada Lovelace", "(415) 555-0123");
-    const [link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    const [, link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
     expect(link.href).toBe("sms:+442079460958?&body=START");
     expect(destination.textContent).toContain("+442079460958");
   });

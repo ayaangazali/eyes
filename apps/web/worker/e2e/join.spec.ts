@@ -45,6 +45,10 @@ test("join posts a normalized phone and location, then shows the connect and STA
   await expect(page.locator("#start")).toContainText("+1 (415) 555-0199");
   await expect(texts).not.toContainText("+1 (415) 555-0199");
   const button = await texts.boundingBox();
+  const instruction = page.locator("#start").getByText("Click below to connect", { exact: true });
+  await expect(instruction).toBeVisible();
+  const instructionBox = await instruction.boundingBox();
+  expect(instructionBox && button && instructionBox.y + instructionBox.height <= button.y).toBe(true);
   expect(button?.height).toBeGreaterThanOrEqual(44);
   const lineHeight = await texts.evaluate((el) => Number.parseFloat(getComputedStyle(el).lineHeight));
   expect(button?.height).toBeLessThan(lineHeight * 2);
