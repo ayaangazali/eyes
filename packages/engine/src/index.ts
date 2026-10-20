@@ -4,6 +4,7 @@ import {
   type Agent,
   type Answer,
   agentEmailAddress,
+  assertWholeCents,
   CaptureFields,
   centsToUsd,
   type DisputeOutcome,
@@ -1126,8 +1127,11 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           allowed_task_types: agent.allowed_task_types,
         });
       }
+      assertWholeCents(ask.bounty_usd, "bounty_usd");
       const bountyCents = usdToCents(ask.bounty_usd);
-      if (bountyCents > agent.max_bounty_cents) {
+      // Compare the unrounded USD value: rounding first made 10.004 pass a 10 cap
+      // and 10.006 fail it (eyes#117).
+      if (ask.bounty_usd > centsToUsd(agent.max_bounty_cents)) {
         throw new EyesError("bounty_exceeds_max", {
           bounty_usd: ask.bounty_usd,
           max_bounty_usd: centsToUsd(agent.max_bounty_cents),
@@ -1400,8 +1404,8 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       const policy = parse(OwnerPolicyInput, input);
       const s = await maybe<Summary>("eyes_update_spend_policy", {
         p_agent_id: agentId,
-        p_max_bounty_cents: usdToCents(policy.max_bounty_usd),
-        p_daily_cap_cents: usdToCents(policy.daily_cap_usd),
+        p_max_bounty_cents: usdToCents(assertWholeCents(policy.max_bounty_usd, "max_bounty_usd")),
+        p_daily_cap_cents: usdToCents(assertWholeCents(policy.daily_cap_usd, "policy.daily_cap_usd")),
         p_allowed_task_types: [...new Set(policy.allowed_task_types)],
         p_now: nowIso(),
       });
