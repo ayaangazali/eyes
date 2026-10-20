@@ -114,10 +114,12 @@ const flight = [
           <path class="marquee__play-icon" d="m8 5 11 7-11 7Z" />
         </svg>
       </button>
-      <ul id="questions" class="marquee__track">
-        {questions.map((q) => <li>{q}</li>)}
-        {questions.map((q) => <li aria-hidden="true">{q}</li>)}
-      </ul>
+      <div class="marquee__window">
+        <ul id="questions" class="marquee__track">
+          {questions.map((q) => <li>{q}</li>)}
+          {questions.map((q) => <li aria-hidden="true">{q}</li>)}
+        </ul>
+      </div>
     </div>
 
     <section id="how">
@@ -678,16 +680,21 @@ const flight = [
 
   /* Marquee band: the one loud surface. Yellow in both themes. */
   .marquee {
+    --marquee-control-inset: max(var(--eyes-space-5), calc((100% - var(--ui-column)) / 2 + var(--eyes-space-5)));
     position: relative;
-    overflow: hidden;
     background: var(--eyes-accent);
     color: var(--eyes-on-accent);
+  }
+  .marquee__window {
+    overflow: hidden;
+    margin-right: calc(var(--marquee-control-inset) + var(--eyes-tap) + var(--eyes-space-3));
+    mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
   }
   .marquee .marquee__pause {
     position: absolute;
     z-index: 1;
     inset-block: 0;
-    right: max(var(--eyes-space-5), calc((100% - var(--ui-column)) / 2 + var(--eyes-space-5)));
+    right: var(--marquee-control-inset);
     display: grid;
     place-items: center;
     width: var(--eyes-tap);
@@ -712,6 +719,10 @@ const flight = [
   @media (prefers-reduced-motion: reduce) {
     .marquee .marquee__pause {
       display: none;
+    }
+    .marquee__window {
+      margin-right: 0;
+      mask-image: none;
     }
   }
   .marquee__track {

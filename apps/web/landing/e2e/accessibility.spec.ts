@@ -122,3 +122,22 @@ test("marquee controls preserve the band height on phones and desktops", async (
     expect(button!.x).toBeGreaterThan(width / 2);
   }
 });
+
+test("marquee text fades before the button's reserved space", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  for (const width of [390, 1440]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/");
+    const textWindow = page.locator(".marquee__track").locator("..");
+    const text = await textWindow.boundingBox();
+    const button = await page.getByRole("button", { name: "Pause questions" }).boundingBox();
+    expect(text!.x + text!.width).toBeLessThanOrEqual(button!.x - 8);
+    await expect(textWindow).toHaveCSS("overflow-x", "hidden");
+    await expect(textWindow).toHaveCSS("mask-image", /linear-gradient/);
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const textWindow = page.locator(".marquee__track").locator("..");
+  const band = await page.locator(".marquee").boundingBox();
+  expect((await textWindow.boundingBox())!.width).toBe(band!.width);
+  await expect(textWindow).toHaveCSS("mask-image", "none");
+});
