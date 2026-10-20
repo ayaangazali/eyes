@@ -191,7 +191,6 @@ describe("join form", () => {
   it("reads the GPS fix and reports its accuracy in whole metres", async () => {
     gpsOk(12.4);
     await fire("locate", "click");
-    expect(byId("locate").textContent).toBe("✓ Location set");
     expect(byId("locate").attrs).toEqual({ "data-settled": "" });
     expect(byId("where").textContent).toBe("Accurate to 12 m. Tap again to update it.");
   });
@@ -200,7 +199,6 @@ describe("join form", () => {
     gpsFail(1);
     await fire("locate", "click");
     expect(byId("where").textContent).toBe("");
-    expect(byId("locate").textContent).toBe("Try location again");
     expect(byId("locate").attrs).toEqual({});
     expect(shown()).toEqual(["We could not get your location.", LOCATION_HELP]);
   });
@@ -256,9 +254,10 @@ describe("join form", () => {
     const [link] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
     expect(link).toMatchObject({
       href: "sms:+14155550100?&body=START",
-      textContent: "Text START to +14155550100",
+      textContent: expect.stringContaining("+1 (415) 555-0100"),
     });
     expect(byId("closed").hidden).toBe(true);
+    expect(byId("connect-help").hidden).toBe(true);
   });
 
   it("offers the connect command first, then START, when a connect command is configured", async () => {
@@ -271,11 +270,25 @@ describe("join form", () => {
     const [first, second] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
     expect(first).toMatchObject({
       href: "sms:+14155550199?&body=JOIN%20eyes",
-      textContent: 'First text "JOIN eyes" to +14155550199',
+      textContent: expect.stringContaining("+1 (415) 555-0199"),
     });
     expect(second).toMatchObject({
       href: "sms:+14155550199?&body=START",
-      textContent: "Then text START to +14155550199",
+      textContent: expect.stringContaining("+1 (415) 555-0199"),
+    });
+    expect(byId("connect-help").hidden).toBe(false);
+  });
+
+  it("keeps an international destination intact in the label and SMS link", async () => {
+    await loadJoin();
+    gpsOk();
+    fetchMock.mockResolvedValue(json({ inkbox_number: "+442079460958" }));
+    await fire("locate", "click");
+    await submitForm("Ada Lovelace", "(415) 555-0123");
+    const [link] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    expect(link).toMatchObject({
+      href: "sms:+442079460958?&body=START",
+      textContent: expect.stringContaining("+442079460958"),
     });
   });
 

@@ -19,8 +19,6 @@ function invalid(id: string, problem: Problem) {
   showError(error, problem);
 }
 
-// States on the one button: busy (spinner, label kept) -> located ("✓ Location set" resolves from a
-// blur, data-settled) or failed ("Try location again", the error notice rises in). CSS in @eyes/ui.
 $("locate").addEventListener("click", () => {
   const locate = $("locate");
   error.hidden = true;
@@ -32,13 +30,13 @@ $("locate").addEventListener("click", () => {
       spot = { lat: coords.latitude, lng: coords.longitude };
       locate.removeAttribute("aria-busy");
       locate.setAttribute("data-settled", "");
-      locate.textContent = "✓ Location set";
+      $("locate-label").textContent = "Location set";
       $("where").textContent = `Accurate to ${Math.round(coords.accuracy)} m. Tap again to update it.`;
     },
     (err) => {
       locate.removeAttribute("aria-busy");
       $("where").textContent = "";
-      locate.textContent = "Try location again";
+      $("locate-label").textContent = "Try location again";
       showError(
         error,
         new Problem(
@@ -93,6 +91,7 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ name, phone, ...spot }),
     });
     const number = out.inkbox_number || inkboxNumber;
+    const displayNumber = String(number).replace(/^\+1(\d{3})(\d{3})(\d{4})$/, "+1 ($1) $2-$3");
     const textLink = (body: string, label: string) =>
       Object.assign(document.createElement("a"), {
         href: `sms:${number}?&body=${encodeURIComponent(body)}`,
@@ -102,16 +101,21 @@ form.addEventListener("submit", async (event) => {
     ($("start").firstElementChild as HTMLElement).prepend(
       ...(connectCommand
         ? [
-            textLink(connectCommand, `First text "${connectCommand}" to ${number}`),
-            textLink("START", `Then text START to ${number}`),
+            textLink(connectCommand, `First text "${connectCommand}" to ${displayNumber}`),
+            textLink("START", `Then text START to ${displayNumber}`),
           ]
-        : [textLink("START", `Text START to ${number}`)]),
+        : [textLink("START", `Text START to ${displayNumber}`)]),
     );
     $("start").hidden = false;
+    $("connect-help").hidden = !connectCommand;
     form.hidden = true;
     $("done").hidden = false;
+    $("done-heading").focus();
+    $("join-status").textContent =
+      "You have joined Eyes. Follow the steps below to text START and receive tasks.";
   } catch (err) {
     showError(error, err);
+    error.focus();
   } finally {
     submit.disabled = false;
   }
