@@ -97,7 +97,7 @@ Keep each pull request focused, link its issue, and state which checks passed.
 
 ## Releases
 
-The release-please workflow runs on pushes to `main`.
+The [release-please workflow](.github/workflows/release-please.yml) runs manually through `workflow_dispatch`; its comment names the owner setting required before restoring automatic releases.
 It opens or updates a release pull request from conventional commits.
 Merge that pull request to create a GitHub release and a `v0.x.y` tag.
 The root package starts from the recorded version `0.1.0`; fixes advance the patch version.

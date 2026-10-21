@@ -14,7 +14,13 @@ Each page in `src/pages/` has its logic in a matching `src/*.ts` module, which u
 | `here.astro`, `automation.astro` | `here.ts`, `automation.ts` | Send the current location once, or set up automatic sending. |
 | `install.astro`, `app.astro` | `install.ts`, `app-link.ts` | Install the iPhone app (`apps/mobile`) and open it with a connect code. |
 
-`src/api.ts` is the shared API client. Build-time `VITE_*` variables (declared in `api.ts`) set the API URL, the Inkbox number and connect text, live payouts and the install links. `design/` holds the UI catalog and mood board pages. `build.format: "file"` in `astro.config.mjs` keeps the `.html` URLs that texts already contain.
+`src/api.ts` is the shared API client.
+Build-time `VITE_*` variables set the API URL, Inkbox number, connect text, live payouts, and install links.
+The join flow focuses the next-step heading and announces success; server errors receive focus for a retry.
+Phone labels use a readable North American format, while SMS links keep the original number.
+`src/design/pages/` holds the UI catalog and mood board.
+The development server exposes them at `/design/catalog` and `/design/moodboard`; production builds exclude these pages.
+`build.format: "file"` in `astro.config.mjs` keeps the `.html` URLs that texts already contain.
 
 ## Commands
 

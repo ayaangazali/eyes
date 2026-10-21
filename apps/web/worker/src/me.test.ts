@@ -223,17 +223,10 @@ describe("checklist", () => {
     });
   });
 
-  it("shows simulated payouts as neutral, with nothing to do, on a test server", () => {
-    expect(row({ payouts: { set_up: false, live: false, setup_url: null } }, "payouts")).toEqual({
-      id: "payouts",
-      state: "neutral",
-      title: "Test payouts",
-      detail: "Payouts are simulated on this test server.",
-      action: null,
-    });
-    expect(row({ payouts: { set_up: false, live: true, setup_url: null } }, "payouts")?.state).toBe(
-      "neutral",
-    );
+  it.each([false, true])("does not promise payment for test accounts (set_up=%s)", (set_up) => {
+    const testRows = rows({ payouts: { set_up, live: false, setup_url: null } });
+    expect(testRows.find((r) => r.id === "payouts")).toBeUndefined();
+    expect(testRows.find((r) => r.id === "texts")?.detail).not.toContain("paid");
   });
 
   it("gives the primary button to the first row with an action only", () => {
@@ -391,7 +384,7 @@ describe("taskList", () => {
   });
 
   it("shows only the newest request's answer when an older one lands late", async () => {
-    const { d, waiting, answer, last } = deps();
+    const { d, answer, last } = deps();
     const list = taskList(CODE, d);
     void list.search("pie");
     void list.search("pier");

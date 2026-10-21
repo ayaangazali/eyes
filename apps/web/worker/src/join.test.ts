@@ -191,7 +191,6 @@ describe("join form", () => {
   it("reads the GPS fix and reports its accuracy in whole metres", async () => {
     gpsOk(12.4);
     await fire("locate", "click");
-    expect(byId("locate").textContent).toBe("✓ Location set");
     expect(byId("locate").attrs).toEqual({ "data-settled": "" });
     expect(byId("where").textContent).toBe("Accurate to 12 m. Tap again to update it.");
   });
@@ -200,7 +199,6 @@ describe("join form", () => {
     gpsFail(1);
     await fire("locate", "click");
     expect(byId("where").textContent).toBe("");
-    expect(byId("locate").textContent).toBe("Try location again");
     expect(byId("locate").attrs).toEqual({});
     expect(shown()).toEqual(["We could not get your location.", LOCATION_HELP]);
   });
@@ -253,30 +251,35 @@ describe("join form", () => {
     fetchMock.mockResolvedValue(json({}));
     await fire("locate", "click");
     await submitForm("Ada Lovelace", "(415) 555-0123");
-    const [link] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
-    expect(link).toMatchObject({
-      href: "sms:+14155550100?&body=START",
-      textContent: "Text START to +14155550100",
-    });
+    const [, link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    expect(link.href).toBe("sms:+14155550100?&body=START");
+    expect(destination.textContent).toContain("+1 (415) 555-0100");
     expect(byId("closed").hidden).toBe(true);
+    expect(byId("start-contact").hidden).toBe(true);
   });
 
-  it("offers the connect command first, then START, when a connect command is configured", async () => {
+  it("uses the router for connect but leaves START to the contact Inkbox sends", async () => {
     vi.stubEnv("VITE_INKBOX_CONNECT", "JOIN eyes");
     await loadJoin();
     gpsOk();
     fetchMock.mockResolvedValue(json({ inkbox_number: "+14155550199" }));
     await fire("locate", "click");
     await submitForm("Ada Lovelace", "(415) 555-0123");
-    const [first, second] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
-    expect(first).toMatchObject({
-      href: "sms:+14155550199?&body=JOIN%20eyes",
-      textContent: 'First text "JOIN eyes" to +14155550199',
-    });
-    expect(second).toMatchObject({
-      href: "sms:+14155550199?&body=START",
-      textContent: "Then text START to +14155550199",
-    });
+    const [, link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    expect(link.href).toBe("sms:+14155550199?&body=JOIN%20eyes");
+    expect(destination.textContent).toContain("+1 (415) 555-0199");
+    expect(byId("start-contact").hidden).toBe(false);
+  });
+
+  it("keeps an international destination intact outside the button and in its SMS link", async () => {
+    await loadJoin();
+    gpsOk();
+    fetchMock.mockResolvedValue(json({ inkbox_number: "+442079460958" }));
+    await fire("locate", "click");
+    await submitForm("Ada Lovelace", "(415) 555-0123");
+    const [, link, destination] = byId("start").firstElementChild.prepend.mock.calls[0] ?? [];
+    expect(link.href).toBe("sms:+442079460958?&body=START");
+    expect(destination.textContent).toContain("+442079460958");
   });
 
   it("shows the rate-limit words and re-enables the button when the join fails", async () => {

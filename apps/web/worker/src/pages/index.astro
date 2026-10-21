@@ -1,21 +1,19 @@
 ---
+import { LIVE_PAYOUTS as livePayouts } from "../api.ts";
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
-
-// Decided at build time so the page is honest before any script runs.
-const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
 ---
 
 <Layout
   title="Join Eyes"
-  ogTitle="Join Eyes: get paid to check places near you"
-  description="AI agents pay people nearby to check public places. Get a text, walk over, take one photo, get paid."
+  ogTitle={livePayouts ? "Join Eyes: get paid to check places near you" : "Join Eyes: check places near you"}
+  description={livePayouts ? "Get a text, walk over, take one photo, get paid." : "Try tasks near you. No real money yet."}
 >
   <section>
-    <h1 class="hero-title">Get paid to check places near you</h1>
+    <h1 class="hero-title">{livePayouts ? "Get paid to check places near you" : "Check places near you"}</h1>
     <p class="lede">
       AI agents pay Eyes to answer quick questions about public places: is it open, how long is the line, is it
-      in stock. You get a text, walk over, take one photo and get paid.
+      in stock. You get a text, walk over and take one photo{livePayouts ? " to get paid" : ""}.
     </p>
   </section>
 
@@ -29,16 +27,6 @@ const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
   </figure>
 
   <section aria-label="Before you join">
-    {
-      !livePayouts && (
-        <p id="simulated" class="ui-notice">
-          <Icon name="info" />
-          <span>
-            <strong>This is a test server.</strong> Payouts are simulated, so tasks pay no real money.
-          </span>
-        </p>
-      )
-    }
     <p class="ui-notice">
       <Icon name="message" />
       <span><strong>You need an iPhone.</strong> Eyes sends tasks over iMessage.</span>
@@ -75,11 +63,11 @@ const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
     </label>
     <div class="ui-field">
       <button type="button" id="locate" class="ui-button ui-button--block">
-        <Icon name="locate" />Use my location
+        <Icon name="locate" /><span id="locate-label">Use my location</span>
       </button>
       <p id="where" class="ui-field__hint">We only use it to send you tasks nearby.</p>
     </div>
-    <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+    <p id="error" class="ui-notice ui-notice--danger" role="alert" tabindex="-1" hidden></p>
     <p class="ui-form__fineprint">
       {
         livePayouts && (
@@ -92,10 +80,16 @@ const livePayouts = import.meta.env.VITE_LIVE_PAYOUTS === "true";
     <button type="submit" id="submit" class="ui-button ui-button--primary ui-button--block">Join</button>
   </form>
 
+  <p id="join-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
   <section id="done" hidden>
-    <h2 class="ui-h2">You're in. Finish these steps.</h2>
+    <h2 id="done-heading" class="ui-h2" tabindex="-1">You're in. Finish these steps.</h2>
     <ol class="ui-steps">
-      <li id="start" hidden><div class="grid gap-2"><span>We can only text you tasks after you send START.</span></div></li>
+      <li id="start" hidden>
+        <div class="grid gap-2"></div>
+      </li>
+      <li id="start-contact" hidden>
+        <span>Text START to the Eyes contact Inkbox sends back, not the connect number.</span>
+      </li>
       {
         livePayouts && (
           <li class="live-payouts">After you text START, we'll text you a link to set up payouts (takes 2 minutes).</li>
