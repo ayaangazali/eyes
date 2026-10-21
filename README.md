@@ -8,7 +8,7 @@
 [![Live](https://img.shields.io/badge/live-eyes.pictures-2563eb?style=for-the-badge)](https://eyes.pictures)
 [![MCP](https://img.shields.io/badge/MCP-mcp.eyes.pictures%2Fmcp-0d9488?style=for-the-badge)](https://mcp.eyes.pictures/mcp)
 
-[Site](https://eyes.pictures) · [Worker app](https://app.eyes.pictures) · [Connect](docs/CONNECT.md) · [Deploy](docs/DEPLOY.md) · [Status](STATUS.md)
+[Site](https://eyes.pictures) · [Worker app](https://app.eyes.pictures) · [Connect](docs/CONNECT.md) · [Deploy](docs/DEPLOY.md) · [Status](docs/archive/hackathon/STATUS.md)
 
 <img src="apps/web/landing/public/images/storefront.webp" alt="A corner cafe on 18th St with an OPEN sign on the door and a chalkboard menu on the sidewalk" width="720">
 
@@ -55,7 +55,7 @@ Prefer the Manufact CLI? `npx -y mcp-use@2.10.1 client connect eyes https://mcp.
 
 **MCP is live at `https://mcp.eyes.pictures/mcp`, with ChatGPT and Claude configured there.** OAuth issuer and card origins match each host. REST signup, balance, uploads and webhooks stay at `https://api.eyes.pictures`; legacy `api.eyes.pictures/mcp` connectors remain supported. This does not mean every third-party connector has migrated. See [OAuth setup](docs/CONNECT.md).
 
-Stripe's provider integration is live, but payments and the $20 signup credit are test-only: no real money moves. Marketplace version 1.0.3 is a configured draft with preflight complete, not submitted or published; legal owner attestations and test-mode limits remain. The new ChatGPT card protocol and live API are verified. Follow-up in-chat visual checks on the operator's test accounts were quota-blocked on 2026-10-18, not unavailable for all users; see [STATUS](STATUS.md).
+Stripe's provider integration is live, but payments and the $20 signup credit are test-only: no real money moves. Marketplace version 1.0.3 is a configured draft with preflight complete, not submitted or published; legal owner attestations and test-mode limits remain. The new ChatGPT card protocol and live API are verified. Follow-up in-chat visual checks on the operator's test accounts were quota-blocked on 2026-10-18, not unavailable for all users; see [STATUS](docs/archive/hackathon/STATUS.md).
 
 ## How it works
 
@@ -99,9 +99,9 @@ sequenceDiagram
 - [Connect from ChatGPT, Claude, Claude Code and Cursor](docs/CONNECT.md)
 - [Deploy, live smoke, roll back, alerts](docs/DEPLOY.md)
 - [Spec](docs/SPEC.md)
-- [Status and live verification](STATUS.md)
-- [Plan](docs/PLAN.md)
-- [Demo runbook](docs/DEMO.md)
+- [Status and live verification](docs/archive/hackathon/STATUS.md)
+- [Plan](docs/archive/hackathon/PLAN.md)
+- [Demo runbook](docs/archive/hackathon/DEMO.md)
 - [Decisions (ADRs)](intent/decisions)
 - [Agent docs: llms.txt](docs/public/llms.txt)
 - [Report a bug](../../issues/new)
@@ -127,7 +127,7 @@ Every outside provider and service Eyes uses, and how. "Live" means the deployed
 | InsForge Sites | Earlier host of the worker web (`*.insforge.site`); replaced by `app.eyes.pictures` | [docs/DEPLOY.md](docs/DEPLOY.md) §3 | earlier |
 | Stripe | Checkout top-ups, Connect Express onboarding, $3 transfers on verified answers, transfer reversals on confirmed fraud, signed webhooks | [packages/payments](packages/payments) | test mode |
 | Inkbox | Shared iMessage line: inbound webhook, offer and paid texts, START/STOP/HELP/HERE replies, texts with location codes and the app link; uptime alerts; first-contact owner/ops email fallback when Primitive refuses delivery | [packages/comms/src/inkbox.ts](packages/comms/src/inkbox.ts) | live |
-| Inkbox (limitation) | An iMessage "Share My Location" arrives as a lone U+FFFD, so Eyes replies with a HERE link instead ([ADR-024](intent/decisions/ADR-024-worker-location.md)) | [packages/comms](packages/comms) | live |
+| Inkbox (limitation) | An iMessage "Share My Location" arrives as a lone U+FFFD, so Eyes replies with a HERE link instead ([ADR-037](intent/decisions/ADR-037-worker-location.md)) | [packages/comms](packages/comms) | live |
 | Primitive | Outbound DNS verified and one owner Gmail delivery confirmed; unrestricted sending is still off, first-contact fallback uses Inkbox, and external custom-alias SPF remains unresolved | [packages/comms/src/primitive.ts](packages/comms/src/primitive.ts) | limited live verification |
 | Anthropic Claude | Fallback for task-safety or photo provider failures only; used alone without Cloudflare | [packages/safety](packages/safety), [packages/verify](packages/verify) | live |
 | OpenStreetMap Nominatim | Geocodes place names in `quote_task` and `ask_eyes` | [apps/mcp/src/geo.ts](apps/mcp/src/geo.ts) | live |

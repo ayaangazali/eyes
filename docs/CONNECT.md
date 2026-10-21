@@ -7,7 +7,12 @@ Open [ChatGPT Plugins](https://chatgpt.com/plugins). This is a custom connector 
 1. Choose **Add / + > Add custom MCP server**. If Eyes is already added, open it and resume **Connect** instead of creating a duplicate.
 2. Name it **Eyes**, set Server URL to `https://mcp.eyes.pictures/mcp`, and choose **OAuth**.
 3. Check **I understand and want to continue**, then choose **Create as a plugin** and **Connect**.
-4. If you create a key on the Eyes OAuth page, click **Continue to ChatGPT**; your app receives it automatically. Save the key only if you want direct API access. If using an **existing Eyes API key**, enter it on that page and click **Connect**. Never paste a key into chat. Connecting does not charge a card.
+4. If you create a key on the Eyes OAuth page, click **Continue to ChatGPT**.
+   Your app receives a token for this connector.
+   Save the key only if you want direct API access.
+   If using an **existing Eyes API key**, enter it on that page and click **Connect**.
+   Never paste a key into chat.
+   Connecting does not charge a card.
 5. In a new chat, type **@**, select **Eyes**, and ask for a free quote: “Use Eyes to quote checking whether the Ferry Building in San Francisco is open.”
 
 The current Plugins flow does **not** require enabling Developer Mode. Access is web-only and depends on your account, workspace policy, and Lockdown settings. Pro supports read/fetch permissions; full MCP is available on Business, Enterprise and Edu. Business requires an admin/owner to create workspace plugins; Enterprise/Edu also permit creators with **Create plugins with MCPs**. Only admins/owners publish to the workspace. Free and Plus access is not guaranteed. If **Add custom MCP server** is missing or disabled, check account/workspace access.
@@ -23,7 +28,12 @@ Open [Claude Connectors](https://claude.ai/customize/connectors). The same remot
 1. In **Customize > Connectors**, choose **+ Add > Add custom connector**. If Eyes is already added, open it and resume **Connect** instead of creating a duplicate.
 2. Name it **Eyes**, paste `https://mcp.eyes.pictures/mcp` with no trailing slash, and choose **Continue**.
 3. Keep the detected **Sign in now** and **Register automatically** settings, add the connector, then choose **Connect**.
-4. If you create a key on the Eyes OAuth page, click **Continue to Claude**; your app receives it automatically. Save the key only if you want direct API access. If using an **existing Eyes API key**, enter it on that page and click **Connect**. Never paste a key into chat. Connecting does not charge a card.
+4. If you create a key on the Eyes OAuth page, click **Continue to Claude**.
+   Your app receives a token for this connector.
+   Save the key only if you want direct API access.
+   If using an **existing Eyes API key**, enter it on that page and click **Connect**.
+   Never paste a key into chat.
+   Connecting does not charge a card.
 5. In a new chat, open **+ > Connectors** and enable **Eyes**. Ask for the same free quote above.
 
 Custom connectors are available on Free, Pro, Max, Team and Enterprise. Free is limited to one custom connector. On Team, an Owner or Primary Owner must add the organization connector first; Enterprise also permits a custom role with **Manage access to Libraries**. Each member then connects individually from Customize. Organization admins use [admin connector settings](https://claude.ai/admin-settings/connectors).
@@ -41,11 +51,21 @@ This is custom connector setup, not a one-click install or a claim that Eyes is 
 
 The actual MCP/API server is hosted on **Manufact Cloud**, server `eyes-prod`, at `https://warm-spark-aocdd.run.mcp-use.com`. Cloudflare's `eyes-api` Worker forwards `mcp.eyes.pictures`, `api.eyes.pictures` and `internal.eyes.pictures` to that origin. Static `eyes.pictures` and `app.eyes.pictures` remain on Cloudflare.
 
-All MCP endpoints reach the same server and the same 13 model-visible tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `accept_answer`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`. The additional `confirm_ask` action is app-only. `show_task` shares `ui://eyes/confirmation-card.html`; the legacy React-view build was removed. The optional [Manufact gateway](https://docs.manufact.com/dashboard/connect-existing-server) remains a proxy in front of `api.eyes.pictures`. Every bearer client sends its own Eyes API key.
+All MCP endpoints reach the same server and the same 13 model-visible tools: `quote_task`, `ask_eyes`, `await_answer`, `get_task`, `show_task`, `list_tasks`, `cancel_task`, `accept_answer`, `dispute_answer`, `get_balance`, `get_spend_policy`, `report_classifier`, `get_classifier_report`.
+The additional `confirm_ask` action is app-only.
+`show_task` shares `ui://eyes/confirmation-card.html`; the legacy React-view build was removed.
+The optional [Manufact gateway](https://docs.manufact.com/dashboard/connect-existing-server) remains a proxy in front of `api.eyes.pictures`.
+Send an Eyes API key or an OAuth token in the `Authorization: Bearer` header.
+
+Browser clients can use any web origin for `/v1/*` except worker routes, `/mcp`, `/oauth/*`, OAuth discovery, and `/openapi.json`.
+Use the default fetch credentials mode, not `credentials: "include"`.
+Preflight permits `Authorization`, `Content-Type`, `MCP-Protocol-Version`, and `MCP-Session-Id`.
+Responses expose `WWW-Authenticate` and `MCP-Session-Id`.
+This policy does not change access to ops or worker routes.
 
 ## Dedicated MCP domain: live
 
-`https://mcp.eyes.pictures/mcp` is live, with ChatGPT and Claude configured there. Matching OAuth and card metadata are verified. Existing third-party connectors at `https://api.eyes.pictures/mcp` remain supported; not every client has migrated. Follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18; this is not a general ChatGPT or Claude limitation. See [STATUS](../STATUS.md).
+`https://mcp.eyes.pictures/mcp` is live, with ChatGPT and Claude configured there. Matching OAuth and card metadata are verified. Existing third-party connectors at `https://api.eyes.pictures/mcp` remain supported; not every client has migrated. Follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18; this is not a general ChatGPT or Claude limitation. See [STATUS](archive/hackathon/STATUS.md).
 
 Verified dedicated-host values:
 
@@ -188,7 +208,11 @@ Use the [ChatGPT web steps above](#chatgpt-web-no-terminal-required). Do not pas
 
 Use the [Claude web steps above](#claude-web-no-terminal-required) for new connectors. Existing API-host connectors can stay unchanged.
 
-When OAuth creates a key, click **Continue to your app** to finish connecting; the app receives the key automatically. **Copy** is optional for direct API access, and the key is shown only once. **Copied** confirms success; if clipboard access is unavailable or denied, select the displayed key and copy it manually. Copy never submits the page or follows **Continue**.
+When OAuth creates a key, click **Continue to your app** to finish connecting.
+The app receives a token bound to that connector, not the API key.
+**Copy** is optional for direct API access, and the key is shown only once.
+**Copied** confirms success; if clipboard access is unavailable or denied, select the displayed key and copy it manually.
+Copy never submits the page or follows **Continue**.
 
 ### Fallback for every other client
 
@@ -212,8 +236,16 @@ codex mcp add eyes --url https://mcp.eyes.pictures/mcp --bearer-token-env-var EY
 - **Discovery:** both hosts serve `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, including their `/mcp` variants. The dedicated resource is `https://mcp.eyes.pictures/mcp` with issuer `https://mcp.eyes.pictures`; the legacy API host retains its matching resource and issuer. A 401 challenge points to the same host's resource metadata.
 - **Registration:** `POST /oauth/register` is dynamic client registration. Only https redirect URIs are accepted, plus loopback http.
 - **Sign-in page:** `GET /oauth/authorize`. It requires PKCE S256. **Create a key** counts against the same per-IP limit as `/v1/signup` (5 per hour).
-- **Token:** `POST /oauth/token` returns the Eyes API key as the access token, so existing bearer clients work unchanged. The token does not expire. To revoke it, rotate the key.
-- **Server secret:** set `EYES_OAUTH_SECRET` to at least 32 random characters, for example from `openssl rand -hex 32`. Without it, the OAuth routes are off and only bearer keys work. If you change the secret, open sign-in pages and registered clients stop working; connected apps just register and sign in again.
+- **Token:** `POST /oauth/token` returns an encrypted token bound to the connector's exact `/mcp` resource.
+  Set `resource` to the discovered resource at authorization and token exchange, or omit it to use that connector.
+  Another resource returns `invalid_target` at token exchange.
+  Tokens cannot access REST or the other connector host.
+  Tokens do not expire; rotating the underlying key revokes them.
+  Direct API keys remain unchanged.
+- **Server secret:** set `EYES_OAUTH_SECRET` to at least 32 random characters, for example from `openssl rand -hex 32`.
+  Without it, OAuth routes are off and only bearer keys work.
+  Changing the secret invalidates registered clients, open sign-in pages, and issued OAuth tokens.
+  Reconnect apps through OAuth after a secret change.
 - **Redemption storage:** sign-in requires a database RPC connection and migration `039_oauth_code_redemptions.sql`. PostgreSQL records a hash for each redeemed code. Reusing a code returns HTTP 400 `invalid_grant`, including concurrent exchanges. Existing bearer keys remain valid if sign-in storage is unavailable.
 - **Card origins:** ChatGPT uses `openai/widgetDomain` matching the connector origin. Claude `_meta.ui.domain` is the first 32 hex characters of SHA-256 of the exact connector URL plus `.claudemcpcontent.com`; the dedicated-host value is listed above. Both `resources/list` and `resources/read` expose matching metadata.
 - **Photos:** the widget CSP allows `https://pagp38bu.us-west.insforge.app` and `https://cdn.insforge.dev`.

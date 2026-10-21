@@ -185,33 +185,29 @@ export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START
             detail: "Text START first, then open the app.",
             action: null,
           },
-    payouts.live && payouts.set_up && !payouts.setup_url
-      ? {
-          id: "payouts",
-          state: "done",
-          title: "Payouts set up",
-          detail: "Eyes pays you for each verified task.",
-          action: null,
-        }
-      : payouts.live && payouts.setup_url
-        ? todo(
+  ];
+  if (payouts.live) {
+    rows.push(
+      payouts.set_up && !payouts.setup_url
+        ? {
+            id: "payouts",
+            state: "done",
+            title: "Payouts set up",
+            detail: "Eyes pays you for each verified task.",
+            action: null,
+          }
+        : todo(
             "payouts",
             "Set up payouts",
             "Do this once to get paid for tasks.",
             "Set up payouts",
             payouts.setup_url,
-          )
-        : {
-            id: "payouts",
-            state: "neutral",
-            title: "Payout setup unavailable",
-            detail: "",
-            action: null,
-          },
-  ];
+          ),
+    );
+  }
   const first = rows.find((r) => r.action);
   if (first?.action) first.action.primary = true;
-  return rows.filter((row) => payouts.live || row.id !== "payouts");
+  return rows;
 }
 
 /** "Oct 17, 2026" in the worker's zone; the server search formats dates the same way (eyes_shown_date). */

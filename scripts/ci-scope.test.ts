@@ -259,7 +259,10 @@ describe("workflow docs classification", () => {
   for (const file of ["ci.yml", "claude-verifier.yml"]) {
     const shell = workflowShell(file, "scope");
     it(`${file}: accepts only non-executable documentation`, () => {
-      for (const files of ["README.md\nSTATUS.md\nLICENSE", "docs/DEPLOY.md\nintent/decisions/ADR-030.md"]) {
+      for (const files of [
+        "README.md\ndocs/archive/hackathon/STATUS.md\nLICENSE",
+        "docs/DEPLOY.md\nintent/decisions/ADR-030.md",
+      ]) {
         expect(runWorkflowShell(shell, { FILES: files }).output).toContain("docs_only=true");
       }
       for (const files of [

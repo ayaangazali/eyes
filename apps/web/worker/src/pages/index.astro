@@ -63,11 +63,11 @@ import Layout from "../layouts/Layout.astro";
     </label>
     <div class="ui-field">
       <button type="button" id="locate" class="ui-button ui-button--block">
-        <Icon name="locate" />Use my location
+        <Icon name="locate" /><span id="locate-label">Use my location</span>
       </button>
       <p id="where" class="ui-field__hint">We only use it to send you tasks nearby.</p>
     </div>
-    <p id="error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+    <p id="error" class="ui-notice ui-notice--danger" role="alert" tabindex="-1" hidden></p>
     <p class="ui-form__fineprint">
       {
         livePayouts && (
@@ -80,10 +80,16 @@ import Layout from "../layouts/Layout.astro";
     <button type="submit" id="submit" class="ui-button ui-button--primary ui-button--block">Join</button>
   </form>
 
+  <p id="join-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
   <section id="done" hidden>
-    <h2 class="ui-h2">You're in. Finish these steps.</h2>
+    <h2 id="done-heading" class="ui-h2" tabindex="-1">You're in. Finish these steps.</h2>
     <ol class="ui-steps">
-      <li id="start" hidden><div class="grid gap-2"><span>We can only text you tasks after you send START.</span></div></li>
+      <li id="start" hidden>
+        <div class="grid gap-2"></div>
+      </li>
+      <li id="start-contact" hidden>
+        <span>Text START to the Eyes contact Inkbox sends back, not the connect number.</span>
+      </li>
       {
         livePayouts && (
           <li class="live-payouts">After you text START, we'll text you a link to set up payouts (takes 2 minutes).</li>

@@ -22,4 +22,4 @@ Open https://internal.eyes.pictures/login and enter an allowlisted phone or emai
 - [`apps/web/dashboard/src/ops.html`](../../apps/web/dashboard/src/ops.html): dashboard page
 - [`apps/web/dashboard/src/ops-view/`](../../apps/web/dashboard/src/ops-view/): the page's script (`format.ts` helpers, `table.ts` the shared list table, `page.ts` rendering and actions), inlined into the page by `server.ts`
 - [`apps/web/dashboard/src/ops.ts`](../../apps/web/dashboard/src/ops.ts): dashboard data shaping
-- [`intent/decisions/ADR-023-ops-access-events-tickets.md`](../../intent/decisions/ADR-023-ops-access-events-tickets.md): the decision record
+- [`intent/decisions/ADR-036-ops-access-events-tickets.md`](../../intent/decisions/ADR-036-ops-access-events-tickets.md): the decision record

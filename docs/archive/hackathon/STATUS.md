@@ -14,7 +14,7 @@ Marketplace 1.0.3 is a configured draft with preflight complete, not submitted/p
 
 ## Historical snapshots and task board
 
-Historical snapshot (2026-10-17 16:01 PT): 64 PRs merged in total, open: #92. The live stack was Manufact at main 2eca969 (EYES_PROVIDERS=live: Inkbox texting, Claude vision + classifier, InsForge storage, geo, Stripe test-mode payments; email simulated; show_task card held via EYES_VIEWS_MANIFEST), Sites ca4391f9 (JOIN open, shared line, simulated-pay copy) + InsForge (DB 001-014, Sites) + ops dashboard. Two security sweeps and two fresh-eyes audits done. Remaining needs were vendor keys, a person, or a product decision: docs/PLAN.md §4 and 'Needs from humans'.
+Historical snapshot (2026-10-17 16:01 PT): 64 PRs merged in total, open: #92. The live stack was Manufact at main 2eca969 (EYES_PROVIDERS=live: Inkbox texting, Claude vision + classifier, InsForge storage, geo, Stripe test-mode payments; email simulated; show_task card held via EYES_VIEWS_MANIFEST), Sites ca4391f9 (JOIN open, shared line, simulated-pay copy) + InsForge (DB 001-014, Sites) + ops dashboard. Two security sweeps and two fresh-eyes audits done. Remaining needs were vendor keys, a person, or a product decision: docs/archive/hackathon/PLAN.md §4 and 'Needs from humans'.
 
 ## Task board
 
@@ -111,7 +111,6 @@ Live verification order once keys land: Inkbox (G1; set up in person at the even
 | Released claims: re-offer; orphaned photo on NO-vs-capture race | PR #61 | [#62](https://github.com/ayaangazali/eyes/issues/62) (fixed by #66) |
 | POST /w/join timing side channel | PR #70 | [#71](https://github.com/ayaangazali/eyes/issues/71) |
 | Money/dispatch failures only in console logs | coverage ledger | [#30](https://github.com/ayaangazali/eyes/issues/30) |
-| Expiry runs in-process only | coverage ledger | [#31](https://github.com/ayaangazali/eyes/issues/31) |
 | Dashboard loopback-only | coverage ledger | [#32](https://github.com/ayaangazali/eyes/issues/32) (shipped in #67; current dashboard at https://internal.eyes.pictures) |
 | No worker earnings page | coverage ledger | [#33](https://github.com/ayaangazali/eyes/issues/33) (fixed by #65; T4.17 shipped) |
 | Worker task report (SPEC §12 stretch) | coverage ledger | [#34](https://github.com/ayaangazali/eyes/issues/34) |
@@ -172,5 +171,5 @@ Keys go in `.env` at the repo root (never committed) and later as Manufact env v
 6. Manufact: `MCP_USE_API_KEY` and org slug.
 7. Armature: `ANALYTICS_INGEST_API_KEY`; ask them to enable Evaluation; confirm mcp-use support.
 8. Decisions: worker phones for the demo (whose, how many), demo cafe, public domain (or use Manufact + InsForge default URLs).
-9. Hackathon rules: the event page publishes no rule on pre-start code. Ask the organizers (host Ray Liao) before 10:30 AM. The repo's first commit is 2026-10-16 22:47 PT; docs/SUBMISSION.md has a TODO to disclose it per their answer.
+9. Hackathon rules: the event page publishes no rule on pre-start code. Ask the organizers (host Ray Liao) before 10:30 AM. The repo's first commit is 2026-10-16 22:47 PT; docs/archive/hackathon/SUBMISSION.md has a TODO to disclose it per their answer.
 10. Privacy and operator contact: an email address the team monitors, named on the worker privacy page (data deletion) and on owner-facing pages that today say "ask the Eyes operator" for an owner link (second journey audit, major 2).

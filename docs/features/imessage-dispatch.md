@@ -4,25 +4,39 @@ When an agent asks Eyes a question about a place, Eyes texts the nearest free wo
 
 ## How it works
 
-- Eyes picks workers who are available, opted in, have a fresh location, are not on a dispute-review hold, and are not already holding a claimed or submitted task, nearest first. Three distinct disputes on non-test tasks trigger a worker hold until operator review; retries on the same task do not count again.
+- Eyes picks available, opted-in workers with fresh locations, no dispute-review hold, no held task, and no unexpired open offer.
+  The database checks offer eligibility again under worker locks before charging for a task.
+  Three distinct disputes on non-test tasks trigger a worker hold until operator review; retries on the same task do not count again.
 - The limits are config defaults: `dispatch_max_workers` = 3 and `dispatch_radius_m` = 3000 m.
 - Offer texts state the bounty and how to claim or opt out. The current deployment also discloses that payouts are simulated: test credits are not real cash.
 - Claims are taken under a row lock, so only one YES can win. Ten workers replying at the same moment still produce one claim.
 - The winner's capture link expires at the task deadline. A YES with no open task gets a "no open task" reply; a late or duplicate YES does not trigger a refund. Expiry processing separately refunds an unanswered task once its deadline passes.
-- Workers can reply NO to give the task back, HELP for instructions, or STOP to opt out.
+- Workers can reply NO to give a task back without opting out.
+  STOP and CANCEL release a held task and opt out in one transaction.
+  Released tasks are offered again before the confirmation text is sent.
 - Workers who add an email can also get offers by email. See [email channel](email-channel.md).
 
 ## Worker commands
 
 START and HELP (when no held answer opens a review ticket) show every canonical command, one per line with a short meaning and blank lines between setup, commands, and accepted inputs. Aliases below still work but are not listed in the message. Two or more open setup steps are numbered; one is unnumbered; none says "You're all set." Live texts keep all links short and send the whole reply in one message.
 
-- **Tasks:** YES (Y, YEP, YUP, YEAH, YEA, OK, OKAY, SURE, CLAIM, 👍) takes a task; NO (N, NOPE, NAH, PASS) declines or gives it back; TASK (LINK) resends the current capture link.
+- **Tasks:** YES (Y, YEP, YUP, YEAH, YEA, OK, OKAY, SURE, CLAIM, 👍, YES PLEASE) takes a task; NO (N, NOPE, NAH, PASS) declines or gives it back; TASK (LINK) resends the current capture link.
 - **Setup:** START (UNSTOP) joins/resumes; HELP (INFO, ?) shows setup or requests review of a held answer; APP / INSTALL (DOWNLOAD, TESTFLIGHT) gets the app.
 - **Location:** HERE (LOCATION, I'M HERE, IM HERE, I AM HERE) sends an update link; SHORTCUT (AUTO, AUTOMATION) sends automatic-location instructions and a device code.
 - **Email, by text only:** EMAIL (E-MAIL) sends the first-email link; EMAIL OFF (E-MAIL OFF) removes email. `EMAILOFF` without a space is not a command.
 - **Stop:** STOP (STOPALL, STOP ALL, UNSUBSCRIBE, CANCEL, END, QUIT, REVOKE, OPTOUT, OPT OUT, STOP TEXTING ME, PLEASE STOP) pauses tasks, clears the stored location and revokes location codes. Known implementation gap: SMS STOP does not delete the saved email address. Text EMAIL OFF or use **Remove** on `/me` to remove it.
+  HELP after opting out returns the standard command menu without restoring consent or creating location codes.
 
-Accepted inputs, not additional commands: an email address by text; an Apple/Google Maps link with coordinates or a `lat,lng` pair with at least three decimal places per number; an iMessage location share or short map link (answered with an update link); and details for an open review ticket. Commands are case-insensitive and tolerate punctuation. The parser also tolerates some single-word typos; these are not extra advertised aliases. Email replies cannot opt a phone into tasks.
+Accepted inputs include an email address, a Maps link with coordinates, and a `lat,lng` pair with three decimal places per number.
+iMessage location shares and short map links receive an update link.
+Free text can add details to an open review ticket.
+Commands ignore case and punctuation.
+YES, NO, STOP, START, and their explicit aliases require exact matching; other commands still allow some single-word typos.
+Questions such as `yes please?` do not claim tasks.
+Photos sent by MMS or iMessage receive instructions to take and submit the photo through the live capture link.
+Without a live claim, the reply says there is no open task.
+STOP, START, and HELP still work when a message includes an attachment.
+Email replies cannot opt a phone into tasks.
 
 ## How to try it
 

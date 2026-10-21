@@ -37,3 +37,9 @@ Lint, typecheck, intent, and Sentrux checks passed.
 All worker pages, join success, the API home, and status were captured and inspected at desktop and phone widths (56 screenshots).
 Nine worker routes showed the test notice and safe preview text with JavaScript disabled.
 Keep the pull request as a draft until screenshot approval.
+
+Main integration preserves the shared START instructions and test-mode notice.
+The payout checklist now creates the payout row only for live payments.
+The integration checks passed: 510 affected tests, nine database scenarios, and 61 checklist tests after cleanup.
+The worker browser suite passed 71 cases; all 19 capture cases passed after using the required test origin.
+Sentrux passes after staging the resolved merge files; unresolved index stages caused duplicate function counts.

@@ -1,6 +1,8 @@
-# ADR-024: Worker location stays current through HERE links, the Shortcut and captures
+# ADR-037: Worker location stays current through HERE links, the Shortcut and captures
 
 Status: proposed (2026-10-17, T6.6). Adds to the frozen contract: `EyesService.updateWorkerLocation` and `WorkerLocationInput` in `packages/core`, the reply intents `here`, `shortcut` and `location_share` in `REPLY_INTENTS`, `AppConfig.location_max_age_h`, `location_ping`, `shortcut_url`, `location_min_interval_s` and `location_daily_max`, and migration `017_worker_location.sql` (workers location columns, `worker_pings`, new `eyes_nearby_workers` and `eyes_reoffer` signatures, and the location, token and ping functions).
+
+Migration `017_worker_location.sql` still names this record as ADR-024. Applied migrations are append-only, so that historical reference remains unchanged.
 
 ## Context
 A worker's location was the point they gave when they joined, forever. Someone who joined at home and works downtown got offers for home and none for downtown, and a worker who moved away kept getting offers they could not take. Inkbox delivers an iMessage "Share My Location" as the single character U+FFFD with no media, so the coordinates never reach us (docs/research/worker-location.md).

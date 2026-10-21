@@ -20,14 +20,14 @@ Fetched: 2026-10-17. Sources:
 - https://raw.githubusercontent.com/blaxel-ai/sdk-typescript/main/@blaxel/core/src/jobs/jobs.ts
 - https://raw.githubusercontent.com/blaxel-templates/template-jobs-ts/main/src/index.ts
 - Web search (third party, pricing only): https://blaxel.ai/llms.txt, https://agentdeals.dev/vendor/blaxel, https://apis.io/plans/blaxel/blaxel-plans-pricing/
-- Local: docs/vendor/hackathon.md (prize row)
+- Local: docs/archive/hackathon/hackathon.md (prize row)
 
 Page fetches return doc-summaries from a small model; code blocks below are as returned. Treat anything not marked verbatim as paraphrase.
 
 ## What Eyes uses it for
 1. Run the eval / naive-agent verifier agents inside Blaxel sandboxes (isolated Node/TS runs that call our MCP server over HTTPS).
 2. "Swarm" demo mode: a Blaxel batch job, about 50 tasks, each simulating an agent that calls POST /v1/signup then POST /v1/tasks on our REST API so the dashboard map lights up.
-3. Prize: Blaxel "Something a Human Would Never Want", 1st = $1k cash (gift card), no criteria published (hackathon.md). Eyes is a human-checks-for-agents product, so the fit is thin and pitch-dependent. Blaxel is NOT in the golden path and must stay out of it: separate API key for the swarm, separate Eyes tenant or flag.
+3. Prize: Blaxel "Something a Human Would Never Want", 1st = $1k cash (gift card), no criteria published (docs/archive/hackathon/hackathon.md). Eyes is a human-checks-for-agents product, so the fit is thin and pitch-dependent. Blaxel is NOT in the golden path and must stay out of it: separate API key for the swarm, separate Eyes tenant or flag.
 
 ## Auth & setup
 - CLI install (macOS/Linux): `curl -fsSL https://blaxel.ai/install.sh | sh` ; Homebrew: `brew install blaxel-ai/blaxel/blaxel` then `bl setup`. Installer also runs `bl setup` (adds agent skills/MCP, starts browser login). Source: Get-started.md.
@@ -125,4 +125,4 @@ Only if we want the verifier agent loop hosted rather than run in a sandbox. `bl
 4. Job logs retrieval via SDK/CLI; cancel-execution method.
 5. Whether `blaxel/base-image` has Node and npm; outbound network policy from sandboxes and jobs.
 6. Agent-hosting invoke URL and auth header.
-7. Blaxel prize judging criteria and whether it requires Blaxel in the core product (hackathon.md says "not in our stack").
+7. Blaxel prize judging criteria and whether it requires Blaxel in the core product (docs/archive/hackathon/hackathon.md says "not in our stack").

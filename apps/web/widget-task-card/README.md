@@ -75,7 +75,7 @@ A Sandbox pill shows whenever `sandbox` is true. Badges: green passed, amber pen
 
 Core gaps, each carried by a local field in `CardData` today:
 
-- `sandbox`: the T4.29 sandbox is a separate server (`EYES_SANDBOX=1`). Its `ask_eyes` and `await_answer` `next_step` start with the sandbox sentence, but `get_task` and `quote_task` carry no flag, so W2 needs a server-level signal. Sandbox `photo_url`s point at `storage.fake.test`, which the allowlist rejects, so sandbox cards show the map.
+- `sandbox` is a fixture-only field for the prototype's Sandbox pill. The keyless server is retired; this prototype does not connect to it.
 - `as_of`: the card computes "2 min ago" against the snapshot time; W2 sets it when the tool result arrives.
 - `fee_usd` on quotes: `quote_task` returns `suggested_bounty_usd` but not the fee, so the quote total needs the 0.50 USD fee from somewhere.
 - `workers_notified` on a task: `ask_eyes` returns it, `get_task` does not.

@@ -51,7 +51,7 @@ function trustEdge(headers: Headers, secret: string | undefined) {
 function tooLarge(req: IncomingMessage, limit: number): Response {
   req.resume();
   const err = new EyesError(
-    "invalid_input",
+    "payload_too_large",
     { max_bytes: limit },
     {
       message: `The request body is larger than ${limit} bytes.`,
@@ -61,7 +61,7 @@ function tooLarge(req: IncomingMessage, limit: number): Response {
           : "Send a smaller request. No Eyes call needs a body over 1 MB.",
     },
   );
-  return Response.json(err.toBody(), { status: 413 });
+  return Response.json(err.toBody(), { status: err.status });
 }
 
 const routeOf = (pathname: string) =>

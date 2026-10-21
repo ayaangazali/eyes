@@ -49,6 +49,7 @@ export const UNAVAILABLE: SafetyVerdict = {
   reason: "The safety review is temporarily unavailable, so this task was not sent to any worker.",
   fix: "Nothing was charged. Retry the same request in a few seconds. If it keeps failing, wait a minute and try again.",
   layer: "classifier",
+  unavailable: true,
 };
 
 // Clef blocks only when a blocked category reaches this confidence. Rules remain unconditional.

@@ -15,7 +15,7 @@ import {
 import { getCode, getLast, isPaused, pause, report, saveCode, startSharing, TASK } from "./src/background.ts";
 import { codeFromUrl, isCode, type Last, MESSAGES, type State, settle } from "./src/eyes.ts";
 
-// packages/ui/tokens.css
+// packages/ui/src/tokens.css
 const YELLOW = "#ffd60a";
 const LIGHT = { text: "#0d0d0d", text2: "#5d5d5d", bg: "#ffffff", field: "#f3f3f3", danger: "#ba2623" };
 const DARK = { text: "#ffffff", text2: "#afafaf", bg: "#181818", field: "#212121", danger: "#fa423e" };

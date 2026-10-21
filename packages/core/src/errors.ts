@@ -9,6 +9,26 @@ export const ERRORS = {
     message: "The request did not match the expected schema.",
     fix: "Correct the fields listed in `issues` and retry. Each tool's input schema documents every field.",
   },
+  not_found: {
+    status: 404,
+    message: "Unknown route.",
+    fix: "See /openapi.json for the REST routes, or call tools/list on /mcp for the MCP tools.",
+  },
+  method_not_allowed: {
+    status: 405,
+    message: "This route does not support that HTTP method.",
+    fix: "Use a method listed in the Allow response header. See /openapi.json for the REST routes.",
+  },
+  payload_too_large: {
+    status: 413,
+    message: "The request body is too large.",
+    fix: "Send a smaller request. No Eyes call needs a body over 1 MB.",
+  },
+  service_unavailable: {
+    status: 503,
+    message: "The safety review is temporarily unavailable. No task was sent and nothing was charged.",
+    fix: "Retry the same request with the same idempotency_key in a few seconds. If it keeps failing, wait a minute and retry.",
+  },
   insufficient_balance: {
     status: 402,
     message: "Your balance is too low to escrow this task.",
@@ -53,7 +73,7 @@ export const ERRORS = {
   task_not_cancellable: {
     status: 409,
     message: "Only unclaimed (dispatched) tasks can be cancelled.",
-    fix: "A worker is already on it. Call await_answer to get the result, or dispute_answer if the answer is wrong.",
+    fix: "Call get_task to check the status. For claimed or submitted tasks, call await_answer. For expired or refunded tasks, stop waiting; nothing remains to cancel.",
   },
   task_not_disputable: {
     status: 409,

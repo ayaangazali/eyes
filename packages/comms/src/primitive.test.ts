@@ -40,6 +40,7 @@ const AGENT = { id: AGENT_ID } as Agent;
 
 const TASK: ToolOutput<"ask_eyes"> = {
   task_id: "99999999-8888-4777-8666-555555555555",
+  resolved_location: { lat: 37.78246, lng: -122.40776, label: "Blue Bottle Coffee, San Francisco" },
   status: "dispatched",
   workers_notified: 3,
   escrowed_usd: 3.5,

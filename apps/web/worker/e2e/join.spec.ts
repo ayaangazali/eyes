@@ -36,12 +36,20 @@ test("join posts a normalized phone and location, then shows the connect and STA
   await fill(page, "Ada Lovelace", "(415) 555-0123");
 
   const texts = page.locator("#start a");
-  await expect(texts).toHaveText([
-    'First text "connect @eyes-test" to +14155550199',
-    "Then text START to +14155550199",
-  ]);
-  await expect(texts.first()).toHaveAttribute("href", "sms:+14155550199?&body=connect%20%40eyes-test");
-  await expect(texts.last()).toHaveAttribute("href", "sms:+14155550199?&body=START");
+  await expect(texts).toHaveCount(1);
+  await expect(texts).toHaveAttribute("href", "sms:+14155550199?&body=connect%20%40eyes-test");
+  await expect(page.locator("#start-contact")).toBeVisible();
+  await expect(page.locator("#start-contact a, #start-contact button")).toHaveCount(0);
+  await expect(page.locator("#start")).toContainText("+1 (415) 555-0199");
+  await expect(texts).not.toContainText("+1 (415) 555-0199");
+  const button = await texts.boundingBox();
+  const instruction = page.locator("#start").getByText("Click below to connect", { exact: true });
+  await expect(instruction).toBeVisible();
+  const instructionBox = await instruction.boundingBox();
+  expect(instructionBox && button && instructionBox.y + instructionBox.height <= button.y).toBe(true);
+  expect(button?.height).toBeGreaterThanOrEqual(44);
+  const lineHeight = await texts.evaluate((el) => Number.parseFloat(getComputedStyle(el).lineHeight));
+  expect(button?.height).toBeLessThan(lineHeight * 2);
   await expect(page.getByText("we'll text you a link to set up payouts")).toBeHidden();
   await expect(page.getByRole("link", { name: /payouts/i })).toHaveCount(0);
   await expect(page.getByText("Reply YES to claim a task")).toBeVisible();
@@ -92,14 +100,17 @@ test("the payout notice is right in the static page, before any script runs", as
   await context.close();
 });
 
-test("phone formats normalize to E.164 and the build-time number is the START fallback", async ({ page }) => {
+test("phone formats normalize to E.164 and the build-time number is the router fallback", async ({
+  page,
+}) => {
   const posts = await mockJoin(page, { json: { ...joined, inkbox_number: null } });
   for (const phone of ["1 (415) 555-0123", "+1 415.555.0123", "+44 20 7946 0958"]) {
     await page.goto("/");
     await fill(page, "Ada Lovelace", phone);
-    await expect(
-      page.getByRole("link", { name: "Then text START to +14155550100", exact: true }),
-    ).toHaveAttribute("href", "sms:+14155550100?&body=START");
+    await expect(page.locator("#start a")).toHaveAttribute(
+      "href",
+      "sms:+14155550100?&body=connect%20%40eyes-test",
+    );
   }
   expect(posts.map((p) => p.phone)).toEqual(["+14155550123", "+14155550123", "+442079460958"]);
 });
@@ -140,5 +151,56 @@ test("join errors show worker wording, not the agent-facing fix", async ({ page 
   await expect(alert).toContainText("Eyes could not accept that.");
   await expect(alert).toContainText("Check what you entered, then try again.");
   await expect(alert).not.toContainText("issues");
+  await expect(alert).toBeFocused();
   await expect(page.locator("#start a")).toHaveCount(0);
+});
+
+test("keyboard join moves focus to the next heading and announces success", async ({ page }) => {
+  await mockJoin(page, { json: joined });
+  await page.goto("/");
+  const status = page.getByRole("status");
+  await expect(status).toHaveAttribute("aria-live", "polite");
+  await expect(status).toBeEmpty();
+  await page.getByLabel("Name").fill("Ada Lovelace");
+  await page.getByLabel("Mobile number").fill("(415) 555-0123");
+  await page.getByLabel("Mobile number").press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.getByText("Location set")).toBeVisible();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+
+  await expect(page.getByRole("heading", { name: "You're in. Finish these steps." })).toBeFocused();
+  await expect(status).toContainText("You have joined Eyes.");
+  await expect(status).toContainText("START");
+  await page.keyboard.press("Tab");
+  await expect(page.locator("#start a").first()).toBeFocused();
+});
+
+test("location retries keep the locate icon", async ({ page }) => {
+  await page.addInitScript(() => {
+    let attempts = 0;
+    navigator.geolocation.getCurrentPosition = (success, failure) => {
+      if (attempts++ === 0) {
+        failure?.({ code: 1, PERMISSION_DENIED: 1 } as GeolocationPositionError);
+      } else {
+        success({ coords: { latitude: 37.78, longitude: -122.4, accuracy: 10 } } as GeolocationPosition);
+      }
+    };
+  });
+  await page.goto("/");
+  const locate = page.locator("#locate");
+  await locate.click();
+  await expect(locate).toHaveAccessibleName("Try location again");
+  await expect(locate.locator("svg")).toBeVisible();
+  await locate.click();
+  await expect(locate).toHaveAccessibleName("Location set");
+  await expect(locate.locator("svg")).toBeVisible();
+});
+
+test("the production build does not serve the design pages", async ({ request }) => {
+  for (const page of ["catalog", "moodboard"]) {
+    const response = await request.get(`/design/${page}.html`);
+    expect(response.status()).toBe(404);
+  }
 });

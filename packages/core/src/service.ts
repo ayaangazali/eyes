@@ -41,6 +41,7 @@ export type SafetyVerdict = {
   reason: string | null;
   fix: string | null;
   layer: "rules" | "classifier" | null;
+  unavailable?: true;
 };
 export type AssessTask = (input: SafetyInput) => Promise<SafetyVerdict>;
 

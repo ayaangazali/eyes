@@ -1,4 +1,4 @@
-# ADR-023: Ops dashboard behind an operator allowlist, a persisted event log, and worker support tickets
+# ADR-036: Ops dashboard behind an operator allowlist, a persisted event log, and worker support tickets
 
 Status: proposed (2026-10-17, T6.4). Adds to the frozen contract: `EyesService.resolveTicket` in `packages/core/src/service.ts`, and migration `015_events_and_tickets.sql` (tables `events`, `tickets`, `ops_allowlist`, `ops_codes` and their functions).
 

@@ -44,6 +44,12 @@ describe.skipIf(!url)("eyes ask against the real server and Postgres", () => {
   let http: Server | undefined;
   let api = "";
 
+  async function worker(at = here) {
+    const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
+    await service.joinWorker({ name: "CLI Worker", phone, ...at });
+    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+  }
+
   const deps = (extra: Partial<Deps> = {}): Deps => ({
     fetch,
     env: { EYES_API_URL: api },
@@ -60,9 +66,7 @@ describe.skipIf(!url)("eyes ask against the real server and Postgres", () => {
     http = createHttpServer(toNodeListener(createServer({ service, providers, config, env: {} }).fetch));
     await new Promise<void>((resolve) => http?.listen(0, "127.0.0.1", resolve));
     api = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
-    const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
-    await service.joinWorker({ name: "CLI Worker", phone, ...here });
-    await service.handleWorkerReply({ phone, intent: "start", text: "START" });
+    await worker();
   });
 
   afterAll(async () => {
@@ -83,11 +87,11 @@ describe.skipIf(!url)("eyes ask against the real server and Postgres", () => {
   it("escrows exactly once per question: repeated key, interrupted re-run, and concurrent different asks", async () => {
     expect(await run(["signup", "--name", "cli-int-agent", "--json"], deps())).toBe(0);
     const { agent_id } = JSON.parse(out[0] ?? "") as SignupOutput;
-    const ask = (question: string, type: string) => [
+    const ask = (question: string, type: string, at = here) => [
       "ask",
       question,
       "--at",
-      `${here.lat},${here.lng}`,
+      `${at.lat},${at.lng}`,
       "--type",
       type,
       "--no-wait",
@@ -101,12 +105,17 @@ describe.skipIf(!url)("eyes ask against the real server and Postgres", () => {
     const [first, second] = out.map((line) => JSON.parse(line));
     expect(second.task_id).toBe(first.task_id);
 
+    await worker();
     const line = ask("How long is the line right now?", "line_length");
     expect(await run(line, crashingAfterSend())).toBe(130);
     expect(await run(line, deps())).toBe(0);
 
-    const bakery = ask("Is the bakery open right now?", "is_open");
-    const plaza = ask("How crowded is the plaza right now?", "crowd_level");
+    const bakeryAt = { ...here, lat: here.lat + 0.1 };
+    const plazaAt = { ...here, lat: here.lat - 0.1 };
+    await worker(bakeryAt);
+    await worker(plazaAt);
+    const bakery = ask("Is the bakery open right now?", "is_open", bakeryAt);
+    const plaza = ask("How crowded is the plaza right now?", "crowd_level", plazaAt);
     expect(await Promise.all([run(bakery, crashingAfterSend()), run(plaza, crashingAfterSend())])).toEqual([
       130, 130,
     ]);
@@ -124,5 +133,33 @@ describe.skipIf(!url)("eyes ask against the real server and Postgres", () => {
       ["Is the bakery open right now?", 1, 1],
       ["Is the cafe open right now?", 1, 1],
     ]);
+  });
+
+  it("pages tasks through the CLI over HTTP", async () => {
+    const signup = await service.signupAgent({ name: "cli-paging" });
+    await sql`insert into tasks
+      (agent_id, question, task_type, place_label, lat, lng, bounty_cents, fee_cents, deadline_at, created_at)
+      select ${signup.agent_id}, 'Is it open?', 'is_open', 'Pier', 1, 1, 300, 0,
+        '2026-10-20T12:00:00Z', '2026-10-20T11:00:00.123456Z'
+      from generate_series(1, 55)`;
+    const expected =
+      await sql`select id from tasks where agent_id = ${signup.agent_id} order by created_at desc, id desc`;
+    const output: string[] = [];
+    const paging = deps({
+      env: { EYES_API_URL: api, EYES_API_KEY: signup.api_key },
+      out: (line) => output.push(line),
+    });
+    const args = ["tasks", "--status", "dispatched", "--limit", "50", "--json"];
+    expect(await run(args, paging)).toBe(0);
+    const first = JSON.parse(output[0] ?? "null");
+    expect(first.tasks.map((task: { task_id: string }) => task.task_id)).toEqual(
+      expected.slice(0, 50).map((row) => row.id),
+    );
+    expect(await run([...args, "--before", first.next_cursor], paging)).toBe(0);
+    const last = JSON.parse(output[1] ?? "null");
+    expect(last.tasks.map((task: { task_id: string }) => task.task_id)).toEqual(
+      expected.slice(50).map((row) => row.id),
+    );
+    expect(last.next_cursor).toBeNull();
   });
 });

@@ -270,14 +270,13 @@ describe.skipIf(!url)("engine under races and guards", () => {
 
   it("expireOverdue from 5 connections at once refunds each overdue task exactly once", async () => {
     const at = somewhere();
-    await worker(north(at, 100));
     const a = await agent();
     const b = await agent();
-    const ids = [
-      (await ask(a, at, { deadline_minutes: 5 })).task_id,
-      (await ask(a, at, { deadline_minutes: 5 })).task_id,
-      (await ask(b, at, { deadline_minutes: 5 })).task_id,
-    ];
+    const ids: string[] = [];
+    for (const owner of [a, a, b]) {
+      await worker(north(at, 100));
+      ids.push((await ask(owner, at, { deadline_minutes: 5 })).task_id);
+    }
     const runners = Array.from({ length: 5 }, () => make());
     const when = new Date(providers.clock.now().getTime() + 6 * 60_000);
     for (const r of runners) r.providers.clock.set(when);
@@ -359,28 +358,31 @@ describe.skipIf(!url)("engine under races and guards", () => {
   });
 
   it("daily cap: exactly the cap is allowed, one cent over is refused, concurrent asks respect it", async () => {
-    const at = somewhere();
-    await worker(north(at, 100));
+    const askFresh = async (owner: Agent, extra: Partial<AskEyesInput> = {}) => {
+      const at = somewhere();
+      await worker(at);
+      return ask(owner, at, extra);
+    };
     const a = await agent();
     await sql`update agents set daily_cap_cents = 700 where id = ${a.id}`;
-    await ask(a, at);
-    await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
-    await expect(ask(a, at, { bounty_usd: 1 })).rejects.toMatchObject({
+    await askFresh(a);
+    await expect(askFresh(a)).resolves.toMatchObject({ status: "dispatched" });
+    await expect(askFresh(a, { bounty_usd: 1 })).rejects.toMatchObject({
       code: "daily_cap_exceeded",
       context: { remaining_today_usd: 0 },
     });
 
     const b = await agent();
     await sql`update agents set daily_cap_cents = 699 where id = ${b.id}`;
-    await ask(b, at);
-    await expect(ask(b, at)).rejects.toMatchObject({
+    await askFresh(b);
+    await expect(askFresh(b)).rejects.toMatchObject({
       code: "daily_cap_exceeded",
       context: { remaining_today_usd: 3.49 },
     });
 
     const c = await agent();
     await sql`update agents set daily_cap_cents = 700 where id = ${c.id}`;
-    const results = await Promise.allSettled(Array.from({ length: 5 }, () => ask(c, at)));
+    const results = await Promise.allSettled(Array.from({ length: 5 }, () => askFresh(c)));
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
     expect(await service.getSpendPolicy(c)).toMatchObject({ spent_today_usd: 7, remaining_today_usd: 0 });
   });
@@ -726,11 +728,11 @@ describe.skipIf(!url)("engine under races and guards", () => {
     expect(await task(task_id)).toEqual({ status: "dispatched", claimed_by: null });
   });
 
-  it("a worker who never sent START gets no text for anything but START", async () => {
+  it("an unconfirmed worker gets no task replies until START", async () => {
     const phone = `+1555${String(randomInt(10_000_000)).padStart(7, "0")}`;
     await service.joinWorker({ name: "Worker", phone, ...somewhere() });
     const before = outbox.length;
-    for (const intent of ["yes", "no", "help", "unknown", "stop"] as const) {
+    for (const intent of ["yes", "no", "unknown", "stop"] as const) {
       await service.handleWorkerReply({ phone, intent, text: intent });
     }
     expect(outbox.slice(before).filter((m) => m.to === phone)).toEqual([]);
@@ -1102,31 +1104,46 @@ describe.skipIf(!url)("engine under races and guards", () => {
     }
   });
 
-  it("a worker who texted STOP is paid without texts, and the capture page shows the payout setup link instead", async () => {
+  it("a submitted answer is still paid after STOP without sending task texts", async () => {
     const env = make();
-    const stop = (phone: string) => env.service.handleWorkerReply({ phone, intent: "stop", text: "STOP" });
-    const onboarded = await captured(env, true, stop);
-    const unconnected = await captured(env, false, stop);
-    expect([onboarded.res.status, unconnected.res.status]).toEqual(["paid", "verified"]);
-    expect((await rows(onboarded.task_id)).map((r) => r.type)).toEqual([
-      "escrow",
-      "fee",
-      "payout",
-      "release",
-    ]);
-    for (const { w } of [onboarded, unconnected]) {
-      expect(
-        env.outbox.filter(
-          (m) => m.to === w.phone && (m.kind === "paid" || String(m.payload).includes("is waiting")),
-        ),
-      ).toEqual([]);
+    const { w, task_id, res } = await captured(env, false);
+    expect(res.status).toBe("verified");
+    await env.service.handleWorkerReply({ phone: w.phone, intent: "stop", text: "STOP" });
+    const before = env.outbox.length;
+    await env.service.workerConnectUrl(w.connectToken);
+    await env.service.markWorkerOnboarded(`acct_fake_${w.worker_id}`);
+    expect((await task(task_id)).status).toBe("paid");
+    expect(transfersFor(env, task_id)).toHaveLength(1);
+    expect(env.outbox.slice(before)).toEqual([]);
+  });
+
+  it("STOP after the photo is stored keeps the answer and returns payout setup on the capture page", async () => {
+    const env = make();
+    await sql`create function stop_after_capture() returns trigger language plpgsql as $$
+      begin
+        perform eyes_stop_worker(new.worker_id, new.created_at);
+        return new;
+      end $$`;
+    await sql`create trigger stop_after_capture after insert on submissions
+      for each row execute function stop_after_capture()`;
+    try {
+      const onboarded = await captured(env);
+      const unconnected = await captured(env, false);
+      expect([onboarded.res.status, unconnected.res.status]).toEqual(["paid", "verified"]);
+      for (const { w } of [onboarded, unconnected]) {
+        expect((await sql`select opted_in from workers where id = ${w.worker_id}`)[0]?.opted_in).toBe(false);
+        expect(paidTexts(env, w.phone)).toEqual([]);
+      }
+      expect(transfersFor(env, onboarded.task_id)).toHaveLength(1);
+      expect(unconnected.res.message).not.toContain("texted");
+      const link = unconnected.res.message.split("set up payouts here: ")[1] ?? "";
+      expect(await env.service.workerConnectUrl(link.split("/w/connect/")[1] ?? "")).toBe(
+        `https://connect.fake.test/onboard/acct_fake_${unconnected.w.worker_id}`,
+      );
+    } finally {
+      await sql`drop trigger stop_after_capture on submissions`;
+      await sql`drop function stop_after_capture()`;
     }
-    expect(unconnected.res.message).not.toContain("texted");
-    const link = unconnected.res.message.split("set up payouts here: ")[1] ?? "";
-    expect(link).toMatch(/^https:\/\/api\.eyes\.test\/w\/connect\//);
-    expect(await env.service.workerConnectUrl(link.split("/w/connect/")[1] ?? "")).toBe(
-      `https://connect.fake.test/onboard/acct_fake_${unconnected.w.worker_id}`,
-    );
   });
 
   it("a paid or payout setup text that fails after verification never fails the capture or the payout", async () => {

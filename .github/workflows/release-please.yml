@@ -1,8 +1,10 @@
+# The owner must enable Settings > Actions > General > Workflow permissions >
+# "Allow GitHub Actions to create and approve pull requests".
+# Restore the push trigger for main once this setting is enabled.
 name: release-please
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write

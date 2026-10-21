@@ -41,21 +41,6 @@ describe("main.ts as a process", () => {
     expect(run.stdout).not.toContain("listening");
   });
 
-  it("refuses EYES_SANDBOX=1 unless every provider is fake and EYES_FAKE_WEBHOOKS and ANTHROPIC_API_KEY are unset", async () => {
-    const refused: Record<string, string>[] = [
-      { ANTHROPIC_API_KEY: "sk-ant-test" },
-      { EYES_PROVIDERS: "fake", EYES_FAKE_WEBHOOKS: "1" },
-      { EYES_PROVIDERS: "fake", ANTHROPIC_API_KEY: "sk-ant-test" },
-    ];
-    for (const env of refused) {
-      const run = await boot({ EYES_SANDBOX: "1", ...env });
-      expect(run.code).toBe(1);
-      expect(run.stderr).toContain("EYES_SANDBOX=1 gives an agent with play money to anyone");
-      expect(run.stdout).not.toContain("listening");
-    }
-    expect((await boot({ EYES_SANDBOX: "1", EYES_PROVIDERS: "fake" })).stdout).toContain("listening");
-  }, 15_000);
-
   it("wires InsForge storage in live mode and starts serving", async () => {
     const run = await boot({
       ANTHROPIC_API_KEY: "sk-ant-test",
@@ -68,7 +53,7 @@ describe("main.ts as a process", () => {
 
   it("exits 0 soon after SIGTERM instead of ignoring it (rollouts wait 15 min for that)", async () => {
     const started = Date.now();
-    const run = await boot({ EYES_SANDBOX: "1", EYES_PROVIDERS: "fake" });
+    const run = await boot({ EYES_PROVIDERS: "fake" });
     expect(run.stdout).toContain("SIGTERM: draining for up to 10 s");
     expect(run.code).toBe(0);
     expect(Date.now() - started).toBeLessThan(10_000);
@@ -154,19 +139,6 @@ describe("start", () => {
 
   it("refuses an EYES_OPS_KEY shorter than 32 characters", () => {
     expect(() => run({ EYES_OPS_KEY: "demo" })).toThrow(/EYES_OPS_KEY must be at least 32 random characters/);
-  });
-
-  it.each([
-    { EYES_PROVIDERS: "live" },
-    { EYES_FAKE_WEBHOOKS: "1" },
-    { ANTHROPIC_API_KEY: "sk-ant-test" },
-    { CLOUDFLARE_ACCOUNT_ID: "acct", CLOUDFLARE_API_TOKEN: "cf-test" },
-  ])("refuses EYES_SANDBOX=1 with %j", (env) => {
-    expect(() => run({ EYES_SANDBOX: "1", ...env })).toThrow(/EYES_SANDBOX=1 gives an agent with play money/);
-  });
-
-  it("serves the sandbox when every provider is fake", async () => {
-    expect(await serve({ EYES_SANDBOX: "1" })).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
   });
 
   it.each(["abc", "3000.5", "70000", "-1", " ", "0x50", "1e3"])("refuses PORT=%j", (port) => {
