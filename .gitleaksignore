@@ -1,3 +1,5 @@
 3823d00fb4ae1ab8c817f4158a159589b15bedcf:intent/verdicts/T4.4-PR44.md:stripe-access-token:21
 # Historical widget request idempotency key, not an API credential.
 b5456b88df9327e19ab5bd793c2e9a5595491e77:apps/web/widget-task-card/fixtures/error.json:generic-api-key:15
+# Git SHA in a checkpoint map, not a secret.
+4e1a8fb1caf9fe5600fc4cc2c287160eb0ecacd0:WIP-COVERAGE.json:generic-api-key:8
