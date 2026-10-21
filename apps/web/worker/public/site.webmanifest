@@ -1,0 +1,7 @@
+{
+  "name": "Eyes",
+  "short_name": "Eyes",
+  "start_url": "/",
+  "display": "browser",
+  "icons": [{ "src": "https://eyes.pictures/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" }]
+}
