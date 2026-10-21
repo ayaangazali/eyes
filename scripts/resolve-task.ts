@@ -34,7 +34,7 @@ const db: DbConfig = env.DATABASE_URL
     : exit("Set DATABASE_URL, or INSFORGE_BASE_URL and INSFORGE_API_KEY.");
 
 const fakes = fakeProviders();
-console.log(`payments: ${live.payments ? "live" : "FAKE"}, messaging: ${live.messaging ? "live" : "FAKE"}`);
+console.log(`payments: ${live.payments || "FAKE"}, messaging: ${live.messaging ? "live" : "FAKE"}`);
 
 const service = createEyesService({
   db,
@@ -52,7 +52,7 @@ const service = createEyesService({
     link_secret: env.EYES_LINK_SECRET,
     test_mode: env.EYES_TEST_MODE ? env.EYES_TEST_MODE === "true" : undefined,
     email_domain: env.PRIMITIVE_DOMAIN || undefined,
-    live_payouts: live.payments,
+    live_payouts: live.payments === "live",
   }),
 });
 

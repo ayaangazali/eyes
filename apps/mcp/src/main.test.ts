@@ -177,6 +177,25 @@ describe("start", () => {
     expect(res.status).toBe(404);
   });
 
+  it.each([
+    ["live", "sk_test_fixture", "false", false],
+    ["live", "rk_test_fixture", "false", false],
+    ["live", undefined, "false", false],
+    ["fake", "sk_live_fixture", "false", false],
+    ["live", "sk_live_fixture", "false", true],
+    ["live", "rk_live_fixture", "false", true],
+  ])("uses the Stripe key mode for payout setup (%s, %s)", async (mode, key, testMode, live) => {
+    const base = await serve({
+      EYES_PROVIDERS: mode,
+      STRIPE_SECRET_KEY: key,
+      EYES_TEST_MODE: testMode,
+      ANTHROPIC_API_KEY: "sk-ant-test",
+    });
+    const response = await fetch(`${base}/w/connect/invalid-token`);
+    expect(response.status).toBe(live ? 404 : 200);
+    expect(await response.text()).toContain(live ? "expired" : "no real money is paid");
+  });
+
   it("wires every live provider, InsForge as the database and ClickHouse when configured", async () => {
     await serve({
       EYES_PROVIDERS: "live",
@@ -196,7 +215,7 @@ describe("start", () => {
       expect.arrayContaining([
         "provider messaging: live",
         "provider email: live",
-        "provider payments: live",
+        "provider payments: test",
         "provider storage: live",
         "provider vision: live",
         "provider geo: live",

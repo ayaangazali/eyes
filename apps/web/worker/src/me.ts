@@ -121,7 +121,7 @@ export function ago(iso: string, now: number): string {
   return `${days} ${days === 1 ? "day" : "days"} ago`;
 }
 
-/** The four setup rows. The first row with an action gets the primary button, the rest secondary. */
+/** The first setup row with an action gets the primary button, the rest secondary. */
 export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START")): Row[] {
   const { spot, app, payouts } = s;
   const todo = (id: Row["id"], title: string, detail: string, label: string, href: string | null) =>
@@ -132,7 +132,9 @@ export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START
           id: "texts",
           state: "done",
           title: "Number joined",
-          detail: "Eyes texts you paid tasks near you.",
+          detail: payouts.live
+            ? "Eyes texts you paid tasks near you."
+            : "Eyes texts you test tasks near you.",
           action: null,
         }
       : startSms
@@ -183,30 +185,26 @@ export function checklist(s: WorkerSetup, now: number, startSms = smsHref("START
             detail: "Text START first, then open the app.",
             action: null,
           },
-    payouts.set_up && !payouts.setup_url
-      ? {
-          id: "payouts",
-          state: "done",
-          title: "Payouts set up",
-          detail: "Eyes pays you for each verified task.",
-          action: null,
-        }
-      : payouts.live && payouts.setup_url
-        ? todo(
+  ];
+  if (payouts.live) {
+    rows.push(
+      payouts.set_up && !payouts.setup_url
+        ? {
+            id: "payouts",
+            state: "done",
+            title: "Payouts set up",
+            detail: "Eyes pays you for each verified task.",
+            action: null,
+          }
+        : todo(
             "payouts",
             "Set up payouts",
             "Do this once to get paid for tasks.",
             "Set up payouts",
             payouts.setup_url,
-          )
-        : {
-            id: "payouts",
-            state: "neutral",
-            title: "Test payouts",
-            detail: "Payouts are simulated on this test server.",
-            action: null,
-          },
-  ];
+          ),
+    );
+  }
   const first = rows.find((r) => r.action);
   if (first?.action) first.action.primary = true;
   return rows;

@@ -31,9 +31,7 @@ test("join posts a normalized phone and location, then shows the connect and STA
   const posts = await mockJoin(page, { json: joined });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Worker sign-up opens soon" })).toBeHidden();
-  await expect(
-    page.getByText("This is a test server. Payouts are simulated, so tasks pay no real money."),
-  ).toBeVisible();
+  await expect(page.getByText("No real money yet. These are test tasks.")).toBeVisible();
   await expect(page.getByText("paid out through Stripe")).toBeHidden();
   await fill(page, "Ada Lovelace", "(415) 555-0123");
 
@@ -68,7 +66,7 @@ test("a build without an Inkbox number says sign-up opens soon and asks for noth
   await expect(page.getByText("You need an iPhone.")).toBeVisible();
   await expect(page.getByLabel("Mobile number")).toBeHidden();
   await expect(page.getByRole("button", { name: "Join" })).toBeHidden();
-  await expect(page.getByText("Payouts are simulated")).toBeHidden();
+  await expect(page.getByText("No real money yet")).toBeHidden();
   for (const live of ["paid out through Stripe", "we'll text you a link to set up payouts"]) {
     await expect(page.getByText(live)).not.toHaveCSS("display", "none");
   }
@@ -78,11 +76,27 @@ test("a build without an Inkbox number says sign-up opens soon and asks for noth
 test("the payout notice is right in the static page, before any script runs", async ({ browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
   const page = await context.newPage();
-  await page.goto("/");
-  await expect(page.getByText("Payouts are simulated, so tasks pay no real money.")).toBeVisible();
+  for (const path of [
+    "/",
+    "/capture.html",
+    "/app.html",
+    "/automation.html",
+    "/here.html",
+    "/install.html",
+    "/me.html",
+    "/login.html",
+    "/privacy.html",
+  ]) {
+    await page.goto(path);
+    await expect(page.getByText("No real money yet. These are test tasks.")).toBeVisible();
+    const preview = await page
+      .locator('meta[property^="og:"]')
+      .evaluateAll((tags) => tags.map((tag) => tag.getAttribute("content")).join(" "));
+    expect(preview).not.toMatch(/get paid|paid tasks|pays you/i);
+  }
   await page.goto("http://127.0.0.1:4174/");
   await expect(page.getByText("You need an iPhone.")).toBeVisible();
-  await expect(page.getByText("Payouts are simulated")).toBeHidden();
+  await expect(page.getByText("No real money yet")).toBeHidden();
   await context.close();
 });
 
