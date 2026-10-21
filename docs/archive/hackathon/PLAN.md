@@ -42,8 +42,8 @@ Current deployment and recovery guidance is in [DEPLOY §2](../../DEPLOY.md#2-mc
 | Key | Steps | Proof (live-verified) |
 |---|---|---|
 | `ANTHROPIC_API_KEY` | done 2026-10-17 09:40 PT: set on the server with `EYES_PROVIDERS=live`, added as the repo secret; `pnpm safety:eval` precision 0.946, recall 1.000 | STATUS: classifier refusals, vision verdicts and face deletion live-verified |
-| Inkbox iMessage line | Historical setup used the shared `hackathon` line. For current worker builds, keep `VITE_LIVE_PAYOUTS=false` with Stripe test keys. | G1: worker receives a task, sends a photo, and the agent receives the answer |
-| Stripe sandbox | Keep test-payment notices visible. Test keys do not enable worker payout setup; only live keys enable `live_payouts`. See [DEPLOY §3](DEPLOY.md#3-static-worker-web-and-landing-on-cloudflare). | Test top-ups and ledger entries move no real money |
+| Inkbox iMessage line | done 2026-10-17: free plan, shared line +16504849720, identity `hackathon`, `imessage.received` subscribed to `/webhooks/inkbox`, `INKBOX_API_KEY`, `INKBOX_AGENT_HANDLE`, signing key and auth token set on the server. `INKBOX_PHONE_NUMBER=+16504849720` set on the server at 09:45 PT (deploy c1824102); Sites built with `VITE_INKBOX_NUMBER=+16504849720 VITE_INKBOX_CONNECT="connect @hackathon"` (6ac27658, now ca4391f9) (add `VITE_LIVE_PAYOUTS=true` and redeploy Sites once `STRIPE_SECRET_KEY` is set); each worker iPhone texts `connect @hackathon`, then START | G1 live: Claude -> ask_eyes -> teammate iPhone gets the offer -> YES -> capture link -> photo -> Claude gets the answer |
+| Stripe sandbox | set `STRIPE_SECRET_KEY`, then rebuild the worker web with `VITE_LIVE_PAYOUTS=true` and redeploy Sites (without it the JOIN and capture pages keep saying payouts are simulated); create both event destinations (account: `checkout.session.completed`; connected accounts: `account.updated`) to `/webhooks/stripe`, set both secrets; pre-fund with 4000 0000 0000 0077; worker texts START and onboards through the payout link | G2: top-up via Checkout credits the balance; verified answer creates a $3 transfer visible in the Stripe dashboard; expiry refunds |
 | Primitive | set `PRIMITIVE_API_KEY`, `PRIMITIVE_WEBHOOK_SECRET`, `PRIMITIVE_DOMAIN`; deploy the inbound function to POST `/webhooks/primitive`; ask staff for `send_to_any_domain` | an agent emails its Eyes address and gets a threaded reply with the photo; the owner link email arrives |
 | Armature | set `ANALYTICS_INGEST_API_KEY`; wire T3.4 | events visible in Armature; eval run recorded |
 | Blaxel | set `BL_WORKSPACE`, `BL_API_KEY` | swarm batch job lights up the dashboard |
@@ -51,7 +51,7 @@ Current deployment and recovery guidance is in [DEPLOY §2](../../DEPLOY.md#2-mc
 ## 5. Gates
 
 - **G1 live**: one real text round trip (Inkbox step above). Payout may be fake.
-- **G2**: the historical test-mode onboarding flow is disabled for new workers under the default in #180. Existing test accounts can receive test transfers.
+- **G2**: live end to end with Stripe test-mode escrow -> payout visible; safety refusal works live; ax-verifier completes signup -> ask -> answer from public docs only.
 - **G3** (before 6:00 AM Sun): `pnpm test:demo` passes 3x in a row on fakes, and the live demo passes 3x in a row. Feature freeze.
 
 ## 6. Demo (SPEC §13) and what each sponsor shows
