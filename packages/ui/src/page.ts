@@ -60,7 +60,7 @@ form > label:has(input[type=checkbox]){display:flex;align-items:flex-start;gap:.
 .eyebrow{margin:0 0 .75rem;color:var(--eyes-text-secondary);font:500 var(--eyes-text-sm) var(--eyes-font-mono)}
 .docs{display:grid;grid-template-columns:repeat(auto-fit,minmax(14rem,1fr));gap:.75rem;margin:1rem 0 0;padding:0;list-style:none}
 .page .docs li{display:grid;gap:.125rem;margin:0;padding:1rem 1.25rem;border-radius:var(--eyes-radius-2xl);background:var(--eyes-surface-secondary);box-shadow:var(--eyes-hairline)}
-.docs a{font:600 1rem var(--eyes-font-mono)}.docs span{color:var(--eyes-text-secondary);font-size:var(--eyes-text-sm)}
+.docs a{display:flex;align-items:center;min-height:var(--eyes-tap);font:600 1rem var(--eyes-font-mono)}.docs span{color:var(--eyes-text-secondary);font-size:var(--eyes-text-sm)}
 .cta{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(12rem,100%),1fr));gap:.75rem;max-width:28rem;margin:1rem 0}
 .page .cta .button{margin:0}
 .page .button--quiet{background:var(--eyes-surface-tertiary);color:var(--eyes-text)}

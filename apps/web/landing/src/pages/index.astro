@@ -108,10 +108,18 @@ const flight = [
     </section>
 
     <div class="marquee" aria-label="Questions agents ask">
-      <ul class="marquee__track">
-        {questions.map((q) => <li>{q}</li>)}
-        {questions.map((q) => <li aria-hidden="true">{q}</li>)}
-      </ul>
+      <button class="marquee__pause ui-button" type="button" aria-label="Pause questions" aria-pressed="false" aria-controls="questions">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <path class="marquee__pause-icon" d="M9 5v14M15 5v14" />
+          <path class="marquee__play-icon" d="m8 5 11 7-11 7Z" />
+        </svg>
+      </button>
+      <div class="marquee__window">
+        <ul id="questions" class="marquee__track">
+          {questions.map((q) => <li>{q}</li>)}
+          {questions.map((q) => <li aria-hidden="true">{q}</li>)}
+        </ul>
+      </div>
     </div>
 
     <section id="how">
@@ -256,7 +264,7 @@ const flight = [
             <button class="ui-button ui-button--primary justify-self-start" type="button" data-connect aria-haspopup="dialog">Choose ChatGPT or Claude</button>
             <p class="m-0 text-sm text-secondary">Custom connector setup. Availability depends on your app, account and workspace permissions.</p>
           </div>
-          <details>
+          <details class="min-w-0">
             <summary class="ui-link cursor-pointer">Advanced: CLI &amp; other clients</summary>
             <p class="text-sm text-secondary">
               Other MCP clients can use <code class="font-mono break-all">{MCP}</code> with an Authorization: Bearer header.
@@ -266,7 +274,7 @@ const flight = [
             <li class="grid min-w-0 gap-3">
               <span class="ui-num step__n">01</span>
               <h3 class="m-0 text-xl font-semibold">Get a key</h3>
-              <pre data-focus class="code"><code>{signup}</code></pre>
+              <pre data-focus class="code" tabindex="0" role="region" aria-label="Get an API key"><code>{signup}</code></pre>
               <p class="m-0 text-sm text-secondary">
                 The response holds api_key, shown once. Test mode grants $20. Save it with{" "}
                 <code class="font-mono">export EYES_API_KEY=...</code>
@@ -275,20 +283,20 @@ const flight = [
             <li class="grid min-w-0 gap-3">
               <span class="ui-num step__n">02</span>
               <h3 class="m-0 text-xl font-semibold">Connect with the Manufact CLI</h3>
-              <pre data-focus class="code"><code>{connect}</code></pre>
+              <pre data-focus class="code" tabindex="0" role="region" aria-label="Connect with the Manufact CLI"><code>{connect}</code></pre>
               <p class="m-0 text-sm text-secondary">Saves the server as eyes. No global install needed.</p>
             </li>
             <li class="grid min-w-0 gap-3">
               <span class="ui-num step__n">03</span>
               <h3 class="m-0 text-xl font-semibold">Try it</h3>
-              <pre data-focus class="code"><code>{tryIt}</code></pre>
+              <pre data-focus class="code" tabindex="0" role="region" aria-label="Try a quote"><code>{tryIt}</code></pre>
               <p class="m-0 text-sm text-secondary">
                 quote_task is free and read-only. Look for "allowed": true, then ask_eyes posts a real task. When a
                 worker answers, await_answer returns:
               </p>
             </li>
           </ol>
-          <pre data-focus class="code"><code>{answer}</code></pre>
+          <pre data-focus class="code" tabindex="0" role="region" aria-label="Example answer"><code>{answer}</code></pre>
           </details>
         </div>
       </div>
@@ -440,6 +448,13 @@ const flight = [
     import { gsap } from "gsap";
     import { ScrollTrigger } from "gsap/ScrollTrigger";
     import { createFlight, wireCopy } from "../motion.ts";
+
+    const pause = document.querySelector<HTMLButtonElement>(".marquee__pause")!;
+    pause.addEventListener("click", () => {
+      const paused = pause.getAttribute("aria-pressed") !== "true";
+      pause.setAttribute("aria-pressed", String(paused));
+      pause.setAttribute("aria-label", paused ? "Play questions" : "Pause questions");
+    });
 
     const dialog = document.getElementById("connect-dialog") as HTMLDialogElement;
     let opener: HTMLElement;
@@ -665,9 +680,50 @@ const flight = [
 
   /* Marquee band: the one loud surface. Yellow in both themes. */
   .marquee {
-    overflow: hidden;
+    --marquee-control-inset: max(var(--eyes-space-5), calc((100% - var(--ui-column)) / 2 + var(--eyes-space-5)));
+    position: relative;
     background: var(--eyes-accent);
     color: var(--eyes-on-accent);
+  }
+  .marquee__window {
+    overflow: hidden;
+    margin-right: calc(var(--marquee-control-inset) + var(--eyes-tap) + var(--eyes-space-3));
+    mask-image: linear-gradient(to right, #000 calc(100% - 2rem), transparent);
+  }
+  .marquee .marquee__pause {
+    position: absolute;
+    z-index: 1;
+    inset-block: 0;
+    right: var(--marquee-control-inset);
+    display: grid;
+    place-items: center;
+    width: var(--eyes-tap);
+    height: var(--eyes-tap);
+    margin-block: auto;
+    padding: 0;
+    border-radius: 50%;
+    background: var(--eyes-on-accent);
+    color: var(--eyes-accent);
+  }
+  .marquee__play-icon,
+  .marquee__pause[aria-pressed="true"] .marquee__pause-icon {
+    display: none;
+  }
+  .marquee__pause[aria-pressed="true"] .marquee__play-icon {
+    display: block;
+  }
+  .marquee:has(:focus-visible) .marquee__track,
+  .marquee:has([aria-pressed="true"]) .marquee__track {
+    animation-play-state: paused;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .marquee .marquee__pause {
+      display: none;
+    }
+    .marquee__window {
+      margin-right: 0;
+      mask-image: none;
+    }
   }
   .marquee__track {
     display: flex;

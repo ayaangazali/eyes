@@ -882,12 +882,22 @@ textarea.ui-input {
   display: inline-flex;
   align-items: center;
   gap: var(--eyes-space-2);
+  min-height: var(--eyes-tap);
+  min-width: var(--eyes-tap);
   margin-right: auto;
   color: var(--eyes-text);
   font-size: var(--eyes-text-lg);
   font-weight: var(--eyes-weight-semibold);
   letter-spacing: -0.02em;
   text-decoration: none;
+}
+
+.ui-site-footer a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--eyes-tap);
+  min-height: var(--eyes-tap);
 }
 
 /* Mark: viewfinder brackets around a dot. The brackets are the brand, not a logo file. */
