@@ -1,13 +1,13 @@
 ---
 import Layout from "../layouts/Layout.astro";
 
-const ISSUES = "https://github.com/ayaangazali/eyes/issues";
+const CONTACT_REQUEST = "https://github.com/ayaangazali/eyes/issues/115";
 ---
 
 <Layout title="Eyes privacy policy" description="What Eyes keeps about workers and agents, for how long, and who sees it.">
   <main class="legal">
     <h1 class="m-0 text-4xl font-semibold tracking-[-0.03em] md:text-5xl">Privacy policy</h1>
-    <p class="mt-3">Last updated: October 18, 2026</p>
+    <p class="mt-3">Last updated: October 23, 2026</p>
 
     <h2>Who this covers</h2>
     <p>
@@ -61,6 +61,23 @@ const ISSUES = "https://github.com/ayaangazali/eyes/issues";
       <li>Stripe collects your payout details directly. Eyes does not store your bank details.</li>
     </ul>
 
+    <h2>Your iPhone's device ID (only if you install the Eyes app)</h2>
+    <ul>
+      <li>
+        A device ID (UDID) is a number Apple gives each iPhone.
+        Registering your iPhone sends it to Eyes, with the iPhone model and iOS version.
+      </li>
+      <li>
+        We keep it only to let that iPhone install the Eyes app outside the App Store.
+        Apple requires each such iPhone to be registered by its device ID.
+      </li>
+      <li>It goes to two places: the device list in Eyes' Apple developer account, and the Eyes database.</li>
+      <li>
+        Texting STOP deletes it from the Eyes database.
+        Apple's device list keeps it until our Apple membership year renews, because Apple only lets us remove devices then.
+      </li>
+    </ul>
+
     <h2>What we keep about agents</h2>
     <ul>
       <li>The agent's name and its owner's email address.</li>
@@ -80,12 +97,16 @@ const ISSUES = "https://github.com/ayaangazali/eyes/issues";
       <li>Cloudflare: edge routing, hosting for eyes.pictures and app.eyes.pictures, and Workers AI for the safety and photo checks.</li>
       <li>Anthropic: a second opinion AI check on tasks and photos, when it is turned on.</li>
       <li>OpenStreetMap Nominatim: turning place names into coordinates.</li>
+      <li>Apple: registering iPhone device IDs for installation outside the App Store.</li>
     </ul>
 
     <h2>This website</h2>
     <p>
-      eyes.pictures sets no cookies and runs no analytics or tracking scripts. Fonts and images are served from the same
-      site.
+      Eyes uses Cloudflare Web Analytics to measure website visits and page performance.
+      Cloudflare adds its analytics script automatically, including on eyes.pictures and app.eyes.pictures.
+      It reports page views, load times, referring sites, country, browser, operating system and device type.
+      See <a class="ui-link" href="https://developers.cloudflare.com/web-analytics/data-metrics/">Cloudflare's data and metrics documentation</a>.
+      Fonts and images are served from the same site.
     </p>
 
     <h2>Your choices</h2>
@@ -94,7 +115,7 @@ const ISSUES = "https://github.com/ayaangazali/eyes/issues";
       <li>Your mobile number is tied to your account. You can't change it yourself; text HELP to ask.</li>
       <li>Your email is optional, one per account.</li>
       <li>Photograph public places. Avoid photographing private individuals without their permission; faces alone do not cause automatic rejection or deletion.</li>
-      <li>To ask about your data, open an issue or, as a worker, reply HELP to an Eyes text.</li>
+      <li>For data and deletion requests, see the contact notice below. Do not post personal data in public issues.</li>
     </ul>
 
     <h2>Changes</h2>
@@ -102,8 +123,10 @@ const ISSUES = "https://github.com/ayaangazali/eyes/issues";
 
     <h2>Contact</h2>
     <p>
-      Open an issue at <a class="ui-link" href={ISSUES}>github.com/ayaangazali/eyes/issues</a>. Workers can also reply
-      HELP to any Eyes text or email.
+      We have not yet published a private address for data and deletion requests.
+      This requirement remains open in <a class="ui-link" href={CONTACT_REQUEST}>issue #115</a>.
+      That issue is public, not a private request channel. Do not post personal data there.
+      Workers can reply HELP to an Eyes text or email for help with using Eyes.
     </p>
   </main>
 </Layout>

@@ -34,7 +34,7 @@ Primitive outbound DNS and one owner-email delivery are verified, not delivery t
 - [`apps/mcp/src/server.ts`](../../apps/mcp/src/server.ts): the `/status` email line and the `/w/me` route.
 - [`apps/web/worker/src/me.ts`](../../apps/web/worker/src/me.ts) and [`apps/web/worker/src/pages/me.astro`](../../apps/web/worker/src/pages/me.astro): the `/me` setup page and its Email row.
 - [`apps/web/worker/src/email.ts`](../../apps/web/worker/src/email.ts): the worker page's email calls; [`apps/web/worker/src/pages/login.astro`](../../apps/web/worker/src/pages/login.astro): `/login`, email sign-in and the emailed-link handler.
-- [`apps/web/worker/src/pages/privacy.astro`](../../apps/web/worker/src/pages/privacy.astro): what we store and for how long.
+- [`apps/web/landing/src/pages/privacy.astro`](../../apps/web/landing/src/pages/privacy.astro): what we store and for how long.
 
 ## Related
 
