@@ -85,7 +85,6 @@ test("the payout notice is right in the static page, before any script runs", as
     "/install.html",
     "/me.html",
     "/login.html",
-    "/privacy.html",
   ]) {
     await page.goto(path);
     await expect(page.getByText("No real money yet. These are test tasks.")).toBeVisible();

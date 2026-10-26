@@ -5,7 +5,7 @@ for (const [base, origin, paths] of [
   [
     process.env.WORKER_URL,
     "https://app.eyes.pictures",
-    ["/", "/app", "/automation", "/capture", "/here", "/install", "/login", "/me", "/privacy"],
+    ["/", "/app", "/automation", "/capture", "/here", "/install", "/login", "/me"],
   ],
 ] as const) {
   test(`published metadata and cache policy for ${origin}`, async ({ page, request }) => {
@@ -68,4 +68,13 @@ test("landing sitemap contains only indexable canonical pages", async ({ request
     "https://eyes.pictures/privacy",
     "https://eyes.pictures/terms",
   ]);
+});
+
+test("old worker privacy URLs permanently redirect to the canonical policy", async ({ request }) => {
+  test.skip(!process.env.WORKER_URL, "Set WORKER_URL to the built asset server.");
+  for (const path of ["/privacy", "/privacy/", "/privacy.html"]) {
+    const response = await request.get(`${process.env.WORKER_URL}${path}`, { maxRedirects: 0 });
+    expect(response.status()).toBe(301);
+    expect(response.headers().location).toBe("https://eyes.pictures/privacy");
+  }
 });
