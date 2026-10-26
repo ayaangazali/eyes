@@ -13,7 +13,7 @@ A worker's setup is scattered across texts. START sends the payout setup link an
 - Both routes send `Cache-Control: no-store` and use the existing `/w/*` CORS rule, which allows only the worker web origin.
 - No migration: `eyes_worker` gives the opt-in, spot and `location_source`; `eyes_worker_earnings` gives the payout setup and the claims, newest first.
 
-### Durable completion (2026-10-18, T6.62)
+### Durable completion (2026-10-18, T6.69)
 
 - `app.connected` is independent of `app.last_at` and `app.sending`. Migration 038 records an accepted native `source=app` location update as a boolean; task captures, other GPS updates and elapsed time cannot undo it. START/HELP and install-page `app_connected` use that same fact. No new GPS history is retained.
 - STOP still clears GPS and revokes codes. START after STOP sends a replacement reconnect link without pretending the existing app needs reinstalling or erasing its completion history.
