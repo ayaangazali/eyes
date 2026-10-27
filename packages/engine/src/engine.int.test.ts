@@ -2237,6 +2237,42 @@ describe.skipIf(!url)("engine on Postgres", () => {
     }
   });
 
+  it("revokes only the replaced agent key on REST and an already connected MCP client", async () => {
+    const first = await service.signupAgent({ name: "rotate-this-agent" });
+    const other = await service.signupAgent({ name: "keep-this-agent" });
+    const a = (await service.authenticate(first.api_key)) as Agent;
+    const ownerToken = signToken(deps.config.link_secret, `p:${a.id}`);
+    const server = createServer({ service, providers, config: deps.config, env: {} });
+    const fetch: typeof globalThis.fetch = (url, init) => server.fetch(new Request(url, init));
+    const balance = (key: string) =>
+      fetch("http://eyes.test/v1/balance", { headers: { authorization: `Bearer ${key}` } });
+    const client = new Client({ name: "revocation-test", version: "1" });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+          fetch,
+          requestInit: { headers: { authorization: `Bearer ${first.api_key}` } },
+        }),
+      );
+      expect((await balance(first.api_key)).status).toBe(200);
+      expect((await client.callTool({ name: "get_balance", arguments: {} })).isError).not.toBe(true);
+
+      const replacement = await service.rotateApiKey(ownerToken);
+
+      expect((await balance(first.api_key)).status).toBe(401);
+      await expect(client.callTool({ name: "get_balance", arguments: {} })).rejects.toThrow(
+        /"error":"unauthorized"/,
+      );
+      expect((await balance(replacement.api_key)).status).toBe(200);
+      expect((await balance(other.api_key)).status).toBe(200);
+      await expect(service.ownerConsole(ownerToken)).resolves.toMatchObject({
+        top_up_url: first.top_up_url,
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
+
   it("leaves exactly one working key when two key replacements race", async () => {
     const { api_key: oldKey } = await service.signupAgent({ name: "raced-agent" });
     const a = (await service.authenticate(oldKey)) as Agent;

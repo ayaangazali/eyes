@@ -20,3 +20,15 @@ A leaked `api_key` lets anyone spend the agent's balance up to its limits. Today
 
 ## Consequences
 Capability links are unchanged: the owner link, the top-up link and the agent's capability email address (ADR-007) are derived from `EYES_LINK_SECRET` and the agent id, so they still work after a key replacement, and a leaked one still needs the secret rotated (the rest of #28). The agent cannot use Eyes until its owner gives it the new key. Reloading the result page re-posts the form and replaces the key again, which the browser asks to confirm.
+
+## Issue #28 disposition (2026-10-27)
+
+[Issue #180](https://github.com/ayaangazali/eyes/issues/180) sets the default for #28: defer per-agent revocation of capability emails and owner links.
+The owner has not supplied a different decision.
+The existing API-key replacement remains supported and revokes only that agent's old key.
+REST requests and requests from an already connected MCP client must reject the old key.
+Other agents keep their keys, and the existing owner link remains usable.
+
+Issue #28 closes with the API-key part implemented and the capability-link part explicitly deferred, not implemented.
+A leaked owner link or capability email address still requires rotating `EYES_LINK_SECRET`, which invalidates all links signed with that secret.
+Reopen the capability-link work when the owner changes this default; do not treat API-key replacement as link revocation.
