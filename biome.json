@@ -21,6 +21,14 @@
     {
       "includes": ["**/*.astro"],
       "linter": { "rules": { "correctness": { "noUnusedVariables": "off", "noUnusedImports": "off" } } }
+    },
+    {
+      "includes": ["apps/mobile/**"],
+      "linter": {
+        "rules": {
+          "correctness": { "noReactNativeRawText": { "level": "error", "options": { "skip": ["Type"] } } }
+        }
+      }
     }
   ]
 }

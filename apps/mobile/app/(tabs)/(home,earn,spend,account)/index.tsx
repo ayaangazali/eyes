@@ -2,7 +2,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Location from "expo-location";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, Linking, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { AppState, Linking, Pressable, ScrollView, StyleSheet, TextInput } from "react-native";
 import {
   getCode,
   getLast,
@@ -12,12 +12,11 @@ import {
   saveCode,
   startSharing,
   TASK,
-} from "../../src/background.ts";
-import { codeFromUrl, isCode, type Last, MESSAGES, type State, settle } from "../../src/eyes.ts";
-import { type Colors, useColors, YELLOW } from "./_layout";
+} from "../../../src/background.ts";
+import { codeFromUrl, isCode, type Last, MESSAGES, type State, settle } from "../../../src/eyes.ts";
+import { C, Type, YELLOW } from "../../../src/ui.tsx";
 
 export default function Home() {
-  const c = useColors();
   const [state, setState] = useState<State>({ view: "loading" });
   const [draft, setDraft] = useState("");
   const [last, setLast] = useState<Last | null>(null);
@@ -87,35 +86,29 @@ export default function Home() {
     };
   }, [run]);
 
-  const t = { color: c.text };
-  const muted = { color: c.text2 };
   const valid = isCode(draft.trim());
 
   let body: React.ReactNode = null;
   if (state.view === "code") {
     body = (
       <>
-        <Text style={[s.h1, t]}>Paste your Eyes code</Text>
-        {last?.result === "stopped" && <Text style={{ color: c.danger }}>{MESSAGES.stopped}</Text>}
-        <Text style={muted}>Text APP to Eyes to get your link. Or paste a code here.</Text>
+        <Type ramp="headline" accessibilityRole="header">
+          Paste your Eyes code
+        </Type>
+        {last?.result === "stopped" && <Type color={C.red}>{MESSAGES.stopped}</Type>}
+        <Type color={C.secondaryLabel}>Text APP to Eyes to get your link. Or paste a code here.</Type>
         <TextInput
-          style={[s.field, t, { backgroundColor: c.field }]}
+          style={s.field}
           value={draft}
           onChangeText={setDraft}
           placeholder="Your code"
-          placeholderTextColor={c.text2}
+          placeholderTextColor={C.secondaryLabel}
           autoCapitalize="none"
           autoCorrect={false}
           secureTextEntry
         />
-        {draft.length > 0 && !valid && (
-          <Text style={{ color: c.danger }}>A code is 43 letters, digits, - or _.</Text>
-        )}
-        <Button
-          label="Paste"
-          onPress={async () => setDraft((await Clipboard.getStringAsync()).trim())}
-          c={c}
-        />
+        {draft.length > 0 && !valid && <Type color={C.red}>A code is 43 letters, digits, - or _.</Type>}
+        <Button label="Paste" onPress={async () => setDraft((await Clipboard.getStringAsync()).trim())} />
         <Button
           label="Save"
           primary
@@ -125,21 +118,23 @@ export default function Home() {
             setDraft("");
             await run();
           }}
-          c={c}
         />
       </>
     );
   } else if (state.view === "ask" || state.view === "denied") {
     body = (
       <>
-        <Text style={[s.h1, t]}>Allow location</Text>
-        <Text style={t}>Eyes texts you paid tasks near you. It needs your location to find them.</Text>
+        <Type ramp="headline" accessibilityRole="header">
+          Allow location
+        </Type>
+        <Type>Eyes texts you paid tasks near you. It needs your location to find them.</Type>
         {state.view === "ask" ? (
-          <Button label="Allow location" primary onPress={run} c={c} />
+          // HIG: a pre-prompt button must not look like the system Allow button.
+          <Button label="Continue" primary onPress={run} />
         ) : (
           <>
-            <Text style={muted}>In Settings, tap Location, then choose "Always".</Text>
-            <Button label="Open Settings" primary onPress={() => Linking.openSettings()} c={c} />
+            <Type color={C.secondaryLabel}>In Settings, tap Location, then choose "Always".</Type>
+            <Button label="Open Settings" primary onPress={() => Linking.openSettings()} />
           </>
         )}
       </>
@@ -147,8 +142,10 @@ export default function Home() {
   } else if (state.view === "paused") {
     body = (
       <>
-        <Text style={[s.h1, t]}>Sharing is off</Text>
-        <Text style={muted}>Eyes won't text you tasks near you until you share again.</Text>
+        <Type ramp="headline" accessibilityRole="header">
+          Sharing is off
+        </Type>
+        <Type color={C.secondaryLabel}>Eyes won't text you tasks near you until you share again.</Type>
         <Button
           label="Share again"
           primary
@@ -156,32 +153,33 @@ export default function Home() {
             await pause(false);
             await run();
           }}
-          c={c}
         />
       </>
     );
   } else if (state.view === "sharing") {
     body = (
       <>
-        <Text style={[s.h1, t]}>Sharing</Text>
+        <Type ramp="headline" accessibilityRole="header">
+          Sharing
+        </Type>
         {last && (
-          <Text style={muted}>
+          <Type color={C.secondaryLabel}>
             {new Date(last.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}:{" "}
             {MESSAGES[last.result]}, near {last.lat.toFixed(2)}, {last.lng.toFixed(2)}
-          </Text>
+          </Type>
         )}
-        <Text style={[s.allSet, t]}>All set. You can leave the app now.</Text>
+        <Type ramp="headline">All set. You can leave the app now.</Type>
         {!state.always && (
-          <Text style={t} accessibilityRole="link" onPress={() => Linking.openSettings()}>
-            For sharing while Eyes is closed, set Location to "Always" in <Text style={s.link}>Settings</Text>
+          <Type accessibilityRole="link" onPress={() => Linking.openSettings()}>
+            For sharing while Eyes is closed, set Location to "Always" in <Type color={C.tint}>Settings</Type>
             .
-          </Text>
+          </Type>
         )}
-        <Text style={[s.small, muted]}>
+        <Type ramp="footnote" color={C.secondaryLabel}>
           Don't swipe Eyes away in the app switcher: iOS stops it until you open it again.
-        </Text>
-        <Text
-          style={[s.small, muted, s.link]}
+        </Type>
+        <Type
+          color={C.tint}
           accessibilityRole="button"
           onPress={async () => {
             await pause(true);
@@ -189,40 +187,52 @@ export default function Home() {
           }}
         >
           Stop sharing
-        </Text>
+        </Type>
       </>
     );
   }
 
   return (
-    <View style={[s.screen, { backgroundColor: c.bg }]}>
+    <ScrollView contentInsetAdjustmentBehavior="automatic" style={s.screen} contentContainerStyle={s.body}>
       <StatusBar style="auto" />
-      <View style={s.body}>{body}</View>
-    </View>
+      {body}
+    </ScrollView>
   );
 }
 
-function Button(p: { label: string; onPress: () => void; primary?: boolean; disabled?: boolean; c: Colors }) {
+// A 52 pt capsule: Eyes yellow under a black label for the primary action, system gray for the rest.
+function Button(p: { label: string; onPress: () => void; primary?: boolean; disabled?: boolean }) {
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ disabled: p.disabled }}
       disabled={p.disabled}
       onPress={p.onPress}
-      style={[s.button, { backgroundColor: p.primary ? YELLOW : p.c.field, opacity: p.disabled ? 0.4 : 1 }]}
+      style={[s.button, { backgroundColor: p.primary ? YELLOW : C.fill, opacity: p.disabled ? 0.4 : 1 }]}
     >
-      <Text style={[s.buttonText, { color: p.primary ? "#0d0d0d" : p.c.text }]}>{p.label}</Text>
+      <Type ramp="headline" color={p.primary ? "#000000" : C.label}>
+        {p.label}
+      </Type>
     </Pressable>
   );
 }
 
 const s = StyleSheet.create({
-  screen: { flex: 1 },
-  body: { padding: 24, paddingTop: 88, gap: 14 },
-  h1: { fontSize: 24, fontWeight: "600" },
-  field: { borderRadius: 12, padding: 14, fontSize: 16 },
-  button: { borderRadius: 999, paddingVertical: 14, alignItems: "center" },
-  buttonText: { fontSize: 17, fontWeight: "600" },
-  allSet: { fontSize: 17, fontWeight: "600", marginTop: 8 },
-  small: { fontSize: 13 },
-  link: { textDecorationLine: "underline" },
+  screen: { flex: 1, backgroundColor: C.background },
+  body: { padding: 20, gap: 12 },
+  field: {
+    borderRadius: 12,
+    padding: 14,
+    minHeight: 52,
+    fontSize: 17,
+    color: C.label,
+    backgroundColor: C.field,
+  },
+  button: {
+    borderRadius: 999,
+    minHeight: 52,
+    paddingHorizontal: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 });
