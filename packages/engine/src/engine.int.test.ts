@@ -1764,6 +1764,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(ownerToken).not.toBe("");
     expect(mail?.text).toContain(`An AI agent (Eyes agent id ${signup.agent_id})`);
     expect(mail?.text).not.toContain("owned-agent");
+    expect(mail?.subject).not.toContain("owned-agent");
     expect(signup.next_step).toContain(ownerEmail);
     const fresh = async () => (await service.authenticate(signup.api_key)) as Agent;
     const a = await fresh();
@@ -1968,6 +1969,26 @@ describe.skipIf(!url)("engine on Postgres", () => {
     for (const out of [await service.getBalance(a), await service.getSpendPolicy(a)]) {
       expect(JSON.stringify(out)).not.toContain("/owner/");
     }
+  });
+
+  it("does not give a later payer control when the first payment has no email", async () => {
+    const a = await agent();
+    const before = providers.email.outbox.length;
+    await service.creditTopup({
+      agent_id: a.id,
+      amount_cents: 1500,
+      stripe_ref: `cs_${randomUUID()}`,
+      payer_email: null,
+    });
+    await service.creditTopup({
+      agent_id: a.id,
+      amount_cents: 1500,
+      stripe_ref: `cs_${randomUUID()}`,
+      payer_email: "later@owners.eyes.pictures",
+    });
+
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 50 });
+    expect(providers.email.outbox).toHaveLength(before);
   });
 
   it("emails one owner link when first payments for an agent arrive at the same time", async () => {
