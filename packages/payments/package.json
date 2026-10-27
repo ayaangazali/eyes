@@ -9,6 +9,6 @@
     "@eyes/core": "workspace:*",
     "@eyes/ui": "workspace:*",
     "hono": "4.13.13",
-    "stripe": "23.0.0"
+    "stripe": "23.0.1"
   }
 }
