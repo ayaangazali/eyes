@@ -1,4 +1,4 @@
-# ADR-033: Redeem each OAuth authorization code once
+# ADR-043: Redeem each OAuth authorization code once
 
 Status: accepted
 

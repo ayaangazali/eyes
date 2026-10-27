@@ -26,7 +26,7 @@ Reject repeated redemption with `invalid_grant` and fail closed when storage fai
 Enable row-level security and restrict the new RPC to the existing server role.
 Keep client, redirect and PKCE checks before redemption.
 Add release and refund mismatch coverage without changing the existing ticket handler.
-See [ADR-033](decisions/ADR-033-single-use-oauth-codes.md).
+See [ADR-043](decisions/ADR-043-single-use-oauth-codes.md).
 
 ## Verification
 
