@@ -1,5 +1,5 @@
 ---
-import { smsHref } from "../api.ts";
+import { ADS, smsHref } from "../api.ts";
 import AgentLinks from "../components/AgentLinks.astro";
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
@@ -38,6 +38,14 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
     <div class="ui-card">
       <ul id="checks" class="ui-checks me-checks"></ul>
     </div>
+    {ADS && (
+      <aside id="ad" class="ui-card me-ad" aria-labelledby="ad-label">
+        <span id="ad-label" class="ui-badge">Sponsored</span>
+        <p class="ui-text-secondary ui-text-sm m-0">
+          Ad space. Ad money here lowers what each human check costs. No sponsor is live yet.
+        </p>
+      </aside>
+    )}
     <p id="install-error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
     <div class="ui-card me-list">
       <div class="ui-card__header">
@@ -205,6 +213,13 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
   .me-list {
     display: grid;
     gap: var(--eyes-space-4);
+  }
+
+  /* Sponsored slot (VITE_ADS): a plain card with a visible label, never mixed into the task list. */
+  .me-ad {
+    display: grid;
+    justify-items: start;
+    gap: var(--eyes-space-2);
   }
 
   /* Totals: two figures side by side, the money the worker came here for. */

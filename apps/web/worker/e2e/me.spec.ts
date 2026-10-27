@@ -131,6 +131,8 @@ test("/me sends the fragment code only as a Bearer header, clears it, and shows 
   expect(new URL(page.url()).hash).toBe("");
   expect(urls.filter((u) => u.includes(code))).toEqual([]);
   await expect(page.locator("#checks > li.ui-check--pass")).toHaveCount(4);
+  // Ads stay off unless the build sets VITE_ADS=true (docs/features/ads.md).
+  await expect(page.locator("#ad")).toHaveCount(0);
   await expect(page.getByText("Updated 12 min ago")).toBeVisible();
   await expect(page.locator("#checks > li").filter({ hasText: "Eyes app connected" })).toHaveClass(
     /ui-check--pass/,
