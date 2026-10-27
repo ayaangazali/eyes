@@ -2485,7 +2485,7 @@ describe("OAuth for connectors", () => {
     expect(wrong.status).toBe(400);
     expect(await wrong.json()).toMatchObject({ error: "invalid_grant" });
     expect((await token({ code, redirect_uri: "https://evil.example/cb" })).status).toBe(400);
-    expect((await token({ code: `${code.slice(0, -2)}AA` })).status).toBe(400);
+    expect((await token({ code: `${code[0] === "A" ? "B" : "A"}${code.slice(1)}` })).status).toBe(400);
     const now = Date.now();
     vi.spyOn(Date, "now").mockReturnValue(now + 6 * 60 * 1000);
     try {
@@ -2493,7 +2493,10 @@ describe("OAuth for connectors", () => {
     } finally {
       vi.restoreAllMocks();
     }
-    const tampered = { ...params, client_id: `${client_id.slice(0, -2)}AA` };
+    const tampered = {
+      ...params,
+      client_id: `${client_id[0] === "A" ? "B" : "A"}${client_id.slice(1)}`,
+    };
     expect((await fetch(`http://eyes.test/oauth/authorize?${new URLSearchParams(tampered)}`)).status).toBe(
       400,
     );
