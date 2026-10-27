@@ -213,8 +213,43 @@ describe("widget call bridge (MCP Apps host)", () => {
     await w.settle();
     expect(host.mock.calls[0]?.[0].params).toEqual({ name: "get_balance", arguments: {} });
     expect(w.root.textContent).toContain("$9.00");
-    w.button("topup").click();
-    expect(w.sent.at(-1)).toMatchObject({ method: "ui/open-link", params: { url: "https://pay.test/top" } });
+    (w.root.querySelector('[aria-label="Top up $20"]') as HTMLButtonElement).click();
+    expect(w.sent.at(-1)).toMatchObject({
+      method: "ui/open-link",
+      params: { url: "https://pay.test/top?amount_usd=20" },
+    });
+  });
+
+  it("a low-balance Ask error offers preset top-ups that open Checkout and clear on the next try", async () => {
+    const host = vi.fn(
+      (m: Msg): Result =>
+        m.method === "tools/call"
+          ? {
+              isError: true,
+              structuredContent: {
+                error: "insufficient_balance",
+                message: "Your balance is too low to escrow this task.",
+                fix: "Ask your user to top up.",
+                top_up_url: "https://pay.test/top",
+              },
+            }
+          : {},
+    );
+    const w = boot({ host });
+    w.show(QUOTE, { location: "Ferry Building, San Francisco", task_type: "line_length" });
+    (w.root.querySelector('[data-field="question"]') as HTMLInputElement).value = "How long is the line?";
+    w.button("ask").click();
+    await w.settle();
+    const amounts = [...w.root.querySelectorAll<HTMLButtonElement>("[data-topup] [data-act=topup]")];
+    expect(amounts.map((b) => b.textContent)).toEqual(["$10", "$20", "$50"]);
+    amounts[2]?.click();
+    expect(w.sent.at(-1)).toMatchObject({
+      method: "ui/open-link",
+      params: { url: "https://pay.test/top?amount_usd=50" },
+    });
+    w.button("ask").click();
+    await w.settle();
+    expect(w.root.querySelectorAll("[data-topup]")).toHaveLength(1);
   });
 });
 
@@ -239,8 +274,8 @@ describe("widget call bridge (ChatGPT)", () => {
     expect(callTool).toHaveBeenCalledWith("get_balance", {});
     expect(w.sent.some((m) => m.method === "tools/call")).toBe(false);
     expect(w.root.textContent).toContain("$7.00");
-    w.button("topup").click();
-    expect(openExternal).toHaveBeenCalledWith({ href: "https://pay.test/top" });
+    (w.root.querySelector('[aria-label="Top up $10"]') as HTMLButtonElement).click();
+    expect(openExternal).toHaveBeenCalledWith({ href: "https://pay.test/top?amount_usd=10" });
   });
 });
 

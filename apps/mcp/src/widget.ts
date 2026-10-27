@@ -77,6 +77,7 @@ body.ui{background:transparent}
 .w .ui-card__actions[data-retry]{grid-auto-flow:row;grid-template-columns:minmax(0,1fr)}
 .w .ui-card__actions[data-retry] .ui-input{min-width:0}
 .w .row{display:flex;flex-wrap:wrap;gap:.25rem 1rem;align-items:baseline}
+.w [data-topup]{grid-auto-flow:row;grid-template-columns:auto repeat(3,minmax(0,1fr));align-items:center}
 `;
 
 export const WIDGET_SCRIPT = String.raw`
@@ -99,6 +100,10 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const icon = (n) => '<svg class="ui-icon" aria-hidden="true"><use href="#i-' + n + '"></use></svg>';
 const usd = (n) => "$" + Number(n ?? 0).toFixed(2);
 const time = (t) => (t ? new Date(t).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "");
+// Preset Checkout amounts; GET /topup/:token takes amount_usd. $20 matches the Checkout default.
+const topUps = (url, attrs) => '<footer class="ui-card__actions" data-topup' + attrs + '><span class="ui-text-sm ui-text-secondary">Top up</span>' +
+  [10, 20, 50].map((n) => '<button class="ui-button' + (n === 20 ? " ui-button--primary" : "") + '" data-act="topup" data-href="' +
+    esc(url + "?amount_usd=" + n) + '" aria-label="Top up $' + n + '">$' + n + "</button>").join("") + "</footer>";
 const label = (s) => esc(String(s).replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase()));
 const TYPES = { is_open: "Open now?", line_length: "Line length", in_stock: "In stock?", photo_of_place: "Photo of place", price_check: "Price check", crowd_level: "Crowd level", other_public: "Look at a public place" };
 function saveDraft() {
@@ -397,12 +402,12 @@ function taskActions(a, status, open, acceptedAt, context) {
 }
 
 function balance(b) {
-  return '<article class="ui-card"><header class="ui-card__header"><span class="ui-text-sm ui-text-secondary">Eyes balance</span></header>' +
+  return '<article class="ui-card"><header class="ui-card__header"><span class="ui-text-sm ui-text-secondary">Eyes balance</span>' +
+    '<button class="ui-button ui-button--ghost ui-button--sm" data-act="balance">Refresh</button></header>' +
     '<div class="row"><span class="big ui-num">' + usd(b.balance_usd) + "</span>" +
     (b.escrowed_usd > 0 ? '<span class="ui-text-sm ui-text-secondary">' + usd(b.escrowed_usd) + " held in open tasks</span>" : "") + "</div>" +
     (b.balance_usd < 1.5 ? '<div class="ui-notice ui-notice--warning">' + icon("alert") + "<span>Too low for a task. The smallest costs $1.50 with the fee.</span></div>" : "") +
-    '<footer class="ui-card__actions"><button class="ui-button" data-act="balance">Refresh</button>' +
-    (b.top_up_url ? '<button class="ui-button' + (b.balance_usd < 1.5 ? " ui-button--primary" : "") + '" data-act="topup">Top up</button>' : "") + "</footer></article>";
+    (b.top_up_url ? topUps(b.top_up_url, "") : "") + "</article>";
 }
 
 function notSent(n) {
@@ -557,7 +562,7 @@ function setAskBusy(busy) {
 }
 async function act(b) {
   if (acceptancePending || askPending || b.disabled) return;
-  if (b.dataset.act === "topup") return openLink(last.top_up_url);
+  if (b.dataset.act === "topup") return openLink(b.dataset.href);
   const [name, args, merge] = ACTS[b.dataset.act](last);
   const original = last;
   const submittedArgs = name === "confirm_ask" ? structuredClone(args) : args;
@@ -565,7 +570,7 @@ async function act(b) {
   actionsPending++;
   scheduleRefresh();
   const card = root.firstElementChild;
-  card.querySelector("[data-error]")?.remove();
+  for (const el of card.querySelectorAll("[data-error]")) el.remove();
   card.querySelector("[data-report]")?.remove();
   b.disabled = true;
   if (name === "accept_answer") setAcceptanceBusy(true);
@@ -604,6 +609,10 @@ async function act(b) {
     b.disabled = false;
     const detail = errorDetail(err);
     card.insertAdjacentHTML("beforeend", '<div class="ui-notice ui-notice--danger" data-error role="alert">' + icon("alert") + "<span>" + esc(errorText(detail)) + "</span></div>");
+    if (detail.top_up_url) {
+      card.insertAdjacentHTML("beforeend", topUps(detail.top_up_url, " data-error"));
+      for (const t of card.querySelectorAll("[data-topup][data-error] [data-act]")) t.onclick = () => act(t);
+    }
     if (name === "confirm_ask" && !uncertain && detail.error === "unsafe_task" && detail.layer !== "rules") {
       if (!refusal || JSON.stringify(refusal.args) !== JSON.stringify(submittedArgs))
         refusal = { args: submittedArgs, error: detail, key: crypto.randomUUID(), ticket: null, busy: false, failure: null };

@@ -293,8 +293,19 @@ ${note ? html`<p class="note${note.error ? " error" : ""}" role="status">${note.
 <dt>Held for open tasks</dt><dd>${usd(view.escrowed_usd)}</dd>
 <dt>Spent ${p.cap_period === "day" ? "today" : `this ${p.cap_period}`} (UTC)</dt><dd>${p.daily_cap_usd === 0 ? "Frozen (cap $0)" : p.daily_cap_usd === null ? `${usd(p.spent_today_usd)}, no limit` : `${usd(p.spent_today_usd)} of ${usd(p.daily_cap_usd)}`}</dd>
 </dl>
+${view.balance_usd < 1 + feeUsd ? html`<p class="note error" role="status">The balance is too low for a task. The smallest task costs ${usd(1 + feeUsd)} with the fee, so your agent cannot ask until you top up.</p>` : ""}
+${
+  // Preset Checkout amounts for GET /topup/:token?amount_usd=; $20 matches the Checkout default.
+  view.top_up_url
+    ? html`<div class="cta" style="grid-template-columns:auto repeat(3,minmax(0,1fr));align-items:center"><strong>Top up</strong>${[
+        10, 20, 50,
+      ].map(
+        (n) =>
+          html`<a class="button${n === 20 ? "" : " button--quiet"}" href="${view.top_up_url}?amount_usd=${n}" aria-label="Top up $${n}">$${n}</a>`,
+      )}</div>`
+    : ""
+}
 <p class="hint">Tasks nobody answers before the deadline, or that are cancelled, are refunded in full to the balance.</p>
-${view.top_up_url ? html`<a class="button" href="${view.top_up_url}">Add funds</a>` : ""}
 <h2>Spending limits</h2>
 <form method="post" action="/owner/${token}/policy">
 <label for="max_bounty_usd">Most it may pay a worker per task (USD)</label>
