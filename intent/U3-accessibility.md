@@ -1,7 +1,7 @@
 ---
 task: U3-accessibility
 title: Fix contrast, keyboard access, tap targets, and marquee pause
-files: [packages/ui/src/tokens.css, packages/ui/src/components.css, packages/ui/src/page.ts, apps/web/landing/src/pages/index.astro, apps/web/landing/src/layouts/Layout.astro, apps/web/landing/e2e/accessibility.spec.ts]
+files: [packages/ui/src/tokens.css, packages/ui/src/components.css, packages/ui/src/page.ts, apps/web/landing/src/pages/index.astro, apps/web/landing/src/layouts/Layout.astro, apps/web/landing/e2e/accessibility.spec.ts, apps/mcp/package.json, apps/web/dashboard/package.json, apps/web/landing/package.json, apps/web/widget-task-card/package.json, apps/web/worker/package.json, packages/comms/package.json, packages/payments/package.json]
 ---
 
 ## Why
@@ -22,3 +22,5 @@ Capture and inspect the changed areas at 1440 and 390 pixels in both themes, wit
 Measure the status colors against their composed backgrounds: all named pairs now exceed 4.5:1.
 Run lint, typecheck, the shared-page and landing-motion unit tests, API server tests, contract tests, and relevant API integration tests.
 The PR includes the measurements and before/after screenshots.
+
+The current lint update removes unsafe non-null assertions from the accessibility checks; the focused Playwright tests pass.
