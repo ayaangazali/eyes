@@ -1,22 +1,33 @@
-# AGENTS.md
+# Eyes agent guide
 
-<!-- INSFORGE:START -->
-## InsForge backend
+## Repository
 
-This project uses [InsForge](https://insforge.dev): an all-in-one, open-source Postgres-based backend (BaaS) that gives this app a database, authentication, file storage, edge functions, realtime, an AI model gateway, and payments through one platform.
+- `apps/mcp/`: MCP/API server, OAuth, webhooks, and operations pages.
+- `apps/edge/`: Cloudflare Workers for forwarding, static sites, and monitoring.
+- `apps/web/`: landing site, worker app, and dashboard.
+- `apps/mobile/`: Expo iPhone app.
+- `packages/`: shared core, database, engine, communications, payments, safety, verification, and UI.
+- `cli/`: CLI and generated agent documentation.
+- `scripts/`, `evals/`, and `e2e/`: project tools, evaluations, and end-to-end tests.
+- `intent/`: design intent, its generated index, and architecture decisions.
 
-- **Project:** **eyes** (API base `https://pagp38bu.us-west.insforge.app`)
-- **Skills:** these InsForge skills are installed for supported coding agents. Reach for them before implementing any InsForge feature instead of guessing the API:
-  - `insforge`: app code with the `@insforge/sdk` client (database CRUD, auth, storage, edge functions, realtime, AI, email, and Stripe payments).
-  - `insforge-cli`: backend and infrastructure via the `insforge` CLI (projects, SQL, migrations, RLS policies, storage buckets, functions, secrets, payment setup, schedules, deploys).
-  - `insforge-debug`: diagnosing failures (SDK/HTTP errors, RLS denials, auth and OAuth issues) and running security or performance audits.
-  - `insforge-integrations`: wiring external auth providers (Clerk, Auth0, WorkOS, Better Auth, etc.) for JWT-based RLS, or the OKX x402 payment facilitator.
-  - `find-skills`: discovering additional skills on demand.
-- **Credentials:** app code reads keys from `.env.local`; the CLI reads `.insforge/project.json`. Never hardcode or commit keys.
+## Local checks
 
-Key patterns:
+Use Node.js 26 and pnpm 11.18.0.
+Run `pnpm verify:fast` for lint, typecheck, unit, contract, safety, and intent checks.
+Run integration tests only against a disposable Postgres database: `pnpm db:up`, `pnpm db:migrate`, then `pnpm test:integration`.
+Run `pnpm test:e2e` for Playwright tests.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and CI details.
 
-- Database inserts take an array: `insert([{ ... }])`.
-- Reference users with `auth.users(id)`; use `auth.uid()` in RLS policies.
-- For storage uploads, persist both the returned `url` and `key`.
-<!-- INSFORGE:END -->
+## Intent and decisions
+
+For changes under `apps/`, `packages/`, `cli/`, `scripts/`, or `db/`, add or update an intent file.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for intent fields, dependency-only exceptions, and ADR requirements.
+Add an ADR under `intent/decisions/` when changing a core contract or migration.
+Keep migrations append-only, and run `pnpm intent:index` after intent changes.
+
+## Pull requests
+
+Use a conventional commit and pull request title.
+Link the issue, describe the change, and report the checks you ran.
+Do not commit secrets or production data.
