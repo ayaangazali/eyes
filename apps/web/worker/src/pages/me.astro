@@ -1,5 +1,6 @@
 ---
 import { smsHref } from "../api.ts";
+import AgentLinks from "../components/AgentLinks.astro";
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
 import { FILTERS } from "../me.ts";
@@ -64,6 +65,7 @@ const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : ""
       <p id="tasks-error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
       <button type="button" id="more" class="ui-button ui-button--block" hidden>Load more</button>
     </div>
+    <AgentLinks />
   </section>
 
   <section id="missing" hidden>

@@ -84,12 +84,26 @@ for (const viewport of [
       await page.keyboard.press("Escape");
       await expect(dialog).not.toBeVisible();
       await expect(opener).toBeFocused();
-      await page.getByRole("button", { name: "Choose ChatGPT or Claude", exact: true }).click();
+      const addClaude = page.getByRole("button", { name: "Add to Claude", exact: true });
+      await addClaude.click();
+      await expect(dialog.getByRole("region", { name: "Claude setup" })).toBeVisible();
+      await expect(dialog.getByRole("region", { name: "ChatGPT setup" })).toBeHidden();
       await dialog.getByRole("button", { name: "Close", exact: true }).click();
-      await expect(page.getByRole("button", { name: "Choose ChatGPT or Claude", exact: true })).toBeFocused();
+      await expect(addClaude).toBeFocused();
+      await page.getByRole("button", { name: "Add to ChatGPT", exact: true }).click();
+      await expect(dialog.getByRole("region", { name: "ChatGPT setup" })).toBeVisible();
+      await expect(dialog.getByLabel("Choose your app")).toHaveValue("chatgpt");
     });
   }
 }
+
+test("app links open the chosen setup", async ({ page }) => {
+  await page.goto("/#add-claude");
+  const dialog = page.getByRole("dialog", { name: "Connect Eyes", exact: true });
+  await expect(dialog.getByRole("region", { name: "Claude setup" })).toBeVisible();
+  await expect(dialog.getByRole("region", { name: "ChatGPT setup" })).toBeHidden();
+  await expect(dialog.getByLabel("Choose your app")).toHaveValue("claude");
+});
 
 test("clipboard denial selects the URL without false success", async ({ page }) => {
   await page.addInitScript(() => {

@@ -1,5 +1,6 @@
 ---
 import { LIVE_PAYOUTS as livePayouts } from "../api.ts";
+import AgentLinks from "../components/AgentLinks.astro";
 import Icon from "../components/Icon.astro";
 import Layout from "../layouts/Layout.astro";
 ---
@@ -114,6 +115,8 @@ import Layout from "../layouts/Layout.astro";
       </ul>
     </div>
   </section>
+
+  <AgentLinks />
 </Layout>
 
 <script>
