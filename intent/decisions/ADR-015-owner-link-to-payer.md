@@ -37,4 +37,9 @@ This replaces "Sent on every completed top-up", the replay bullet and the reject
 
 Consequences: someone who obtains the agent-visible `t:` link after the first payment only adds funds. Before the first payment, whoever pays first still becomes an owner, so a leaked `t:` link is a race only until the human pays. The signup link stays valid (ADR-011 has no per-link revocation).
 
-Not done: showing a masked owner email on the top-up page (#54 item 2). The signup `owner_email` is not stored: 001 has no column for it, and `agents.email_identity` is unused but `unique`, so one person owning two agents would collide. Showing it needs a new column, which this task excludes; left open on #54.
+## Follow-up disposition (2026-10-27, issues #54 and #180)
+
+The default in issue #180 keeps the masked owner email off the top-up page and accepts the remaining ADR-015 gap.
+Neither issue has an owner response that changes this default.
+The first-payer restriction and name-free owner emails above already resolve items 1 and 3 of issue #54.
+The signup link remains valid, and a person who pays before the intended owner still gets owner control.

@@ -1764,6 +1764,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(ownerToken).not.toBe("");
     expect(mail?.text).toContain(`An AI agent (Eyes agent id ${signup.agent_id})`);
     expect(mail?.text).not.toContain("owned-agent");
+    expect(mail?.subject).not.toContain("owned-agent");
     expect(signup.next_step).toContain(ownerEmail);
     const fresh = async () => (await service.authenticate(signup.api_key)) as Agent;
     const a = await fresh();
@@ -1968,6 +1969,26 @@ describe.skipIf(!url)("engine on Postgres", () => {
     for (const out of [await service.getBalance(a), await service.getSpendPolicy(a)]) {
       expect(JSON.stringify(out)).not.toContain("/owner/");
     }
+  });
+
+  it("does not give a later payer control when the first payment has no email", async () => {
+    const a = await agent();
+    const before = providers.email.outbox.length;
+    await service.creditTopup({
+      agent_id: a.id,
+      amount_cents: 1500,
+      stripe_ref: `cs_${randomUUID()}`,
+      payer_email: null,
+    });
+    await service.creditTopup({
+      agent_id: a.id,
+      amount_cents: 1500,
+      stripe_ref: `cs_${randomUUID()}`,
+      payer_email: "later@owners.eyes.pictures",
+    });
+
+    expect(await service.getBalance(a)).toMatchObject({ balance_usd: 50 });
+    expect(providers.email.outbox).toHaveLength(before);
   });
 
   it("emails one owner link when first payments for an agent arrive at the same time", async () => {
@@ -2236,6 +2257,42 @@ describe.skipIf(!url)("engine on Postgres", () => {
       for (const spy of logs) spy.mockRestore();
     }
   });
+
+  it("revokes only the replaced agent key on REST and an already connected MCP client", async () => {
+    const first = await service.signupAgent({ name: "rotate-this-agent" });
+    const other = await service.signupAgent({ name: "keep-this-agent" });
+    const a = (await service.authenticate(first.api_key)) as Agent;
+    const ownerToken = signToken(deps.config.link_secret, `p:${a.id}`);
+    const server = createServer({ service, providers, config: deps.config, env: {} });
+    const fetch: typeof globalThis.fetch = (url, init) => server.fetch(new Request(url, init));
+    const balance = (key: string) =>
+      fetch("http://eyes.test/v1/balance", { headers: { authorization: `Bearer ${key}` } });
+    const client = new Client({ name: "revocation-test", version: "1" });
+    try {
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL("http://eyes.test/mcp"), {
+          fetch,
+          requestInit: { headers: { authorization: `Bearer ${first.api_key}` } },
+        }),
+      );
+      expect((await balance(first.api_key)).status).toBe(200);
+      expect((await client.callTool({ name: "get_balance", arguments: {} })).isError).not.toBe(true);
+
+      const replacement = await service.rotateApiKey(ownerToken);
+
+      expect((await balance(first.api_key)).status).toBe(401);
+      await expect(client.callTool({ name: "get_balance", arguments: {} })).rejects.toThrow(
+        /"error":"unauthorized"/,
+      );
+      expect((await balance(replacement.api_key)).status).toBe(200);
+      expect((await balance(other.api_key)).status).toBe(200);
+      await expect(service.ownerConsole(ownerToken)).resolves.toMatchObject({
+        top_up_url: first.top_up_url,
+      });
+    } finally {
+      await client.close();
+    }
+  }, 30_000);
 
   it("leaves exactly one working key when two key replacements race", async () => {
     const { api_key: oldKey } = await service.signupAgent({ name: "raced-agent" });
