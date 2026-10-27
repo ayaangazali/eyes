@@ -352,10 +352,12 @@ export function inkboxRoutes(deps: RouteDeps, env: Env): Hono {
     }
     const reply = inboundReply(raw.toString("utf8"));
     if (!reply) return c.text("ignored");
-    if (!E164.test(reply.phone)) {
-      console.warn(`inkbox: ignored reply ${reply.id}: sender is not an E.164 phone`);
+    const email = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reply.phone);
+    if (!E164.test(reply.phone) && !email) {
+      console.warn(`inkbox: ignored reply ${reply.id}: sender is not an E.164 phone or email`);
       return c.text("ignored");
     }
+    const sender = email ? { email: reply.phone.toLowerCase() } : { phone: reply.phone };
     try {
       const parsed = parseReplyIntent(reply.text);
       const intent = ["stop", "start", "help"].includes(parsed)
@@ -365,11 +367,12 @@ export function inkboxRoutes(deps: RouteDeps, env: Env): Hono {
           : reply.locationShare
             ? "location_share"
             : parsed;
-      await deps.service.handleWorkerReply({ phone: reply.phone, intent, text: reply.text });
+      await deps.service.handleWorkerReply({ ...sender, intent, text: reply.text });
     } catch (err) {
       const kind =
         err instanceof EyesError ? `${err.name} ${err.code}` : err instanceof Error ? err.name : typeof err;
-      console.error(`inkbox: reply ${reply.id} from ...${reply.phone.slice(-4)} failed: ${kind}`);
+      const senderLog = "phone" in sender ? ` from ...${sender.phone?.slice(-4)}` : " from email sender";
+      console.error(`inkbox: reply ${reply.id}${senderLog} failed: ${kind}`);
     }
     return c.text("ok");
   });

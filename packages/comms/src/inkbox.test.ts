@@ -186,6 +186,18 @@ describe("inkbox webhook", () => {
     expect(handleWorkerReply).toHaveBeenCalledWith({ phone: "+15555550123", intent, text: content });
   });
 
+  it("routes iMessages from Apple ID email senders through the authenticated email path", async () => {
+    const { post, handleWorkerReply } = setup();
+    const body = JSON.stringify(imessageReceived("YES", "Worker@Example.test"));
+    const res = await post(body, signedHeaders(body));
+    expect(res.status).toBe(200);
+    expect(handleWorkerReply).toHaveBeenCalledWith({
+      email: "worker@example.test",
+      intent: "yes",
+      text: "YES",
+    });
+  });
+
   it.each([
     ["\ufffd", null, "location_share"],
     ["\ufffc", null, "location_share"],
@@ -303,7 +315,7 @@ describe("inkbox webhook", () => {
     ],
     ["group imessage", JSON.stringify(imessageReceived("YES", "+15555550123", true))],
     ["call.ended", JSON.stringify({ id: "evt_1", event_type: "call.ended", data: {} })],
-    ["non-E.164 sender", JSON.stringify(imessageReceived("YES secret", "sender@example.com"))],
+    ["invalid sender", JSON.stringify(imessageReceived("YES secret", "not-a-sender"))],
     ["non-JSON body", '{"event_type":"text.received", YES secret'],
     ["empty body", ""],
     ["null body", "null"],
