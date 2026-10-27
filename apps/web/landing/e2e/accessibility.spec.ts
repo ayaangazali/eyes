@@ -10,15 +10,12 @@ for (const colorScheme of ["light", "dark"] as const) {
       <span class="ui-badge ui-badge--warning">Warning</span>
       <span class="ui-badge ui-badge--danger">Danger</span></main></body>`);
     const ratios = await page.locator(".note, .ui-badge").evaluateAll((elements) => {
-      const rgb = (color: string) => color.match(/[\d.]+/g)!.map(Number);
+      const rgb = (color: string) => color.match(/[\d.]+/g)?.map(Number) ?? [];
       const luminance = (color: number[]) =>
         color.slice(0, 3).reduce((sum, value, index) => {
           const channel = value / 255;
-          return (
-            sum +
-            (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) *
-              [0.2126, 0.7152, 0.0722][index]!
-          );
+          const weight = [0.2126, 0.7152, 0.0722][index] ?? 0;
+          return sum + (channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4) * weight;
         }, 0);
       const surface = rgb(getComputedStyle(document.body).backgroundColor);
       return elements.map((element) => {
@@ -26,7 +23,10 @@ for (const colorScheme of ["light", "dark"] as const) {
         const background = rgb(style.backgroundColor);
         const alpha = background[3] ?? 1;
         const back = luminance(
-          background.slice(0, 3).map((channel, index) => channel * alpha + surface[index]! * (1 - alpha)),
+          background.slice(0, 3).map((channel, index) => {
+            const surfaceChannel = surface[index] ?? 0;
+            return channel * alpha + surfaceChannel * (1 - alpha);
+          }),
         );
         const front = luminance(rgb(style.color));
         return (Math.max(front, back) + 0.05) / (Math.min(front, back) + 0.05);
@@ -118,8 +118,8 @@ test("marquee controls preserve the band height on phones and desktops", async (
     expect(band?.height).toBe(track?.height);
     expect(button?.width).toBe(44);
     expect(button?.height).toBe(44);
-    expect(button!.y + button!.height / 2).toBeCloseTo(band!.y + band!.height / 2);
-    expect(button!.x).toBeGreaterThan(width / 2);
+    expect(button && band && button.y + button.height / 2).toBeCloseTo(band ? band.y + band.height / 2 : NaN);
+    expect(button?.x).toBeGreaterThan(width / 2);
   }
 });
 
@@ -131,13 +131,14 @@ test("marquee text fades before the button's reserved space", async ({ page }) =
     const textWindow = page.locator(".marquee__track").locator("..");
     const text = await textWindow.boundingBox();
     const button = await page.getByRole("button", { name: "Pause questions" }).boundingBox();
-    expect(text!.x + text!.width).toBeLessThanOrEqual(button!.x - 8);
+    expect(text && button && text.x + text.width).toBeLessThanOrEqual(button ? button.x - 8 : NaN);
     await expect(textWindow).toHaveCSS("overflow-x", "hidden");
     await expect(textWindow).toHaveCSS("mask-image", /linear-gradient/);
   }
   await page.emulateMedia({ reducedMotion: "reduce" });
   const textWindow = page.locator(".marquee__track").locator("..");
   const band = await page.locator(".marquee").boundingBox();
-  expect((await textWindow.boundingBox())!.width).toBe(band!.width);
+  const text = await textWindow.boundingBox();
+  expect(text?.width).toBe(band?.width);
   await expect(textWindow).toHaveCSS("mask-image", "none");
 });
