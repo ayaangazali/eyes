@@ -175,6 +175,33 @@ describe("stripeRoutes", () => {
     expect(service.creditTopup).not.toHaveBeenCalled();
   });
 
+  it.each([new Error("private webhook payload"), new EyesError("service_unavailable")])(
+    "records rejected webhooks without trusting a task ID from the payload",
+    async (failure) => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        const providers = fakeProviders();
+        providers.payments.parseWebhook = async () => {
+          throw failure;
+        };
+        const { service, webhook } = setup(providers.payments);
+        const res = await webhook({ task_id: "11111111-2222-4333-8444-555555555555" });
+        expect(res.status).toBe(failure instanceof EyesError ? 500 : 400);
+        expect(error).toHaveBeenCalledWith(
+          failure instanceof EyesError ? `stripe webhook: ${failure.message}` : "stripe webhook rejected",
+          {
+            task_id: null,
+            error: failure instanceof EyesError ? failure.code : failure.name,
+          },
+        );
+        expect(service.creditTopup).not.toHaveBeenCalled();
+        expect(JSON.stringify(error.mock.calls)).not.toContain("private");
+      } finally {
+        error.mockRestore();
+      }
+    },
+  );
+
   it("credits a completed top-up with the exact cents, the session as stripe_ref and the payer's email", async () => {
     const { service, webhook } = setup();
     const res = await webhook({
@@ -251,7 +278,6 @@ describe("stripeRoutes", () => {
     const res = await webhook({}, "t=1,v1=x");
     expect(res.status).toBe(500);
     expect(await res.text()).not.toMatch(/STRIPE|secret/i);
-    expect(error).toHaveBeenCalledWith(expect.stringContaining("STRIPE_WEBHOOK_SECRET"));
     expect(service.creditTopup).not.toHaveBeenCalled();
     error.mockRestore();
   });

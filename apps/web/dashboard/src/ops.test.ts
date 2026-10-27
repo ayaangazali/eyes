@@ -162,4 +162,21 @@ describe("event log", () => {
     expect(warn).toMatchObject({ kind: "log", level: "warn", summary: "slow" });
     expect(error?.summary).toContain("send failed for [phone] Error: boom");
   });
+
+  it.each([ID, null, "not-a-uuid"])("stores only valid task context (%s)", async (task_id) => {
+    const written: unknown[] = [];
+    const events = createEventLog((async (_name, args) => {
+      written.push(args);
+      return [];
+    }) as Rpc);
+    const target: Pick<Console, "error" | "warn"> = { error: () => {}, warn: () => {} };
+    captureConsole(events.log, target);
+
+    target.error("dispatch failed", { task_id });
+    await events.flush();
+
+    const expected = task_id === ID ? ID : null;
+    expect(events.recent()[0]).toMatchObject({ level: "error", task_id: expected });
+    expect(written).toEqual([{ p_events: [expect.objectContaining({ task_id: expected })] }]);
+  });
 });

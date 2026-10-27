@@ -351,8 +351,11 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
     try {
       event = await deps.providers.payments.parseWebhook(rawBody, c.req.header("stripe-signature") ?? null);
     } catch (err) {
+      console.error(err instanceof EyesError ? `stripe webhook: ${err.message}` : "stripe webhook rejected", {
+        task_id: null,
+        error: err instanceof EyesError ? err.code : err instanceof Error ? err.name : typeof err,
+      });
       if (err instanceof EyesError) {
-        console.error(`stripe webhook: ${err.message}`);
         return c.text("Internal Server Error", 500);
       }
       return c.text(`Webhook Error: ${(err as Error).message}`, 400);

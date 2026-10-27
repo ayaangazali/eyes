@@ -163,7 +163,14 @@ export function captureConsole(log: EventLog["log"], target: Pick<Console, "erro
     const original = target[level].bind(target);
     target[level] = (...args: unknown[]) => {
       original(...args);
-      log({ kind: "log", level, summary: format(...args) });
+      const context = args[1];
+      const taskId = context && typeof context === "object" && "task_id" in context ? context.task_id : null;
+      const task_id =
+        typeof taskId === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(taskId)
+          ? taskId
+          : null;
+      log({ kind: "log", level, task_id, summary: format(...args) });
     };
   }
 }

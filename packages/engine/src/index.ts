@@ -277,7 +277,8 @@ const errorName = (err: unknown) => (err instanceof Error ? err.name : typeof er
 
 function logFailedOffers(taskId: string, sent: PromiseSettledResult<unknown>[]) {
   for (const s of sent) {
-    if (s.status === "rejected") console.error(`offer for task ${taskId} failed: ${errorName(s.reason)}`);
+    if (s.status === "rejected")
+      console.error(`offer for task ${taskId} failed: ${errorName(s.reason)}`, { task_id: taskId });
   }
 }
 const dollars = (cents: number) => `$${centsToUsd(cents).toFixed(2)}`;
@@ -679,7 +680,8 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         ),
       ),
     );
-    for (const s of sent) if (s.status === "rejected") console.error(`ping failed: ${errorName(s.reason)}`);
+    for (const s of sent)
+      if (s.status === "rejected") console.error(`ping failed: ${errorName(s.reason)}`, { task_id: taskId });
     return sent.filter((s) => s.status === "fulfilled").length;
   }
 
@@ -796,7 +798,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
   async function textWorker(worker: Worker, taskId: string, send: (to: string) => Promise<unknown>) {
     if (!worker.opted_in) return;
     await toAll(contacts(verified(worker)), send).catch((err) =>
-      console.error(`text to the worker for task ${taskId} failed: ${errorName(err)}`),
+      console.error(`text to the worker for task ${taskId} failed: ${errorName(err)}`, { task_id: taskId }),
     );
   }
 
@@ -835,7 +837,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       }
       await end();
     } catch (err) {
-      console.error(`payout for task ${task.id} failed`, err);
+      console.error(`payout for task ${task.id} failed: ${errorName(err)}`, { task_id: task.id });
     }
     if (!paid) return task;
     await notifyPaid(paid, worker);
@@ -1141,7 +1143,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       const ping = config.location_ping && workers.length < config.dispatch_max_workers;
       const pinged = (taskId: string | null) =>
         pingStale(place, taskId).catch((err) => {
-          console.error(`location pings failed: ${errorName(err)}`);
+          console.error(`location pings failed: ${errorName(err)}`, { task_id: taskId });
           return 0;
         });
       const posted = await one<Posted>(
@@ -1190,7 +1192,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           setTimeout(
             () =>
               offerMore(task).catch((err) =>
-                console.error(`re-offer for task ${task.id} failed: ${errorName(err)}`),
+                console.error(`re-offer for task ${task.id} failed: ${errorName(err)}`, { task_id: task.id }),
               ),
             PING_WAIT_MS,
           ).unref();
@@ -2000,7 +2002,9 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         } catch (err) {
           // Usually balance_insufficient: the worker already moved the money out. Recorded as owed.
           const code = err instanceof Error && "code" in err ? String(err.code) : errorName(err);
-          console.error(`transfer reversal for task ${ticket.task_id} failed: ${code}`);
+          console.error(`transfer reversal for task ${ticket.task_id} failed: ${code}`, {
+            task_id: ticket.task_id,
+          });
           owed = Number(r.payout_cents);
           reversal = "owed";
           await rpc("eyes_record_reversal", { p_ticket_id: ticket_id, p_owed_cents: owed });
