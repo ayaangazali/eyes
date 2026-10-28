@@ -1269,6 +1269,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           p_idempotency_key: ask.idempotency_key,
           p_worker_ids: workers.map((w) => w.worker_id),
           p_now: nowIso(),
+          ...(!ask.classifier_report_id && { p_max_open: config.max_open_tasks }),
         },
       ).catch(async (err) => {
         if (err instanceof EyesError && err.code === "no_workers_nearby") {

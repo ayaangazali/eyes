@@ -208,6 +208,7 @@ export const AppConfig = z.object({
   default_bounty_cents: z.int().min(100).default(300),
   dispatch_radius_m: z.int().min(100).default(3000),
   dispatch_max_workers: z.int().min(1).default(3),
+  max_open_tasks: z.int().min(1).default(20),
   verify_radius_m: z.int().min(10).default(150),
   location_max_age_h: z.int().min(1).default(24),
   location_ping: z.boolean().default(false),
