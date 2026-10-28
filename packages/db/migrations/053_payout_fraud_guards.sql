@@ -1,4 +1,4 @@
--- Payout fraud guards (ADR-053). The agent owner's email is stored so an answer from a worker with
+-- Payout fraud guards (ADR-054). The agent owner's email is stored so an answer from a worker with
 -- the same email goes to manual review instead of auto-paying.
 alter table agents add column owner_email text check (owner_email = lower(owner_email));
 

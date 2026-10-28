@@ -1,4 +1,4 @@
-# ADR-053: Payout fraud guards
+# ADR-054: Payout fraud guards
 
 Status: accepted. Builds on ADR-015 (an agent may own itself) and ADR-026 (disputes).
 
@@ -19,4 +19,4 @@ Status: accepted. Builds on ADR-015 (an agent may own itself) and ADR-026 (dispu
 
 ## Consequences
 
-Migration 052 adds one column and three functions. Existing agents have no owner email, so they are not matched. Workers created before this change keep their old schedule.
+Migration 053 adds one column and three functions. Existing agents have no owner email, so they are not matched. Workers created before this change keep their old schedule.
