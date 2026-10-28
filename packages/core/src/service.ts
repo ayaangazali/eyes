@@ -143,6 +143,8 @@ export interface EyesService {
   workerTasks(token: string, query: WorkerTasksQuery): Promise<WorkerTasks>;
   /** token: as workerSetup. Mints a location code; returns the app install link carrying it. Throws unauthorized. */
   workerInstallLink(token: string): Promise<{ install_url: string }>;
+  /** token: as workerSetup. Pays what is due, then deletes the account's personal data (ADR-045). Throws unauthorized, or invalid_input while a task is in progress. */
+  workerDelete(token: string): Promise<{ deleted: true }>;
   getOffer(token: string): Promise<OfferView>;
   submitCapture(token: string, fields: CaptureFields, photo: PhotoUpload | null): Promise<CaptureResult>;
   /** token: a 30-minute HERE token or the worker's long-lived location token. Throws unauthorized, invalid_input or rate_limited. */

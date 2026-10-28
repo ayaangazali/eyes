@@ -177,6 +177,10 @@ const START_FIRST = {
   message: "Text START to the Eyes number first.",
   fix: "Text START from your phone, then add the email again.",
 };
+const TASK_IN_PROGRESS = {
+  message: "You have a task in progress.",
+  fix: "Finish it, or text NO to release it, then delete your account. A held or disputed answer must be reviewed first.",
+};
 const PING_MAX = 5;
 const PING_WAIT_MS = 30_000;
 const PING_IN_INPUT = /Eyes ping ([0-9a-f]{8})/i;
@@ -517,6 +521,16 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     await say(`To get tasks by email, tap this and press Send: ${config.public_api_url}/s/${id}`);
   }
 
+  // The worker behind an "e:" code; a deleted account (ADR-045) keeps its row, so its codes stop here.
+  async function meWorker(token: string): Promise<Worker> {
+    const workerId = tokenPayload(token, "e");
+    const w = workerId
+      ? await maybe<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null })
+      : undefined;
+    if (!w || w.deleted_at) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+    return w;
+  }
+
   async function workerSetup(token: string): Promise<WorkerSetup> {
     const workerId = tokenPayload(token, "e");
     const [w, e] = workerId
@@ -528,7 +542,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: workerId }),
         ])
       : [];
-    if (!w || !e) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+    if (!w || !e || w.deleted_at) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
     // Same spot rule as START: a fix, or the sign-up location until the first fix.
     const at = w.lat === null ? null : iso(w.location_at ?? w.created_at);
     const fresh = at !== null && now().getTime() - Date.parse(at) <= config.location_max_age_h * 3_600_000;
@@ -1574,9 +1588,9 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async workerTasks(token, { q, status, cursor, tz }) {
-      const workerId = tokenPayload(token, "e");
-      const e = workerId && (await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: workerId }));
-      if (!workerId || !e) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      const { id: workerId } = await meWorker(token);
+      const e = await maybe<EarningsRow>("eyes_worker_earnings", { p_worker_id: workerId });
+      if (!e) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
       // The cursor is the last row's raw claimed_at (microseconds kept) and id: "<at>|<id>".
       const [at, id] = (cursor ?? "").split("|");
       const before = at && id && UUID.test(id) && !Number.isNaN(Date.parse(at)) ? { at, id } : null;
@@ -1617,20 +1631,12 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     workerSetup,
 
     async workerSkipEmail(token) {
-      const workerId = tokenPayload(token, "e");
-      const w = workerId
-        ? await maybe<Worker>("eyes_skip_worker_email", { p_worker_id: workerId })
-        : undefined;
-      if (!w) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      await rpc("eyes_skip_worker_email", { p_worker_id: (await meWorker(token)).id });
       return workerSetup(token);
     },
 
     async workerSetEmail(token, email) {
-      const workerId = tokenPayload(token, "e");
-      const w = workerId
-        ? await maybe<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null })
-        : undefined;
-      if (!w) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      const w = await meWorker(token);
       const next = email === null ? null : parse(WorkerEmail, email);
       if (next !== null && !w.opted_in) throw new EyesError("invalid_input", {}, START_FIRST);
       await rpc("eyes_set_worker_email", { p_worker_id: w.id, p_email: next }).catch((err: unknown) => {
@@ -1642,13 +1648,25 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async workerEmailStart(token) {
-      const workerId = tokenPayload(token, "e");
-      const w = workerId
-        ? await maybe<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null })
-        : undefined;
-      if (!w) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      const w = await meWorker(token);
       if (!w.opted_in) throw new EyesError("invalid_input", {}, START_FIRST);
       return { mailto: await connectMailto(w.id) };
+    },
+
+    async workerDelete(token) {
+      const w = await meWorker(token);
+      // Pay what is due while the account still exists; anything unpaid stays owed on the kept row (ADR-045).
+      if (w.stripe_account_id) {
+        for (const { task, worker } of await payoutsDue(w.stripe_account_id, null))
+          await payOut(task, worker);
+      }
+      await rpc("eyes_delete_worker", { p_worker_id: w.id, p_now: nowIso() }).catch((err: unknown) => {
+        throw err instanceof EyesError && err.code === "invalid_input"
+          ? new EyesError("invalid_input", err.context, TASK_IN_PROGRESS)
+          : err;
+      });
+      appLinkSentAt.delete(w.id);
+      return { deleted: true as const };
     },
 
     async workerConnectEmail(email, code) {
@@ -1689,12 +1707,9 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async workerInstallLink(token) {
-      const workerId = tokenPayload(token, "e");
-      const w = workerId
-        ? await maybe<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null })
-        : undefined;
+      const w = await meWorker(token);
       // Codes only work for an opted-in worker (eyes_rotate_location_token skips the others).
-      if (!w?.opted_in) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      if (!w.opted_in) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
       const code = await mintLocationCode(w.id);
       return {
         install_url: appUrl(code),
