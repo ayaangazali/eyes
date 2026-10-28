@@ -77,6 +77,8 @@ const PROGRESS_INTERVAL_MS = 5000;
 const HOUR_MS = 60 * 60 * 1000;
 const PUBLIC_CALLS_PER_HOUR = 5;
 const LOGIN_CODES_PER_HOUR = 10;
+const JOINS_PER_PHONE_PER_HOUR = 3;
+const TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify";
 const THROTTLE_MAX_KEYS = 10_000;
 // Zod and the MCP SDK describe the same JSON wire schema with different TypeScript JSON types.
 const { $schema: _draftInputDialect, ...draftInputSchema } = z.toJSONSchema(AskEyesDraftInput, {
@@ -1059,6 +1061,37 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     }
     const input = parse(JoinWorkerInput, await readJson(c));
     throttle(c);
+    // The web page proves a human with Turnstile; the app has no widget, so it relies on the limits.
+    if (c.req.header("origin") === new URL(config.worker_web_url).origin) {
+      const token = c.req.header("x-turnstile-token");
+      const secret = env.TURNSTILE_SECRET_KEY;
+      const verdict =
+        token && secret
+          ? ((await (
+              await fetch(TURNSTILE_VERIFY_URL, {
+                method: "POST",
+                body: new URLSearchParams({
+                  secret,
+                  response: token,
+                  remoteip: clientKey(c.req.header("x-forwarded-for")),
+                }),
+              })
+            )
+              .json()
+              .catch(() => null)) as { success?: boolean } | null)
+          : null;
+      if (!verdict?.success) {
+        throw new EyesError(
+          "invalid_input",
+          {},
+          {
+            message: "We could not confirm you are a person.",
+            fix: "Reload the page, finish the check, and tap Join again.",
+          },
+        );
+      }
+    }
+    throttle(c, c.req.path, `phone ${input.phone}`, JOINS_PER_PHONE_PER_HOUR);
     const joined = await service.joinWorker(input);
     return c.json({ ...joined, inkbox_number: joined.inkbox_number || number });
   });

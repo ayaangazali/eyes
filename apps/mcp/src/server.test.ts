@@ -893,11 +893,14 @@ describe("signup and join throttle", () => {
       { joinWorker: async () => joined },
       { INKBOX_PHONE_NUMBER: "+14155550199" },
     );
-    const call = (forwardedFor: string, json: unknown = body) =>
+    let n = 0;
+    const call = (forwardedFor: string, json: object = body) =>
       fetch(`http://eyes.test${path}`, {
         method: "POST",
         headers: { "x-forwarded-for": forwardedFor },
-        body: JSON.stringify(json),
+        body: JSON.stringify(
+          "phone" in json ? { ...json, phone: `+1415555${String(1000 + n++).padStart(4, "0")}` } : json,
+        ),
       });
 
     for (let i = 0; i < 5; i++) expect((await call("203.0.113.9", {})).status).toBe(400);
@@ -940,6 +943,41 @@ describe("signup and join throttle", () => {
     for (let i = 0; i < 5; i++) await call("/v1/signup", "203.0.113.9");
     expect((await call("/v1/signup", "203.0.113.9")).status).toBe(429);
     expect((await call("/w/join", "203.0.113.9")).status).toBe(200);
+  });
+
+  it("limits /w/join to 3 per phone per hour and checks Turnstile for web-origin joins", async () => {
+    const { fetch } = setup(
+      {
+        joinWorker: async () => ({
+          opt_in_instructions: "Text START.",
+          inkbox_number: null,
+          connect_url: null,
+        }),
+      },
+      { INKBOX_PHONE_NUMBER: "+14155550199", TURNSTILE_SECRET_KEY: "s" },
+    );
+    const join = (headers: Record<string, string>, ip: string) =>
+      fetch("http://eyes.test/w/join", {
+        method: "POST",
+        headers: { "x-forwarded-for": ip, ...headers },
+        body: JSON.stringify({ name: "Ana Diaz", phone: "+14155550121", lat: 37.78246, lng: -122.40776 }),
+      });
+    for (let i = 0; i < 3; i++) expect((await join({}, `203.0.113.${i}`)).status).toBe(200);
+    expect((await join({}, "203.0.113.50")).status).toBe(429);
+
+    const web = { origin: "http://worker.eyes.test" };
+    expect((await join(web, "198.51.100.1")).status).toBe(400);
+    const real = globalThis.fetch;
+    const verdicts = [true, false];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) =>
+      String(input).includes("challenges.cloudflare.com")
+        ? Response.json({ success: verdicts.shift() })
+        : real(input, init),
+    );
+    const withToken = { ...web, "x-turnstile-token": "t" };
+    expect((await join(withToken, "198.51.100.2")).status).toBe(429); // phone already over limit
+    expect((await join(withToken, "198.51.100.3")).status).toBe(400); // siteverify said false
+    vi.restoreAllMocks();
   });
 
   it("keys a client on the first 64 characters of its address", async () => {

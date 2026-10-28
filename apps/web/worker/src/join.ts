@@ -87,7 +87,10 @@ form.addEventListener("submit", async (event) => {
   try {
     const out = await call<JoinWorkerOutput>("/w/join", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-turnstile-token": String(data.get("cf-turnstile-response") ?? ""),
+      },
       body: JSON.stringify({ name, phone, ...spot }),
     });
     const number = out.inkbox_number || inkboxNumber;
@@ -111,6 +114,7 @@ form.addEventListener("submit", async (event) => {
   } catch (err) {
     showError(error, err);
     error.focus();
+    (globalThis as { turnstile?: { reset(): void } }).turnstile?.reset();
   } finally {
     submit.disabled = false;
   }
