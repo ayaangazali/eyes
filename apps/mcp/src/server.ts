@@ -1105,6 +1105,13 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       ),
     );
   });
+  // Account deletion (ADR-045): same bearer code as /w/me.
+  server.delete("/w/me", async (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json(
+      await service.workerDelete(/^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1] ?? ""),
+    );
+  });
   // Worker email (T6.48): the /me code adds, changes or (null) removes the address, and a repeat POST
   // re-sends the confirmation; the engine mails the link. 5 changes an hour per code.
   server.post("/w/me/email", async (c) => {

@@ -236,4 +236,92 @@ describe.skipIf(!url)("worker setup persistence over HTTP and Postgres", () => {
     ).toBe(401);
     expect((await setup(w.code)).email_skipped).toBe(false);
   });
+
+  it("deletes the account after paying, refusing while a task is in progress, and keeps the ledger", async () => {
+    const w = await worker();
+    const email = `delete-${w.id}@example.test`;
+    const { mailto } = await service.workerEmailStart(w.code);
+    await service.workerConnectEmail(
+      email,
+      new URL(mailto).searchParams.get("subject")?.split(" ").at(-1) ?? "",
+    );
+    // A spot no earlier fixture worker shares, so this worker gets the offer.
+    const spot = { lat: 37.75, lng: -122.45 };
+    expect((await request("/w/location", w.native, { ...spot, source: "app" })).status).toBe(204);
+    const signed = await service.signupAgent({ name: "delete regression" });
+    const a = await service.authenticate(signed.api_key);
+    if (!a) throw new Error("Fixture agent missing");
+    const task = await service.askEyes(a, {
+      question: "Is this public cafe open?",
+      location: spot,
+      task_type: "is_open",
+      bounty_usd: 3,
+      deadline_minutes: 30,
+      require_photo: true,
+      idempotency_key: randomUUID(),
+    });
+    await service.handleWorkerReply({ phone: w.phone, intent: "yes", text: "YES" });
+    const remove = (code: string) =>
+      fetch(`${base}/w/me`, { method: "DELETE", headers: { authorization: `Bearer ${code}` } });
+    const busy = await remove(w.code);
+    expect(busy.status).toBe(400);
+    expect(await busy.json()).toMatchObject({ error: "invalid_input", task_id: task.task_id });
+
+    const capture = signToken(
+      config.link_secret,
+      `o:${task.task_id}:${w.id}`,
+      new Date(providers.clock.now().getTime() + 1800000),
+    );
+    providers.clock.advance(31000);
+    const form = new FormData();
+    for (const [key, value] of Object.entries({
+      ...spot,
+      accuracy_m: 5,
+      captured_at: providers.clock.now().toISOString(),
+      answer_bool: true,
+    }))
+      form.set(key, String(value));
+    form.set(
+      "photo",
+      new Blob([new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 1])], { type: "image/jpeg" }),
+      "f.jpg",
+    );
+    expect((await fetch(`${base}/w/offers/${capture}/capture`, { method: "POST", body: form })).status).toBe(
+      200,
+    );
+    await service.workerEmailLogin(email);
+    const login = /#c=([\w-]+)/.exec(JSON.stringify(providers.email.outbox.at(-1)))?.[1] ?? "";
+    const ledger = () =>
+      sql`select type, amount_cents::int as cents, worker_id from ledger where task_id = ${task.task_id} order by type`;
+    const before = await ledger();
+    expect(before.map((row) => row.type)).not.toContain("payout");
+    // Payouts set up only now, so the verified task is still owed when the delete starts.
+    await sql`update workers set stripe_account_id = ${`acct_${w.id}`} where id = ${w.id}`;
+
+    const deleted = await remove(w.code);
+    expect(deleted.status).toBe(200);
+    expect(deleted.headers.get("cache-control")).toBe("no-store");
+    expect(await deleted.json()).toEqual({ deleted: true });
+    const after = await ledger();
+    expect(after.filter((row) => row.type !== "payout")).toEqual(
+      before.map((row) => ({ ...row, worker_id: null })),
+    );
+    expect(after.filter((row) => row.type === "payout")).toEqual([
+      { type: "payout", cents: 300, worker_id: null },
+    ]);
+    expect((await request("/w/me", w.code)).status).toBe(401);
+    expect((await remove(w.code)).status).toBe(401);
+    expect((await request("/w/location", w.native, { lat: 37.7, lng: -122.4, source: "app" })).status).toBe(
+      401,
+    );
+    const code = await fetch(`${base}/w/login/code`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ code: login }),
+    });
+    expect(code.status).toBe(401);
+    expect(await sql`select name, phone, email, lat, opted_in from workers where id = ${w.id}`).toEqual([
+      { name: "", phone: `deleted:${w.id}`, email: null, lat: null, opted_in: false },
+    ]);
+  });
 });
