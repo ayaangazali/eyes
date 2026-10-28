@@ -75,6 +75,8 @@ const OWNER_VIEW: OwnerConsole = {
   policy: {
     max_bounty_usd: 10,
     daily_cap_usd: 20,
+    cap_period: "day",
+    at_limit: "ask",
     spent_today_usd: 3.5,
     remaining_today_usd: 16.5,
     allowed_task_types: ["is_open", "line_length"],
@@ -400,10 +402,45 @@ describe("owner console routes", () => {
     expect(await (await app.request("/owner/owner-tok?saved=1")).text()).toContain("Saved.");
   });
 
+  it("renders no-limit fields empty and the chosen period and at-limit action selected", async () => {
+    const { app, service } = setup();
+    service.ownerConsole.mockResolvedValueOnce({
+      ...OWNER_VIEW,
+      policy: {
+        ...OWNER_VIEW.policy,
+        max_bounty_usd: null,
+        daily_cap_usd: null,
+        cap_period: "week",
+        at_limit: "pause",
+      },
+    });
+    const body = await (await app.request("/owner/owner-tok")).text();
+    expect(body).toContain("Spent this week (UTC)");
+    expect(body).toContain("$3.50, no limit");
+    expect(body).toMatch(/id="max_bounty_usd"[^>]* value=""/);
+    expect(body).toMatch(/id="daily_cap_usd"[^>]* value=""/);
+    expect(body).toContain('<option value="week" selected>');
+    expect(body).toContain('<option value="pause" selected>');
+    expect(body).not.toContain('<option value="day" selected>');
+  });
+
+  it("saves empty fields as no limit, and a period and at-limit action", async () => {
+    const { app, service } = setup();
+    await post(app, "owner-tok", "max_bounty_usd=&daily_cap_usd=&cap_period=week&at_limit=pause");
+    expect(service.updateSpendPolicy).toHaveBeenCalledWith("owner-tok", {
+      max_bounty_usd: null,
+      daily_cap_usd: null,
+      cap_period: "week",
+      at_limit: "pause",
+      allowed_task_types: [],
+    });
+  });
+
   it("re-renders invalid limits without saving, and answers a bad link with a 404 page", async () => {
     const { app, service } = setup();
     for (const body of [
-      "max_bounty_usd=&daily_cap_usd=20",
+      "max_bounty_usd=3&daily_cap_usd=20&cap_period=year",
+      "max_bounty_usd=3&daily_cap_usd=20&at_limit=never",
       "max_bounty_usd=500&daily_cap_usd=20",
       "max_bounty_usd=50.01&daily_cap_usd=20",
       "max_bounty_usd=0x10&daily_cap_usd=20",
@@ -500,6 +537,23 @@ describe("owner console routes", () => {
       }
     });
 
+    it("accepts null limits, a period and an at-limit action on policy.json", async () => {
+      const { app, service } = setup();
+      const open = { max_bounty_usd: null, daily_cap_usd: null, cap_period: "month", at_limit: "notify" };
+      const res = await json(app, "owner-tok/policy.json", { ...open, allowed_task_types: [] });
+      expect(res.status).toBe(200);
+      expect(service.updateSpendPolicy).toHaveBeenCalledWith("owner-tok", {
+        ...open,
+        allowed_task_types: [],
+      });
+      const bad = await json(app, "owner-tok/policy.json", {
+        ...open,
+        cap_period: "year",
+        allowed_task_types: [],
+      });
+      expect(bad.status).toBe(400);
+    });
+
     it("answers 401 for an unknown token on every route and never reaches another owner", async () => {
       const { app, service } = setup();
       const res = [
@@ -542,7 +596,7 @@ describe("owner console routes", () => {
       top_up_url: null,
     });
     const body = await (await app.request("/owner/owner-tok")).text();
-    expect(body).toContain("<dd>Frozen (daily cap $0)</dd>");
+    expect(body).toContain("<dd>Frozen (cap $0)</dd>");
     expect(body).not.toContain("Add funds");
     expect(body).toContain("<p>No tasks yet.</p>");
     expect(body).toContain("<p>No money in or out yet.</p>");

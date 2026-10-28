@@ -338,7 +338,7 @@ Input:
 ```
 Output:
 ```json
-{"type":"object","properties":{"max_bounty_usd":{"type":"number"},"daily_cap_usd":{"type":"number"},"spent_today_usd":{"type":"number"},"remaining_today_usd":{"type":"number"},"allowed_task_types":{"type":"array","items":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"]}}},"required":["max_bounty_usd","daily_cap_usd","spent_today_usd","remaining_today_usd","allowed_task_types"],"additionalProperties":false}
+{"type":"object","properties":{"max_bounty_usd":{"description":"Most one task may pay a worker; null means no limit.","type":["number","null"]},"daily_cap_usd":{"description":"Spend cap for the cap_period; null means no limit.","type":["number","null"]},"cap_period":{"type":"string","enum":["day","week","month"]},"at_limit":{"type":"string","enum":["ask","pause","notify"]},"spent_today_usd":{"type":"number","description":"Spent so far in the current cap_period."},"remaining_today_usd":{"description":"Left under the cap in the current cap_period; null means no limit.","type":["number","null"]},"allowed_task_types":{"type":"array","items":{"type":"string","enum":["is_open","line_length","in_stock","photo_of_place","price_check","crowd_level","other_public"]}}},"required":["max_bounty_usd","daily_cap_usd","cap_period","at_limit","spent_today_usd","remaining_today_usd","allowed_task_types"],"additionalProperties":false}
 ```
 
 ## App-only confirmation

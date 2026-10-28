@@ -234,8 +234,9 @@ const LEDGER_LABELS: Record<LedgerType, string> = {
 
 type Note = { text: string; error: boolean };
 const SAVED: Note = { text: "Saved. The new limits apply to your agent's next request.", error: false };
+const AT_LIMIT_LABELS = { ask: "Ask me", pause: "Pause spending", notify: "Notify me" };
 const INVALID: Note = {
-  text: "Nothing was saved. Max bounty must be a number from 0 to 50 USD, and the daily cap a number from 0 to 1000 USD.",
+  text: "Nothing was saved. Max bounty must be empty or a number from 0 to 50 USD, and the cap empty or a USD amount like 12 or 12.50.",
   error: true,
 };
 const UNCONFIRMED: Note = {
@@ -278,17 +279,22 @@ ${note ? html`<p class="note${note.error ? " error" : ""}" role="status">${note.
 <dl>
 <dt>Balance</dt><dd>${usd(view.balance_usd)}</dd>
 <dt>Held for open tasks</dt><dd>${usd(view.escrowed_usd)}</dd>
-<dt>Spent today (UTC)</dt><dd>${p.daily_cap_usd === 0 ? "Frozen (daily cap $0)" : `${usd(p.spent_today_usd)} of ${usd(p.daily_cap_usd)}`}</dd>
+<dt>Spent ${p.cap_period === "day" ? "today" : `this ${p.cap_period}`} (UTC)</dt><dd>${p.daily_cap_usd === 0 ? "Frozen (cap $0)" : p.daily_cap_usd === null ? `${usd(p.spent_today_usd)}, no limit` : `${usd(p.spent_today_usd)} of ${usd(p.daily_cap_usd)}`}</dd>
 </dl>
 <p class="hint">Tasks nobody answers before the deadline, or that are cancelled, are refunded in full to the balance.</p>
 ${view.top_up_url ? html`<a class="button" href="${view.top_up_url}">Add funds</a>` : ""}
 <h2>Spending limits</h2>
 <form method="post" action="/owner/${token}/policy">
 <label for="max_bounty_usd">Most it may pay a worker per task (USD)</label>
-<input id="max_bounty_usd" name="max_bounty_usd" type="number" inputmode="decimal" min="0" max="50" step="0.01" required value="${p.max_bounty_usd.toFixed(2)}">
-<label for="daily_cap_usd">Daily spending cap (USD)</label>
-<input id="daily_cap_usd" name="daily_cap_usd" type="number" inputmode="decimal" min="0" max="1000" step="0.01" required value="${p.daily_cap_usd.toFixed(2)}" aria-describedby="cap-hint">
-<p class="hint" id="cap-hint">A daily cap of 0 freezes all spending. Each task counts its bounty plus the ${usd(feeUsd)} Eyes fee.</p>
+<input id="max_bounty_usd" name="max_bounty_usd" type="number" inputmode="decimal" min="0" max="50" step="0.01" value="${p.max_bounty_usd === null ? "" : p.max_bounty_usd.toFixed(2)}" aria-describedby="bounty-hint">
+<p class="hint" id="bounty-hint">Leave empty for no limit. Eyes still caps every bounty at $50.</p>
+<label for="daily_cap_usd">Spending cap (USD)</label>
+<input id="daily_cap_usd" name="daily_cap_usd" type="number" inputmode="decimal" min="0" step="0.01" value="${p.daily_cap_usd === null ? "" : p.daily_cap_usd.toFixed(2)}" aria-describedby="cap-hint">
+<label for="cap_period">Cap counts per</label>
+<select id="cap_period" name="cap_period">${(["day", "week", "month"] as const).map((v) => html`<option value="${v}"${p.cap_period === v ? html` selected` : ""}>${v}</option>`)}</select>
+<label for="at_limit">At the limit</label>
+<select id="at_limit" name="at_limit">${(["ask", "pause", "notify"] as const).map((v) => html`<option value="${v}"${p.at_limit === v ? html` selected` : ""}>${AT_LIMIT_LABELS[v]}</option>`)}</select>
+<p class="hint" id="cap-hint">Leave empty for no limit. A cap of 0 freezes all spending. Each task counts its bounty plus the ${usd(feeUsd)} Eyes fee. A week starts Monday and a month on the 1st, UTC.</p>
 <fieldset><legend>Kinds of tasks it may post</legend>
 ${TASK_TYPES.map((t) => html`<label><input type="checkbox" name="allowed_task_types" value="${t}"${p.allowed_task_types.includes(t) ? html` checked` : ""}>${TASK_TYPE_LABELS[t]}</label>`)}
 </fieldset>
@@ -465,8 +471,13 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
       return c.html(ownerPage(await deps.service.ownerConsole(token), token, note, fee), status);
     });
   };
+  // An empty field means no limit (null); anything else must be whole cents.
   const formNumber = (v: unknown) =>
-    typeof v === "string" && /^\d+(\.\d{1,2})?$/.test(v.trim()) ? Number(v) : Number.NaN;
+    typeof v === "string" && v.trim() === ""
+      ? null
+      : typeof v === "string" && /^\d+(\.\d{1,2})?$/.test(v.trim())
+        ? Number(v)
+        : Number.NaN;
 
   app.get("/owner/:token", (c) => ownerView(c, c.req.query("saved") === undefined ? null : SAVED));
   app.post("/owner/:token/policy", async (c) => {
@@ -474,6 +485,8 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
     const input = OwnerPolicyInput.safeParse({
       max_bounty_usd: formNumber(form.max_bounty_usd),
       daily_cap_usd: formNumber(form.daily_cap_usd),
+      cap_period: form.cap_period,
+      at_limit: form.at_limit,
       allowed_task_types: [form.allowed_task_types ?? []].flat(),
     });
     if (!input.success) return ownerView(c, INVALID, 400);

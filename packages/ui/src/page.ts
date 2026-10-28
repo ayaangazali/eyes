@@ -31,8 +31,8 @@ body.ui{margin:0;min-height:100dvh;background:var(--eyes-surface);--ui-column:40
 .page dl{display:grid;grid-template-columns:auto 1fr;gap:.625rem 1.5rem;margin:1.5rem 0;padding:1.25rem 1.5rem;border-radius:var(--eyes-radius-2xl);background:var(--eyes-surface-secondary);box-shadow:var(--eyes-hairline)}
 .page dt{color:var(--eyes-text-secondary)}.page dd{margin:0;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
 .page label{display:block;margin-top:1.25rem;font-weight:600}
-.page input[type=number]{box-sizing:border-box;display:block;width:100%;min-height:var(--eyes-tap);margin-top:.375rem;padding:0 .875rem;border:1px solid var(--eyes-border);border-radius:.75rem;background:var(--eyes-surface);color:var(--eyes-text);font:inherit;font-variant-numeric:tabular-nums}
-.page input[type=number]:focus-visible{outline:2px solid var(--eyes-accent);outline-offset:1px}
+.page input[type=number],.page select{box-sizing:border-box;display:block;width:100%;min-height:var(--eyes-tap);margin-top:.375rem;padding:0 .875rem;border:1px solid var(--eyes-border);border-radius:.75rem;background:var(--eyes-surface);color:var(--eyes-text);font:inherit;font-variant-numeric:tabular-nums}
+.page input[type=number]:focus-visible,.page select:focus-visible{outline:2px solid var(--eyes-accent);outline-offset:1px}
 .page fieldset{margin:1.25rem 0 0;padding:.5rem 1rem 1rem;border:1px solid var(--eyes-border-subtle);border-radius:.75rem}
 .page legend{padding:0 .25rem;font-weight:600}
 .page fieldset label{display:flex;align-items:center;gap:.625rem;margin-top:.625rem;font-weight:400}

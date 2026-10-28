@@ -650,14 +650,39 @@ exports[`tool schemas > match the committed snapshot 1`] = `
           },
           "type": "array",
         },
+        "at_limit": {
+          "enum": [
+            "ask",
+            "pause",
+            "notify",
+          ],
+          "type": "string",
+        },
+        "cap_period": {
+          "enum": [
+            "day",
+            "week",
+            "month",
+          ],
+          "type": "string",
+        },
         "daily_cap_usd": {
-          "type": "number",
+          "type": [
+            "number",
+            "null",
+          ],
         },
         "max_bounty_usd": {
-          "type": "number",
+          "type": [
+            "number",
+            "null",
+          ],
         },
         "remaining_today_usd": {
-          "type": "number",
+          "type": [
+            "number",
+            "null",
+          ],
         },
         "spent_today_usd": {
           "type": "number",
@@ -666,6 +691,8 @@ exports[`tool schemas > match the committed snapshot 1`] = `
       "required": [
         "max_bounty_usd",
         "daily_cap_usd",
+        "cap_period",
+        "at_limit",
         "spent_today_usd",
         "remaining_today_usd",
         "allowed_task_types",

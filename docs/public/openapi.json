@@ -1698,16 +1698,28 @@
                   "type": "object",
                   "properties": {
                     "max_bounty_usd": {
-                      "type": "number"
+                      "description": "Most one task may pay a worker; null means no limit.",
+                      "type": ["number", "null"]
                     },
                     "daily_cap_usd": {
-                      "type": "number"
+                      "description": "Spend cap for the cap_period; null means no limit.",
+                      "type": ["number", "null"]
+                    },
+                    "cap_period": {
+                      "type": "string",
+                      "enum": ["day", "week", "month"]
+                    },
+                    "at_limit": {
+                      "type": "string",
+                      "enum": ["ask", "pause", "notify"]
                     },
                     "spent_today_usd": {
-                      "type": "number"
+                      "type": "number",
+                      "description": "Spent so far in the current cap_period."
                     },
                     "remaining_today_usd": {
-                      "type": "number"
+                      "description": "Left under the cap in the current cap_period; null means no limit.",
+                      "type": ["number", "null"]
                     },
                     "allowed_task_types": {
                       "type": "array",
@@ -1728,6 +1740,8 @@
                   "required": [
                     "max_bounty_usd",
                     "daily_cap_usd",
+                    "cap_period",
+                    "at_limit",
                     "spent_today_usd",
                     "remaining_today_usd",
                     "allowed_task_types"

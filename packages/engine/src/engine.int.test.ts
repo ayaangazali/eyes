@@ -1290,7 +1290,12 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const cases: [string, Partial<OwnerPolicyInput>, number | null, object][] = [
       ["suggests the default bounty when it fits", {}, null, fits(3)],
       ["caps the suggestion at max_bounty_usd", { max_bounty_usd: 2 }, null, fits(2)],
-      ["caps the suggestion at the daily cap left minus the fee", { daily_cap_usd: 3 }, null, fits(2.5)],
+      [
+        "caps the suggestion at the daily cap left minus the fee",
+        { max_bounty_usd: 2.5, daily_cap_usd: 3 },
+        null,
+        fits(2.5),
+      ],
       ["caps the suggestion at the balance minus the fee", {}, 250, fits(2)],
       [
         "blocks a task_type the key may not post",
@@ -1301,7 +1306,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       ["blocks a max_bounty_usd below the minimum bounty", { max_bounty_usd: 0.5 }, null, blocked("is 0.5")],
       [
         "blocks when the minimum does not fit the cap left",
-        { daily_cap_usd: 1 },
+        { max_bounty_usd: 0.5, daily_cap_usd: 1 },
         null,
         blocked("2026-10-18T00:00:00.000Z"),
       ],
@@ -1370,7 +1375,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       policy: { allowed_task_types: ["is_open"] as OwnerPolicyInput["allowed_task_types"] },
       code: "task_type_not_allowed",
     },
-    { policy: { daily_cap_usd: 1 }, code: "daily_cap_exceeded" },
+    { policy: { max_bounty_usd: 3, daily_cap_usd: 5 }, code: "daily_cap_exceeded" },
   ])("replays a paid ask after the owner tightens $code without another charge", async ({ policy, code }) => {
     const at = somewhere();
     const w = await worker(north(at, 100));
@@ -1742,6 +1747,103 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
   });
 
+  describe("open-ended spend limits (ADR-049)", () => {
+    const types: OwnerPolicyInput["allowed_task_types"] = ["line_length"];
+    const setPolicy = (a: Agent, policy: Partial<OwnerPolicyInput>) =>
+      service.updateSpendPolicy(signToken(deps.config.link_secret, `p:${a.id}`), {
+        max_bounty_usd: 10,
+        daily_cap_usd: 20,
+        allowed_task_types: types,
+        ...policy,
+      });
+
+    it("reads an old policy unchanged: day window, ask at the limit", async () => {
+      const a = await agent();
+      expect(await service.getSpendPolicy(a)).toMatchObject({
+        max_bounty_usd: 10,
+        daily_cap_usd: 20,
+        cap_period: "day",
+        at_limit: "ask",
+        remaining_today_usd: 20,
+      });
+      // An update without the new fields keeps the stored period and at_limit.
+      await setPolicy(a, { cap_period: "month", at_limit: "pause" });
+      await setPolicy(a, { daily_cap_usd: 30 });
+      expect(await service.getSpendPolicy(a)).toMatchObject({ cap_period: "month", at_limit: "pause" });
+    });
+
+    it("treats a null cap and a null max bounty as no limit", async () => {
+      const at = somewhere();
+      await worker(north(at, 100));
+      const a = await agent();
+      await sql`update agents set daily_cap_cents = 100 where id = ${a.id}`;
+      await setPolicy(a, { max_bounty_usd: null, daily_cap_usd: null });
+      expect(await service.getSpendPolicy(a)).toMatchObject({
+        max_bounty_usd: null,
+        daily_cap_usd: null,
+        remaining_today_usd: null,
+      });
+      await expect(ask(a, at, { bounty_usd: 3 })).resolves.toMatchObject({ status: "dispatched" });
+      expect(await service.quoteTask(a, { location: at, task_type: "line_length" })).toMatchObject({
+        allowed: expect.any(Boolean),
+      });
+    });
+
+    it("counts the cap per week (Monday UTC) and frees it when the next week starts", async () => {
+      const at = somewhere();
+      await worker(north(at, 100));
+      const a = await agent();
+      await setPolicy(a, { max_bounty_usd: 3, daily_cap_usd: 5, cap_period: "week" });
+      await ask(a, at);
+      const start = providers.clock.now(); // a Saturday
+      try {
+        providers.clock.advance(24 * 3_600_000); // Sunday: same week, spend still counts
+        expect(await service.getSpendPolicy(a)).toMatchObject({
+          spent_today_usd: 3.5,
+          remaining_today_usd: 1.5,
+        });
+        await expect(ask(a, at)).rejects.toMatchObject({
+          code: "daily_cap_exceeded",
+          context: { cap_period: "week" },
+        });
+        providers.clock.advance(24 * 3_600_000); // Monday: new week
+        expect(await service.getSpendPolicy(a)).toMatchObject({ spent_today_usd: 0, remaining_today_usd: 5 });
+      } finally {
+        providers.clock.set(start);
+      }
+    });
+
+    it("tells the agent to stop at a paused limit, and to ask the user otherwise", async () => {
+      const at = somewhere();
+      await worker(north(at, 100));
+      const a = await agent();
+      await setPolicy(a, { max_bounty_usd: 3, daily_cap_usd: 4.9, at_limit: "pause" });
+      await ask(a, at);
+      const paused = await ask(a, at).catch((err: EyesError) => err);
+      expect(paused).toMatchObject({ code: "daily_cap_exceeded", context: { at_limit: "pause" } });
+      expect((paused as EyesError).fix).toMatch(/paused spending.*Do not retry/);
+      const quote = await service.quoteTask(a, { location: at, task_type: "line_length" });
+      expect(quote.reason_if_not).toContain("paused");
+
+      await setPolicy(a, { max_bounty_usd: 3, daily_cap_usd: 4.9, at_limit: "ask" });
+      const asked = await ask(a, at).catch((err: EyesError) => err);
+      expect((asked as EyesError).fix).toContain("ask your user to raise");
+    });
+
+    it("rejects a cap below one request and a fractional cent, saving nothing", async () => {
+      const a = await agent();
+      await expect(
+        setPolicy(a, { max_bounty_usd: 10, daily_cap_usd: 5, cap_period: "week" }),
+      ).rejects.toMatchObject({
+        code: "invalid_input",
+        message: "The weekly total is less than one request.",
+      });
+      await expect(setPolicy(a, { daily_cap_usd: 20.005 })).rejects.toMatchObject({ code: "invalid_input" });
+      expect(await service.getSpendPolicy(a)).toMatchObject({ max_bounty_usd: 10, daily_cap_usd: 20 });
+      await expect(setPolicy(a, { daily_cap_usd: 0 })).resolves.toMatchObject({ daily_cap_usd: 0 });
+    });
+  });
+
   it("refuses a bounty one cent over max_bounty and a task_type the key may not post, charging nothing", async () => {
     const at = somewhere();
     await worker(north(at, 100));
@@ -1826,6 +1928,8 @@ describe.skipIf(!url)("engine on Postgres", () => {
     ).toEqual({
       max_bounty_usd: 2,
       daily_cap_usd: 20,
+      cap_period: "day",
+      at_limit: "ask",
       spent_today_usd: 3.5,
       remaining_today_usd: 16.5,
       allowed_task_types: types,
@@ -2081,7 +2185,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const { api_key } = await service.signupAgent({ name: "test-agent" });
     const a = (await service.authenticate(api_key)) as Agent;
     const secret = "test-link-secret-0123456789";
-    const policy = { max_bounty_usd: 1, daily_cap_usd: 1, allowed_task_types: [] };
+    const policy = { max_bounty_usd: 1, daily_cap_usd: 2, allowed_task_types: [] };
     const wrong = [
       ...["t", "o", "c"].map((kind) => signToken(secret, `${kind}:${a.id}`)),
       signToken("another-secret-0123456789", `p:${a.id}`),
