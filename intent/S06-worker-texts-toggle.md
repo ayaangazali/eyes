@@ -2,7 +2,7 @@
 task: S06
 title: Texts on/off for the app (POST /w/me/texts)
 files: [packages/core/src/schemas.ts, packages/core/src/service.ts, packages/engine/src/index.ts, packages/engine/src/engine.int.test.ts, apps/mcp/src/server.ts, apps/mcp/src/server.test.ts, apps/web/worker/src/me.test.ts]
-spec_refs: [intent/decisions/ADR-028-worker-setup-page.md]
+spec_refs: [intent/decisions/ADR-028-worker-setup-page.md, intent/decisions/ADR-046-worker-texts-toggle.md]
 vendor_refs: []
 status: in_progress
 ---
