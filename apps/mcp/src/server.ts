@@ -160,6 +160,7 @@ const DisputeAction = z.object({
   ticket_id: z.coerce.number().int().positive(),
   note: z.string().trim().min(1).max(500),
 });
+const AgentAction = z.object({ agent_id: z.uuid(), suspended: z.boolean().optional() });
 const TaskResolve = z.object({
   task_id: z.uuid(),
   outcome: z.enum(["release", "refund"]),
@@ -569,6 +570,7 @@ export function createServer(
       return c.json(new EyesError("unauthorized").toBody(), 401, {
         "WWW-Authenticate": `Bearer resource_metadata="${mcpBase(c)}/.well-known/oauth-protected-resource"${header === undefined ? "" : ', error="invalid_token"'}`,
       });
+    if (agent.suspended) return c.json(new EyesError("agent_suspended").toBody(), 403);
     c.set("agent", agent);
     await next();
   };
@@ -1311,7 +1313,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       });
     });
   }
-  // Private photo bucket: a link signed by storage.signPhoto, valid until its exp (ADR-048).
+  // Private photo bucket: a link signed by storage.signPhoto, valid until its exp (ADR-050).
   server.get("/photos", async (c) => {
     const { k, exp, sig } = c.req.query();
     const res = k && exp && sig ? await deps.providers.storage.readPhoto({ key: k, exp, sig }) : null;
@@ -1646,6 +1648,32 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       });
       if (!review) return c.json({ error: "worker_not_found" }, 404, FEED_HEADERS);
       return c.json(review, review.error === "worker_not_held" ? 409 : 200, FEED_HEADERS);
+    });
+    // Abuse controls (ADR-052): suspend or restore an agent, and kill its owner links.
+    server.app.post("/ops/agents/:id/suspend", ops.sameOrigin, ops.operator, async (c) => {
+      const body = parse(AgentAction, { ...(await readJson(c)), agent_id: c.req.param("id") });
+      const operator = c.get("operator").label;
+      const suspended = body.suspended ?? true;
+      const result = await service.setAgentSuspended(body.agent_id, suspended);
+      log({
+        kind: "ops",
+        level: "warn",
+        summary: `agent ${suspended ? "suspended" : "restored"} by ${operator}`,
+        data: { action: suspended ? "suspend_agent" : "restore_agent", operator, ...result },
+      });
+      return c.json(result, 200, FEED_HEADERS);
+    });
+    server.app.post("/ops/agents/:id/revoke-owner-links", ops.sameOrigin, ops.operator, async (c) => {
+      const body = parse(AgentAction, { agent_id: c.req.param("id") });
+      const operator = c.get("operator").label;
+      const result = await service.revokeOwnerLinks(body.agent_id);
+      log({
+        kind: "ops",
+        level: "warn",
+        summary: `owner links revoked by ${operator}`,
+        data: { action: "revoke_owner_links", operator, ...result },
+      });
+      return c.json(result, 200, FEED_HEADERS);
     });
     server.app.post("/ops/tasks/:id/resolve", ops.sameOrigin, ops.operator, async (c) => {
       const body = parse(TaskResolve, { ...(await readJson(c)), task_id: c.req.param("id") });

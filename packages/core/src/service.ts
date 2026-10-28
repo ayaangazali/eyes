@@ -121,6 +121,10 @@ export interface EyesService {
   /** The owner disputes an answer with the owner token. Throws owner_link_invalid, task_not_found, or task_not_disputable (409) when already disputed. */
   ownerDispute(token: string, input: ToolInput<"dispute_answer">): Promise<ToolOutput<"dispute_answer">>;
   rotateApiKey(token: string): Promise<{ api_key: string }>;
+  /** Ops: suspend an agent (every API call gets 403) or turn it back on. Throws not_found for an unknown agent. */
+  setAgentSuspended(agentId: string, suspended: boolean): Promise<{ agent_id: string; suspended: boolean }>;
+  /** Ops: kill every owner link made so far. Throws not_found for an unknown agent. */
+  revokeOwnerLinks(agentId: string): Promise<{ agent_id: string; owner_link_version: number }>;
 
   joinWorker(input: JoinWorkerInput): Promise<JoinWorkerOutput>;
   workerConnectUrl(token: string): Promise<string>;

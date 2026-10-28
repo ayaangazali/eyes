@@ -45,6 +45,8 @@ const AGENT: Agent = {
   cap_period: "day",
   at_limit: "ask",
   allowed_task_types: ["is_open", "line_length"],
+  suspended: false,
+  owner_link_version: 0,
   created_at: "2026-10-17T19:00:00.000Z",
 };
 const TASK_ID = "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b";
@@ -319,6 +321,26 @@ describe("auth", () => {
     const ask = await fetch("http://eyes.test/v1/tasks", { method: "POST", headers, body: "{}" });
     expect(ask.status).toBe(401);
     expect(await ask.json()).toEqual(unauthorized);
+  });
+
+  it("answers 403 agent_suspended on every authenticated route for a suspended agent", async () => {
+    const { fetch } = setup({ authenticate: async () => ({ ...AGENT, suspended: true }) });
+    for (const [path, method] of [
+      ["/v1/balance", "GET"],
+      ["/v1/tasks", "POST"],
+      ["/mcp", "POST"],
+    ] as const) {
+      const res = await fetch(`http://eyes.test${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${KEY}`,
+          ...(method === "POST" && { "content-type": "application/json" }),
+        },
+        body: method === "POST" ? "{}" : undefined,
+      });
+      expect(res.status, path).toBe(403);
+      expect(await res.json(), path).toMatchObject({ error: "agent_suspended" });
+    }
   });
 
   it("accepts a lowercase bearer scheme", async () => {

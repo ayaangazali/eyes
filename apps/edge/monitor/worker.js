@@ -16,10 +16,59 @@ export default {
       check(env),
       release(env).catch((err) => console.log(`release trigger: ${err.message}`)),
       expire(env).catch((err) => console.log(`expiry trigger: ${err.message}`)),
+      abuse(env).catch((err) => console.log(`abuse alert: ${err.message}`)),
     ]);
     if (health.status === "rejected") throw health.reason;
   },
 };
+
+// Abuse spikes (ADR-052, OWASP API2:2023): count recent rows in the events table per signal.
+// A signal at or over its limit within WINDOW sends one alert and stays quiet until it drops under the limit.
+// ponytail: fixed limits, one shared window. Move them to env when a limit needs tuning per deploy.
+const ABUSE_WINDOW_MS = 10 * 60_000;
+const ABUSES = [
+  {
+    key: "rate_limited",
+    label: "429 responses",
+    limit: 50,
+    filter: "kind=eq.call&data->>error=eq.rate_limited",
+  },
+  {
+    key: "failed_logins",
+    label: "failed ops logins",
+    limit: 10,
+    filter: "kind=eq.auth&summary=in.(login fail,login locked)",
+  },
+  { key: "disputes", label: "answer disputes", limit: 5, filter: "kind=eq.call&summary=eq.disputeAnswer ok" },
+  { key: "bans", label: "worker bans", limit: 3, filter: "kind=eq.ops&data->>action=eq.confirm_fraud" },
+];
+
+async function abuse(env) {
+  if (!env.INSFORGE_BASE_URL || !env.INSFORGE_API_KEY) return;
+  const since = encodeURIComponent(new Date(Date.now() - ABUSE_WINDOW_MS).toISOString());
+  const prev = (await env.EYES_MONITOR.get("abuse", "json")) ?? {};
+  const next = {};
+  for (const a of ABUSES) {
+    // limit=N means N rows already proves the spike, so the read stays small.
+    const res = await fetch(
+      `${env.INSFORGE_BASE_URL.replace(/\/+$/, "")}/api/database/records/events?select=id&at=gte.${since}&${a.filter}&limit=${a.limit}`,
+      {
+        headers: { Authorization: `Bearer ${env.INSFORGE_API_KEY}` },
+        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) throw new Error(`InsForge HTTP ${res.status}`);
+    next[a.key] = (await res.json()).length >= a.limit;
+    if (next[a.key] && !prev[a.key]) {
+      await send(
+        env,
+        `Eyes abuse spike: ${a.label}`,
+        `${a.limit} or more ${a.label} in the last ${ABUSE_WINDOW_MS / 60_000} minutes. Check the ops events tab.`,
+      );
+    }
+  }
+  await env.EYES_MONITOR.put("abuse", JSON.stringify(next));
+}
 
 async function expire(env) {
   if (!env.INSFORGE_BASE_URL || !env.INSFORGE_API_KEY) return;

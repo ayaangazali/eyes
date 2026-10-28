@@ -1748,7 +1748,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
   });
 
-  describe("open-ended spend limits (ADR-049)", () => {
+  describe("open-ended spend limits (ADR-050)", () => {
     const types: OwnerPolicyInput["allowed_task_types"] = ["line_length"];
     const setPolicy = (a: Agent, policy: Partial<OwnerPolicyInput>) =>
       service.updateSpendPolicy(signToken(deps.config.link_secret, `p:${a.id}`), {
@@ -1918,6 +1918,19 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await expect(service.ownerTasks("bogus", { limit: 20 })).rejects.toMatchObject({
       code: "owner_link_invalid",
     });
+
+    // ADR-052: a revoke kills the link made before it; a new link at the new version works.
+    const { owner_link_version } = await service.revokeOwnerLinks(signup.agent_id);
+    expect(owner_link_version).toBe(1);
+    await expect(service.ownerConsole(ownerToken)).rejects.toMatchObject({ code: "owner_link_invalid" });
+    const newLink = signToken("test-link-secret-0123456789", `p:${signup.agent_id}:${owner_link_version}`);
+    expect((await service.ownerConsole(newLink)).agent_id).toBe(signup.agent_id);
+    expect(await service.setAgentSuspended(signup.agent_id, true)).toEqual({
+      agent_id: signup.agent_id,
+      suspended: true,
+    });
+    expect((await service.authenticate(signup.api_key))?.suspended).toBe(true);
+    await service.setAgentSuspended(signup.agent_id, false);
 
     const types = ["is_open", "line_length"] as const;
     expect(

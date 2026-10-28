@@ -361,6 +361,7 @@ Output:
 Every error is JSON: {"error": "<code>", "message": "...", "fix": "...", ...context}. Over REST it comes with the HTTP status below; over MCP the tool result has isError: true and the same JSON as text. A {name} in a fix below is filled from the field of the same name in the error body. One exception: over MCP, arguments that do not match a tool input schema return a plain "Input validation error" text naming each bad field; fix those fields and call again.
 
 - unauthorized (HTTP 401): Missing or invalid API key. Fix: Send the header Authorization: Bearer <api_key>. No key yet? POST /v1/signup (or run `eyes signup`) to create one.
+- agent_suspended (HTTP 403): This agent is suspended. Fix: Stop sending requests. Contact the Eyes operator to ask why and to have the agent turned back on.
 - invalid_input (HTTP 400): The request did not match the expected schema. Fix: Correct the fields listed in `issues` and retry. Each tool's input schema documents every field.
 - not_found (HTTP 404): Unknown route. Fix: See /openapi.json for the REST routes, or call tools/list on /mcp for the MCP tools.
 - method_not_allowed (HTTP 405): This route does not support that HTTP method. Fix: Use a method listed in the Allow response header. See /openapi.json for the REST routes.

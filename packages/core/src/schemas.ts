@@ -57,6 +57,8 @@ export const Agent = z.object({
   cap_period: z.enum(["day", "week", "month"]),
   at_limit: z.enum(["ask", "pause", "notify"]),
   allowed_task_types: z.array(TaskType),
+  suspended: z.boolean(),
+  owner_link_version: z.number().int().nonnegative(),
   created_at: Timestamp,
 });
 export type Agent = z.infer<typeof Agent>;
