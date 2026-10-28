@@ -2778,6 +2778,23 @@ describe.skipIf(!url)("engine on Postgres", () => {
     const disputeTicket = async (task_id: string) =>
       Number((await sql`select id from tickets where task_id = ${task_id} and kind = 'dispute'`)[0]?.id);
 
+    it("a dispute pauses the worker's Stripe payouts until ops rejects it", async () => {
+      const { a, w, task_id } = await paidTask();
+      const account = `acct_fake_${w.worker_id}`;
+      await service.disputeAnswer(a, { task_id, reason: "The photo shows a different cafe." });
+      expect(providers.payments.payoutsPaused.get(account)).toBe(true);
+      await service.rejectDispute({ ticket_id: await disputeTicket(task_id), note: "answer stands" });
+      expect(providers.payments.payoutsPaused.get(account)).toBe(false);
+    });
+
+    it("sends an answer to review when the worker email is the paying owner's", async () => {
+      const at = somewhere();
+      const { a, w, token } = await claimed(at);
+      await sql`update agents set owner_email = 'boss@example.com' where id = ${a.id}`;
+      await sql`update workers set email = 'boss@example.com' where id = ${w.worker_id}`;
+      expect(await capture(token, at)).toMatchObject({ status: "needs_review" });
+    });
+
     it("dispute_answer opens a dispute ticket that get_task reports as open", async () => {
       const { a, task_id, at } = await paidTask();
       const before = await service.getTask(a, { task_id });

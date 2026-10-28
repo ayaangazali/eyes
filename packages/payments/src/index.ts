@@ -24,6 +24,13 @@ import Stripe from "stripe";
 
 type Env = Record<string, string | undefined>;
 
+// New connected accounts wait this long before Stripe pays out to the bank (Connect risk guidance).
+const NEW_ACCOUNT_DELAY_DAYS = 7;
+const schedule = (paused: boolean) =>
+  paused
+    ? { interval: "manual" as const }
+    : { interval: "daily" as const, delay_days: NEW_ACCOUNT_DELAY_DAYS };
+
 export function createStripePayments(env: Env): Payments {
   const key = env.STRIPE_SECRET_KEY;
   if (!key) {
@@ -74,6 +81,7 @@ export function createStripePayments(env: Env): Payments {
           country: "US",
           business_type: "individual",
           capabilities: { transfers: { requested: true } },
+          settings: { payouts: { schedule: schedule(false) } },
           individual: { phone, email: email ?? undefined },
           business_profile: {
             product_description: "Paid by Eyes for on-the-spot photo checks of public places.",
@@ -83,6 +91,10 @@ export function createStripePayments(env: Env): Payments {
         { idempotencyKey: `eyes-worker-account-${worker_id}` },
       );
       return { account_id: account.id };
+    },
+
+    async setPayoutsPaused({ account_id, paused }) {
+      await stripe.accounts.update(account_id, { settings: { payouts: { schedule: schedule(paused) } } });
     },
 
     async createOnboardingLink({ account_id, refresh_url, return_url }) {

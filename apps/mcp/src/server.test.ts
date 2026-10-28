@@ -3116,7 +3116,11 @@ describe("ops data routes", () => {
       last_review: null,
     };
     let rows: unknown[] = [review];
-    const { get, post, fetch, cookie, calls } = opsServer(() => rows);
+    const synced: string[] = [];
+    const service = {
+      syncWorkerPayouts: async (id: string) => void synced.push(id),
+    } as unknown as EyesService;
+    const { get, post, fetch, cookie, calls } = opsServer(() => rows, { service });
     const path = `/ops/workers/${TASK_ID}/dispute-review`;
     expect((await fetch(`http://localhost${path}`)).status).toBe(401);
     const history = await get(path);
@@ -3158,8 +3162,10 @@ describe("ops data routes", () => {
       fn: "eyes_review_worker_disputes",
       args: { p_worker_id: TASK_ID, p_note: "Reviewed evidence", p_actor: "break-glass (break-glass)" },
     });
+    expect(synced).toEqual([TASK_ID]);
     rows = [{ error: "worker_not_held" }];
     expect((await post(path, { note: "Reviewed evidence" })).status).toBe(409);
+    expect(synced).toEqual([TASK_ID]);
     rows = [];
     expect((await get(path)).status).toBe(404);
     expect((await post(path, { note: "Reviewed evidence" })).status).toBe(404);

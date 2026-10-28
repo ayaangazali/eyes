@@ -950,6 +950,17 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     return paid;
   }
 
+  // Stripe payouts stay held while a worker is banned, on dispute hold or has an open dispute; best effort, as the
+  // transfer itself is already gated by the task state.
+  async function syncWorkerPayouts(worker_id: string) {
+    const w = await maybe<Worker>("eyes_worker", { p_worker_id: worker_id, p_phone: null });
+    if (!w?.stripe_account_id) return;
+    const held = await one<{ held: boolean }>("eyes_worker_payouts_held", { p_worker_id: worker_id });
+    await payments
+      .setPayoutsPaused({ account_id: w.stripe_account_id, paused: held.held })
+      .catch((err: unknown) => console.error(`payout hold for worker ${w.id} failed: ${errorName(err)}`));
+  }
+
   async function settle(task: Task, worker: Worker): Promise<Task> {
     if (task.status !== "verified") return task;
     const { stripe_account_id } = worker;
@@ -1012,6 +1023,8 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_grant_cents: config.test_mode ? config.signup_grant_cents : 0,
         p_now: nowIso(),
       });
+      if (owner_email)
+        await rpc("eyes_set_agent_owner_email", { p_agent_id: agent.id, p_email: owner_email });
       const top_up_url = topUpUrl(agent.id);
       const email_address = config.email_domain
         ? agentEmailAddress(config.link_secret, agent.id, config.email_domain)
@@ -1388,6 +1401,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_task_id: task_id,
         p_reason: reason,
       });
+      if (task.claimed_by) await syncWorkerPayouts(task.claimed_by);
       return {
         task_id,
         status: "disputed",
@@ -1998,9 +2012,22 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         },
         vision: providers.vision,
       });
+      // ADR-015 lets an agent own itself, so an owner paying their own worker is only visible by contact.
+      const ownWorker = (
+        await one<{ matched: boolean }>("eyes_owner_is_worker", {
+          p_task_id: task.id,
+          p_worker_id: workerId,
+        })
+      ).matched;
       const v = reused
         ? { ...verified, auto_approve: false, vision_reason: "This photo matches an earlier answer." }
-        : verified;
+        : ownWorker
+          ? {
+              ...verified,
+              auto_approve: false,
+              vision_reason: "The worker shares contact details with the paying owner.",
+            }
+          : verified;
       const dropPhoto = () =>
         providers.storage
           .deletePhoto({ key })
@@ -2159,6 +2186,8 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       return { ticket_id: Number(ticket.id), task_id: ticket.task_id, status: "resolved" };
     },
 
+    syncWorkerPayouts,
+
     async confirmFraud(input) {
       const { ticket_id, note } = parse(DisputeDecision, input);
       const r = await one<FraudRow>("eyes_confirm_fraud", {
@@ -2167,6 +2196,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_now: nowIso(),
       });
       const { ticket } = r;
+      await syncWorkerPayouts(ticket.worker_id);
       let owed = ticket.reversal_owed_cents === null ? null : Number(ticket.reversal_owed_cents);
       let reversal: DisputeOutcome["reversal"] = owed ? "owed" : "none";
       if (!r.already && r.transfer_id && r.payout_cents) {
@@ -2208,6 +2238,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_now: nowIso(),
       });
       if (!r.already) await resolveTask(r.ticket.task_id, "release", `dispute rejected: ${note}`);
+      await syncWorkerPayouts(r.ticket.worker_id);
       return {
         ticket_id: Number(r.ticket.id),
         task_id: r.ticket.task_id,

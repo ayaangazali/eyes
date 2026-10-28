@@ -91,6 +91,8 @@ export interface Payments {
     email: string | null;
     name: string;
   }): Promise<{ account_id: string }>;
+  // Holds (paused) or releases the account's bank payouts; released uses the new-account delay.
+  setPayoutsPaused(i: { account_id: string; paused: boolean }): Promise<void>;
   createOnboardingLink(i: {
     account_id: string;
     refresh_url: string;

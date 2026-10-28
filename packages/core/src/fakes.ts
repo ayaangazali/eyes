@@ -62,6 +62,7 @@ export function fakePayments() {
     [];
   const byKey = new Map<string, string>();
   const reversals: { transfer_id: string; amount_cents: number; idempotency_key: string }[] = [];
+  const payoutsPaused = new Map<string, boolean>();
   let reversalError: string | null = null;
   let seq = 0;
   const payments: Payments = {
@@ -72,6 +73,9 @@ export function fakePayments() {
       return { url: done.href, session_id: `cs_fake_${seq}` };
     },
     createWorkerAccount: async (i) => ({ account_id: `acct_fake_${i.worker_id}` }),
+    setPayoutsPaused: async (i) => {
+      payoutsPaused.set(i.account_id, i.paused);
+    },
     createOnboardingLink: async (i) => ({ url: `https://connect.fake.test/onboard/${i.account_id}` }),
     payoutWorker: async (i) => {
       const existing = byKey.get(i.idempotency_key);
@@ -95,6 +99,7 @@ export function fakePayments() {
   return Object.assign(payments, {
     transfers,
     reversals,
+    payoutsPaused,
     // Make the next reversals fail with this Stripe error code (null: succeed).
     failReversals: (code: string | null) => {
       reversalError = code;

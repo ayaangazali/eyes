@@ -186,6 +186,8 @@ export interface EyesService {
     outcome: "release" | "refund" | "close";
     note: string;
   }): Promise<{ ticket_id: number; task_id: string; status: "resolved" }>;
+  /** Pauses the worker's Stripe payouts while banned or on dispute hold, releases them otherwise. */
+  syncWorkerPayouts(worker_id: string): Promise<void>;
   /** Ops confirms a dispute is fraud, once: refund the agent, reverse the payout, ban the worker. */
   confirmFraud(input: { ticket_id: number; note: string }): Promise<DisputeOutcome>;
   /** Ops rejects a dispute, once: the answer stands and the worker keeps (or gets) the pay. */
