@@ -41,6 +41,7 @@ import {
 import { createRpc, type RpcArgs } from "@eyes/db";
 import { z } from "zod";
 import { hashPhoto, PHOTO_PHASH_MAX_DISTANCE } from "./photo-hash.ts";
+import { createPusher } from "./push.ts";
 
 type Detail = { task: Task; submission: Submission | null; worker_rating: number | null };
 type Nearby = { worker_id: string; phone: string; email: string | null; distance_m: number };
@@ -375,6 +376,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
   const { providers, config } = deps;
   const { messaging, payments } = providers;
   const rpc = createRpc(deps.db);
+  const push = createPusher(rpc, deps.fetch);
   const now = () => providers.clock.now();
   const nowIso = () => now().toISOString();
   const maybe = async <T>(fn: string, args: RpcArgs) => (await rpc<T>(fn, args))[0];
@@ -740,6 +742,14 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         ),
     );
     logFailedOffers(task.id, sent);
+    void push(
+      { workerIds: [...eligible] },
+      {
+        title: `${dollars(task.bounty_cents)} photo task nearby`,
+        body: `${task.place_label}. Tap to see it.`,
+        data: { kind: "offer", task_id: task.id },
+      },
+    );
     return sent.filter((s) => s.status === "fulfilled").length;
   }
 
@@ -853,6 +863,15 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         at_limit: AtLimit;
       };
       const left = capLeft(c.daily_cap_cents, c.spent_today_cents);
+      if (c.at_limit === "ask")
+        void push(
+          { agentId },
+          {
+            title: "Spend limit reached",
+            body: "An agent hit its limit. Open Eyes to raise it.",
+            data: { kind: "limit" },
+          },
+        );
       const reset = periodReset(new Date(now()), c.cap_period).toISOString();
       const fix =
         c.daily_cap_cents === 0
@@ -899,6 +918,21 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       capture_url: captureUrl(task, worker.id),
       deadline_at: iso(task.deadline_at),
     });
+  }
+
+  // A dispute review is decided: tell the worker and the owner (ADR-053).
+  async function pushDecided(ticket: Ticket, upheld: boolean) {
+    const found = await maybe<Detail>("eyes_task_detail", { p_task_id: ticket.task_id });
+    const data = { kind: "review", task_id: ticket.task_id };
+    void push(
+      { workerIds: [ticket.worker_id] },
+      { title: "Review decided", body: upheld ? "The dispute was upheld." : "Your answer stands.", data },
+    );
+    if (found)
+      void push(
+        { agentId: found.task.agent_id },
+        { title: "Review decided", body: upheld ? "Your dispute was upheld." : "The answer stands.", data },
+      );
   }
 
   async function textWorker(worker: Worker, taskId: string, send: (to: string) => Promise<unknown>) {
@@ -1388,6 +1422,15 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_task_id: task_id,
         p_reason: reason,
       });
+      if (task.claimed_by)
+        void push(
+          { workerIds: [task.claimed_by] },
+          {
+            title: "Your answer was disputed",
+            body: "The owner disputed your answer. You can appeal it.",
+            data: { kind: "dispute", task_id },
+          },
+        );
       return {
         task_id,
         status: "disputed",
@@ -1871,6 +1914,18 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       return { task_id, dispute: "in_review" as const };
     },
 
+    async workerPushToken(token, pushToken) {
+      const w = await meWorker(token);
+      await rpc("eyes_add_push_token", { p_token: pushToken, p_worker_id: w.id, p_agent_id: null });
+      return { ok: true as const };
+    },
+
+    async ownerPushToken(token, pushToken) {
+      const agentId = await ownerAgentId(token);
+      await rpc("eyes_add_push_token", { p_token: pushToken, p_worker_id: null, p_agent_id: agentId });
+      return { ok: true as const };
+    },
+
     async workerDelete(token) {
       const w = await meWorker(token);
       // Pay what is due while the account still exists; anything unpaid stays owed on the kept row (ADR-045).
@@ -1883,6 +1938,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           ? new EyesError("invalid_input", err.context, TASK_IN_PROGRESS)
           : err;
       });
+      await rpc("eyes_delete_worker_push_tokens", { p_worker_id: w.id });
       appLinkSentAt.delete(w.id);
       return { deleted: true as const };
     },
@@ -2167,6 +2223,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_now: nowIso(),
       });
       const { ticket } = r;
+      if (!r.already) await pushDecided(ticket, true);
       let owed = ticket.reversal_owed_cents === null ? null : Number(ticket.reversal_owed_cents);
       let reversal: DisputeOutcome["reversal"] = owed ? "owed" : "none";
       if (!r.already && r.transfer_id && r.payout_cents) {
@@ -2207,7 +2264,10 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_note: note,
         p_now: nowIso(),
       });
-      if (!r.already) await resolveTask(r.ticket.task_id, "release", `dispute rejected: ${note}`);
+      if (!r.already) {
+        await resolveTask(r.ticket.task_id, "release", `dispute rejected: ${note}`);
+        await pushDecided(r.ticket, false);
+      }
       return {
         ticket_id: Number(r.ticket.id),
         task_id: r.ticket.task_id,
