@@ -448,9 +448,9 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
   const newApiKey = () =>
     `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
 
-  // Version 0 keeps the original `p:<id>` form, so links made before ADR-052 still work until a revoke.
-  const ownerUrl = (agentId: string, version = 0) =>
-    `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}${version ? `:${version}` : ""}`)}`;
+  // A new agent's link is version 0, which keeps the original `p:<id>` form (ADR-052).
+  const ownerUrl = (agentId: string) =>
+    `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
 
   function tokenPayload(token: string, kind: "t" | "c" | "o" | "p" | "e" | "l" | "d"): string | null {
     const payload = verifyToken(config.link_secret, token, now());

@@ -1931,6 +1931,9 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
     expect((await service.authenticate(signup.api_key))?.suspended).toBe(true);
     await service.setAgentSuspended(signup.agent_id, false);
+    const unknown = randomUUID();
+    await expect(service.setAgentSuspended(unknown, true)).rejects.toMatchObject({ code: "not_found" });
+    await expect(service.revokeOwnerLinks(unknown)).rejects.toMatchObject({ code: "not_found" });
 
     const types = ["is_open", "line_length"] as const;
     expect(
