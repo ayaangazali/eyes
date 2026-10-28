@@ -1515,7 +1515,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async ownerDispute(token, input) {
-      const agentId = ownerAgentId(token);
+      const agentId = await ownerAgentId(token);
       const { task_id } = parse(TOOLS.dispute_answer.input, input);
       if (!(await maybe("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() })))
         throw new EyesError("owner_link_invalid");
