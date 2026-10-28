@@ -338,6 +338,49 @@ const newKeyPage = (apiKey: string, token: string) =>
 <a class="button" href="/owner/${token}">Back to owner controls</a>`,
   );
 
+function ownerJsonRoutes(app: Hono, deps: RouteDeps) {
+  // JSON twins of the owner console (ADR-044). Same token, same service calls, same validation; the data
+  // belongs to the token's agent only because every call below passes the token, never an agent id.
+  const ownerJson = (c: Context, respond: (token: string) => Promise<unknown>) =>
+    respond(c.req.param("token") ?? "").then(
+      (body) => c.json(body as object),
+      (err) => {
+        if (!(err instanceof EyesError)) throw err;
+        return c.json(
+          err.toBody(),
+          (err.code === "owner_link_invalid" ? 401 : err.status) as ContentfulStatusCode,
+        );
+      },
+    );
+  const badJson = (c: Context, issues: unknown) =>
+    c.json({ ...new EyesError("invalid_input").toBody(), issues }, 400);
+  const jsonBody = (c: Context) =>
+    c.req.json().catch(() => undefined) as Promise<Record<string, unknown> | undefined>;
+
+  app.get("/owner/:token/state.json", (c) => ownerJson(c, (token) => deps.service.ownerConsole(token)));
+  app.get("/owner/:token/tasks.json", async (c) => {
+    const query = TOOLS.list_tasks.input.safeParse({
+      ...c.req.query(),
+      ...(c.req.query("limit") === undefined ? {} : { limit: Number(c.req.query("limit")) }),
+    });
+    if (!query.success) return badJson(c, query.error.issues);
+    return ownerJson(c, async (token) => {
+      const { tasks, next_cursor } = await deps.service.ownerTasks(token, query.data);
+      return { tasks, next_cursor };
+    });
+  });
+  app.post("/owner/:token/policy.json", async (c) => {
+    const input = OwnerPolicyInput.safeParse(await jsonBody(c));
+    if (!input.success) return badJson(c, input.error.issues);
+    return ownerJson(c, (token) => deps.service.updateSpendPolicy(token, input.data));
+  });
+  app.post("/owner/:token/rotate-key.json", async (c) => {
+    if ((await jsonBody(c))?.confirm !== true)
+      return badJson(c, [{ path: ["confirm"], message: 'Send {"confirm": true}.' }]);
+    return ownerJson(c, (token) => deps.service.rotateApiKey(token));
+  });
+}
+
 export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
   const app = new Hono();
   const pageHeaders = async (c: Context, next: Next) => {
@@ -447,47 +490,7 @@ export function stripeRoutes(deps: RouteDeps, _env: Env): Hono {
       return c.html(newKeyPage((await deps.service.rotateApiKey(token)).api_key, token));
     });
   });
-
-  // JSON twins of the owner console (ADR-044). Same token, same service calls, same validation; the data
-  // belongs to the token's agent only because every call below passes the token, never an agent id.
-  const ownerJson = (c: Context, respond: (token: string) => Promise<unknown>) =>
-    respond(c.req.param("token") ?? "").then(
-      (body) => c.json(body as object),
-      (err) => {
-        if (!(err instanceof EyesError)) throw err;
-        return c.json(
-          err.toBody(),
-          (err.code === "owner_link_invalid" ? 401 : err.status) as ContentfulStatusCode,
-        );
-      },
-    );
-  const badJson = (c: Context, issues: unknown) =>
-    c.json({ ...new EyesError("invalid_input").toBody(), issues }, 400);
-  const jsonBody = (c: Context) =>
-    c.req.json().catch(() => undefined) as Promise<Record<string, unknown> | undefined>;
-
-  app.get("/owner/:token/state.json", (c) => ownerJson(c, (token) => deps.service.ownerConsole(token)));
-  app.get("/owner/:token/tasks.json", async (c) => {
-    const query = TOOLS.list_tasks.input.safeParse({
-      ...c.req.query(),
-      ...(c.req.query("limit") === undefined ? {} : { limit: Number(c.req.query("limit")) }),
-    });
-    if (!query.success) return badJson(c, query.error.issues);
-    return ownerJson(c, async (token) => {
-      const { tasks, next_cursor } = await deps.service.ownerTasks(token, query.data);
-      return { tasks, next_cursor };
-    });
-  });
-  app.post("/owner/:token/policy.json", async (c) => {
-    const input = OwnerPolicyInput.safeParse(await jsonBody(c));
-    if (!input.success) return badJson(c, input.error.issues);
-    return ownerJson(c, (token) => deps.service.updateSpendPolicy(token, input.data));
-  });
-  app.post("/owner/:token/rotate-key.json", async (c) => {
-    if ((await jsonBody(c))?.confirm !== true)
-      return badJson(c, [{ path: ["confirm"], message: 'Send {"confirm": true}.' }]);
-    return ownerJson(c, (token) => deps.service.rotateApiKey(token));
-  });
+  ownerJsonRoutes(app, deps);
 
   app.get("/w/connect/done", (c) =>
     c.html(
