@@ -1281,6 +1281,22 @@ describe.skipIf(!url)("engine on Postgres", () => {
     });
     expect(view.ledger.map((l) => `${l.type}:${l.amount_usd}`).sort()).toEqual(["escrow:3.5", "topup:20"]);
 
+    // ADR-044: owner tasks are scoped to the token's agent; another owner's token sees none of it.
+    const otherMail = `owner-${randomUUID()}@owners.eyes.pictures`;
+    await service.signupAgent({ name: "other-agent", owner_email: otherMail });
+    const otherToken =
+      providers.email.outbox.find((m) => m.to === otherMail)?.text.match(/\/owner\/([\w.-]+)/)?.[1] ?? "";
+    expect(otherToken).not.toBe("");
+    expect((await service.ownerTasks(ownerToken, { limit: 20 })).tasks.map((t) => t.task_id)).toEqual([
+      asked.task_id,
+    ]);
+    expect((await service.ownerTasks(otherToken, { limit: 20 })).tasks).toEqual([]);
+    expect((await service.ownerTasks(otherToken, { limit: 20, before: asked.task_id })).tasks).toEqual([]);
+    expect((await service.ownerConsole(otherToken)).tasks).toEqual([]);
+    await expect(service.ownerTasks("bogus", { limit: 20 })).rejects.toMatchObject({
+      code: "owner_link_invalid",
+    });
+
     const types = ["is_open", "line_length"] as const;
     expect(
       await service.updateSpendPolicy(ownerToken, {

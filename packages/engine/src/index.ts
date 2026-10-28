@@ -406,6 +406,36 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     return payload?.startsWith(`${kind}:`) ? payload.slice(kind.length + 1) : null;
   }
 
+  async function listTasksOf(
+    agentId: string,
+    input: ToolInput<"list_tasks">,
+  ): Promise<ToolOutput<"list_tasks">> {
+    const { status, limit } = parse(TOOLS.list_tasks.input, input);
+    const rows = await rpc<Task>("eyes_list_tasks", {
+      p_agent_id: agentId,
+      p_status: status ?? null,
+      p_limit: limit,
+    });
+    return {
+      tasks: rows.map((t) => ({
+        task_id: t.id,
+        status: t.status,
+        accepted_at: t.accepted_at ? iso(t.accepted_at) : null,
+        question: t.question,
+        place_label: t.place_label,
+        bounty_usd: centsToUsd(t.bounty_cents),
+        created_at: iso(t.created_at),
+        deadline_at: iso(t.deadline_at),
+        answered: ANSWERED.includes(t.status),
+      })),
+      next_step: rows.length
+        ? "To resume an existing check, call await_answer with its task_id while dispatched, claimed or submitted; to read its answer, call get_task. For an explicitly requested new observation, prepare a fresh ask_eyes intent even at the same place with the same question. Location and question are not request identity."
+        : status
+          ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
+          : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
+    };
+  }
+
   function ownerAgentId(token: string): string {
     const agentId = tokenPayload(token, "p");
     if (!agentId) throw new EyesError("owner_link_invalid");
@@ -1165,32 +1195,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       };
     },
 
-    async listTasks(agent, input) {
-      const { status, limit } = parse(TOOLS.list_tasks.input, input);
-      const rows = await rpc<Task>("eyes_list_tasks", {
-        p_agent_id: agent.id,
-        p_status: status ?? null,
-        p_limit: limit,
-      });
-      return {
-        tasks: rows.map((t) => ({
-          task_id: t.id,
-          status: t.status,
-          accepted_at: t.accepted_at ? iso(t.accepted_at) : null,
-          question: t.question,
-          place_label: t.place_label,
-          bounty_usd: centsToUsd(t.bounty_cents),
-          created_at: iso(t.created_at),
-          deadline_at: iso(t.deadline_at),
-          answered: ANSWERED.includes(t.status),
-        })),
-        next_step: rows.length
-          ? "To resume an existing check, call await_answer with its task_id while dispatched, claimed or submitted; to read its answer, call get_task. For an explicitly requested new observation, prepare a fresh ask_eyes intent even at the same place with the same question. Location and question are not request identity."
-          : status
-            ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
-            : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
-      };
-    },
+    listTasks: (agent, input) => listTasksOf(agent.id, input),
 
     async cancelTask(agent, input) {
       const { task_id } = parse(TOOLS.cancel_task.input, input);
@@ -1318,6 +1323,13 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       });
       if (!s) throw new EyesError("owner_link_invalid");
       return policyOf(s);
+    },
+
+    async ownerTasks(token, input) {
+      const agentId = ownerAgentId(token);
+      if (!(await maybe("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() })))
+        throw new EyesError("owner_link_invalid");
+      return listTasksOf(agentId, input);
     },
 
     async rotateApiKey(token) {
