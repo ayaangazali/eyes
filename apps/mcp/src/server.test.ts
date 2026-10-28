@@ -894,14 +894,12 @@ describe("signup and join throttle", () => {
       { INKBOX_PHONE_NUMBER: "+14155550199" },
     );
     let n = 0;
-    const call = (forwardedFor: string, json: unknown = body) =>
+    const call = (forwardedFor: string, json: object = body) =>
       fetch(`http://eyes.test${path}`, {
         method: "POST",
         headers: { "x-forwarded-for": forwardedFor },
         body: JSON.stringify(
-          json && "phone" in json
-            ? { ...json, phone: `+1415555${String(1000 + n++).padStart(4, "0")}` }
-            : json,
+          "phone" in json ? { ...json, phone: `+1415555${String(1000 + n++).padStart(4, "0")}` } : json,
         ),
       });
 
