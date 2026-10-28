@@ -11,7 +11,7 @@ files:
   - packages/payments/src/index.test.ts
   - apps/mcp/src/server.test.ts
   - packages/core/src/__snapshots__/core.contract.test.ts.snap
-  - intent/decisions/ADR-048-open-ended-spend-limits.md
+  - intent/decisions/ADR-049-open-ended-spend-limits.md
   - intent/INDEX.md
 status: done
 ---

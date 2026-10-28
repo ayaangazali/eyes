@@ -1,4 +1,4 @@
-# ADR-048: Open-ended spend limits
+# ADR-049: Open-ended spend limits
 
 Status: accepted for S03.
 

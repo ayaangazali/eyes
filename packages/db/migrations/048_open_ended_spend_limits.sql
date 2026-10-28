@@ -1,4 +1,4 @@
--- S03 / ADR-048: a null cap or max bounty means no limit; the cap counts a day, week or month (UTC).
+-- S03 / ADR-049: a null cap or max bounty means no limit; the cap counts a day, week or month (UTC).
 -- Defaults keep today's behavior: day window, ask at the limit, existing values unchanged.
 alter table agents
   alter column daily_cap_cents drop not null,

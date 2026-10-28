@@ -1747,7 +1747,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
   });
 
-  describe("open-ended spend limits (ADR-048)", () => {
+  describe("open-ended spend limits (ADR-049)", () => {
     const types: OwnerPolicyInput["allowed_task_types"] = ["line_length"];
     const setPolicy = (a: Agent, policy: Partial<OwnerPolicyInput>) =>
       service.updateSpendPolicy(signToken(deps.config.link_secret, `p:${a.id}`), {
