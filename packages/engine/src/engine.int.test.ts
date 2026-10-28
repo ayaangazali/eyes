@@ -2787,6 +2787,30 @@ describe.skipIf(!url)("engine on Postgres", () => {
       expect(providers.payments.payoutsPaused.get(account)).toBe(false);
     });
 
+    it("a dispute still opens when the worker has no Stripe account or Stripe refuses the pause", async () => {
+      const at = somewhere();
+      const unconnected = await claimed(at);
+      await capture(unconnected.token, at);
+      await service.disputeAnswer(unconnected.a, {
+        task_id: unconnected.task_id,
+        reason: "Wrong place shown.",
+      });
+      expect(providers.payments.payoutsPaused.has(`acct_fake_${unconnected.w.worker_id}`)).toBe(false);
+
+      const { a, task_id } = await paidTask();
+      const pause = providers.payments.setPayoutsPaused;
+      providers.payments.setPayoutsPaused = async () => {
+        throw new Error("stripe down");
+      };
+      try {
+        expect(await service.disputeAnswer(a, { task_id, reason: "Wrong place shown." })).toMatchObject({
+          status: "disputed",
+        });
+      } finally {
+        providers.payments.setPayoutsPaused = pause;
+      }
+    });
+
     it("sends an answer to review when the worker email is the paying owner's", async () => {
       const at = somewhere();
       const { a, w, token } = await claimed(at);

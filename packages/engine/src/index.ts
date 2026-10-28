@@ -1401,7 +1401,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_task_id: task_id,
         p_reason: reason,
       });
-      if (task.claimed_by) await syncWorkerPayouts(task.claimed_by);
+      await syncWorkerPayouts(task.claimed_by as string);
       return {
         task_id,
         status: "disputed",
