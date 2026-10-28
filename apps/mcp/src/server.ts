@@ -1130,6 +1130,29 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       ),
     );
   });
+  // The worker contests an owner's dispute (ADR-050). 10 an hour per code, shared with the owner route's rule.
+  server.post("/w/me/tasks/:task_id/dispute", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1] ?? "";
+    const input = parse(DisputeAnswerInput, { ...(await readJson(c)), ...c.req.param() });
+    throttle(c, "/w/me/dispute", `code ${createHash("sha256").update(token).digest("hex")}`, 10);
+    return c.json(await service.workerDispute(token, input));
+  });
+  // The owner disputes an answer with the owner console token (ADR-050).
+  server.post("/owner/:token/tasks/:task_id/dispute", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const { token, task_id } = c.req.param();
+    const input = parse(DisputeAnswerInput, { ...(await readJson(c)), task_id });
+    throttle(c, "/owner/dispute", `code ${createHash("sha256").update(token).digest("hex")}`, 10);
+    // Same 401 for a bad link as the owner JSON routes (ADR-044).
+    return c.json(
+      await service.ownerDispute(token, input).catch((err: unknown) => {
+        if (err instanceof EyesError && err.code === "owner_link_invalid")
+          throw new EyesError("unauthorized");
+        throw err;
+      }),
+    );
+  });
   server.post("/w/me/install", async (c) => {
     c.header("Cache-Control", "no-store");
     return c.json(

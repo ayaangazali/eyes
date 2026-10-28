@@ -409,6 +409,9 @@ export const ListTasksInput = z.object({
     "Cursor from next_cursor for the next page. Keep the same status filter. Omit for the newest tasks.",
   ),
 });
+// Where a task's dispute stands. open: waiting for review. in_review: the worker contested it.
+// stands: rejected, the answer stands. upheld: confirmed and refunded. null: never disputed.
+export const DisputeState = z.enum(["open", "in_review", "stands", "upheld"]);
 export const ListTasksOutput = z.object({
   tasks: z
     .array(
@@ -424,6 +427,7 @@ export const ListTasksOutput = z.object({
         answered: z
           .boolean()
           .describe("True when status is verified, paid or needs_review; get_task returns the answer."),
+        dispute: DisputeState.nullable().describe("Dispute state, or null when the task was never disputed."),
       }),
     )
     .max(50),
@@ -613,6 +617,7 @@ export const WorkerTask = z.object({
   bounty_usd: Usd,
   payout: z.enum(["paid", "pending", "waiting_for_payout_setup"]).nullable(),
   claimed_at: Timestamp,
+  dispute: DisputeState.nullable(),
 });
 export const WORKER_TASK_FILTERS = ["paid", "pending", "review", "expired"] as const;
 // GET /w/me/tasks: one page of the worker's tasks, newest first, plus the totals over all of them.
@@ -662,6 +667,7 @@ export type CaptureResult = z.output<typeof CaptureResult>;
 export type ResolvedLocation = z.output<typeof ResolvedLocation>;
 export type OwnerPolicyInput = z.output<typeof OwnerPolicyInput>;
 export type OwnerConsole = z.output<typeof OwnerConsole>;
+export type DisputeState = z.output<typeof DisputeState>;
 export type WorkerTask = z.output<typeof WorkerTask>;
 export type WorkerTasks = z.output<typeof WorkerTasks>;
 export type WorkerTasksQuery = z.output<typeof WorkerTasksQuery>;

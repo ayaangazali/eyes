@@ -47,6 +47,7 @@ const task = (over: Partial<WorkerTask> = {}): WorkerTask => ({
   bounty_usd: 3,
   payout: "pending",
   claimed_at: "2026-10-17T05:30:00.000Z",
+  dispute: null,
   ...over,
 });
 

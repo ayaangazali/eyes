@@ -4,6 +4,7 @@ import type {
   Agent,
   CaptureFields,
   CaptureResult,
+  DisputeState,
   JoinWorkerInput,
   JoinWorkerOutput,
   OfferView,
@@ -117,6 +118,8 @@ export interface EyesService {
   updateSpendPolicy(token: string, input: OwnerPolicyInput): Promise<ToolOutput<"get_spend_policy">>;
   /** One page of the owner's own tasks, newest first (ADR-041 shape). Throws owner_link_invalid. */
   ownerTasks(token: string, input: ToolInput<"list_tasks">): Promise<ToolOutput<"list_tasks">>;
+  /** The owner disputes an answer with the owner token. Throws owner_link_invalid, task_not_found, or task_not_disputable (409) when already disputed. */
+  ownerDispute(token: string, input: ToolInput<"dispute_answer">): Promise<ToolOutput<"dispute_answer">>;
   rotateApiKey(token: string): Promise<{ api_key: string }>;
 
   joinWorker(input: JoinWorkerInput): Promise<JoinWorkerOutput>;
@@ -144,6 +147,11 @@ export interface EyesService {
   workerLoginCode(code: string): Promise<{ token: string }>;
   /** token: as workerSetup. One page of the worker's tasks, newest first, and the totals. Throws unauthorized. */
   workerTasks(token: string, query: WorkerTasksQuery): Promise<WorkerTasks>;
+  /** token: as workerSetup. The worker contests an owner's dispute on their task, once. Throws unauthorized, task_not_found, task_not_disputable. */
+  workerDispute(
+    token: string,
+    input: ToolInput<"dispute_answer">,
+  ): Promise<{ task_id: string; dispute: DisputeState }>;
   /** token: as workerSetup. Mints a location code; returns the app install link carrying it. Throws unauthorized. */
   workerInstallLink(token: string): Promise<{ install_url: string }>;
   /** token: as workerSetup. Pays what is due, then deletes the account's personal data (ADR-045). Throws unauthorized, or invalid_input while a task is in progress. */

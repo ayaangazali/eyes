@@ -901,6 +901,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
           bounty_usd: 3,
           payout,
           claimed_at: expect.any(String),
+          dispute: null,
         }));
       const list = async () => WorkerTasks.parse(await service.workerTasks(token, {}));
       expect(await list()).toEqual({
@@ -2232,6 +2233,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       question: expect.any(String),
       place_label: expect.any(String),
       claimed_at: expect.any(String),
+      dispute: null,
     };
 
     const first = await work(3);
@@ -2802,6 +2804,39 @@ describe.skipIf(!url)("engine on Postgres", () => {
         message: "The photo shows a different cafe.",
       });
       expect((await service.getTask(a, { task_id })).dispute).toEqual({ status: "open", refunded_usd: null });
+    });
+
+    it("owner and worker dispute routes: state in both lists, wrong owner 404, double dispute 409 (ADR-047)", async () => {
+      const { a, w, task_id } = await paidTask();
+      const owner = signToken("test-link-secret-0123456789", `p:${a.id}`);
+      const stranger = signToken("test-link-secret-0123456789", `p:${randomUUID()}`);
+      const e = signToken("test-link-secret-0123456789", `e:${w.worker_id}`);
+      const ownerState = async () =>
+        (await service.ownerTasks(owner, { limit: 20 })).tasks.find((t) => t.task_id === task_id)?.dispute;
+      const workerState = async () =>
+        (await service.workerTasks(e, {})).tasks.find((t) => t.task_id === task_id)?.dispute;
+      const input = { task_id, reason: "Photo shows another shop." };
+      expect([await ownerState(), await workerState()]).toEqual([null, null]);
+
+      await expect(service.ownerDispute(stranger, input)).rejects.toMatchObject({ status: 404 });
+      await expect(service.workerDispute(e, input)).rejects.toMatchObject({ code: "task_not_disputable" });
+      expect(await service.ownerDispute(owner, input)).toMatchObject({ task_id, status: "disputed" });
+      await expect(service.ownerDispute(owner, input)).rejects.toMatchObject({ status: 409 });
+      expect([await ownerState(), await workerState()]).toEqual(["open", "open"]);
+
+      const other = signToken(
+        "test-link-secret-0123456789",
+        `e:${(await worker(somewhere(), false)).worker_id}`,
+      );
+      await expect(service.workerDispute(other, input)).rejects.toMatchObject({ status: 404 });
+      expect(await service.workerDispute(e, input)).toEqual({ task_id, dispute: "in_review" });
+      await expect(service.workerDispute(e, input)).rejects.toMatchObject({ status: 409 });
+      expect([await ownerState(), await workerState()]).toEqual(["in_review", "in_review"]);
+      expect((await service.getTask(a, { task_id })).dispute).toEqual({ status: "open", refunded_usd: null });
+
+      await sql`update tickets set status = 'resolved', resolved_at = now(), note = 'closed' where task_id = ${task_id} and appeal`;
+      await service.rejectDispute({ ticket_id: await disputeTicket(task_id), note: "answer stands" });
+      expect([await ownerState(), await workerState()]).toEqual(["stands", "stands"]);
     });
 
     it("confirm fraud refunds bounty + fee, reverses the transfer once, bans the worker; a double click moves nothing", async () => {
