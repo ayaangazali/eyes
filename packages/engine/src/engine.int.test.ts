@@ -1303,7 +1303,6 @@ describe.skipIf(!url)("engine on Postgres", () => {
       asked.task_id,
     ]);
     expect((await service.ownerTasks(otherToken, { limit: 20 })).tasks).toEqual([]);
-    expect((await service.ownerTasks(otherToken, { limit: 20, before: asked.task_id })).tasks).toEqual([]);
     expect((await service.ownerConsole(otherToken)).tasks).toEqual([]);
     await expect(service.ownerTasks("bogus", { limit: 20 })).rejects.toMatchObject({
       code: "owner_link_invalid",

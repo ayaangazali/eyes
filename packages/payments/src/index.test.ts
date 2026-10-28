@@ -142,9 +142,9 @@ function setup(payments: Payments = fakeProviders().payments, live_payouts = tru
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
       return OWNER_VIEW.policy;
     }),
-    ownerTasks: vi.fn(async (token: string, input: { limit: number; before?: string }) => {
+    ownerTasks: vi.fn(async (token: string, input: { limit: number }) => {
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
-      return { tasks: [], next_cursor: input.before ? null : TASK_ID, next_step: "x" };
+      return { tasks: [], next_step: "x" };
     }),
     rotateApiKey: vi.fn(async (token: string) => {
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
@@ -465,12 +465,11 @@ describe("owner console routes", () => {
       const state = await json(app, "owner-tok/state.json");
       expect(state.status).toBe(200);
       expect(await state.json()).toEqual(OWNER_VIEW);
-      const tasks = await json(app, `owner-tok/tasks.json?limit=5&status=paid&before=${TASK_ID}`);
-      expect(await tasks.json()).toEqual({ tasks: [], next_cursor: null });
+      const tasks = await json(app, `owner-tok/tasks.json?limit=5&status=paid`);
+      expect(await tasks.json()).toEqual({ tasks: [] });
       expect(service.ownerTasks).toHaveBeenCalledWith("owner-tok", {
         limit: 5,
         status: "paid",
-        before: TASK_ID,
       });
       const saved = await json(app, "owner-tok/policy.json", policy);
       expect(await saved.json()).toEqual(OWNER_VIEW.policy);
@@ -507,9 +506,8 @@ describe("owner console routes", () => {
         await json(app, "owner-tok/policy.json", { ...policy, allowed_task_types: ["nope"] }),
         await json(app, "owner-tok/rotate-key.json", {}),
         await json(app, "owner-tok/tasks.json?limit=500"),
-        await json(app, "owner-tok/tasks.json?before=not-a-uuid"),
       ];
-      expect(bad.map((r) => r.status)).toEqual([400, 400, 400, 400, 400, 400]);
+      expect(bad.map((r) => r.status)).toEqual([400, 400, 400, 400, 400]);
       expect(service.updateSpendPolicy).not.toHaveBeenCalled();
       expect(service.rotateApiKey).not.toHaveBeenCalled();
     });

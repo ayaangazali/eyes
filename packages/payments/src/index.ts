@@ -367,8 +367,8 @@ function ownerJsonRoutes(app: Hono, deps: RouteDeps) {
     });
     if (!query.success) return badJson(c, query.error.issues);
     return ownerJson(c, async (token) => {
-      const { tasks, next_cursor } = await deps.service.ownerTasks(token, query.data);
-      return { tasks, next_cursor };
+      const { tasks } = await deps.service.ownerTasks(token, query.data);
+      return { tasks };
     });
   });
   app.post("/owner/:token/policy.json", async (c) => {

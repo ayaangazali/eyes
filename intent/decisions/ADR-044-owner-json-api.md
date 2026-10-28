@@ -11,7 +11,7 @@ The Eyes app needs the owner console as data. The HTML console under `/owner/:to
 Add JSON twins under the same owner link:
 
 - `GET /owner/:token/state.json` returns the `OwnerConsole` view: agent, balance, spend policy, spent today, recent tasks and ledger.
-- `GET /owner/:token/tasks.json` takes `status`, `limit` and `before` and returns `tasks` and `next_cursor` in the ADR-041 shape.
+- `GET /owner/:token/tasks.json` takes `status` and `limit` and returns `tasks`. Cursor paging (ADR-041) is not on the live branch yet.
 - `POST /owner/:token/policy.json` takes `OwnerPolicyInput` as JSON numbers and returns the saved policy.
 - `POST /owner/:token/rotate-key.json` takes `{"confirm": true}` and returns `{"api_key"}`, shown once.
 
