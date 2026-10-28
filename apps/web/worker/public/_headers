@@ -4,6 +4,8 @@
   X-Frame-Options: DENY
   Permissions-Policy: camera=(self), geolocation=(self), microphone=()
   Cache-Control: public, max-age=60, must-revalidate
+/.well-known/apple-app-site-association
+  Content-Type: application/json
 
 /_astro/*
   ! Cache-Control
