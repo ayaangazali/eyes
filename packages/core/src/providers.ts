@@ -113,7 +113,7 @@ export interface Payments {
 export interface Storage {
   putPhoto(i: { key: string; bytes: Uint8Array; content_type: string }): Promise<{ url: string }>;
   deletePhoto(i: { key: string }): Promise<void>;
-  // The bucket is private. signPhoto turns a stored photo URL into a short-lived link (ADR-047);
+  // The bucket is private. signPhoto turns a stored photo URL into a short-lived link (ADR-048);
   // readPhoto returns the object for a valid, unexpired link and null otherwise.
   signPhoto(url: string): string;
   readPhoto(i: { key: string; exp: string; sig: string }): Promise<Response | null>;

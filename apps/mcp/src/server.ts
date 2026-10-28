@@ -1253,7 +1253,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       });
     });
   }
-  // Private photo bucket: a link signed by storage.signPhoto, valid until its exp (ADR-047).
+  // Private photo bucket: a link signed by storage.signPhoto, valid until its exp (ADR-048).
   server.get("/photos", async (c) => {
     const { k, exp, sig } = c.req.query();
     const res = k && exp && sig ? await deps.providers.storage.readPhoto({ key: k, exp, sig }) : null;

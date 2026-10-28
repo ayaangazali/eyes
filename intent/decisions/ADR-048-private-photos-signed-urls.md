@@ -1,4 +1,4 @@
-# ADR-047: Private photo bucket, signed expiring URLs
+# ADR-048: Private photo bucket, signed expiring URLs
 
 Status: accepted 2026-10-28. Supersedes the "permanent public URL" consequence of [ADR-014](ADR-014-delete-face-photos.md).
 
