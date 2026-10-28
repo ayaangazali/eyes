@@ -42,6 +42,8 @@ const AGENT: Agent = {
   balance_cents: 2000,
   daily_cap_cents: 5000,
   max_bounty_cents: 1000,
+  cap_period: "day",
+  at_limit: "ask",
   allowed_task_types: ["is_open", "line_length"],
   created_at: "2026-10-17T19:00:00.000Z",
 };

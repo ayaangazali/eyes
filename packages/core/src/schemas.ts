@@ -52,8 +52,10 @@ export const Agent = z.object({
   api_key_hash: z.string(),
   email_identity: z.string().nullable(),
   balance_cents: Cents,
-  daily_cap_cents: Cents,
-  max_bounty_cents: Cents,
+  daily_cap_cents: Cents.nullable(),
+  max_bounty_cents: Cents.nullable(),
+  cap_period: z.enum(["day", "week", "month"]),
+  at_limit: z.enum(["ask", "pause", "notify"]),
   allowed_task_types: z.array(TaskType),
   created_at: Timestamp,
 });
@@ -463,18 +465,27 @@ export const GetBalanceOutput = z.object({
   top_up_url: z.string().nullable(),
 });
 
+const CapPeriod = z.enum(["day", "week", "month"]);
+const AtLimit = z.enum(["ask", "pause", "notify"]);
+
 export const GetSpendPolicyInput = z.object({});
 export const GetSpendPolicyOutput = z.object({
-  max_bounty_usd: Usd,
-  daily_cap_usd: Usd,
-  spent_today_usd: Usd,
-  remaining_today_usd: Usd,
+  max_bounty_usd: Usd.nullable().describe("Most one task may pay a worker; null means no limit."),
+  daily_cap_usd: Usd.nullable().describe("Spend cap for the cap_period; null means no limit."),
+  cap_period: CapPeriod,
+  at_limit: AtLimit,
+  spent_today_usd: Usd.describe("Spent so far in the current cap_period."),
+  remaining_today_usd: Usd.nullable().describe(
+    "Left under the cap in the current cap_period; null means no limit.",
+  ),
   allowed_task_types: z.array(TaskType),
 });
 
 export const OwnerPolicyInput = z.object({
-  max_bounty_usd: z.number().min(0).max(50),
-  daily_cap_usd: z.number().min(0).max(1000),
+  max_bounty_usd: z.number().min(0).max(50).nullable(),
+  daily_cap_usd: z.number().min(0).max(10_000_000).nullable(),
+  cap_period: CapPeriod.optional(),
+  at_limit: AtLimit.optional(),
   allowed_task_types: z.array(TaskType),
 });
 export const OwnerConsole = z.object({

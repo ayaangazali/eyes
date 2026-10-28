@@ -97,9 +97,11 @@ type Summary = {
   balance_cents: number;
   escrowed_cents: number;
   spent_today_cents: number;
-  daily_cap_cents: number;
-  max_bounty_cents: number;
+  daily_cap_cents: number | null;
+  max_bounty_cents: number | null;
   allowed_task_types: Agent["allowed_task_types"];
+  cap_period: CapPeriod;
+  at_limit: AtLimit;
 };
 type ConsoleRow = Summary & {
   agent_name: string;
@@ -288,11 +290,31 @@ function logFailedOffers(taskId: string, sent: PromiseSettledResult<unknown>[]) 
 }
 const dollars = (cents: number) => `$${centsToUsd(cents).toFixed(2)}`;
 
+type CapPeriod = "day" | "week" | "month";
+type AtLimit = "ask" | "pause" | "notify";
+const cents = (c: number | null) => (c === null ? null : centsToUsd(c));
+// Cap left in the period; null cap means no limit.
+const capLeft = (cap: number | null, spent: number) => (cap === null ? Infinity : Math.max(0, cap - spent));
+const PERIOD_ADJECTIVE: Record<CapPeriod, string> = { day: "daily", week: "weekly", month: "monthly" };
+
+// Start of the next UTC cap window: midnight, next Monday, or the 1st of next month.
+function periodReset(now: Date, period: CapPeriod) {
+  const d = new Date(now);
+  if (period === "month") return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1));
+  d.setUTCHours(24, 0, 0, 0);
+  if (period === "week") d.setUTCDate(d.getUTCDate() + ((8 - d.getUTCDay()) % 7));
+  return d;
+}
+
 const policyOf = (s: Summary) => ({
-  max_bounty_usd: centsToUsd(s.max_bounty_cents),
-  daily_cap_usd: centsToUsd(s.daily_cap_cents),
+  max_bounty_usd: cents(s.max_bounty_cents),
+  daily_cap_usd: cents(s.daily_cap_cents),
+  cap_period: s.cap_period,
+  at_limit: s.at_limit,
   spent_today_usd: centsToUsd(s.spent_today_cents),
-  remaining_today_usd: centsToUsd(Math.max(0, s.daily_cap_cents - s.spent_today_cents)),
+  remaining_today_usd: cents(
+    s.daily_cap_cents === null ? null : capLeft(s.daily_cap_cents, s.spent_today_cents),
+  ),
   allowed_task_types: s.allowed_task_types,
 });
 
@@ -809,15 +831,30 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       });
     }
     if (err.code === "daily_cap_exceeded") {
-      const c = err.context as { daily_cap_cents: number; spent_today_cents: number };
+      const c = err.context as {
+        daily_cap_cents: number;
+        spent_today_cents: number;
+        cap_period: CapPeriod;
+        at_limit: AtLimit;
+      };
+      const left = capLeft(c.daily_cap_cents, c.spent_today_cents);
+      const reset = periodReset(new Date(now()), c.cap_period).toISOString();
+      const fix =
+        c.daily_cap_cents === 0
+          ? FROZEN
+          : c.at_limit === "pause"
+            ? `Your user paused spending on this API key at its ${PERIOD_ADJECTIVE[c.cap_period]} limit. Do not retry until ${reset} (UTC), or until your user raises daily_cap_usd.`
+            : `You have ${centsToUsd(left)} USD left this ${c.cap_period}. Lower bounty_usd, wait until ${reset} (UTC), or ask your user to raise daily_cap_usd.`;
       return new EyesError(
         "daily_cap_exceeded",
         {
           daily_cap_usd: centsToUsd(c.daily_cap_cents),
+          cap_period: c.cap_period,
+          at_limit: c.at_limit,
           spent_today_usd: centsToUsd(c.spent_today_cents),
-          remaining_today_usd: centsToUsd(Math.max(0, c.daily_cap_cents - c.spent_today_cents)),
+          remaining_today_usd: centsToUsd(left),
         },
-        { fix: c.daily_cap_cents === 0 ? FROZEN : undefined },
+        { fix },
       );
     }
     return err;
@@ -1010,10 +1047,10 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       const nearest = workers[0];
       const s = await one<Summary>("eyes_agent_summary", { p_agent_id: agent.id, p_now: nowIso() });
       const fee = config.fee_cents;
-      const left = Math.max(0, s.daily_cap_cents - s.spent_today_cents);
+      const left = capLeft(s.daily_cap_cents, s.spent_today_cents);
+      const maxBounty = s.max_bounty_cents ?? Infinity;
       const least = MIN_BOUNTY_CENTS + fee;
-      const reset = new Date(now());
-      reset.setUTCHours(24, 0, 0, 0);
+      const reset = periodReset(new Date(now()), s.cap_period);
       const reasons = [
         verdict.allowed
           ? ""
@@ -1021,21 +1058,21 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         s.allowed_task_types.includes(task_type)
           ? ""
           : `This API key may not post ${task_type} tasks; its allowed_task_types are ${s.allowed_task_types.join(", ") || "none"}. Use one of those, or ask your user to allow ${task_type}.`,
-        s.max_bounty_cents >= MIN_BOUNTY_CENTS
+        maxBounty >= MIN_BOUNTY_CENTS
           ? ""
-          : `This API key's max_bounty_usd is ${centsToUsd(s.max_bounty_cents)}, below the ${centsToUsd(MIN_BOUNTY_CENTS)} USD minimum bounty, so it cannot post tasks. Ask your user to raise max_bounty_usd.`,
+          : `This API key's max_bounty_usd is ${centsToUsd(maxBounty)}, below the ${centsToUsd(MIN_BOUNTY_CENTS)} USD minimum bounty, so it cannot post tasks. Ask your user to raise max_bounty_usd.`,
         left >= least
           ? ""
           : s.daily_cap_cents === 0
             ? FROZEN
-            : `Only ${centsToUsd(left)} USD of today's spend cap is left, less than the minimum bounty plus fee (${centsToUsd(least)} USD). Wait until the cap resets at ${reset.toISOString()} (midnight UTC), or ask your user to raise daily_cap_usd.`,
+            : `Only ${centsToUsd(left)} USD of this ${s.cap_period}'s spend cap is left, less than the minimum bounty plus fee (${centsToUsd(least)} USD). ${s.at_limit === "pause" ? "Your user paused spending at this limit. Do not retry until" : "Wait until"} the cap resets at ${reset.toISOString()} (UTC)${s.at_limit === "pause" ? "" : ", or ask your user to raise daily_cap_usd"}.`,
         s.balance_cents >= least
           ? ""
           : `Your balance of ${centsToUsd(s.balance_cents)} USD is less than the minimum bounty plus fee (${centsToUsd(least)} USD). Ask your user to top up at ${topUpUrl(agent.id)}, then call get_balance before asking.`,
       ].filter(Boolean);
       const bounty = Math.max(
         MIN_BOUNTY_CENTS,
-        Math.min(config.default_bounty_cents, s.max_bounty_cents, left - fee, s.balance_cents - fee),
+        Math.min(config.default_bounty_cents, maxBounty, left - fee, s.balance_cents - fee),
       );
       return {
         workers_nearby: workers.length,
@@ -1187,7 +1224,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       const bountyCents = usdToCents(ask.bounty_usd);
       // Compare the unrounded USD value: rounding first made 10.004 pass a 10 cap
       // and 10.006 fail it (eyes#117).
-      if (ask.bounty_usd > centsToUsd(agent.max_bounty_cents)) {
+      if (agent.max_bounty_cents !== null && ask.bounty_usd > centsToUsd(agent.max_bounty_cents)) {
         throw new EyesError("bounty_exceeds_max", {
           bounty_usd: ask.bounty_usd,
           max_bounty_usd: centsToUsd(agent.max_bounty_cents),
@@ -1425,11 +1462,29 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     async updateSpendPolicy(token, input) {
       const agentId = ownerAgentId(token);
       const policy = parse(OwnerPolicyInput, input);
+      const whole = (v: number | null, name: string) =>
+        v === null ? null : usdToCents(assertWholeCents(v, name));
+      const maxBounty = whole(policy.max_bounty_usd, "max_bounty_usd");
+      const cap = whole(policy.daily_cap_usd, "daily_cap_usd");
+      // A cap of 0 freezes spending on purpose; any other cap must fit one request.
+      if (cap !== null && cap > 0 && maxBounty !== null && cap < maxBounty + config.fee_cents) {
+        const word = policy.cap_period ? PERIOD_ADJECTIVE[policy.cap_period] : "spending";
+        throw new EyesError(
+          "invalid_input",
+          {},
+          {
+            message: `The ${word} total is less than one request.`,
+            fix: `Raise the cap to at least ${dollars(maxBounty + config.fee_cents)} (the most it may pay per task plus the fee) or lower the most it may pay per task.`,
+          },
+        );
+      }
       const s = await maybe<Summary>("eyes_update_spend_policy", {
         p_agent_id: agentId,
-        p_max_bounty_cents: usdToCents(assertWholeCents(policy.max_bounty_usd, "max_bounty_usd")),
-        p_daily_cap_cents: usdToCents(assertWholeCents(policy.daily_cap_usd, "policy.daily_cap_usd")),
+        p_max_bounty_cents: maxBounty,
+        p_daily_cap_cents: cap,
         p_allowed_task_types: [...new Set(policy.allowed_task_types)],
+        p_cap_period: policy.cap_period ?? null,
+        p_at_limit: policy.at_limit ?? null,
         p_now: nowIso(),
       });
       if (!s) throw new EyesError("owner_link_invalid");
