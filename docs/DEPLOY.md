@@ -7,7 +7,7 @@ Run from the repo root. Keys go in `.env` (never committed). Names are in `.env.
 2. Apply our migrations through the REST migrations endpoint: `node --env-file=.env scripts/insforge-migrate.ts` (409 means already applied).
    Use all ordered files in [`packages/db/migrations`](../packages/db/migrations), not a fixed migration range.
    Check the target database's applied migrations separately; repository files do not prove what production has applied.
-3. Create the public photo bucket: `npx @insforge/cli storage create-bucket photos --public`.
+3. Create the private photo bucket: `npx @insforge/cli storage create-bucket photos` (no `--public`). Photos reach agents and owners only through short-lived signed `/photos` links (ADR-047). To move an existing public bucket to private, make it private, then check that an old object URL answers 401 or 403.
 4. Live check that the admin key can run our functions (RLS and EXECUTE grants are unverified on InsForge):
    `curl -s -X POST "$INSFORGE_BASE_URL/api/database/rpc/eyes_agent_by_key_hash" -H "Authorization: Bearer $INSFORGE_API_KEY" -H 'content-type: application/json' -d '{"p_key_hash":"x"}'` must return `[]`, not a permission error.
 

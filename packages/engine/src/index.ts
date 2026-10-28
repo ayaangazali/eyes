@@ -308,7 +308,7 @@ function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<S> {
   });
 }
 
-function answerOf({ task, submission, worker_rating }: Detail): Answer | null {
+function answerOf({ task, submission, worker_rating }: Detail, sign: (url: string) => string): Answer | null {
   if (!submission) return null;
   const fallback = submission.answer_bool === null ? "See photo_url." : submission.answer_bool ? "Yes" : "No";
   return {
@@ -318,7 +318,7 @@ function answerOf({ task, submission, worker_rating }: Detail): Answer | null {
     photo_url:
       submission.vision_ok ||
       (submission.vision_ok === null && (task.status === "verified" || task.status === "paid"))
-        ? submission.photo_url
+        ? submission.photo_url && sign(submission.photo_url)
         : null,
     captured_at: iso(submission.captured_at),
     worker_distance_m: Math.round(distanceMeters(task, submission)),
@@ -1275,7 +1275,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
             task_id,
             status,
             answered,
-            answer: answerOf(found),
+            answer: answerOf(found, providers.storage.signPhoto),
             accepted_at: found.task.accepted_at ? iso(found.task.accepted_at) : null,
             next_step: AWAIT_NEXT_STEP[status],
           };
@@ -1300,7 +1300,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         deadline_at: iso(task.deadline_at),
         created_at: iso(task.created_at),
         claimed_at: task.claimed_at && iso(task.claimed_at),
-        answer: answerOf(found),
+        answer: answerOf(found, providers.storage.signPhoto),
         accepted_at: task.accepted_at ? iso(task.accepted_at) : null,
         dispute: await disputeOf(task),
       };
@@ -1878,7 +1878,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
           accuracy_m: capture.accuracy_m,
           captured_at: capture.captured_at,
           received_at: nowIso(),
-          photo_url,
+          photo_url: photo_url && providers.storage.signPhoto(photo_url),
           answer_text: capture.answer_text,
           answer_bool: capture.answer_bool,
         },

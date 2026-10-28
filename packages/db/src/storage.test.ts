@@ -122,3 +122,40 @@ describe("createInsforgeStorage().putPhoto", () => {
     );
   });
 });
+
+describe("createInsforgeStorage signed photo links", () => {
+  const key = "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222.jpg";
+  const storage = createInsforgeStorage({ ...env, EYES_PUBLIC_API_URL: "https://api.test" });
+  const parts = (signed: string) => {
+    const u = new URL(signed);
+    return {
+      key: u.searchParams.get("k") ?? "",
+      exp: u.searchParams.get("exp") ?? "",
+      sig: u.searchParams.get("sig") ?? "",
+    };
+  };
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it("serves a signed link until it expires, then refuses it", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    const fetch = stubFetch(200, {});
+    const signed = storage.signPhoto(`${base}/api/storage/buckets/photos/objects/${encodeURIComponent(key)}`);
+    expect(signed.startsWith("https://api.test/photos?")).toBe(true);
+    expect(await storage.readPhoto(parts(signed))).not.toBeNull();
+    expect(fetch.mock.calls[0]?.[0]).toContain(`/buckets/photos/objects/${encodeURIComponent(key)}`);
+    vi.setSystemTime(Date.now() + 3601_000);
+    expect(await storage.readPhoto(parts(signed))).toBeNull();
+  });
+
+  it("refuses a tampered key or signature without reading the bucket", async () => {
+    const fetch = stubFetch(200, {});
+    const p = parts(storage.signPhoto(`${base}/photos/${key}`));
+    const other = key.replace("1111", "3333");
+    expect(await storage.readPhoto({ ...p, key: other })).toBeNull();
+    expect(await storage.readPhoto({ ...p, sig: "0".repeat(64) })).toBeNull();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});

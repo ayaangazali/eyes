@@ -1253,6 +1253,19 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       });
     });
   }
+  // Private photo bucket: a link signed by storage.signPhoto, valid until its exp (ADR-047).
+  server.get("/photos", async (c) => {
+    const { k, exp, sig } = c.req.query();
+    const res = k && exp && sig ? await deps.providers.storage.readPhoto({ key: k, exp, sig }) : null;
+    if (!res) return c.text("This photo link is invalid or has expired.", 403);
+    return new Response(res.body, {
+      headers: {
+        "content-type": res.headers.get("content-type") ?? "image/jpeg",
+        "cache-control": "private, no-store",
+        "referrer-policy": "no-referrer",
+      },
+    });
+  });
   const uploads = new Set<string>();
   server.post("/w/offers/:token/capture", async (c) => {
     const token = c.req.param("token");
@@ -1424,7 +1437,13 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       return c.json(
         {
           ...feed,
-          tasks: feed.tasks.slice(0, OPS_RECENT),
+          tasks: feed.tasks
+            .slice(0, OPS_RECENT)
+            .map((t) =>
+              "photo_url" in t && typeof t.photo_url === "string"
+                ? { ...t, photo_url: deps.providers.storage.signPhoto(t.photo_url) }
+                : t,
+            ),
           ledger: feed.ledger.slice(0, OPS_RECENT),
           workers,
           ops: {
@@ -1466,7 +1485,10 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       );
     });
     // Paged lists: /ops/events, /ops/tickets, /ops/tasks, /ops/ledger (keyset cursor, server-side filters).
-    server.app.route("/", opsLists({ rpc, events: deps.events, operator: ops.operator }));
+    server.app.route(
+      "/",
+      opsLists({ rpc, events: deps.events, operator: ops.operator, sign: deps.providers.storage.signPhoto }),
+    );
     server.app.get("/ops/tasks/:id", ops.operator, async (c) => {
       const id = c.req.param("id");
       const [row] = UUID.test(id)
@@ -1485,7 +1507,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
           fee_cents: t.fee_cents,
           dispute_reason: t.dispute_reason,
           created_at: t.created_at,
-          photo_url: s?.photo_url ?? null,
+          photo_url: s?.photo_url ? deps.providers.storage.signPhoto(s.photo_url) : null,
           answer_text: s?.answer_text ?? null,
           answer_bool: s?.answer_bool ?? null,
           gps_ok: s?.gps_ok ?? null,
