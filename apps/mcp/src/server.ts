@@ -1198,6 +1198,28 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       ),
     );
   });
+  // Expo push tokens (ADR-053): the worker code or the owner link registers a device. 10 an hour per code.
+  const PushBody = z.object({ token: z.string().max(200) }).strict();
+  server.post("/w/me/push", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1] ?? "";
+    const body = parse(PushBody, await readJson(c));
+    throttle(c, "/w/me/push", `code ${createHash("sha256").update(token).digest("hex")}`, 10);
+    return c.json(await service.workerPushToken(token, body.token));
+  });
+  server.post("/owner/:token/push", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const { token } = c.req.param();
+    const body = parse(PushBody, await readJson(c));
+    throttle(c, "/owner/push", `code ${createHash("sha256").update(token).digest("hex")}`, 10);
+    return c.json(
+      await service.ownerPushToken(token, body.token).catch((err: unknown) => {
+        if (err instanceof EyesError && err.code === "owner_link_invalid")
+          throw new EyesError("unauthorized");
+        throw err;
+      }),
+    );
+  });
   // Account deletion (ADR-045): same bearer code as /w/me.
   server.delete("/w/me", async (c) => {
     c.header("Cache-Control", "no-store");

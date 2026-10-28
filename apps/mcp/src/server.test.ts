@@ -567,6 +567,31 @@ describe("worker email routes (T6.48)", () => {
     expect((await post(fetch, "/w/me/email", { email: null }, auth)).status).toBe(200);
   });
 
+  it("the push routes pass the token and map a dead owner link to 401", async () => {
+    const calls: unknown[][] = [];
+    const { fetch } = setup({
+      workerPushToken: async (code, t) => {
+        calls.push(["w", code, t]);
+        return { ok: true as const };
+      },
+      ownerPushToken: async (code, t) => {
+        calls.push(["o", code, t]);
+        if (code !== "good") throw new EyesError("owner_link_invalid");
+        return { ok: true as const };
+      },
+    });
+    const t = "ExponentPushToken[abc]";
+    expect((await post(fetch, "/w/me/push", { token: t }, { authorization: "Bearer c" })).status).toBe(200);
+    expect((await post(fetch, "/owner/good/push", { token: t })).status).toBe(200);
+    expect((await post(fetch, "/owner/bad/push", { token: t })).status).toBe(401);
+    expect((await post(fetch, "/owner/good/push", {})).status).toBe(400);
+    expect(calls).toEqual([
+      ["w", "c", t],
+      ["o", "good", t],
+      ["o", "bad", t],
+    ]);
+  });
+
   it("POST /w/me/texts passes the bearer code and on, uncached; a bad body or code is refused", async () => {
     const calls: unknown[][] = [];
     const { fetch } = setup({

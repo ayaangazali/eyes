@@ -120,6 +120,8 @@ export interface EyesService {
   ownerTasks(token: string, input: ToolInput<"list_tasks">): Promise<ToolOutput<"list_tasks">>;
   /** The owner disputes an answer with the owner token. Throws owner_link_invalid, task_not_found, or task_not_disputable (409) when already disputed. */
   ownerDispute(token: string, input: ToolInput<"dispute_answer">): Promise<ToolOutput<"dispute_answer">>;
+  /** Stores an Expo push token for the owner console (ADR-053). Throws owner_link_invalid. */
+  ownerPushToken(token: string, pushToken: string): Promise<{ ok: true }>;
   rotateApiKey(token: string): Promise<{ api_key: string }>;
   /** Ops: suspend an agent (every API call gets 403) or turn it back on. Throws not_found for an unknown agent. */
   setAgentSuspended(agentId: string, suspended: boolean): Promise<{ agent_id: string; suspended: boolean }>;
@@ -160,6 +162,8 @@ export interface EyesService {
   workerInstallLink(token: string): Promise<{ install_url: string }>;
   /** token: as workerSetup. Pays what is due, then deletes the account's personal data (ADR-045). Throws unauthorized, or invalid_input while a task is in progress. */
   workerDelete(token: string): Promise<{ deleted: true }>;
+  /** token: as workerSetup. Stores an Expo push token for this worker (ADR-053). Throws unauthorized. */
+  workerPushToken(token: string, pushToken: string): Promise<{ ok: true }>;
   getOffer(token: string): Promise<OfferView>;
   submitCapture(token: string, fields: CaptureFields, photo: PhotoUpload | null): Promise<CaptureResult>;
   /** token: a 30-minute HERE token or the worker's long-lived location token. Throws unauthorized, invalid_input or rate_limited. */
@@ -243,6 +247,8 @@ export type EngineDeps = {
   assessTask: AssessTask;
   verifySubmission: VerifySubmission;
   config: AppConfig;
+  /** Sends Expo push calls; tests pass a stub. Defaults to global fetch. */
+  fetch?: typeof fetch;
 };
 
 export type RouteDeps = { service: EyesService; providers: Providers; config: AppConfig };
