@@ -38,3 +38,10 @@ it("swallows an Expo outage and keeps the tokens", async () => {
   ).resolves.toBeUndefined();
   expect(rpc).toHaveBeenCalledTimes(1);
 });
+
+it("logs a non-Error failure as unknown", async () => {
+  const rpc = vi.fn().mockRejectedValue("boom");
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  await createPusher(rpc as never, vi.fn())({ agentId: "a" }, { title: "T", body: "B" });
+  expect(log).toHaveBeenCalledWith("push failed: unknown");
+});

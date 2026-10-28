@@ -5,6 +5,7 @@ files:
   - packages/db/migrations/052_push_tokens.sql
   - packages/engine/src/push.ts
   - packages/engine/src/push.test.ts
+  - packages/engine/src/push-events.test.ts
   - packages/engine/src/index.ts
   - packages/core/src/service.ts
   - apps/mcp/src/server.ts
