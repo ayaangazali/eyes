@@ -9,7 +9,7 @@ files:
   - apps/mcp/src/server.ts
   - apps/mcp/src/worker-setup.int.test.ts
   - apps/web/landing/src/pages/privacy.astro
-  - intent/decisions/ADR-044-worker-account-deletion.md
+  - intent/decisions/ADR-045-worker-account-deletion.md
   - intent/INDEX.md
 status: done
 ---
@@ -17,7 +17,7 @@ status: done
 ## Why
 
 Issue #276: workers could not delete their account. STOP keeps the name, the number and the past tasks.
-`DELETE /w/me` pays what is due, then deletes the personal data, as ADR-044 tells.
+`DELETE /w/me` pays what is due, then deletes the personal data, as ADR-045 tells.
 The money ledger keeps every amount, so the totals do not change.
 
 ## Verification

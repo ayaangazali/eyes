@@ -551,7 +551,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     await say(`To get tasks by email, tap this and press Send: ${config.public_api_url}/s/${id}`);
   }
 
-  // The worker behind an "e:" code; a deleted account (ADR-044) keeps its row, so its codes stop here.
+  // The worker behind an "e:" code; a deleted account (ADR-045) keeps its row, so its codes stop here.
   async function meWorker(token: string): Promise<Worker> {
     const workerId = tokenPayload(token, "e");
     const w = workerId
@@ -1742,7 +1742,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
 
     async workerDelete(token) {
       const w = await meWorker(token);
-      // Pay what is due while the account still exists; anything unpaid stays owed on the kept row (ADR-044).
+      // Pay what is due while the account still exists; anything unpaid stays owed on the kept row (ADR-045).
       if (w.stripe_account_id) {
         for (const { task, worker } of await payoutsDue(w.stripe_account_id, null))
           await payOut(task, worker);

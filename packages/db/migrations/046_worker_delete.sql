@@ -1,4 +1,4 @@
--- Account deletion from /me (ADR-044). The row stays as a tombstone so tasks, answers, tickets and
+-- Account deletion from /me (ADR-045). The row stays as a tombstone so tasks, answers, tickets and
 -- later payouts keep their keys; every personal field goes. Ledger rows keep their amounts and lose
 -- the worker reference. A banned worker's phone is kept so the ban still blocks rejoining.
 alter table workers add column deleted_at timestamptz;

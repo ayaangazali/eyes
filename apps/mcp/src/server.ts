@@ -1105,7 +1105,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
       ),
     );
   });
-  // Account deletion (ADR-044): same bearer code as /w/me.
+  // Account deletion (ADR-045): same bearer code as /w/me.
   server.delete("/w/me", async (c) => {
     c.header("Cache-Control", "no-store");
     return c.json(

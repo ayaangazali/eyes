@@ -1,4 +1,4 @@
-# ADR-044: Workers delete their own account
+# ADR-045: Workers delete their own account
 
 Status: accepted
 
