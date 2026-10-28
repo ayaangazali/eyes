@@ -1934,7 +1934,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
 
     const types = ["is_open", "line_length"] as const;
     expect(
-      await service.updateSpendPolicy(ownerToken, {
+      await service.updateSpendPolicy(newLink, {
         max_bounty_usd: 2,
         daily_cap_usd: 20,
         allowed_task_types: [...types, "is_open"],
@@ -1953,7 +1953,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       code: "task_type_not_allowed",
     });
 
-    await service.updateSpendPolicy(ownerToken, {
+    await service.updateSpendPolicy(newLink, {
       max_bounty_usd: 10,
       daily_cap_usd: 0,
       allowed_task_types: [...types],
@@ -1962,7 +1962,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(frozen).toMatchObject({ code: "daily_cap_exceeded", fix: expect.stringContaining("froze") });
     expect((frozen as EyesError).fix).not.toMatch(/tomorrow|Lower bounty_usd/);
 
-    await service.updateSpendPolicy(ownerToken, {
+    await service.updateSpendPolicy(newLink, {
       max_bounty_usd: 50,
       daily_cap_usd: 1000,
       allowed_task_types: [...types],
