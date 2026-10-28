@@ -683,6 +683,19 @@ describe("outbound Stripe requests", () => {
     });
   });
 
+  it("pauses payouts with a manual schedule and releases them with the new-account delay", async () => {
+    http.response = { id: "acct_1", object: "account" };
+    await payments.setPayoutsPaused({ account_id: "acct_1", paused: true });
+    await payments.setPayoutsPaused({ account_id: "acct_1", paused: false });
+    const [hold, release] = http.captured;
+    expect(hold?.url).toBe("https://api.stripe.com/v1/accounts/acct_1");
+    expect(hold?.body).toEqual({ "settings[payouts][schedule][interval]": "manual" });
+    expect(release?.body).toEqual({
+      "settings[payouts][schedule][interval]": "daily",
+      "settings[payouts][schedule][delay_days]": "7",
+    });
+  });
+
   it("creates an Express-dashboard US individual account that can receive transfers, once per worker", async () => {
     http.response = { id: "acct_1", object: "account" };
     const out = await payments.createWorkerAccount({
@@ -702,6 +715,8 @@ describe("outbound Stripe requests", () => {
       country: "US",
       business_type: "individual",
       "capabilities[transfers][requested]": "true",
+      "settings[payouts][schedule][interval]": "daily",
+      "settings[payouts][schedule][delay_days]": "7",
       "individual[phone]": "+14155550123",
       "business_profile[product_description]": "Paid by Eyes for on-the-spot photo checks of public places.",
       "metadata[worker_id]": "wkr_7",

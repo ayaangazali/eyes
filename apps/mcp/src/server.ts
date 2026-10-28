@@ -1669,6 +1669,7 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
         p_now: deps.providers.clock.now().toISOString(),
       });
       if (!review) return c.json({ error: "worker_not_found" }, 404, FEED_HEADERS);
+      if (!review.error) await service.syncWorkerPayouts(id);
       return c.json(review, review.error === "worker_not_held" ? 409 : 200, FEED_HEADERS);
     });
     // Abuse controls (ADR-052): suspend or restore an agent, and kill its owner links.
