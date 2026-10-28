@@ -2391,7 +2391,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       expect(key).toBeDefined();
       expect(remove).not.toHaveBeenCalled();
       const answer = (await service.getTask(a, { task_id })).answer;
-      expect(answer?.photo_url).toBe(allowed ? `https://storage.fake.test/photos/${key}` : null);
+      expect(answer?.photo_url).toBe(allowed ? `https://storage.fake.test/photos/${key}?sig=fake` : null);
       if (fails) expect(answer?.verification.vision_reason).toContain("unavailable");
       await expect(capture(token, at)).rejects.toMatchObject({ code: "offer_invalid" });
       await service.retryPayouts();
@@ -2408,7 +2408,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
         });
         await service.retryPayouts();
         const delivered = (await service.awaitAnswer(a, { task_id, timeout_seconds: 1 })).answer;
-        expect(delivered?.photo_url).toBe(fails ? `https://storage.fake.test/photos/${key}` : null);
+        expect(delivered?.photo_url).toBe(fails ? `https://storage.fake.test/photos/${key}?sig=fake` : null);
         expect((await service.getTask(a, { task_id })).answer?.photo_url).toBe(delivered?.photo_url);
         expect(delivered?.verification.vision_ok).toBe(false);
         expect(await sql`select id from ledger where task_id = ${task_id} and type = 'release'`).toHaveLength(

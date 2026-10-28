@@ -188,7 +188,15 @@ function setup(overrides: Partial<EyesService> = {}, env: Record<string, string>
     rpc,
   });
   const fetch = (url: string | URL, init?: RequestInit) => server.fetch(new Request(url, init));
-  return { server, fetch, captures, awaitSignals, rpcCalls, clock: providers.clock };
+  return {
+    server,
+    fetch,
+    captures,
+    awaitSignals,
+    rpcCalls,
+    clock: providers.clock,
+    storage: providers.storage,
+  };
 }
 
 describe("/healthz database readiness", () => {
@@ -734,6 +742,22 @@ describe("worker location", () => {
     expect(JoinWorkerInput.safeParse({ ...join, lat: 0, lng: 0 }).error?.issues[0]?.message).toBe(
       "0,0 is not a real location.",
     );
+  });
+});
+
+describe("private photos", () => {
+  it("serves the object for a valid signed link and answers 403 otherwise", async () => {
+    const { fetch, storage } = setup();
+    await storage.putPhoto({ key: "t/p.jpg", bytes: new Uint8Array([1, 2]), content_type: "image/jpeg" });
+    const ok = await fetch("http://eyes.test/photos?k=t/p.jpg&exp=9&sig=fake");
+    expect([ok.status, (await ok.arrayBuffer()).byteLength, ok.headers.get("cache-control")]).toEqual([
+      200,
+      2,
+      "private, no-store",
+    ]);
+    for (const q of ["k=t/p.jpg&exp=9&sig=bad", "k=t/p.jpg", ""]) {
+      expect((await fetch(`http://eyes.test/photos?${q}`)).status).toBe(403);
+    }
   });
 });
 
@@ -1949,6 +1973,7 @@ describe("ops dashboard", () => {
     expect(feed.status).toBe(200);
     expect(await feed.json()).toMatchObject({
       ...FEED,
+      tasks: [{ ...FEED.tasks[0], photo_url: "https://storage.eyes.test/p.jpg?sig=fake" }],
       // A missing location stays missing (not 0,0, "Null Island"), and 0,0 counts as missing.
       workers: [
         { lat: 37.782, lng: -122.408, available: true, opted_in: true },
@@ -2875,7 +2900,7 @@ describe("ops data routes", () => {
     expect(await (await get(`/ops/tasks/${TASK_ID}`)).json()).toMatchObject({
       id: TASK_ID,
       status: "paid",
-      photo_url: submission.photo_url,
+      photo_url: `${submission.photo_url}?sig=fake`,
       answer_bool: true,
       vision_ok: false,
       submitted_at: submission.created_at,

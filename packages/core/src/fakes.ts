@@ -112,6 +112,11 @@ export function fakeStorage() {
     deletePhoto: async (i) => {
       objects.delete(i.key);
     },
+    signPhoto: (url) => `${url}?sig=fake`,
+    readPhoto: async ({ key, sig }) => {
+      const o = objects.get(key);
+      return o && sig === "fake" ? new Response(o.bytes as Uint8Array<ArrayBuffer>) : null;
+    },
   };
   return Object.assign(storage, { objects });
 }

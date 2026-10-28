@@ -108,8 +108,13 @@ function withDistance<T extends Row>(row: T) {
  * /ops/ledger with `limit` and an opaque `cursor`, plus filters and `q` search applied in Postgres.
  * /ops/events also takes `since` (a cursor) and returns only newer rows, for live polling.
  */
-export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: MiddlewareHandler<OpsEnv> }) {
-  const { rpc, operator } = deps;
+export function opsLists(deps: {
+  rpc: Rpc;
+  events?: EventLog;
+  operator: MiddlewareHandler<OpsEnv>;
+  sign?: (url: string) => string;
+}) {
+  const { rpc, operator, sign = (url: string) => url } = deps;
   const routes = new Hono<OpsEnv>();
   const bad = (c: Context) => c.json(BAD_CURSOR, 400, HEADERS);
 
@@ -220,7 +225,17 @@ export function opsLists(deps: { rpc: Rpc; events?: EventLog; operator: Middlewa
       ...datedArgs(filters),
     });
     const { rows: tasks, total, next_cursor } = page(rows, limit, filters, "created_at", "id");
-    return c.json({ tasks: tasks.map(withDistance), total, next_cursor }, 200, HEADERS);
+    return c.json(
+      {
+        tasks: tasks
+          .map(withDistance)
+          .map((t) => (typeof t.photo_url === "string" ? { ...t, photo_url: sign(t.photo_url) } : t)),
+        total,
+        next_cursor,
+      },
+      200,
+      HEADERS,
+    );
   });
 
   routes.get("/ops/ledger", operator, async (c) => {
