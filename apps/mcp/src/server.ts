@@ -1089,6 +1089,14 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     throttle(c, c.req.path, `code ${createHash("sha256").update(token).digest("hex")}`);
     return c.json(await service.workerSetEmail(token, email));
   });
+  // Texts on or off (STOP / START) for the "e:" code. Same 5 an hour per code as email.
+  server.post("/w/me/texts", async (c) => {
+    c.header("Cache-Control", "no-store");
+    const token = /^Bearer\s+(\S+)\s*$/i.exec(c.req.header("authorization") ?? "")?.[1] ?? "";
+    const { on } = parse(z.object({ on: z.boolean() }).strict(), await readJson(c));
+    throttle(c, "/w/me/email", `code ${createHash("sha256").update(token).digest("hex")}`);
+    return c.json(await service.workerSetTexts(token, on));
+  });
   // Optional email acknowledgement; no address, verification or delivery side effects.
   server.post("/w/me/email/skip", async (c) => {
     c.header("Cache-Control", "no-store");

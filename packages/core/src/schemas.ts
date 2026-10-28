@@ -609,6 +609,8 @@ export const WorkerTasksQuery = z.object({
 // The worker's setup page, /me (ADR-028). Its task list loads from GET /w/me/tasks.
 export const WorkerSetup = z.object({
   opted_in: z.boolean(),
+  /** Same value as opted_in; the name the app shows. */
+  texts_on: z.boolean(),
   spot: z.object({ at: Timestamp.nullable(), fresh: z.boolean(), max_age_h: z.number() }),
   app: z.object({ connected: z.boolean(), last_at: Timestamp.nullable(), sending: z.boolean() }),
   payouts: z.object({ set_up: z.boolean(), live: z.boolean(), setup_url: z.string().nullable() }),

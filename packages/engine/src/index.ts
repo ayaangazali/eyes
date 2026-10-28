@@ -549,6 +549,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     const app = w.location_source === "app";
     return {
       opted_in: w.opted_in,
+      texts_on: w.opted_in,
       spot: { at, fresh, max_age_h: config.location_max_age_h },
       app: { connected: w.app_connected ?? false, last_at: app ? at : null, sending: app && fresh },
       payouts: {
@@ -882,7 +883,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     };
   }
 
-  return {
+  const service: EyesService = {
     async authenticate(apiKey) {
       return (await maybe<Agent>("eyes_agent_by_key_hash", { p_api_key_hash: sha256(apiKey) })) ?? null;
     },
@@ -1647,6 +1648,21 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       return workerSetup(token);
     },
 
+    // Texts on/off from /me: the same path as a texted START or STOP, so the reply text and release of a claim match.
+    async workerSetTexts(token, on) {
+      const workerId = tokenPayload(token, "e");
+      const w = workerId
+        ? await maybe<Worker>("eyes_worker", { p_worker_id: workerId, p_phone: null })
+        : undefined;
+      if (!w) throw new EyesError("unauthorized", {}, SETUP_LINK_INVALID);
+      await service.handleWorkerReply({
+        phone: w.phone,
+        intent: on ? "start" : "stop",
+        text: on ? "START" : "STOP",
+      });
+      return workerSetup(token);
+    },
+
     async workerEmailStart(token) {
       const w = await meWorker(token);
       if (!w.opted_in) throw new EyesError("invalid_input", {}, START_FIRST);
@@ -1980,4 +1996,5 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       };
     },
   };
+  return service;
 }
