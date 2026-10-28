@@ -77,6 +77,14 @@ import Layout from "../layouts/Layout.astro";
       By tapping Join you agree to get task texts from Eyes at this number. Msg &amp; data rates may apply. Reply
       STOP to opt out. <a class="ui-link" href="https://eyes.pictures/privacy">Privacy policy</a>
     </p>
+    {
+      import.meta.env.VITE_TURNSTILE_SITE_KEY && (
+        <>
+          <div class="cf-turnstile" data-sitekey={import.meta.env.VITE_TURNSTILE_SITE_KEY} />
+          <script is:inline src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer />
+        </>
+      )
+    }
     <button type="submit" id="submit" class="ui-button ui-button--primary ui-button--block">Join</button>
   </form>
 

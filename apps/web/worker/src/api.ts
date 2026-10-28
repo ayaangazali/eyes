@@ -4,6 +4,7 @@ declare global {
   interface ImportMetaEnv {
     readonly VITE_EYES_API_URL?: string;
     readonly VITE_INKBOX_NUMBER?: string;
+    readonly VITE_TURNSTILE_SITE_KEY?: string;
     readonly VITE_INKBOX_CONNECT?: string;
     readonly VITE_LIVE_PAYOUTS?: string;
     readonly VITE_TESTFLIGHT_URL?: string;
