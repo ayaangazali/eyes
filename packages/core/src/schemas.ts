@@ -77,6 +77,7 @@ export const Worker = z.object({
   banned: z.boolean().optional(),
   dispute_hold_at: Timestamp.nullable().optional(),
   dispute_reviewed_at: Timestamp.nullable().optional(),
+  deleted_at: Timestamp.nullable().optional(),
   created_at: Timestamp,
 });
 export type Worker = z.infer<typeof Worker>;
