@@ -428,6 +428,44 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     return payload?.startsWith(`${kind}:`) ? payload.slice(kind.length + 1) : null;
   }
 
+  async function listTasksOf(
+    agentId: string,
+    input: ToolInput<"list_tasks">,
+  ): Promise<ToolOutput<"list_tasks">> {
+    const { status, limit, before } = parse(TOOLS.list_tasks.input, input);
+    const rows = await rpc<Task>("eyes_list_tasks", {
+      p_agent_id: agentId,
+      p_status: status ?? null,
+      p_limit: limit + 1,
+      p_before: before ?? null,
+    });
+    const page = rows.slice(0, limit);
+    const nextCursor = rows.length > limit ? (page.at(-1)?.id ?? null) : null;
+    return {
+      next_cursor: nextCursor,
+      tasks: page.map((t) => ({
+        task_id: t.id,
+        status: t.status,
+        accepted_at: t.accepted_at ? iso(t.accepted_at) : null,
+        question: t.question,
+        place_label: t.place_label,
+        bounty_usd: centsToUsd(t.bounty_cents),
+        created_at: iso(t.created_at),
+        deadline_at: iso(t.deadline_at),
+        answered: ANSWERED.includes(t.status),
+      })),
+      next_step: nextCursor
+        ? "Resume a listed task with await_answer or get_task. More tasks exist: call list_tasks with next_cursor as before and the same status filter before asking again."
+        : before && !rows.length
+          ? "No older tasks match this cursor, or the cursor is unknown to this API key. Call list_tasks without before to start again."
+          : rows.length
+            ? "Resume instead of asking again: for a task with status dispatched, claimed or submitted, call await_answer with its task_id; for a task where answered is true, call get_task to read the answer and photo_url. Call ask_eyes only if no task here covers your question."
+            : status
+              ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
+              : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
+    };
+  }
+
   function ownerAgentId(token: string): string {
     const agentId = tokenPayload(token, "p");
     if (!agentId) throw new EyesError("owner_link_invalid");
@@ -1252,40 +1290,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       };
     },
 
-    async listTasks(agent, input) {
-      const { status, limit, before } = parse(TOOLS.list_tasks.input, input);
-      const rows = await rpc<Task>("eyes_list_tasks", {
-        p_agent_id: agent.id,
-        p_status: status ?? null,
-        p_limit: limit + 1,
-        p_before: before ?? null,
-      });
-      const page = rows.slice(0, limit);
-      const nextCursor = rows.length > limit ? (page.at(-1)?.id ?? null) : null;
-      return {
-        next_cursor: nextCursor,
-        tasks: page.map((t) => ({
-          task_id: t.id,
-          status: t.status,
-          accepted_at: t.accepted_at ? iso(t.accepted_at) : null,
-          question: t.question,
-          place_label: t.place_label,
-          bounty_usd: centsToUsd(t.bounty_cents),
-          created_at: iso(t.created_at),
-          deadline_at: iso(t.deadline_at),
-          answered: ANSWERED.includes(t.status),
-        })),
-        next_step: nextCursor
-          ? "Resume a listed task with await_answer or get_task. More tasks exist: call list_tasks with next_cursor as before and the same status filter before asking again."
-          : before && !rows.length
-            ? "No older tasks match this cursor, or the cursor is unknown to this API key. Call list_tasks without before to start again."
-            : rows.length
-              ? "Resume instead of asking again: for a task with status dispatched, claimed or submitted, call await_answer with its task_id; for a task where answered is true, call get_task to read the answer and photo_url. Call ask_eyes only if no task here covers your question."
-              : status
-                ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
-                : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
-      };
-    },
+    listTasks: (agent, input) => listTasksOf(agent.id, input),
 
     async cancelTask(agent, input) {
       const { task_id } = parse(TOOLS.cancel_task.input, input);
@@ -1413,6 +1418,13 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       });
       if (!s) throw new EyesError("owner_link_invalid");
       return policyOf(s);
+    },
+
+    async ownerTasks(token, input) {
+      const agentId = ownerAgentId(token);
+      if (!(await maybe("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() })))
+        throw new EyesError("owner_link_invalid");
+      return listTasksOf(agentId, input);
     },
 
     async rotateApiKey(token) {
