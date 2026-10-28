@@ -366,6 +366,7 @@ describe("worker setup page (ADR-028)", () => {
     email_masked: null,
     email_status: "none",
     email_skipped: false,
+    texts_on: true,
   };
   const TASKS: WorkerTasks = {
     paid_usd: 0,
@@ -531,6 +532,35 @@ describe("worker email routes (T6.48)", () => {
     ).toBe(401);
     clock.advance(3600 * 1000);
     expect((await post(fetch, "/w/me/email", { email: null }, auth)).status).toBe(200);
+  });
+
+  it("POST /w/me/texts passes the bearer code and on, uncached; a bad body or code is refused", async () => {
+    const calls: unknown[][] = [];
+    const { fetch } = setup({
+      workerSetTexts: async (token, on) => {
+        calls.push([token, on]);
+        if (token !== "good") throw new EyesError("unauthorized");
+        return { opted_in: on, texts_on: on } as never;
+      },
+    });
+    const auth = { authorization: "Bearer good" };
+    const off = await post(fetch, "/w/me/texts", { on: false }, auth);
+    expect([off.status, await off.json(), off.headers.get("cache-control")]).toEqual([
+      200,
+      { opted_in: false, texts_on: false },
+      "no-store",
+    ]);
+    expect(await (await post(fetch, "/w/me/texts", { on: true }, auth)).json()).toEqual({
+      opted_in: true,
+      texts_on: true,
+    });
+    expect((await post(fetch, "/w/me/texts", { on: "yes" }, auth)).status).toBe(400);
+    expect((await post(fetch, "/w/me/texts", { on: true })).status).toBe(401);
+    expect(calls).toEqual([
+      ["good", false],
+      ["good", true],
+      ["", true],
+    ]);
   });
 
   it("POST /w/me/email/start returns the mailto for the bearer code, uncached, sharing /w/me/email's 5 an hour", async () => {

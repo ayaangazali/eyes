@@ -765,6 +765,17 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(await service.workerSetup(meToken(help[3]))).toMatchObject({ opted_in: true });
   });
 
+  it("workerSetTexts runs STOP and START for the /me code and shows texts_on", async () => {
+    const w = await worker(somewhere());
+    const eToken = (workerId: string) => signToken("test-link-secret-0123456789", `e:${workerId}`);
+    const token = eToken(w.worker_id);
+    expect(await service.workerSetup(token)).toMatchObject({ opted_in: true, texts_on: true });
+    expect(await service.workerSetTexts(token, false)).toMatchObject({ opted_in: false, texts_on: false });
+    expect(String(outbox.findLast((m) => m.to === w.phone)?.payload)).toContain("you're opted out");
+    expect(await service.workerSetTexts(token, true)).toMatchObject({ opted_in: true, texts_on: true });
+    await expect(service.workerSetTexts("bad", false)).rejects.toMatchObject({ code: "unauthorized" });
+  });
+
   it("START and HELP send a readable canonical menu in one body through the live phone/email wrappers; aliases still work", async () => {
     const w = await worker(somewhere(), false);
     const email = `menu-${randomUUID()}@workers.test`;
@@ -856,6 +867,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       >`select created_at from workers where id = ${w.worker_id}`;
       expect(WorkerSetup.parse(await service.workerSetup(token))).toEqual({
         opted_in: true,
+        texts_on: true,
         spot: { at: joined?.created_at.toISOString(), fresh: true, max_age_h: 24 },
         app: { connected: false, last_at: null, sending: false },
         payouts: {
