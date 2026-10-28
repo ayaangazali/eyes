@@ -390,6 +390,7 @@ describe("worker setup page (ADR-028)", () => {
         bounty_usd: 3,
         payout: "waiting_for_payout_setup",
         claimed_at: "2026-10-17T18:30:00.000Z",
+        dispute: null,
       },
     ],
     next_cursor: null,
@@ -571,6 +572,41 @@ describe("worker email routes (T6.48)", () => {
       ["good", true],
       ["", true],
     ]);
+  });
+
+  it("the worker and owner dispute routes pass token, task and reason, uncached, 10 an hour per token", async () => {
+    const task = "8b3e4d5c-6f7a-4b2c-9d0e-1f2a3b4c5d6e";
+    const calls: unknown[][] = [];
+    const { fetch } = setup({
+      workerDispute: async (token, input) => {
+        calls.push(["w", token, input]);
+        if (token !== "good") throw new EyesError("unauthorized");
+        return { task_id: input.task_id, dispute: "in_review" };
+      },
+      ownerDispute: async (token, input) => {
+        calls.push(["o", token, input]);
+        if (token !== "good") throw new EyesError("owner_link_invalid");
+        return { task_id: input.task_id, status: "disputed" } as never;
+      },
+    });
+    const reason = { reason: "Photo shows another shop." };
+    const w = await post(fetch, `/w/me/tasks/${task}/dispute`, reason, { authorization: "Bearer good" });
+    expect([w.status, await w.json(), w.headers.get("cache-control")]).toEqual([
+      200,
+      { task_id: task, dispute: "in_review" },
+      "no-store",
+    ]);
+    const o = await post(fetch, `/owner/good/tasks/${task}/dispute`, reason);
+    expect([o.status, (await o.json()).status]).toEqual([200, "disputed"]);
+    expect(calls).toEqual([
+      ["w", "good", { task_id: task, ...reason }],
+      ["o", "good", { task_id: task, ...reason }],
+    ]);
+    expect((await post(fetch, `/w/me/tasks/${task}/dispute`, { reason: "no" })).status).toBe(400);
+    expect((await post(fetch, `/w/me/tasks/${task}/dispute`, reason)).status).toBe(401);
+    expect((await post(fetch, `/owner/bad/tasks/${task}/dispute`, reason)).status).toBe(401);
+    for (let i = 0; i < 9; i++) await post(fetch, `/owner/good/tasks/${task}/dispute`, reason);
+    expect((await post(fetch, `/owner/good/tasks/${task}/dispute`, reason)).status).toBe(429);
   });
 
   it("POST /w/me/email/start returns the mailto for the bearer code, uncached, sharing /w/me/email's 5 an hour", async () => {

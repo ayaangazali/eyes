@@ -593,6 +593,18 @@
                           "answered": {
                             "type": "boolean",
                             "description": "True when status is verified, paid or needs_review; get_task returns the answer."
+                          },
+                          "dispute": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": ["open", "in_review", "stands", "upheld"]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ],
+                            "description": "Dispute state, or null when the task was never disputed."
                           }
                         },
                         "required": [
@@ -603,7 +615,8 @@
                           "bounty_usd",
                           "created_at",
                           "deadline_at",
-                          "answered"
+                          "answered",
+                          "dispute"
                         ],
                         "additionalProperties": false
                       }

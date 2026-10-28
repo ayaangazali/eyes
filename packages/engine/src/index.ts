@@ -8,6 +8,7 @@ import {
   CaptureFields,
   centsToUsd,
   type DisputeOutcome,
+  type DisputeState,
   distanceMeters,
   type EngineDeps,
   ERRORS,
@@ -467,6 +468,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       p_before: before ?? null,
     });
     const page = rows.slice(0, limit);
+    const states = await disputeStates(page.map((t) => t.id));
     const nextCursor = rows.length > limit ? (page.at(-1)?.id ?? null) : null;
     return {
       next_cursor: nextCursor,
@@ -480,6 +482,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         created_at: iso(t.created_at),
         deadline_at: iso(t.deadline_at),
         answered: ANSWERED.includes(t.status),
+        dispute: states.get(t.id) ?? null,
       })),
       next_step: nextCursor
         ? "Resume a listed task with await_answer or get_task. More tasks exist: call list_tasks with next_cursor as before and the same status filter before asking again."
@@ -491,6 +494,14 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
               ? `You have no tasks with status ${status}. Call list_tasks without status to see all your tasks.`
               : "You have no tasks yet. Call quote_task, then ask_eyes to create one.",
     };
+  }
+
+  async function disputeStates(taskIds: string[]): Promise<Map<string, DisputeState>> {
+    if (!taskIds.length) return new Map();
+    const rows = await rpc<{ task_id: string; state: DisputeState }>("eyes_dispute_states", {
+      p_task_ids: taskIds,
+    });
+    return new Map(rows.map((r) => [r.task_id, r.state]));
   }
 
   function ownerAgentId(token: string): string {
@@ -1498,6 +1509,25 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       return listTasksOf(agentId, input);
     },
 
+    async ownerDispute(token, input) {
+      const agentId = ownerAgentId(token);
+      const { task_id } = parse(TOOLS.dispute_answer.input, input);
+      if (!(await maybe("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() })))
+        throw new EyesError("owner_link_invalid");
+      // eyes_dispute repeats quietly for agents; the owner route reports a second dispute.
+      const agent = { id: agentId } as Agent;
+      if ((await detail(agent, task_id)).task.status === "disputed")
+        throw new EyesError(
+          "task_not_disputable",
+          { task_id, status: "disputed" },
+          {
+            message: "This task is already disputed.",
+            fix: "Read dispute in the task list for its state.",
+          },
+        );
+      return service.disputeAnswer(agent, input);
+    },
+
     async rotateApiKey(token) {
       const agentId = ownerAgentId(token);
       const api_key = newApiKey();
@@ -1748,6 +1778,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         p_before_id: before?.id ?? null,
       });
       const shown = rows.slice(0, TASKS_PAGE);
+      const states = await disputeStates(shown.map((t) => t.task_id));
       const last = shown.at(-1);
       return {
         paid_usd: centsToUsd(e.paid_cents),
@@ -1767,6 +1798,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
                 ? "pending"
                 : "waiting_for_payout_setup",
           claimed_at: iso(t.claimed_at),
+          dispute: states.get(t.task_id) ?? null,
         })),
         next_cursor: rows.length > TASKS_PAGE && last ? `${last.claimed_at}|${last.task_id}` : null,
       } satisfies WorkerTasks;
@@ -1810,6 +1842,13 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       const w = await meWorker(token);
       if (!w.opted_in) throw new EyesError("invalid_input", {}, START_FIRST);
       return { mailto: await connectMailto(w.id) };
+    },
+
+    async workerDispute(token, input) {
+      const { id: workerId } = await meWorker(token);
+      const { task_id, reason } = parse(TOOLS.dispute_answer.input, input);
+      await rpc("eyes_worker_dispute", { p_worker_id: workerId, p_task_id: task_id, p_reason: reason });
+      return { task_id, dispute: "in_review" as const };
     },
 
     async workerDelete(token) {
