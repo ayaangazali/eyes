@@ -578,6 +578,7 @@ export function createServer(
   const dispatch = (agent: Agent, input: z.output<typeof AskEyesInput>) =>
     run(async (): Promise<z.output<typeof AskEyesToolOutput>> => {
       try {
+        await callLimit("/v1/tasks", agent.id, taskCalls);
         return await service.askEyes(agent, input);
       } catch (err) {
         if (!(err instanceof EyesError && err.code === "no_workers_nearby")) throw err;
@@ -606,7 +607,7 @@ Next: in ChatGPT, Claude or MCP Apps, show the card and let the user review and 
       annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: true },
       _meta: widgetToolMeta("Checking the place", "Quote ready"),
     },
-    (input, ctx) => run(() => service.quoteTask(ctx.get("agent"), input)),
+    (input, ctx) => run(() => quote(ctx.get("agent"), input)),
   );
 
   server.tool(
@@ -633,7 +634,7 @@ Next: if status is "dispatched", call await_answer with the returned task_id. Fo
       return run(
         async (): Promise<z.output<typeof AskEyesDraftOutput>> => ({
           ...input,
-          ...(await service.quoteTask(ctx.get("agent"), {
+          ...(await quote(ctx.get("agent"), {
             location: input.location,
             task_type: input.task_type,
           })),
@@ -975,6 +976,38 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     hits.set(key, [...recent, now]);
   };
 
+  const perHour = (name: string, fallback: number) => {
+    const n = Number(env[name]);
+    return Number.isInteger(n) && n > 0 ? n : fallback;
+  };
+  const taskCalls = perHour("EYES_AGENT_TASKS_PER_HOUR", 30);
+  const quoteCalls = perHour("EYES_AGENT_QUOTES_PER_HOUR", 120);
+  const uploadCalls = perHour("EYES_WORKER_UPLOADS_PER_HOUR", 20);
+  // Counts live in Postgres so every server process shares them; without a database, per process.
+  const callLimit = async (bucket: string, who: string, max: number) => {
+    if (!deps.rpc) return throttle({ req: { path: bucket } } as Pick<Context, "req">, bucket, who, max);
+    // The rpc layer unwraps the one-column row to a bare number.
+    const [retry_after_s = 0] = await deps.rpc<number>("eyes_rate_hit", {
+      p_key: `${bucket} ${who}`,
+      p_max: max,
+      p_window_s: HOUR_MS / 1000,
+      p_now: deps.providers.clock.now().toISOString(),
+    });
+    if (retry_after_s > 0)
+      throw new EyesError(
+        "rate_limited",
+        { retry_after_s },
+        {
+          fix: `${bucket} allows ${max} calls per hour for one account. Wait ${retry_after_s} seconds and try again.`,
+        },
+      );
+  };
+
+  const quote = async (agent: Agent, input: z.output<typeof QuoteTaskInput>) => {
+    await callLimit("/v1/quote", agent.id, quoteCalls);
+    return service.quoteTask(agent, input);
+  };
+
   server.post("/v1/signup", async (c) => {
     const input = parse(SignupInput, await readJson(c));
     throttle(c);
@@ -997,11 +1030,13 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     });
   }
   server.post("/v1/quote", async (c) =>
-    c.json(await service.quoteTask(c.get("agent"), parse(QuoteTaskInput, await readJson(c)))),
+    c.json(await quote(c.get("agent"), parse(QuoteTaskInput, await readJson(c)))),
   );
-  server.post("/v1/tasks", async (c) =>
-    c.json(await service.askEyes(c.get("agent"), parse(AskEyesInput, await readJson(c)))),
-  );
+  server.post("/v1/tasks", async (c) => {
+    const input = parse(AskEyesInput, await readJson(c));
+    await callLimit("/v1/tasks", c.get("agent").id, taskCalls);
+    return c.json(await service.askEyes(c.get("agent"), input));
+  });
   server.post("/v1/classifier-reports", async (c) => {
     const input = parse(TOOLS.report_classifier.input, await readJson(c));
     throttle(c, "/v1/classifier-reports", c.get("agent").id);
@@ -1297,6 +1332,11 @@ Next: keep bounty_usd at or below max_bounty_usd and within remaining_today_usd 
     const offer = await service.getOffer(token);
     if (!offer.claimed_by_you) throw new EyesError("task_already_claimed");
     if (offer.status !== "claimed") throw new EyesError("offer_invalid", { status: offer.status });
+    await callLimit(
+      "/w/capture",
+      (verifyToken(config.link_secret, token, deps.providers.clock.now()) ?? "").split(":").at(-1) ?? "",
+      uploadCalls,
+    );
     if (uploads.has(token)) {
       throw new EyesError("rate_limited", { retry_after_s: 5 }, { fix: "Wait 5 seconds and submit again." });
     }

@@ -50,6 +50,7 @@ export function start(env: Record<string, string | undefined>, exit: Exit = fail
     location_min_interval_s: env.EYES_LOCATION_MIN_INTERVAL_S
       ? Number(env.EYES_LOCATION_MIN_INTERVAL_S)
       : undefined,
+    max_open_tasks: env.EYES_MAX_OPEN_TASKS ? Number(env.EYES_MAX_OPEN_TASKS) : undefined,
     location_daily_max: env.EYES_LOCATION_DAILY_MAX ? Number(env.EYES_LOCATION_DAILY_MAX) : undefined,
     testflight_url: env.EYES_TESTFLIGHT_URL || undefined,
     email_domain: env.PRIMITIVE_DOMAIN || undefined,
