@@ -130,6 +130,8 @@ export interface EyesService {
   workerSetup(token: string): Promise<WorkerSetup>;
   /** Adds, changes (pending, link emailed) or with null removes the worker's email. */
   workerSetEmail(token: string, email: string | null): Promise<WorkerSetup>;
+  /** token: as workerSetup. on=false runs STOP, on=true runs START (a banned worker stays off). Throws unauthorized. */
+  workerSetTexts(token: string, on: boolean): Promise<WorkerSetup>;
   /** Records the optional email step as skipped; never adds/verifies email or sends mail. */
   workerSkipEmail(token: string): Promise<WorkerSetup>;
   /** token: as workerSetup. A 24-hour one-time mailto to work@ that connects the sender's email, verified (the worker emails first). Throws unauthorized, or invalid_input before the phone texted START. */

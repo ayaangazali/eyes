@@ -27,6 +27,7 @@ const START = "sms:+14155550100?&body=START";
 function setup(over: Partial<WorkerSetup> = {}): WorkerSetup {
   return {
     opted_in: true,
+    texts_on: true,
     spot: { at: minAgo(12), fresh: true, max_age_h: 24 },
     app: { connected: true, last_at: minAgo(5), sending: true },
     payouts: { set_up: true, live: true, setup_url: null },
