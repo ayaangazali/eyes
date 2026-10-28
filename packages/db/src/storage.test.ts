@@ -158,4 +158,16 @@ describe("createInsforgeStorage signed photo links", () => {
     expect(await storage.readPhoto({ ...p, sig: "0".repeat(64) })).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("returns the stored URL unsigned when it has no photo key or no public API URL is set", () => {
+    expect(storage.signPhoto("https://x.test/legacy.jpg")).toBe("https://x.test/legacy.jpg");
+    const bare = createInsforgeStorage(env);
+    expect(bare.signPhoto(`${base}/photos/${key}`)).toBe(`${base}/photos/${key}`);
+  });
+
+  it("returns null when the bucket no longer has the object", async () => {
+    const p = parts(storage.signPhoto(`${base}/photos/${key}`));
+    stubFetch(404, { error: "STORAGE_NOT_FOUND" });
+    expect(await storage.readPhoto(p)).toBeNull();
+  });
 });
