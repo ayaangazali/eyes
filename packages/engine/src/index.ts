@@ -39,6 +39,7 @@ import {
 } from "@eyes/core";
 import { createRpc, type RpcArgs } from "@eyes/db";
 import { z } from "zod";
+import { hashPhoto, PHOTO_PHASH_MAX_DISTANCE } from "./photo-hash.ts";
 
 type Detail = { task: Task; submission: Submission | null; worker_rating: number | null };
 type Nearby = { worker_id: string; phone: string; email: string | null; distance_m: number };
@@ -1859,7 +1860,17 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
             })
           ).url
         : null;
-      const v = await deps.verifySubmission({
+      const hash = photo ? hashPhoto(photo.bytes) : null;
+      const reused = hash
+        ? (
+            await one<{ reused: boolean }>("eyes_photo_reuse", {
+              p_sha256: hash.sha256,
+              p_phash: hash.phash,
+              p_max_distance: PHOTO_PHASH_MAX_DISTANCE,
+            })
+          ).reused
+        : false;
+      const verified = await deps.verifySubmission({
         task,
         submission: {
           lat: capture.lat,
@@ -1873,6 +1884,9 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         },
         vision: providers.vision,
       });
+      const v = reused
+        ? { ...verified, auto_approve: false, vision_reason: "This photo matches an earlier answer." }
+        : verified;
       const dropPhoto = () =>
         providers.storage
           .deletePhoto({ key })
@@ -1899,6 +1913,13 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
         if (lost && photo_url) await dropPhoto();
         throw err;
       });
+      if (hash)
+        await rpc("eyes_store_photo_hash", {
+          p_task_id: task.id,
+          p_worker_id: workerId,
+          p_sha256: hash.sha256,
+          p_phash: hash.phash,
+        }).catch((err) => console.error(`photo hash for task ${task.id} failed: ${errorName(err)}`));
       await storeFix(workerId, { ...capture, source: "capture" }, null).catch((err) =>
         console.error(`location from capture for task ${task.id} failed: ${errorName(err)}`),
       );
