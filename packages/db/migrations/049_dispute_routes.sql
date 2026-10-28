@@ -1,4 +1,4 @@
--- Worker and owner dispute routes (ADR-049). A worker contests an owner's dispute: one manual_review
+-- Worker and owner dispute routes (ADR-050). A worker contests an owner's dispute: one manual_review
 -- ticket marked appeal, so ops reviews it with the existing HELP actions. One appeal per task, ever.
 alter table tickets add column appeal boolean not null default false;
 
