@@ -2940,6 +2940,40 @@ describe("ops data routes", () => {
     ]);
   });
 
+  it("suspends and restores an agent, and revokes owner links, from ops and logs each as a warning", async () => {
+    const agent_id = "0b6c8f9e-1a2b-4c3d-8e4f-5a6b7c8d9e0f";
+    const { post, events } = opsServer(() => [], {
+      service: {
+        setAgentSuspended: async (id, suspended) => ({ agent_id: id, suspended }),
+        revokeOwnerLinks: async (id) => ({ agent_id: id, owner_link_version: 3 }),
+      },
+    });
+    expect(await (await post(`/ops/agents/${agent_id}/suspend`, {})).json()).toEqual({
+      agent_id,
+      suspended: true,
+    });
+    expect(await (await post(`/ops/agents/${agent_id}/suspend`, { suspended: false })).json()).toEqual({
+      agent_id,
+      suspended: false,
+    });
+    expect(await (await post(`/ops/agents/${agent_id}/revoke-owner-links`, {})).json()).toEqual({
+      agent_id,
+      owner_link_version: 3,
+    });
+    expect((await post("/ops/agents/nope/suspend", {})).status).toBe(400);
+    expect(
+      events
+        .recent()
+        .filter((e) => e.kind === "ops")
+        .map((e) => [e.level, e.summary])
+        .sort(),
+    ).toEqual([
+      ["warn", "agent restored by break-glass"],
+      ["warn", "agent suspended by break-glass"],
+      ["warn", "owner links revoked by break-glass"],
+    ]);
+  });
+
   it("shows task detail with or without a submission, and 404s unknown or malformed ids without querying", async () => {
     const task = { ...T, question: "q", place_label: "p", radius_m: 50, status: "paid", bounty_cents: 300 };
     const submission = {
