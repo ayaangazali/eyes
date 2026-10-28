@@ -2944,8 +2944,8 @@ describe("ops data routes", () => {
     const agent_id = "0b6c8f9e-1a2b-4c3d-8e4f-5a6b7c8d9e0f";
     const { post, events } = opsServer(() => [], {
       service: {
-        setAgentSuspended: async (id, suspended) => ({ agent_id: id, suspended }),
-        revokeOwnerLinks: async (id) => ({ agent_id: id, owner_link_version: 3 }),
+        setAgentSuspended: async (id: string, suspended: boolean) => ({ agent_id: id, suspended }),
+        revokeOwnerLinks: async (id: string) => ({ agent_id: id, owner_link_version: 3 }),
       },
     });
     expect(await (await post(`/ops/agents/${agent_id}/suspend`, {})).json()).toEqual({
