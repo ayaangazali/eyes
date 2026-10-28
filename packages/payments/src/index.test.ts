@@ -142,6 +142,10 @@ function setup(payments: Payments = fakeProviders().payments, live_payouts = tru
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
       return OWNER_VIEW.policy;
     }),
+    ownerTasks: vi.fn(async (token: string, input: { limit: number; before?: string }) => {
+      if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
+      return { tasks: [], next_cursor: input.before ? null : TASK_ID, next_step: "x" };
+    }),
     rotateApiKey: vi.fn(async (token: string) => {
       if (token !== "owner-tok") throw new EyesError("owner_link_invalid");
       return { api_key: NEW_KEY };
@@ -462,6 +466,70 @@ describe("owner console routes", () => {
       expect(await r.text()).not.toContain(escaped);
     }
     expect(service.rotateApiKey.mock.calls).toEqual([["owner-tok"], ["agent-tok"]]);
+  });
+
+  describe("JSON twins", () => {
+    const json = (app: ReturnType<typeof setup>["app"], path: string, body?: unknown) =>
+      app.request(`/owner/${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: { "content-type": "application/json" },
+      });
+    const policy = { max_bounty_usd: 4, daily_cap_usd: 25, allowed_task_types: ["is_open"] };
+
+    it("serves state, a task page, a saved policy and a one-time key, uncached", async () => {
+      const { app, service } = setup();
+      const state = await json(app, "owner-tok/state.json");
+      expect(state.status).toBe(200);
+      expect(await state.json()).toEqual(OWNER_VIEW);
+      const tasks = await json(app, `owner-tok/tasks.json?limit=5&status=paid&before=${TASK_ID}`);
+      expect(await tasks.json()).toEqual({ tasks: [], next_cursor: null });
+      expect(service.ownerTasks).toHaveBeenCalledWith("owner-tok", {
+        limit: 5,
+        status: "paid",
+        before: TASK_ID,
+      });
+      const saved = await json(app, "owner-tok/policy.json", policy);
+      expect(await saved.json()).toEqual(OWNER_VIEW.policy);
+      expect(service.updateSpendPolicy).toHaveBeenCalledWith("owner-tok", policy);
+      const rotated = await json(app, "owner-tok/rotate-key.json", { confirm: true });
+      expect(await rotated.json()).toEqual({ api_key: NEW_KEY });
+      for (const r of [state, tasks, saved, rotated]) {
+        expect(r.headers.get("cache-control")).toBe("no-store");
+        expect(r.headers.get("content-type")).toContain("application/json");
+      }
+    });
+
+    it("answers 401 for an unknown token on every route and never reaches another owner", async () => {
+      const { app, service } = setup();
+      const res = [
+        await json(app, "agent-tok/state.json"),
+        await json(app, "agent-tok/tasks.json"),
+        await json(app, "agent-tok/policy.json", policy),
+        await json(app, "agent-tok/rotate-key.json", { confirm: true }),
+      ];
+      expect(res.map((r) => r.status)).toEqual([401, 401, 401, 401]);
+      expect(await res[0]?.json()).toMatchObject({ error: "owner_link_invalid" });
+      // Each call carried only the URL token; the agent id in OWNER_VIEW is never a service input.
+      expect(JSON.stringify([service.ownerConsole.mock.calls, service.ownerTasks.mock.calls])).not.toContain(
+        OWNER_VIEW.agent_id,
+      );
+    });
+
+    it("rejects invalid input with 400 and changes nothing", async () => {
+      const { app, service } = setup();
+      const bad = [
+        await json(app, "owner-tok/policy.json", { ...policy, max_bounty_usd: 51 }),
+        await json(app, "owner-tok/policy.json", { ...policy, daily_cap_usd: "20" }),
+        await json(app, "owner-tok/policy.json", { ...policy, allowed_task_types: ["nope"] }),
+        await json(app, "owner-tok/rotate-key.json", {}),
+        await json(app, "owner-tok/tasks.json?limit=500"),
+        await json(app, "owner-tok/tasks.json?before=not-a-uuid"),
+      ];
+      expect(bad.map((r) => r.status)).toEqual([400, 400, 400, 400, 400, 400]);
+      expect(service.updateSpendPolicy).not.toHaveBeenCalled();
+      expect(service.rotateApiKey).not.toHaveBeenCalled();
+    });
   });
 
   it("shows a frozen cap, no top-up button and empty task and money lists", async () => {
