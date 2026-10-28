@@ -402,6 +402,28 @@ describe("owner console routes", () => {
     expect(await (await app.request("/owner/owner-tok?saved=1")).text()).toContain("Saved.");
   });
 
+  it("renders no-limit fields empty and the chosen period and at-limit action selected", async () => {
+    const { app, service } = setup();
+    service.ownerConsole.mockResolvedValueOnce({
+      ...OWNER_VIEW,
+      policy: {
+        ...OWNER_VIEW.policy,
+        max_bounty_usd: null,
+        daily_cap_usd: null,
+        cap_period: "week",
+        at_limit: "pause",
+      },
+    });
+    const body = await (await app.request("/owner/owner-tok")).text();
+    expect(body).toContain("Spent this week (UTC)");
+    expect(body).toContain("$3.50, no limit");
+    expect(body).toMatch(/id="max_bounty_usd"[^>]* value=""/);
+    expect(body).toMatch(/id="daily_cap_usd"[^>]* value=""/);
+    expect(body).toContain('<option value="week" selected>');
+    expect(body).toContain('<option value="pause" selected>');
+    expect(body).not.toContain('<option value="day" selected>');
+  });
+
   it("saves empty fields as no limit, and a period and at-limit action", async () => {
     const { app, service } = setup();
     await post(app, "owner-tok", "max_bounty_usd=&daily_cap_usd=&cap_period=week&at_limit=pause");
