@@ -1748,7 +1748,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     await expect(ask(a, at)).resolves.toMatchObject({ status: "dispatched" });
   });
 
-  describe("open-ended spend limits (ADR-049)", () => {
+  describe("open-ended spend limits (ADR-050)", () => {
     const types: OwnerPolicyInput["allowed_task_types"] = ["line_length"];
     const setPolicy = (a: Agent, policy: Partial<OwnerPolicyInput>) =>
       service.updateSpendPolicy(signToken(deps.config.link_secret, `p:${a.id}`), {
@@ -1919,9 +1919,28 @@ describe.skipIf(!url)("engine on Postgres", () => {
       code: "owner_link_invalid",
     });
 
+    // ADR-052: a revoke kills the link made before it; a new link at the new version works.
+    const { owner_link_version } = await service.revokeOwnerLinks(signup.agent_id);
+    expect(owner_link_version).toBe(1);
+    await expect(service.ownerConsole(ownerToken)).rejects.toMatchObject({ code: "owner_link_invalid" });
+    const newLink = signToken("test-link-secret-0123456789", `p:${signup.agent_id}:${owner_link_version}`);
+    expect((await service.ownerConsole(newLink)).agent_id).toBe(signup.agent_id);
+    expect(await service.setAgentSuspended(signup.agent_id, true)).toEqual({
+      agent_id: signup.agent_id,
+      suspended: true,
+    });
+    expect((await service.authenticate(signup.api_key))?.suspended).toBe(true);
+    await service.setAgentSuspended(signup.agent_id, false);
+    const unknown = randomUUID();
+    await expect(
+      service.ownerConsole(signToken("test-link-secret-0123456789", `p:${unknown}`)),
+    ).rejects.toMatchObject({ code: "owner_link_invalid" });
+    await expect(service.setAgentSuspended(unknown, true)).rejects.toMatchObject({ code: "not_found" });
+    await expect(service.revokeOwnerLinks(unknown)).rejects.toMatchObject({ code: "not_found" });
+
     const types = ["is_open", "line_length"] as const;
     expect(
-      await service.updateSpendPolicy(ownerToken, {
+      await service.updateSpendPolicy(newLink, {
         max_bounty_usd: 2,
         daily_cap_usd: 20,
         allowed_task_types: [...types, "is_open"],
@@ -1940,7 +1959,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
       code: "task_type_not_allowed",
     });
 
-    await service.updateSpendPolicy(ownerToken, {
+    await service.updateSpendPolicy(newLink, {
       max_bounty_usd: 10,
       daily_cap_usd: 0,
       allowed_task_types: [...types],
@@ -1949,7 +1968,7 @@ describe.skipIf(!url)("engine on Postgres", () => {
     expect(frozen).toMatchObject({ code: "daily_cap_exceeded", fix: expect.stringContaining("froze") });
     expect((frozen as EyesError).fix).not.toMatch(/tomorrow|Lower bounty_usd/);
 
-    await service.updateSpendPolicy(ownerToken, {
+    await service.updateSpendPolicy(newLink, {
       max_bounty_usd: 50,
       daily_cap_usd: 1000,
       allowed_task_types: [...types],

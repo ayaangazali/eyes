@@ -2,6 +2,7 @@
 
 exports[`error catalog > matches the public error contract 1`] = `
 {
+  "agent_suspended": 403,
   "bounty_exceeds_max": 403,
   "daily_cap_exceeded": 403,
   "email_taken": 409,

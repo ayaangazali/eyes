@@ -4,6 +4,11 @@ export const ERRORS = {
     message: "Missing or invalid API key.",
     fix: "Send the header Authorization: Bearer <api_key>. No key yet? POST /v1/signup (or run `eyes signup`) to create one.",
   },
+  agent_suspended: {
+    status: 403,
+    message: "This agent is suspended.",
+    fix: "Stop sending requests. Contact the Eyes operator to ask why and to have the agent turned back on.",
+  },
   invalid_input: {
     status: 400,
     message: "The request did not match the expected schema.",

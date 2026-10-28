@@ -1899,6 +1899,7 @@
             "type": "string",
             "enum": [
               "unauthorized",
+              "agent_suspended",
               "invalid_input",
               "not_found",
               "method_not_allowed",
@@ -1941,7 +1942,7 @@
     },
     "responses": {
       "Error": {
-        "description": "Error. Status by code: unauthorized 401, invalid_input 400, not_found 404, method_not_allowed 405, payload_too_large 413, service_unavailable 503, insufficient_balance 402, bounty_exceeds_max 403, daily_cap_exceeded 403, task_type_not_allowed 403, unsafe_task 422, location_not_found 422, no_workers_nearby 409, task_not_found 404, task_not_cancellable 409, task_not_disputable 409, task_not_acceptable 409, email_taken 409, idempotency_conflict 409, offer_invalid 404, task_already_claimed 409, rate_limited 429, owner_link_invalid 404, not_implemented 501, internal_error 500.",
+        "description": "Error. Status by code: unauthorized 401, agent_suspended 403, invalid_input 400, not_found 404, method_not_allowed 405, payload_too_large 413, service_unavailable 503, insufficient_balance 402, bounty_exceeds_max 403, daily_cap_exceeded 403, task_type_not_allowed 403, unsafe_task 422, location_not_found 422, no_workers_nearby 409, task_not_found 404, task_not_cancellable 409, task_not_disputable 409, task_not_acceptable 409, email_taken 409, idempotency_conflict 409, offer_invalid 404, task_already_claimed 409, rate_limited 429, owner_link_invalid 404, not_implemented 501, internal_error 500.",
         "content": {
           "application/json": {
             "schema": {

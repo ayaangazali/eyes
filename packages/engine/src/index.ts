@@ -448,6 +448,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
   const newApiKey = () =>
     `${config.test_mode ? "eyes_test_" : "eyes_live_"}${randomBytes(32).toString("base64url")}`;
 
+  // A new agent's link is version 0, which keeps the original `p:<id>` form (ADR-052).
   const ownerUrl = (agentId: string) =>
     `${config.public_api_url}/owner/${signToken(config.link_secret, `p:${agentId}`)}`;
 
@@ -504,9 +505,12 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     return new Map(rows.map((r) => [r.task_id, r.state]));
   }
 
-  function ownerAgentId(token: string): string {
-    const agentId = tokenPayload(token, "p");
+  // A link dies when its version no longer matches the agent's (ADR-052).
+  async function ownerAgentId(token: string): Promise<string> {
+    const [agentId, version = "0"] = tokenPayload(token, "p")?.split(":") ?? [];
     if (!agentId) throw new EyesError("owner_link_invalid");
+    const agent = await maybe<Agent>("eyes_agent", { p_agent_id: agentId });
+    if (!agent || String(agent.owner_link_version) !== version) throw new EyesError("owner_link_invalid");
     return agentId;
   }
 
@@ -1444,7 +1448,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async ownerConsole(token) {
-      const agentId = ownerAgentId(token);
+      const agentId = await ownerAgentId(token);
       const c = await maybe<ConsoleRow>("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() });
       if (!c) throw new EyesError("owner_link_invalid");
       return {
@@ -1472,7 +1476,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async updateSpendPolicy(token, input) {
-      const agentId = ownerAgentId(token);
+      const agentId = await ownerAgentId(token);
       const policy = parse(OwnerPolicyInput, input);
       const whole = (v: number | null, name: string) =>
         v === null ? null : usdToCents(assertWholeCents(v, name));
@@ -1504,14 +1508,14 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async ownerTasks(token, input) {
-      const agentId = ownerAgentId(token);
+      const agentId = await ownerAgentId(token);
       if (!(await maybe("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() })))
         throw new EyesError("owner_link_invalid");
       return listTasksOf(agentId, input);
     },
 
     async ownerDispute(token, input) {
-      const agentId = ownerAgentId(token);
+      const agentId = await ownerAgentId(token);
       const { task_id } = parse(TOOLS.dispute_answer.input, input);
       if (!(await maybe("eyes_owner_console", { p_agent_id: agentId, p_now: nowIso() })))
         throw new EyesError("owner_link_invalid");
@@ -1530,7 +1534,7 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
     },
 
     async rotateApiKey(token) {
-      const agentId = ownerAgentId(token);
+      const agentId = await ownerAgentId(token);
       const api_key = newApiKey();
       const rotated = await maybe("eyes_rotate_api_key", {
         p_agent_id: agentId,
@@ -1538,6 +1542,21 @@ export function createEyesService(deps: EngineDeps, notice: Notice = () => {}): 
       });
       if (!rotated) throw new EyesError("owner_link_invalid");
       return { api_key };
+    },
+
+    async setAgentSuspended(agentId, suspended) {
+      const a = await maybe<Agent>("eyes_set_agent_suspended", {
+        p_agent_id: agentId,
+        p_suspended: suspended,
+      });
+      if (!a) throw new EyesError("not_found", { agent_id: agentId });
+      return { agent_id: a.id, suspended: a.suspended };
+    },
+
+    async revokeOwnerLinks(agentId) {
+      const a = await maybe<Agent>("eyes_revoke_owner_links", { p_agent_id: agentId });
+      if (!a) throw new EyesError("not_found", { agent_id: agentId });
+      return { agent_id: a.id, owner_link_version: a.owner_link_version };
     },
 
     async joinWorker(input) {

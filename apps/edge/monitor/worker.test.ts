@@ -474,3 +474,53 @@ describe("expiry trigger", () => {
     expect(calls).toContain(`${base}/api/database/records/worker_devices?select=udid&released_at=is.null`);
   });
 });
+
+describe("abuse alerts", () => {
+  const DB = "https://db.example.test";
+  const env = (kv: Kv) => fakeEnv(kv, { INSFORGE_BASE_URL: DB, INSFORGE_API_KEY: "k" });
+
+  // The events query for a 429 spike returns `rows` rows; every other signal returns none.
+  function spikeFetch(rows: number): Call[] {
+    const calls: Call[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        calls.push({ url, init });
+        if (url === HEALTH_URL) return healthy();
+        if (url.includes("/identities/")) return json({ id: "ident-1" });
+        if (url.includes("/imessage/messages")) return json({ message: { id: "m1", status: "sent" } });
+        if (url.includes("/records/events"))
+          return json(Array.from({ length: url.includes("rate_limited") ? rows : 0 }, (_, id) => ({ id })));
+        return json([]);
+      }),
+    );
+    return calls;
+  }
+
+  it("a spike sends one alert and a second tick in the spike stays quiet", async () => {
+    const kv = fakeKv();
+    const calls = spikeFetch(50);
+    await worker.scheduled({}, env(kv));
+    await worker.scheduled({}, env(kv));
+    expect(alertSubjects(calls)).toEqual(["Eyes abuse spike: 429 responses"]);
+  });
+
+  it("alerts again after the spike ends and a new one starts", async () => {
+    const kv = fakeKv();
+    const calls = spikeFetch(50);
+    await worker.scheduled({}, env(kv));
+    spikeFetch(0);
+    await worker.scheduled({}, env(kv));
+    const again = spikeFetch(50);
+    await worker.scheduled({}, env(kv));
+    expect(alertSubjects(calls)).toHaveLength(1);
+    expect(alertSubjects(again)).toHaveLength(1);
+  });
+
+  it("below the limit sends nothing", async () => {
+    const calls = spikeFetch(49);
+    await worker.scheduled({}, env(fakeKv()));
+    expect(alertSubjects(calls)).toEqual([]);
+  });
+});

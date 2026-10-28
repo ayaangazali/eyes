@@ -45,6 +45,8 @@ const AGENT: Agent = {
   cap_period: "day",
   at_limit: "ask",
   allowed_task_types: ["is_open", "line_length"],
+  suspended: false,
+  owner_link_version: 0,
   created_at: "2026-10-17T19:00:00.000Z",
 };
 const TASK_ID = "3f0e8c1a-5b7d-4e2f-9a6b-1c2d3e4f5a6b";
@@ -319,6 +321,26 @@ describe("auth", () => {
     const ask = await fetch("http://eyes.test/v1/tasks", { method: "POST", headers, body: "{}" });
     expect(ask.status).toBe(401);
     expect(await ask.json()).toEqual(unauthorized);
+  });
+
+  it("answers 403 agent_suspended on every authenticated route for a suspended agent", async () => {
+    const { fetch } = setup({ authenticate: async () => ({ ...AGENT, suspended: true }) });
+    for (const [path, method] of [
+      ["/v1/balance", "GET"],
+      ["/v1/tasks", "POST"],
+      ["/mcp", "POST"],
+    ] as const) {
+      const res = await fetch(`http://eyes.test${path}`, {
+        method,
+        headers: {
+          authorization: `Bearer ${KEY}`,
+          ...(method === "POST" && { "content-type": "application/json" }),
+        },
+        body: method === "POST" ? "{}" : undefined,
+      });
+      expect(res.status, path).toBe(403);
+      expect(await res.json(), path).toMatchObject({ error: "agent_suspended" });
+    }
   });
 
   it("accepts a lowercase bearer scheme", async () => {
@@ -2915,6 +2937,40 @@ describe("ops data routes", () => {
     expect(ops.map((e) => [e.level, e.summary]).sort()).toEqual([
       ["info", "ticket #7 reject_dispute by break-glass (already resolved)"],
       ["warn", "ticket #7 confirm_fraud by break-glass"],
+    ]);
+  });
+
+  it("suspends and restores an agent, and revokes owner links, from ops and logs each as a warning", async () => {
+    const agent_id = "0b6c8f9e-1a2b-4c3d-8e4f-5a6b7c8d9e0f";
+    const { post, events } = opsServer(() => [], {
+      service: {
+        setAgentSuspended: async (id: string, suspended: boolean) => ({ agent_id: id, suspended }),
+        revokeOwnerLinks: async (id: string) => ({ agent_id: id, owner_link_version: 3 }),
+      },
+    });
+    expect(await (await post(`/ops/agents/${agent_id}/suspend`, {})).json()).toEqual({
+      agent_id,
+      suspended: true,
+    });
+    expect(await (await post(`/ops/agents/${agent_id}/suspend`, { suspended: false })).json()).toEqual({
+      agent_id,
+      suspended: false,
+    });
+    expect(await (await post(`/ops/agents/${agent_id}/revoke-owner-links`, {})).json()).toEqual({
+      agent_id,
+      owner_link_version: 3,
+    });
+    expect((await post("/ops/agents/nope/suspend", {})).status).toBe(400);
+    expect(
+      events
+        .recent()
+        .filter((e) => e.kind === "ops")
+        .map((e) => [e.level, e.summary])
+        .sort(),
+    ).toEqual([
+      ["warn", "agent restored by break-glass"],
+      ["warn", "agent suspended by break-glass"],
+      ["warn", "owner links revoked by break-glass"],
     ]);
   });
 
