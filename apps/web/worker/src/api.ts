@@ -7,6 +7,7 @@ declare global {
     readonly VITE_TURNSTILE_SITE_KEY?: string;
     readonly VITE_INKBOX_CONNECT?: string;
     readonly VITE_LIVE_PAYOUTS?: string;
+    readonly VITE_ADS?: string;
     readonly VITE_TESTFLIGHT_URL?: string;
     readonly VITE_ADHOC_MANIFEST_URL?: string;
   }
@@ -32,6 +33,8 @@ const WORDS: Partial<Record<ErrorCode, [string, string]>> = {
 };
 
 export const LIVE_PAYOUTS = import.meta.env.VITE_LIVE_PAYOUTS === "true";
+/** Off unless the build sets VITE_ADS=true; see docs/features/ads.md. */
+export const ADS = import.meta.env.VITE_ADS === "true";
 
 export const LOCATION_HELP =
   "On iPhone, tap aA in the address bar > Website Settings > Location > Allow, or turn on Settings > Privacy & Security > Location Services > Safari Websites. Then tap Try location again.";
