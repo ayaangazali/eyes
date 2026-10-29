@@ -5,7 +5,11 @@ The Eyes iPhone app (Expo, React Native). A worker sets it up with their code, a
 ## Entry points
 
 - `index.ts`: registers the background task and the root component.
-- `App.tsx`: the single screen (setup, permission, sharing status).
+- `App.tsx`: the Expo Router root for the routes in `app/`.
+- `app/(tabs)/_layout.tsx`: the system tab bar (Home, Earn, Spend, Account).
+- `app/(tabs)/(home,earn,spend,account)/`: one native stack with a large title for each tab. `index.tsx` is Home (setup, permission, sharing status); `earn.tsx`, `spend.tsx` and `account.tsx` are empty states for now.
+- `src/ui.tsx`: the iOS semantic colors, the `Type` text with Dynamic Type, and the empty-state view.
+- `app/+native-intent.ts`: opens Home for the setup link `eyes://connect#c=<code>`.
 - `src/background.ts`: the `eyes-location` background task, keychain storage of the code (`expo-secure-store`), and start and stop of sharing.
 - `src/eyes.ts`: the send logic with no Expo imports: setup-link parsing, permission state, `postFix` and the 60 s throttle. `EXPO_PUBLIC_EYES_API` overrides the API origin (default `https://api.eyes.pictures`).
 
