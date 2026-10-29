@@ -374,7 +374,11 @@ describe("owner console routes", () => {
     expect(body).toContain("Cafe &amp; Co");
     expect(body).toContain('value="is_open" checked>');
     expect(body).toContain('value="in_stock">');
-    expect(body).toContain('href="https://api.eyes.test/topup/agent-tok"');
+    for (const n of [10, 20, 50])
+      expect(body).toContain(
+        `href="https://api.eyes.test/topup/agent-tok?amount_usd=${n}" aria-label="Top up $${n}"`,
+      );
+    expect(body).not.toContain("too low for a task");
     expect(body).toContain('action="/owner/owner-tok/policy"');
   });
 
@@ -586,10 +590,11 @@ describe("owner console routes", () => {
     });
   });
 
-  it("shows a frozen cap, no top-up button and empty task and money lists", async () => {
+  it("shows a frozen cap, a low-balance notice, no top-up buttons and empty task and money lists", async () => {
     const { app, service } = setup();
     service.ownerConsole.mockResolvedValueOnce({
       ...OWNER_VIEW,
+      balance_usd: 1.49,
       policy: { ...OWNER_VIEW.policy, daily_cap_usd: 0, remaining_today_usd: 0 },
       tasks: [],
       ledger: [],
@@ -597,7 +602,8 @@ describe("owner console routes", () => {
     });
     const body = await (await app.request("/owner/owner-tok")).text();
     expect(body).toContain("<dd>Frozen (cap $0)</dd>");
-    expect(body).not.toContain("Add funds");
+    expect(body).toContain("The smallest task costs $1.50 with the fee");
+    expect(body).not.toContain("amount_usd");
     expect(body).toContain("<p>No tasks yet.</p>");
     expect(body).toContain("<p>No money in or out yet.</p>");
   });
