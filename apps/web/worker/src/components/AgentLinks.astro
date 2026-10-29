@@ -1,0 +1,23 @@
+---
+// The landing page opens the matching connector setup for these hashes.
+const SETUP = "https://eyes.pictures/#add-";
+---
+
+<section class="ui-card agent-links" aria-labelledby="agent-links-title">
+  <div class="ui-card__header">
+    <h2 id="agent-links-title" class="ui-card__title">Use Eyes in your AI agent</h2>
+  </div>
+  <p class="ui-text-secondary ui-text-sm m-0">Add Eyes to ChatGPT or Claude so your agent can ask people nearby to check a place.</p>
+  <div class="agent-links__buttons">
+    <a class="ui-button" href={`${SETUP}chatgpt`}>Add to ChatGPT</a>
+    <a class="ui-button" href={`${SETUP}claude`}>Add to Claude</a>
+  </div>
+</section>
+
+<style>
+  .agent-links__buttons {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+    gap: var(--eyes-space-3);
+  }
+</style>

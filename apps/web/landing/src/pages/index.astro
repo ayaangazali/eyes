@@ -261,7 +261,10 @@ const flight = [
           <div class="grid gap-4">
             <h3 class="m-0 text-xl font-semibold">ChatGPT or Claude, in your browser</h3>
             <p class="m-0 text-secondary">Your agent can check a place, see a live photo, and return a verified answer.</p>
-            <button class="ui-button ui-button--primary justify-self-start" type="button" data-connect aria-haspopup="dialog">Choose ChatGPT or Claude</button>
+            <div class="pair">
+              <button class="ui-button ui-button--primary" type="button" data-connect="chatgpt" aria-haspopup="dialog">Add to ChatGPT</button>
+              <button class="ui-button ui-button--primary" type="button" data-connect="claude" aria-haspopup="dialog">Add to Claude</button>
+            </div>
             <p class="m-0 text-sm text-secondary">Custom connector setup. Availability depends on your app, account and workspace permissions.</p>
           </div>
           <details class="min-w-0">
@@ -457,20 +460,29 @@ const flight = [
     });
 
     const dialog = document.getElementById("connect-dialog") as HTMLDialogElement;
+    const client = document.getElementById("connect-client") as HTMLSelectElement;
+    const showClient = (value: string) => {
+      client.value = value;
+      document.getElementById("chatgpt-connect")!.hidden = value !== "chatgpt";
+      document.getElementById("claude-connect")!.hidden = value !== "claude";
+      dialog.scrollTop = 0;
+    };
     let opener: HTMLElement;
     document.querySelectorAll<HTMLElement>("[data-connect]").forEach((button) => {
       button.addEventListener("click", () => {
         opener = button;
+        if (button.dataset.connect) showClient(button.dataset.connect);
         dialog.showModal();
       });
     });
     dialog.addEventListener("close", () => opener?.focus());
-    const client = document.getElementById("connect-client") as HTMLSelectElement;
-    client.addEventListener("change", () => {
-      document.getElementById("chatgpt-connect")!.hidden = client.value !== "chatgpt";
-      document.getElementById("claude-connect")!.hidden = client.value !== "claude";
-      dialog.scrollTop = 0;
-    });
+    client.addEventListener("change", () => showClient(client.value));
+    // app.eyes.pictures links here with #add-chatgpt or #add-claude to open that setup directly.
+    const linked = /^#add-(chatgpt|claude)$/.exec(location.hash)?.[1];
+    if (linked) {
+      showClient(linked);
+      dialog.showModal();
+    }
 
     wireCopy(
       document.getElementById("copy"),
