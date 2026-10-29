@@ -1,0 +1,290 @@
+---
+import { smsHref } from "../api.ts";
+import Icon from "../components/Icon.astro";
+import Layout from "../layouts/Layout.astro";
+
+const helpSms = smsHref("HELP");
+const helpText = !helpSms ? " Text HELP to the Eyes number for a new link." : "";
+---
+
+<Layout
+  title="Your Eyes setup"
+  ogTitle="Eyes: your setup"
+  description="See what is set up so Eyes can text you paid tasks near you."
+  noindex
+>
+  <h1 id="title" class="ui-h1">Your Eyes setup</h1>
+
+  <section id="loading" aria-busy="true">
+    <p class="sr-only" role="status">Loading your setup</p>
+    <div class="ui-card" aria-hidden="true">
+      <ul class="ui-checks me-checks">
+        {[0, 1, 2, 3].map(() => (
+          <li class="ui-check me-row">
+            <span class="ui-check__mark me-skeleton" />
+            <span class="me-row__text">
+              <span class="me-skeleton me-skeleton--title" />
+              <span class="me-skeleton me-skeleton--detail" />
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  </section>
+
+  <section id="loaded" hidden>
+    <div class="ui-card">
+      <ul id="checks" class="ui-checks me-checks"></ul>
+    </div>
+    <p id="install-error" class="ui-notice ui-notice--danger" role="alert" hidden></p>
+    <div class="ui-card">
+      <div class="ui-card__header">
+        <h2 class="ui-card__title">Your last tasks</h2>
+        <a id="earnings" class="ui-link ui-text-sm" href="#">All earnings</a>
+      </div>
+      <ul id="tasks" class="me-tasks"></ul>
+      <p id="no-tasks" class="ui-text-secondary ui-text-sm m-0" hidden>No tasks yet. Eyes texts you when one is near.</p>
+    </div>
+  </section>
+
+  <section id="missing" hidden>
+    <p class="ui-notice"><Icon name="message" /> This link has no code.{helpText}</p>
+    {helpSms && <a class="ui-button ui-button--primary ui-button--block" href={helpSms}>Text HELP for a new link</a>}
+  </section>
+
+  <section id="expired" hidden>
+    <p class="ui-notice"><Icon name="clock" /> This link has expired.{helpText}</p>
+    {helpSms && <a class="ui-button ui-button--primary ui-button--block" href={helpSms}>Text HELP for a new link</a>}
+  </section>
+
+  <section id="error" hidden>
+    <p id="error-text" class="ui-notice ui-notice--danger" role="alert"></p>
+    <button type="button" id="retry" class="ui-button ui-button--primary ui-button--block">Try again</button>
+  </section>
+
+  <template id="row">
+    <li class="ui-check me-row">
+      <span class="ui-check__mark"><Icon name="check" /></span>
+      <span class="me-row__text">
+        <span class="sr-only"></span>
+        <strong></strong>
+        <span class="ui-check__detail"></span>
+      </span>
+    </li>
+  </template>
+
+  <template id="task">
+    <li class="me-task">
+      <span class="me-task__question"></span>
+      <span class="ui-num me-task__amount"></span>
+      <span class="ui-text-secondary ui-text-sm me-task__place"></span>
+      <span class="ui-badge me-task__state"></span>
+    </li>
+  </template>
+</Layout>
+
+<style is:global>
+  .ui-checks.me-checks {
+    gap: var(--eyes-space-4);
+  }
+
+  /* Mark, then title and detail; the action sits under the text so a long label never squeezes it. */
+  .ui-check.me-row {
+    grid-template-columns: auto 1fr;
+    align-items: start;
+  }
+
+  .me-row__text {
+    display: grid;
+    gap: 0.125rem;
+  }
+
+  .me-row > .ui-button {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  /* ○ to do: an empty ring, so done (✓) and to do read apart at a glance. */
+  .me-row--todo .ui-check__mark {
+    background: transparent;
+    box-shadow: inset 0 0 0 1.5px var(--eyes-border-strong);
+  }
+
+  /* Rows arrive 50ms apart when the data lands: one list filling in, not a block popping in. Opacity and
+     translate only (reduced motion zeroes --eyes-enter-y, so it fades without moving). */
+  .me-enter {
+    transition:
+      opacity var(--eyes-duration-enter) var(--eyes-ease-out) calc(var(--i, 0) * 50ms),
+      translate var(--eyes-duration-enter) var(--eyes-ease-out) calc(var(--i, 0) * 50ms);
+  }
+
+  @starting-style {
+    .me-enter {
+      opacity: 0;
+      translate: 0 var(--eyes-enter-y);
+    }
+  }
+
+  .me-tasks {
+    display: grid;
+    gap: var(--eyes-space-3);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  /* No tasks: the empty list must not leave a gap above the "No tasks yet" line. */
+  .me-tasks:empty {
+    display: none;
+  }
+
+  .me-task {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0.125rem var(--eyes-space-3);
+    padding-top: var(--eyes-space-3);
+    border-top: 1px solid var(--eyes-border-subtle);
+  }
+
+  .me-task:first-child {
+    padding-top: 0;
+    border-top: 0;
+  }
+
+  .me-task__question {
+    font-weight: var(--eyes-weight-medium);
+  }
+
+  .me-task__amount {
+    font-weight: var(--eyes-weight-semibold);
+  }
+
+  .me-task__place {
+    grid-column: 1 / -1;
+  }
+
+  .me-task__state {
+    justify-self: start;
+    margin-top: var(--eyes-space-1);
+  }
+
+  /* Loading: the page keeps its shape (four rows) and breathes, so it reads as "coming", not "broken". */
+  .me-skeleton {
+    display: block;
+    border-radius: var(--eyes-radius-full);
+    background: var(--eyes-surface-tertiary);
+    animation: me-pulse 1.2s ease-in-out infinite alternate;
+  }
+
+  .me-skeleton--title {
+    width: 9rem;
+    height: 1rem;
+  }
+
+  .me-skeleton--detail {
+    width: 13rem;
+    max-width: 100%;
+    height: 0.875rem;
+    margin-top: 0.25rem;
+  }
+
+  @keyframes me-pulse {
+    to {
+      opacity: 0.45;
+    }
+  }
+
+  /* Gentler, not none: the pulse slows down instead of stopping. */
+  @media (prefers-reduced-motion: reduce) {
+    .me-skeleton {
+      animation-duration: 2.4s;
+    }
+  }
+</style>
+
+<script>
+  import { $, call, showError } from "../api.ts";
+  import { type MeView, openInstall, type Row, showMe, type TaskLine, takeCode } from "../me.ts";
+
+  const ICONS: Record<Row["id"], string> = { texts: "message", spot: "locate", app: "expand", payouts: "cash" };
+
+  // The code arrives in the URL fragment; takeCode clears it. It stays in memory only, for the install POST.
+  const code = takeCode({
+    hash: location.hash,
+    pathname: location.pathname,
+    search: location.search,
+    replaceUrl: (url) => history.replaceState(null, "", url),
+  });
+
+  const part = (el: HTMLElement, selector: string) => el.querySelector(selector) as HTMLElement;
+
+  function actionFor(row: Row, action: NonNullable<Row["action"]>): HTMLElement {
+    const el = document.createElement(action.href ? "a" : "button");
+    el.className = action.primary ? "ui-button ui-button--primary" : "ui-button";
+    el.insertAdjacentHTML("afterbegin", `<svg class="ui-icon" aria-hidden="true"><use href="#i-${ICONS[row.id]}"></use></svg>`);
+    el.append(action.label);
+    if (el instanceof HTMLAnchorElement) el.href = action.href as string;
+    else if (code) {
+      const button = el as HTMLButtonElement;
+      button.type = "button";
+      button.addEventListener("click", () => {
+        $("install-error").hidden = true;
+        void openInstall(code, {
+          send: call,
+          busy: (on) => button.toggleAttribute("aria-busy", on),
+          navigate: (url) => {
+            location.href = url;
+          },
+          report: (err) => showError($("install-error"), err),
+        });
+      });
+      // Back from the install page restores this page from the cache: drop the spinner it left with.
+      addEventListener("pageshow", () => button.removeAttribute("aria-busy"));
+    }
+    return el;
+  }
+
+  function rowEl(row: Row, i: number): HTMLElement {
+    const li = ($<HTMLTemplateElement>("row").content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+    li.classList.add(`me-row--${row.state}`, "me-enter");
+    li.style.setProperty("--i", String(i));
+    if (row.state === "todo") part(li, ".ui-check__mark").replaceChildren();
+    if (row.state === "neutral") part(li, "use").setAttribute("href", "#i-info");
+    if (row.state === "done") li.classList.add("ui-check--pass");
+    part(li, ".sr-only").textContent = row.state === "todo" ? "To do: " : "Done: ";
+    part(li, "strong").textContent = row.title;
+    part(li, ".ui-check__detail").textContent = row.detail;
+    if (row.action) li.append(actionFor(row, row.action));
+    return li;
+  }
+
+  function taskEl(task: TaskLine, i: number): HTMLElement {
+    const li = ($<HTMLTemplateElement>("task").content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+    li.classList.add("me-enter");
+    li.style.setProperty("--i", String(i));
+    part(li, ".me-task__question").textContent = task.question;
+    part(li, ".me-task__amount").textContent = task.amount;
+    part(li, ".me-task__place").textContent = task.place;
+    const state = part(li, ".me-task__state");
+    state.textContent = task.state;
+    state.classList.toggle("ui-badge--success", task.paid);
+    return li;
+  }
+
+  function show(view: MeView) {
+    for (const section of document.querySelectorAll<HTMLElement>("main > section")) {
+      section.hidden = section.id !== view.step;
+    }
+    if (view.step === "error") showError($("error-text"), view.error);
+    if (view.step !== "loaded") return;
+    $("title").textContent = view.title;
+    $("checks").replaceChildren(...view.rows.map(rowEl));
+    $("tasks").replaceChildren(...view.tasks.map(taskEl));
+    $("no-tasks").hidden = view.tasks.length > 0;
+    $<HTMLAnchorElement>("earnings").href = view.earningsUrl;
+  }
+
+  const load = () => showMe(code, { send: call, now: Date.now, show });
+  $("retry").addEventListener("click", load);
+  void load();
+</script>

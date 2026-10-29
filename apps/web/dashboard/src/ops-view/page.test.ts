@@ -45,9 +45,15 @@ function feed(over: Partial<OpsFeed["ops"]> = {}, rest: Partial<OpsFeed> = {}): 
   return {
     tasks: [held, paid],
     ledger: [
-      { type: "escrow", created_at: "2026-10-17T12:00:00Z", task_id: HELD, amount_cents: 600 },
-      { type: "release", created_at: "2026-10-17T12:05:00Z", task_id: "99999999-0000", amount_cents: 500 },
-      { type: "bonus", created_at: "2026-10-17T12:06:00Z", task_id: null, amount_cents: 100 },
+      { id: "l1", type: "escrow", created_at: "2026-10-17T12:00:00Z", task_id: HELD, amount_cents: 600 },
+      {
+        id: "l2",
+        type: "release",
+        created_at: "2026-10-17T12:05:00Z",
+        task_id: "99999999-0000",
+        amount_cents: 500,
+      },
+      { id: "l3", type: "bonus", created_at: "2026-10-17T12:06:00Z", task_id: null, amount_cents: 100 },
     ],
     workers: [
       { id: "w-out-0000-1", lat: 37.78, lng: -122.41, available: false, opted_in: false },
@@ -162,7 +168,9 @@ async function setup(
   const raw: string[] = [];
   const all: Record<string, Route> = {
     "GET /ops/feed": () => ok(feed()),
-    "GET /ops/tickets": () => ok({ tickets: [] }),
+    "GET /ops/tickets": () => ok({ tickets: [], total: 0, next_cursor: null }),
+    "GET /ops/tasks": () => ok({ tasks: [], total: 0, next_cursor: null }),
+    "GET /ops/ledger": () => ok({ ledger: [], total: 0, total_cents: 0, next_cursor: null }),
     "GET /ops/events": () => ok({ source: "db", events: [] }),
     "GET /ops/series": () => ok(SERIES),
     ...routes,
@@ -236,7 +244,8 @@ describe("ops page boot", () => {
     const { $, text, requests, timers } = page;
     expect(requests.map((r) => r.path)).toEqual([
       "/ops/feed",
-      "/ops/tickets",
+      "/ops/tickets?state=open&limit=50",
+      "/ops/tickets?state=open&limit=1",
       "/ops/events?limit=100",
       "/ops/series",
     ]);
@@ -269,57 +278,27 @@ describe("ops page boot", () => {
     expect(text("n-review")).toBe("1");
     expect($("n-review").classList.contains("hot")).toBe(true);
     const decision = $("queue").querySelector("tbody tr") as HTMLElement;
-    expect(decision.getAttribute("aria-label")).toBe(
-      "Review: Is the line at Blue Bottle longer than 5 people?",
-    );
+    const row = () => decision;
     expect([...decision.querySelectorAll("td")].map((td) => td.textContent).slice(0, 3)).toEqual([
       "Is the line at Blue Bottle longer than 5 people?",
       "Near 37.761, -122.386",
       "$5.00",
     ]);
-    const row = $("task-list").querySelector("li") as HTMLElement;
-    expect(row.className).toBe("open");
-    expect(row.getAttribute("aria-label")).toBe("Review: Is the line at Blue Bottle longer than 5 people?");
-    expect(row.textContent).toContain("Near 37.761, -122.386");
-    expect(row.textContent).toContain("bounty $5.00");
-    expect(row.textContent).toContain("notified 3");
-    expect(row.querySelector(".flow-checks")?.textContent).toBe("✓ GPS ✗ fresh ✓ safe photo 82% sure");
-    const flow = [...(row.querySelector(".flow")?.children ?? [])].map((s) => s.textContent);
-    expect(flow.slice(1)).toEqual([
-      "claimed +30s",
-      "answered +4m",
-      "released +5m",
-      "paid out +6m",
-      "refunded +7m",
-      "fee +8m",
-    ]);
-    expect(flow[0]).toMatch(/^asked Oct 17/);
-
-    expect(text("tasks-shown")).toBe("2 of 2, newest first");
-    const paidRow = $("task-list").querySelectorAll("li")[1] as HTMLElement;
-    expect(paidRow.className).toBe("");
-    expect(paidRow.textContent).toContain("Mint Plaza");
-    expect(paidRow.textContent).toContain("notified 0");
-    expect(paidRow.querySelector(".flow-checks")).toBeNull();
+    expect(row().getAttribute("aria-label")).toBe("Review: Is the line at Blue Bottle longer than 5 people?");
 
     expect(text("worker-stats")).toBe("2+opted in1available now3signed up");
-    expect([...$("workers-list").children].map((li) => li.textContent)).toEqual([
-      "availableworker w-avail-",
-      "opted inworker w-in-000no location",
-      "opted outworker w-out-00",
+    expect([...$("workers").querySelectorAll("tbody tr")].map((tr) => tr.textContent)).toEqual([
+      "worker w-avail-availableon the map",
+      "worker w-in-000opted inno location",
+      "worker w-out-00opted outon the map",
     ]);
     expect(calls).toEqual([
       "map map",
       "clear",
-      "marker 37.78,-122.41 #8f8f8f",
       "marker 37.77,-122.42 #ffd60a",
+      "marker 37.78,-122.41 #8f8f8f",
       'fit {"maxZoom":14}',
     ]);
-
-    const ledger = [...$("ledger").children].map((s) => s.textContent);
-    expect(ledger.slice(1, 3)).toEqual(["Escrow Near 37.761, -122.386", "$6.00"]);
-    expect(ledger.slice(4, 6)).toEqual(["Release 99999999", "$5.00"]);
-    expect(ledger.slice(7, 9)).toEqual(["bonus", "$1.00"]);
 
     expect(
       [...$("errors").children].map((li) => li.textContent?.replace(/Oct.*?(AM|PM)?(?=boom|slow)/, "")),
@@ -427,12 +406,10 @@ describe("ops page boot", () => {
     expect($("queue-count").className).toBe("ui-badge ui-badge--success");
     expect($("queue").querySelector(".tbl-empty")?.textContent).toMatch(/^Nothing needs a decision/);
     expect(text("n-review")).toBe("");
-    expect(text("task-list")).toBe("No tasks yet.");
     expect(text("worker-stats")).toBe("0opted in0available now0signed up");
-    expect(text("workers-list")).toBe("No workers yet.");
+    expect($("workers").querySelector(".tbl-empty")?.textContent).toBe("No workers yet.");
     expect($("map").classList.contains("nomap")).toBe(true);
     expect(text("map")).toBe("Map needs Leaflet from unpkg.com.");
-    expect(text("ledger")).toBe("No ledger rows yet.");
     expect(text("n-logs")).toBe("1");
     expect($("n-logs").classList.contains("hot")).toBe(false);
     expect(text("events-source")).toBe("Database unreachable: this process's memory only");
@@ -446,25 +423,11 @@ describe("ops page boot", () => {
       "Tasks per hour",
       "Payouts per hour",
     ]);
-    expect(text("tickets-list")).toBe(
+    expect($("tickets").querySelector(".tbl-empty")?.textContent).toBe(
       "No tickets. A worker opens one by texting HELP after an answer is held for review.",
     );
     expect(text("tickets-count")).toBe("0 open");
     expect($("tickets-count").className).toBe("ui-badge ui-badge--success");
-
-    page.$<HTMLSelectElement>("ledger-type").value = "fee";
-    await page.change("ledger-type", "fee");
-    expect(text("ledger")).toBe("No rows of this type.");
-  });
-
-  it("filters tasks and ledger rows by their selects", async () => {
-    const { change, text, $ } = await setup();
-    await change("task-status", "paid");
-    expect(text("tasks-shown")).toBe("1 of 2, newest first");
-    await change("task-status", "expired");
-    expect(text("task-list")).toBe("No tasks with this status.");
-    await change("ledger-type", "release");
-    expect($("ledger").children).toHaveLength(3);
   });
 
   it("re-polls, skips unchanged tickets and series, and asks only for newer events", async () => {
@@ -478,7 +441,8 @@ describe("ops page boot", () => {
     await page.settle();
     expect(requests.map((r) => r.path)).toEqual([
       "/ops/feed",
-      "/ops/tickets",
+      "/ops/tickets?state=open&limit=50",
+      "/ops/tickets?state=open&limit=1",
       "/ops/events?limit=100",
       "/ops/series",
     ]);
@@ -556,32 +520,35 @@ describe("ops review panel", () => {
     expect(review.textContent).toContain("Agent's dispute: Wrong cafe");
     expect(review.textContent).not.toContain("null");
 
-    const release = button(review, "Release (pay the worker)");
+    const release = button(review, "Release to the worker");
     expect(release.className).toBe("ui-button ui-button--sm ui-button--primary");
+    expect(review.querySelector("label")?.textContent).toBe("Note (optional)");
     await click(release);
-    expect(release.textContent).toBe("Confirm: pay the worker $5.00");
-    expect(timers.at(-1)?.ms).toBe(5000);
-    timers.at(-1)?.fn();
-    expect(release.textContent).toBe("Release (pay the worker)");
-    expect(button(review, "Refund (return to the agent)")).toBeTruthy();
-    await click(release);
-    await click(release);
+    expect(review.querySelector(".decide__question")?.textContent).toBe(
+      "Pay the worker $5.00? The task is marked verified.",
+    );
+    await click(button(review, "Cancel"));
+    expect(review.querySelector(".decide__question")).toBeNull();
+    expect(requests.some((r) => r.method === "POST")).toBe(false);
+    await click(button(review, "Release to the worker"));
+    await click(button(review, "Release $5.00"));
     expect(requests.at(-1)).toEqual({
       method: "POST",
       path: `/ops/tasks/${HELD}/resolve`,
       body: { outcome: "release" },
     });
-    expect(review.querySelector("[role=status]")?.textContent).toBe(
+    expect(review.querySelector(".decide__status")?.textContent).toBe(
       "Done: verified. It leaves the queue on the next refresh.",
     );
-    expect(release.textContent).toBe("Release (pay the worker)");
-    // Decided: every action stays disabled, the clicked one included.
-    expect([...review.querySelectorAll<HTMLButtonElement>(".actions button")].every((b) => b.disabled)).toBe(
-      true,
+    // Decided: no buttons left to press, and a toast says what happened.
+    expect(review.querySelectorAll(".decide__row button")).toHaveLength(0);
+    expect(page.doc.querySelector(".toast")?.textContent).toBe(
+      "Done: verified. It leaves the queue on the next refresh.",
     );
+    expect(timers.at(-1)?.ms).toBe(4000);
   });
 
-  it("disables the actions after a refund with a note, and reports already-resolved and failures", async () => {
+  it("refunds from the menu with a note, and reports failures and an already-resolved task", async () => {
     let reply: () => Response = () => ok({ status: "refunded" });
     const page = await setup({
       [`GET /ops/tasks/${HELD}`]: () => ok(detail),
@@ -593,29 +560,24 @@ describe("ops review panel", () => {
     await page.settle();
     await page.settle();
     const review = $<HTMLDialogElement>("review-panel");
-    const status = () => review.querySelector("[role=status]")?.textContent;
-    const refund = () => button(review, "Refund (return to the agent)");
+    const status = () => review.querySelector(".decide__status")?.textContent;
+    const refund = async () => {
+      await click(button(review, "More actions"));
+      await click(button(review, "Refund the agent"));
+      await click(button(review, "Refund $6.00"));
+    };
     (review.querySelector("textarea") as HTMLTextAreaElement).value = "  worker was at the wrong cafe ";
-    await click(refund());
-    expect(refund()).toBeUndefined();
-    const armed = button(review, "Confirm: refund $6.00");
     reply = () => new Response("not json", { status: 502 });
-    await click(armed);
+    await refund();
     expect(status()).toBe("Failed: 502");
     expect(requests.at(-1)?.body).toEqual({ outcome: "refund", note: "worker was at the wrong cafe" });
     reply = () => ok({ error: "conflict" }, 409);
-    await click(refund());
-    await click(button(review, "Confirm: refund $6.00"));
+    await refund();
     expect(status()).toBe("Failed: conflict");
     reply = () => ok({ already_resolved: true, status: "paid" });
-    await click(refund());
-    await click(button(review, "Confirm: refund $6.00"));
+    await refund();
     expect(status()).toBe("Already paid; no money moved.");
-    // Every action is disabled, then the clicked button's own `finally` enables it again (kept as before).
-    const disabled = [...review.querySelectorAll<HTMLButtonElement>(".actions button")].map(
-      (b) => b.disabled,
-    );
-    expect(disabled).toEqual([true, true]);
+    expect(review.querySelectorAll(".decide__row button")).toHaveLength(0);
     await click(button(review, "Close"));
     expect(review.open).toBe(false);
   });
@@ -692,171 +654,539 @@ describe("ops support tickets", () => {
       ...over,
     });
 
-  async function withTickets(tickets: Ticket[], post: Route = () => ok({})) {
-    let list = tickets;
-    const page = await setup({
-      "GET /ops/tickets": () => ok({ tickets: list }),
-      "POST /ops/tickets/7/release": post,
-      "POST /ops/tickets/7/refund": post,
-      "POST /ops/tickets/7/close": post,
-      "POST /ops/tickets/9/confirm_fraud": post,
-      "POST /ops/tickets/9/reject_dispute": post,
-    });
-    const setList = (next: Ticket[]) => {
-      list = next;
+  async function withTickets(first: Ticket[], post: Route = () => ok({}), opts: { open?: number } = {}) {
+    let list = first;
+    let pages: Record<string, { tickets: Ticket[]; next_cursor: string | null }> = {};
+    const page = await setup(
+      {
+        "GET /ops/tickets": (_init, url) => {
+          if (url.searchParams.get("limit") === "1") return ok({ tickets: [], total: opts.open ?? 2 });
+          const cursor = url.searchParams.get("cursor");
+          if (cursor) return ok({ ...pages[cursor], total: 99 });
+          return ok({ tickets: list, total: list.length, next_cursor: pages.c1 ? "c1" : null });
+        },
+        "POST /ops/tickets/7/release": post,
+        "POST /ops/tickets/7/refund": post,
+        "POST /ops/tickets/7/close": post,
+        "POST /ops/tickets/9/confirm_fraud": post,
+        "POST /ops/tickets/9/reject_dispute": post,
+      },
+      { hash: "#support" },
+    );
+    const rows = () => [...page.$("tickets").querySelectorAll("tbody tr")] as HTMLElement[];
+    const open = async (id: number) => {
+      await page.click(rows().find((tr) => tr.textContent?.includes(`#${id} `)) as HTMLElement);
+      return page.$<HTMLDialogElement>("review-panel");
     };
-    const li = (id: number) =>
-      [...page.$("tickets-list").children].find((el) => el.textContent?.includes(`#${id} `)) as HTMLElement;
-    return { ...page, setList, li };
+    return {
+      ...page,
+      rows,
+      open,
+      setList: (next: Ticket[]) => {
+        list = next;
+      },
+      setPages: (next: typeof pages) => {
+        pages = next;
+      },
+    };
   }
 
-  it("renders open, held, dispute and resolved tickets", async () => {
+  it("lists open tickets by default with kind, state, place, bounty, distance and age", async () => {
+    const page = await withTickets([helpTicket(), dispute(), helpTicket({ id: 8, distance_m: null })]);
+    const { rows, text, $, requests } = page;
+    expect(requests.find((r) => r.path.startsWith("/ops/tickets"))?.path).toBe(
+      "/ops/tickets?state=open&limit=50",
+    );
+    expect(text("tickets-count")).toBe("2 open");
+    expect($("tickets-count").className).toBe("ui-badge ui-badge--danger");
+    expect(text("n-support")).toBe("2");
+    expect([...(rows()[1]?.querySelectorAll("td") ?? [])].map((td) => td.textContent)).toEqual([
+      "#9 Is the cafe open?",
+      "Dispute",
+      "open",
+      "Mint Plaza",
+      "$5.00",
+      "12 m",
+      expect.stringMatching(/^(now|\d+[mhd])$/),
+    ]);
+    expect(rows()[2]?.querySelectorAll("td")[5]?.textContent).toBe("?");
+    expect($("tickets").querySelector(".tbl-select, select")?.getAttribute("aria-label")).toBe("States");
+  });
+
+  it("needs a note, then releases a held ticket, says so, and reloads the list", async () => {
+    const page = await withTickets([helpTicket()], () => ok({}));
+    const { open, click, button, requests } = page;
+    const panel = await open(7);
+    expect(panel.querySelector("h2")?.textContent).toBe("Ticket #7");
+    expect(panel.querySelector("label")?.textContent).toBe("Note to the worker");
+    await click(button(panel, "Release to the worker"));
+    const note = panel.querySelector("textarea") as HTMLTextAreaElement;
+    expect(panel.querySelector(".decide__status")?.textContent).toBe(
+      "Write a note first. Texted to the worker.",
+    );
+    expect(note.getAttribute("aria-invalid")).toBe("true");
+    expect(page.doc.activeElement).toBe(note);
+    note.value = "paid, thanks";
+    note.dispatchEvent(new page.happy.Event("input") as unknown as Event);
+    expect(note.hasAttribute("aria-invalid")).toBe(false);
+    await click(button(panel, "Release to the worker"));
+    expect(panel.querySelector(".decide__question")?.textContent).toBe(
+      "Pay the worker $5.00? They get your note by text.",
+    );
+    const before = requests.length;
+    await click(button(panel, "Release $5.00"));
+    expect(requests.slice(before).map((r) => r.path)).toEqual([
+      "/ops/tickets/7/release",
+      "/ops/tickets?state=open&limit=50",
+      "/ops/tickets?state=open&limit=1",
+    ]);
+    expect(requests[before]?.body).toEqual({ task_id: HELD, note: "paid, thanks" });
+    expect(panel.querySelector(".decide__status")?.textContent).toBe("Done: ticket #7 release.");
+    expect(page.doc.querySelector(".toast")?.textContent).toBe("Done: ticket #7 release.");
+  });
+
+  it("offers refund and resolve in the menu of a held ticket, and only resolve when nothing is held", async () => {
     const page = await withTickets([
       helpTicket(),
-      helpTicket({ id: 8, task_status: "verified", message: null, distance_m: null }),
-      dispute(),
-      helpTicket({ id: 10, status: "resolved", resolved_at: "2026-10-17T13:00:00Z", note: "sorted" }),
-      helpTicket({ id: 11, status: "resolved", resolved_at: null, note: null }),
-      dispute({ id: 12, dispute_status: "upheld", message: "fake photo", reversal_owed_cents: 0 }),
-      dispute({ id: 13, dispute_status: "rejected", worker_banned: false }),
-      dispute({ id: 14, dispute_status: null, message: null }),
+      helpTicket({ id: 8, task_status: "verified", message: null }),
     ]);
-    const { text, $, li } = page;
-    // A dispute with no dispute_status yet counts as open, with its buttons, as its badge says.
-    expect(text("tickets-count")).toBe("4 open");
-    expect($("tickets-count").className).toBe("ui-badge ui-badge--danger");
-    expect(text("n-support")).toBe("4");
-    expect($("tickets-list").children).toHaveLength(4);
-    await page.change("t-status", "");
-    const labels = (id: number) => [...li(id).querySelectorAll("button")].map((b) => b.textContent);
-    expect(labels(7)).toEqual(["Release", "Refund", "Resolve with note"]);
-    expect(li(7).textContent).toContain("I was at the door");
-    expect(li(7).querySelector("textarea")?.placeholder).toBe("Note, texted to the worker");
-    expect(li(7).querySelector(".ui-badge")?.textContent).toBe("open");
-    expect(labels(8)).toEqual(["Resolve with note"]);
-    expect(li(8).textContent).toContain("(no message)");
-    expect(li(8).textContent).toContain("worker ? from the place (radius 50 m)");
-    expect(labels(9)).toEqual(["Confirm fraud: ban + refund", "Reject"]);
-    expect(li(9).querySelector("textarea")?.placeholder).toBe("Note, kept with the decision");
-    expect((li(9).querySelector("img") as HTMLImageElement).src).toBe("https://cdn.eyes.test/d.jpg");
-    expect(li(9).textContent).toContain("Agent says: (no reason)");
-    expect(li(9).textContent).toContain("Photo safety: nudity");
-    expect(li(9).textContent).toContain("Answer: yes");
-    expect(li(9).textContent).toContain(
-      "reversal owed $2.50 the worker already moved the money; collect it by hand.",
-    );
-    expect(li(9).textContent).toContain("Worker banned.");
-    expect([...li(9).querySelectorAll(".ui-badge")].map((b) => b.className)).toContain(
-      "ui-badge ui-badge--warning",
-    );
-    expect(li(10).textContent).toMatch(/Resolved Oct 17.*: sorted/);
-    expect(li(10).querySelector(".nophoto")).toBeTruthy();
-    expect(li(11).textContent).toContain("Resolved : ");
-    const badges = (id: number) =>
-      [...li(id).querySelectorAll(".task-head .ui-badge")].map((b) => b.textContent);
-    expect(badges(12)).toEqual(["dispute", "upheld"]);
-    expect(li(12).querySelector(".ui-badge--warning:not(:first-child)")?.textContent).toBe("upheld");
-    expect(li(12).textContent).toContain("Agent says: fake photo");
-    expect(badges(13)).toEqual(["dispute", "rejected"]);
-    expect(li(13).textContent).not.toContain("Worker banned.");
-    expect(badges(14)).toEqual(["dispute", "open"]);
-    expect(labels(14)).toEqual(["Confirm fraud: ban + refund", "Reject"]);
+    const { open, click, button } = page;
+    let panel = await open(7);
+    await click(button(panel, "More actions"));
+    expect([...panel.querySelectorAll("[role=menuitem]")].map((b) => b.textContent)).toEqual([
+      "Refund the agent",
+      "Resolve with note",
+    ]);
+    panel = await open(8);
+    expect([...panel.querySelectorAll(".decide__row button")].map((b) => b.textContent)).toEqual([
+      "Resolve with note",
+    ]);
+    expect(panel.textContent).toContain("(no message)");
+    expect(panel.textContent).toContain("answer taken 12 m from the place (radius 50 m)");
   });
 
-  it("needs a note, then sends the action and reloads the tickets", async () => {
-    const page = await withTickets([helpTicket(), dispute()], () => ok({}));
-    const { li, click, button, requests } = page;
-    const status = (id: number) => li(id).querySelector("[role=status]")?.textContent;
-    await click(button(li(7), "Release"));
-    await click(button(li(7), "Confirm: pay worker $5.00"));
-    expect(status(7)).toBe("Write a note first; it is texted to the worker.");
-    await click(button(li(9), "Reject"));
-    await click(button(li(9), "Confirm: reject, the worker keeps the pay"));
-    expect(status(9)).toBe("Write a note first; it is kept with the decision.");
-
-    (li(7).querySelector("textarea") as HTMLTextAreaElement).value = "paid, thanks";
-    page.setList([helpTicket({ status: "resolved", note: "paid, thanks" }), dispute()]);
-    await click(button(li(7), "Refund"));
-    const row = li(7);
-    await click(button(row, "Confirm: refund the agent"));
-    expect(requests.find((r) => r.path === "/ops/tickets/7/refund")?.body).toEqual({
-      task_id: HELD,
-      note: "paid, thanks",
-    });
-    expect(row.querySelector("[role=status]")?.textContent).toBe("Done: ticket #7 refund.");
-    expect(page.text("tickets-count")).toBe("1 open");
-    expect(li(7)).toBeUndefined();
-    await page.change("t-status", "resolved");
-    expect(li(7).textContent).toContain("paid, thanks");
-  });
-
-  it("reports dispute outcomes and failures", async () => {
+  it("rejects or confirms a dispute and reports each outcome", async () => {
     let reply: () => Response = () =>
       ok({ agent_refund_cents: 600, reversal: "owed", reversal_owed_cents: 450 });
-    const page = await withTickets([dispute(), helpTicket()], () => reply());
-    const { li, click, button, requests } = page;
-    let round = 0;
-    const run = async (id: number, label: string, armed: string) => {
-      // A decided button stays disabled, so each round reloads a changed list and gets a fresh row.
-      round++;
-      page.setList([dispute({ note: `round ${round}` }), helpTicket({ note: `round ${round}` })]);
-      const row = li(id);
-      (row.querySelector("textarea") as HTMLTextAreaElement).value = "checked the photo";
-      await click(button(row, label));
-      await click(button(row, armed));
-      return row.querySelector("[role=status]")?.textContent;
+    const page = await withTickets([dispute()], () => reply());
+    const { open, click, button, requests } = page;
+    const run = async (menu: boolean, label: string, verb: string) => {
+      const panel = await open(9);
+      (panel.querySelector("textarea") as HTMLTextAreaElement).value = "checked the photo";
+      if (menu) await click(button(panel, "More actions"));
+      await click(button(panel, label));
+      await click(button(panel, verb));
+      return panel.querySelector(".decide__status")?.textContent;
     };
-    const fraud = [
-      "Confirm fraud: ban + refund",
-      "Confirm: refund the agent, reverse the payout, ban the worker",
-    ] as const;
-    expect(await run(9, ...fraud)).toBe(
+    const panel = await open(9);
+    expect(panel.querySelector("label")?.textContent).toBe("Note");
+    expect(panel.textContent).toContain("Agent says: (no reason)");
+    expect(panel.textContent).toContain("Photo safety: nudity");
+    expect(panel.textContent).toContain(
+      "reversal owed $2.50 the worker already moved the money; collect it by hand.",
+    );
+    expect(panel.textContent).toContain("Worker banned.");
+    expect(await run(true, "Confirm fraud", "Confirm fraud")).toBe(
       "Done: agent refunded $6.00, transfer reversal owed $4.50, worker banned.",
     );
     expect(requests.find((r) => r.path === "/ops/tickets/9/confirm_fraud")?.body).toEqual({
       note: "checked the photo",
     });
     reply = () => ok({ agent_refund_cents: 600, reversal: "reversed" });
-    expect(await run(9, ...fraud)).toBe("Done: agent refunded $6.00, transfer reversed, worker banned.");
-    reply = () => ok({});
-    expect(await run(9, "Reject", "Confirm: reject, the worker keeps the pay")).toBe(
-      "Done: ticket #9 reject dispute.",
+    expect(await run(true, "Confirm fraud", "Confirm fraud")).toBe(
+      "Done: agent refunded $6.00, transfer reversed, worker banned.",
     );
+    reply = () => ok({});
+    expect(await run(false, "Reject the dispute", "Reject dispute")).toBe("Done: ticket #9 reject dispute.");
     reply = () => ok({ already_resolved: true, dispute_status: "upheld" });
-    expect(await run(9, ...fraud)).toBe("Already upheld; no money moved.");
+    expect(await run(false, "Reject the dispute", "Reject dispute")).toBe("Already upheld; no money moved.");
     reply = () => ok({ already_resolved: true });
-    expect(await run(7, "Resolve with note", "Confirm: close, no money moves")).toBe(
+    expect(await run(false, "Reject the dispute", "Reject dispute")).toBe(
       "Already resolved; no money moved.",
     );
     reply = () => ok({ message: "stripe down" }, 502);
-    expect(await run(7, "Resolve with note", "Confirm: close, no money moves")).toBe("Failed: stripe down");
+    expect(await run(false, "Reject the dispute", "Reject dispute")).toBe("Failed: stripe down");
     reply = () => ok({ error: "gone" }, 410);
-    expect(await run(7, "Release", "Confirm: pay worker $5.00")).toBe("Failed: gone");
+    expect(await run(false, "Reject the dispute", "Reject dispute")).toBe("Failed: gone");
     reply = () => new Response("", { status: 500 });
-    expect(await run(7, "Release", "Confirm: pay worker $5.00")).toBe("Failed: 500");
+    expect(await run(false, "Reject the dispute", "Reject dispute")).toBe("Failed: 500");
   });
 
-  it("filters, searches and pages the ticket list", async () => {
-    const many = Array.from({ length: 60 }, (_, i) =>
-      helpTicket({ id: 100 + i, question: i === 59 ? "Where is the Ferry Building?" : `Q${i}` }),
+  it("shows a resolved ticket's outcome and a decided dispute's state, with no actions", async () => {
+    const page = await withTickets([
+      helpTicket({ id: 10, status: "resolved", resolved_at: "2026-10-17T13:00:00Z", note: "sorted" }),
+      helpTicket({ id: 11, status: "resolved", resolved_at: null, note: null }),
+      dispute({
+        id: 12,
+        dispute_status: "upheld",
+        message: "fake photo",
+        reversal_owed_cents: 0,
+        worker_banned: false,
+      }),
+      dispute({ id: 13, dispute_status: "rejected" }),
+    ]);
+    const { open, rows } = page;
+    expect(rows().map((tr) => tr.querySelector(".ui-badge")?.className)).toEqual([
+      "ui-badge ui-badge--success",
+      "ui-badge ui-badge--success",
+      "ui-badge ui-badge--warning",
+      "ui-badge ui-badge--success",
+    ]);
+    let panel = await open(10);
+    expect(panel.textContent).toMatch(/Resolved Oct 17.*: sorted/);
+    expect(panel.querySelector(".decide")).toBeNull();
+    panel = await open(11);
+    expect(panel.textContent).toContain("Resolved ");
+    expect(panel.textContent).not.toContain("Resolved :");
+    panel = await open(12);
+    expect(panel.textContent).toContain("Agent says: fake photo");
+    expect(panel.textContent).not.toContain("Worker banned.");
+    expect(panel.querySelector(".decide")).toBeNull();
+  });
+
+  it("sorts loaded tickets by every column, closes the panel, and survives a failed or stale load", async () => {
+    const page = await withTickets([
+      helpTicket({
+        id: 3,
+        bounty_cents: undefined,
+        distance_m: null,
+        created_at: undefined,
+        place_label: "B",
+      }),
+      helpTicket({
+        id: 5,
+        kind: "dispute",
+        dispute_status: "open",
+        bounty_cents: 900,
+        distance_m: 40,
+        place_label: "A",
+      }),
+    ]);
+    const { $, rows, click, button } = page;
+    const ids = () => rows().map((tr) => tr.querySelector("td")?.textContent?.slice(0, 2));
+    const sortBy = (label: string) =>
+      (
+        [...$("tickets").querySelectorAll("th button")].find((b) => b.textContent === label) as HTMLElement
+      ).click();
+    for (const [label, first] of [
+      ["Ticket", "#3"],
+      ["Kind", "#5"],
+      ["State", "#3"],
+      ["Place", "#5"],
+      ["Bounty", "#5"],
+      ["Answer distance", "#3"],
+      ["Opened", "#3"],
+    ] as const) {
+      sortBy(label);
+      expect(ids()[0], label).toBe(first);
+    }
+    const panel = await page.open(3);
+    await click(button(panel, "Close"));
+    expect(panel.open).toBe(false);
+  });
+
+  it("ignores a second load-more while one is running, and keeps the pager after a failed page", async () => {
+    let fail = false;
+    let hold: ((r: Response) => void) | null = null;
+    const page = await setup(
+      {
+        "GET /ops/tickets": (_init, url) => {
+          if (url.searchParams.get("limit") === "1") return ok({ tickets: [], total: 0 });
+          if (fail) return new Response("", { status: 500 });
+          if (url.searchParams.get("cursor"))
+            return new Promise<Response>((resolve) => {
+              hold = resolve;
+            });
+          return ok({ tickets: [helpTicket()], total: 2, next_cursor: "c1" });
+        },
+      },
+      { hash: "#support" },
     );
-    const page = await withTickets([...many, helpTicket({ id: 7, status: "resolved" })]);
-    const { $, change, click } = page;
-    expect($("tickets-list").children).toHaveLength(50);
-    expect($("t-more").hidden).toBe(false);
-    await click($("t-more"));
-    expect($("tickets-list").children).toHaveLength(60);
-    expect($("t-more").hidden).toBe(true);
-    await change("t-status", "resolved");
-    expect($("tickets-list").children).toHaveLength(1);
-    await change("t-status", "");
-    expect($("tickets-list").children).toHaveLength(50);
-    await click($("t-more"));
-    expect($("tickets-list").children).toHaveLength(61);
-    await change("t-q", "ferry", "input");
-    expect($("tickets-list").children).toHaveLength(1);
-    await change("t-q", "nothing like this", "input");
-    expect(page.text("tickets-list")).toBe("No tickets match.");
+    const { $, requests } = page;
+    const more = $("tickets").querySelector(".tbl-foot button") as HTMLButtonElement;
+    more.click();
+    await page.settle();
+    expect($("tickets").querySelector(".tbl-end")?.textContent).toBe("Loading…");
+    const before = requests.length;
+    // The pager is hidden while loading; a stray call (an observer firing twice) is ignored too.
+    more.hidden = false;
+    more.click();
+    expect(requests.length).toBe(before);
+    (hold as unknown as (r: Response) => void)(ok({ tickets: [], total: 2, next_cursor: null }));
+    await page.settle();
+    await page.settle();
+    fail = true;
+    page.timers.find((t) => t.ms === 10000)?.fn();
+    await page.settle();
+    await page.settle();
+    expect($("tickets").querySelector(".tbl-end")?.textContent).toBe("End of tickets");
+  });
+
+  it("drops a ticket page that arrives after the filters changed", async () => {
+    let release: (r: Response) => void = () => {};
+    let first = true;
+    const page = await setup(
+      {
+        "GET /ops/tickets": (_init, url) => {
+          if (url.searchParams.get("limit") === "1") return ok({ tickets: [], total: 0 });
+          if (url.searchParams.get("kind") === "dispute" && first) {
+            first = false;
+            return new Promise<Response>((resolve) => {
+              release = resolve;
+            });
+          }
+          return ok({
+            tickets: [helpTicket({ id: url.searchParams.get("kind") ? 8 : 7 })],
+            total: 1,
+            next_cursor: null,
+          });
+        },
+      },
+      { hash: "#support" },
+    );
+    const kind = page.$("tickets").querySelectorAll(".tbl-bar select")[1] as HTMLSelectElement;
+    for (const v of ["dispute", "manual_review"]) {
+      kind.value = v;
+      kind.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    }
+    await page.settle();
+    await page.settle();
+    release(ok({ tickets: [helpTicket({ id: 9 })], total: 1, next_cursor: null }));
+    await page.settle();
+    await page.settle();
+    expect(page.$("tickets").querySelector("tbody td")?.textContent?.slice(0, 2)).toBe("#8");
+  });
+
+  it("sends filters and search to the server, pages with the cursor, and keeps older pages across polls", async () => {
+    const page = await withTickets([helpTicket()]);
+    const { $, requests, rows, timers, setPages, setList } = page;
+    const bar = $("tickets").querySelector(".tbl-bar") as HTMLElement;
+    const [state, kind] = [...bar.querySelectorAll("select")] as HTMLSelectElement[];
+    const set = async (el: HTMLElement | null | undefined, value: string, type = "change") => {
+      (el as HTMLInputElement).value = value;
+      el?.dispatchEvent(new page.happy.Event(type) as unknown as Event);
+      await page.settle();
+      await page.settle();
+    };
+    await set(state, "");
+    expect(requests.at(-1)?.path).toBe("/ops/tickets?limit=50");
+    await set(kind, "dispute");
+    expect(requests.at(-1)?.path).toBe("/ops/tickets?kind=dispute&limit=50");
+    await set(bar.querySelector("input[type=search]") as HTMLElement, "gate", "input");
+    timers.at(-1)?.fn();
+    await page.settle();
+    await page.settle();
+    expect(requests.at(-1)?.path).toBe("/ops/tickets?q=gate&kind=dispute&limit=50");
+    expect(page.win.location.hash).toBe("#support?q=gate&kind=dispute");
+
+    setPages({
+      c1: { tickets: [helpTicket({ id: 6, created_at: "2026-10-17T11:00:00Z" })], next_cursor: null },
+    });
+    await set(kind, "");
+    expect(rows()).toHaveLength(1);
+    await page.click($("tickets").querySelector(".tbl-foot button") as HTMLElement);
+    expect(requests.at(-1)?.path).toBe("/ops/tickets?q=gate&limit=50&cursor=c1");
+    expect(rows().map((tr) => tr.querySelector("td")?.textContent?.slice(0, 2))).toEqual(["#7", "#6"]);
+    expect($("tickets").querySelector(".tbl-count")?.textContent).toBe("2 of 99 tickets loaded");
+    // A poll refreshes the first page and keeps the older one.
+    setList([helpTicket({ message: "updated" })]);
+    timers.find((t) => t.ms === 10000)?.fn();
+    await page.settle();
+    await page.settle();
+    expect(rows().map((tr) => tr.querySelector("td")?.textContent?.slice(0, 2))).toEqual(["#7", "#6"]);
+  });
+});
+
+describe("ops tasks, money and workers tabs", () => {
+  const task = (over: Partial<Task> = {}): Task => ({
+    ...(feed().tasks[0] as Task),
+    agent: "trip-planner",
+    distance_m: 14,
+    ...over,
+  });
+
+  it("pages tasks from the server with status and search, shows agent and distance, and opens a task with its timeline", async () => {
+    const page = await setup(
+      {
+        "GET /ops/tasks": (_init, url) =>
+          ok({
+            tasks: url.searchParams.get("cursor")
+              ? [task({ id: TASK_ID, question: "Older", created_at: "2026-10-16T12:00:00Z" })]
+              : [
+                  task(),
+                  task({
+                    id: "33333333-2222-4333-8444-555555555555",
+                    status: "paid",
+                    agent: null,
+                    distance_m: null,
+                    money_at: null,
+                    claimed_at: null,
+                    bounty_cents: undefined,
+                  }),
+                ],
+            total: 3,
+            next_cursor: url.searchParams.get("cursor") ? null : "c1",
+          }),
+        [`GET /ops/tasks/${HELD}`]: () => ok({ ...feed().tasks[0], fee_cents: 100 }),
+        "GET /ops/tasks/33333333-2222-4333-8444-555555555555": () =>
+          ok({
+            ...feed().tasks[0],
+            id: "33333333-2222-4333-8444-555555555555",
+            status: "paid",
+            fee_cents: 100,
+          }),
+      },
+      { hash: "#tasks" },
+    );
+    const { $, requests, click } = page;
+    expect(requests.find((r) => r.path.startsWith("/ops/tasks"))?.path).toBe("/ops/tasks?limit=50");
+    const rows = () => [...$("tasks").querySelectorAll("tbody tr")] as HTMLElement[];
+    expect([...(rows()[0]?.querySelectorAll("td") ?? [])].map((td) => td.textContent)).toEqual([
+      "Is the line at Blue Bottle longer than 5 people?",
+      "Near 37.761, -122.386",
+      "$5.00",
+      "14 m",
+      "needs review",
+      expect.stringMatching(/^(now|\d+[mhd])$/),
+      "trip-planner",
+    ]);
+    expect(rows()[1]?.querySelectorAll("td")[3]?.textContent).toBe("");
+    await click($("tasks").querySelector(".tbl-foot button") as HTMLElement);
+    expect(requests.at(-1)?.path).toBe("/ops/tasks?limit=50&cursor=c1");
+    expect($("tasks").querySelector(".tbl-count")?.textContent).toBe("3 of 3 tasks loaded");
+    const status = $("tasks").querySelector(".tbl-bar select") as HTMLSelectElement;
+    status.value = "paid";
+    status.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    await page.settle();
+    expect(requests.at(-1)?.path).toBe("/ops/tasks?status=paid&limit=50");
+    for (const label of ["Bounty", "Worker distance", "Age", "Agent"])
+      (
+        [...$("tasks").querySelectorAll("th button")].find((b) => b.textContent === label) as HTMLElement
+      ).click();
+    await click(rows().find((tr) => tr.textContent?.includes("trip-planner")) as HTMLElement);
+    const panel = $<HTMLDialogElement>("review-panel");
+    expect(panel.open).toBe(true);
+    const flow = [...(panel.querySelector(".flow")?.children ?? [])].map((s) => s.textContent);
+    expect(flow.slice(1)).toEqual([
+      "claimed +30s",
+      "answered +4m",
+      "released +5m",
+      "paid out +6m",
+      "refunded +7m",
+      "fee +8m",
+    ]);
+    expect(flow[0]).toMatch(/^asked Oct 17/);
+    panel.close();
+    await click(rows().find((tr) => tr.textContent?.includes("paid")) as HTMLElement);
+    expect(
+      [...(panel.querySelector(".flow")?.children ?? [])].map((s) => s.textContent?.split(" ")[0]),
+    ).toEqual(["asked", "answered"]);
+  });
+
+  it("refreshes tasks and the ledger with the feed only while their tab is shown, and survives going offline", async () => {
+    let offline = false;
+    const page = await setup({
+      "GET /ops/tasks": () => {
+        if (offline) throw new TypeError("Failed to fetch");
+        return ok({ tasks: [], total: 0, next_cursor: null });
+      },
+    });
+    const { requests, timers, win, happy } = page;
+    const poll = async () => {
+      timers
+        .filter((t) => t.ms === 10000)
+        .at(-1)
+        ?.fn();
+      await page.settle();
+      await page.settle();
+    };
+    await poll();
+    expect(requests.some((r) => r.path.startsWith("/ops/tasks") || r.path.startsWith("/ops/ledger"))).toBe(
+      false,
+    );
+    win.location.hash = "#money";
+    win.dispatchEvent(new happy.HashChangeEvent("hashchange") as unknown as Event);
+    await page.settle();
+    expect(requests.filter((r) => r.path.startsWith("/ops/ledger"))).toHaveLength(1);
+    await poll();
+    expect(requests.filter((r) => r.path.startsWith("/ops/ledger"))).toHaveLength(2);
+    win.location.hash = "#tasks";
+    win.dispatchEvent(new happy.HashChangeEvent("hashchange") as unknown as Event);
+    await poll();
+    expect(requests.filter((r) => r.path.startsWith("/ops/tasks"))).toHaveLength(2);
+    offline = true;
+    await poll();
+    expect(page.$("tasks").querySelector(".tbl-end")?.textContent).toBe("");
+  });
+
+  it("pages the ledger with type and search, with the total for the filters", async () => {
+    const page = await setup(
+      {
+        "GET /ops/ledger": (_init, url) =>
+          ok({
+            ledger: [
+              {
+                id: "l1",
+                type: "fee",
+                created_at: "2026-10-17T12:00:00Z",
+                task_id: HELD,
+                place_label: "37.76123, -122.38599",
+                amount_cents: 50,
+              },
+              {
+                id: "l2",
+                type: "topup",
+                created_at: "2026-10-17T11:00:00Z",
+                task_id: null,
+                amount_cents: 2000,
+              },
+              { id: "l3", type: "bonus", created_at: "2026-10-17T10:00:00Z", task_id: null, amount_cents: 1 },
+            ],
+            total: url.searchParams.get("type") ? 1 : 3,
+            total_cents: url.searchParams.get("type") ? 50 : 2051,
+            next_cursor: null,
+          }),
+      },
+      { hash: "#money" },
+    );
+    const { $, text, requests } = page;
+    expect(text("ledger-total")).toBe("$20.51 across 3 rows");
+    expect(
+      [...$("ledger").querySelectorAll("tbody tr")].map((tr) =>
+        tr.textContent?.replace(/^Oct 17.*?(AM|PM)/, ""),
+      ),
+    ).toEqual(["Fee$0.50Near 37.761, -122.386 22222222", "Top-up$20.00", "bonus$0.01"]);
+    const type = $("ledger").querySelector(".tbl-bar select") as HTMLSelectElement;
+    type.value = "fee";
+    type.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    await page.settle();
+    await page.settle();
+    expect(requests.at(-1)?.path).toBe("/ops/ledger?type=fee&limit=50");
+    expect(text("ledger-total")).toBe("$0.50 across 1 row");
+    for (const label of ["Date", "Type", "Amount", "Task"])
+      (
+        [...$("ledger").querySelectorAll("th button")].find((b) => b.textContent === label) as HTMLElement
+      ).click();
+  });
+
+  it("filters workers by state and location, and the map shows only those markers", async () => {
+    const { L, calls } = leaflet();
+    const page = await setup({}, { hash: "#workers", L });
+    const { $ } = page;
+    const [state, location] = [...$("workers").querySelectorAll(".tbl-bar select")] as HTMLSelectElement[];
+    const pick = (select: HTMLSelectElement | undefined, value: string) => {
+      (select as HTMLSelectElement).value = value;
+      select?.dispatchEvent(new page.happy.Event("change") as unknown as Event);
+    };
+    calls.length = 0;
+    pick(state, "available");
+    expect([...$("workers").querySelectorAll("tbody tr")]).toHaveLength(1);
+    expect(calls).toEqual(["clear", "marker 37.77,-122.42 #ffd60a"]);
+    pick(state, "");
+    calls.length = 0;
+    pick(location, "no location");
+    expect($("workers").querySelector("tbody tr")?.textContent).toContain("no location");
+    expect(calls).toEqual(["clear"]);
   });
 });
 
@@ -1114,7 +1444,7 @@ describe("ops page on its own host", () => {
       { "POST /ops/logout": () => new Response(null, { status: 204 }) },
       { root: true },
     );
-    expect(page.raw.slice(0, 4)).toEqual(["/feed", "/tickets", "/events", "/series"]);
+    expect(page.raw.slice(0, 5)).toEqual(["/feed", "/tickets", "/tickets", "/events", "/series"]);
     expect(page.doc.querySelector('a[href="/live"]')?.textContent).toBe("Live map");
     expect(page.doc.querySelector('a[href="/allowlist"]')).toBeTruthy();
     await page.click(page.$("logout"));
@@ -1167,7 +1497,7 @@ describe("ops review table", () => {
     expect(age).toMatch(/^(now|\d+[mhd])$/);
   });
 
-  it("filters by created day and bounty, sorts by age, and opens rows from the recent tasks list too", async () => {
+  it("filters by created day and bounty, and sorts by age", async () => {
     const page = await setup({
       "GET /ops/feed": () => ok(two()),
       [`GET /ops/tasks/${HELD}`]: () => ok({ ...feed().tasks[0], fee_cents: 100 }),
@@ -1200,19 +1530,6 @@ describe("ops review table", () => {
     search.dispatchEvent(new page.happy.Event("input") as unknown as Event);
     search.dispatchEvent(new page.happy.Event("input") as unknown as Event);
     expect(cleared).toContain(timers.length - 1);
-
-    const item = $("task-list").querySelector("li.open") as HTMLElement;
-    item.dispatchEvent(new page.happy.KeyboardEvent("keydown", { key: "x" }) as unknown as Event);
-    expect(page.requests.some((r) => r.path.startsWith("/ops/tasks/"))).toBe(false);
-    item.dispatchEvent(
-      new page.happy.KeyboardEvent("keydown", { key: " ", cancelable: true }) as unknown as Event,
-    );
-    await page.settle();
-    await page.settle();
-    expect($<HTMLDialogElement>("review-panel").open).toBe(true);
-    $<HTMLDialogElement>("review-panel").close();
-    await page.click(item);
-    expect($<HTMLDialogElement>("review-panel").open).toBe(true);
   });
 
   it("remembers a tab's table state when you leave and come back", async () => {
@@ -1224,7 +1541,7 @@ describe("ops review table", () => {
       );
     $("tab-review").focus();
     key("ArrowRight");
-    expect(win.location.hash).toBe("#support");
+    expect(win.location.hash).toBe("#support?state=open");
     key("ArrowLeft");
     expect(win.location.hash).toBe("#review?q=gate");
     win.location.hash = "#overview";

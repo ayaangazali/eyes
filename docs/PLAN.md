@@ -4,17 +4,19 @@ Living plan. `STATUS.md` is the task board; this file says what remains, who doe
 
 Hacking: Sat Oct 17 10:30 AM to Sun Oct 18 10:00 AM (submissions). Feature freeze 6:00 AM Sun.
 
-## 1. Where we are (2026-10-17 10:53 PT)
+## 1. Current state (2026-10-18)
 
 | Area | State |
 |---|---|
-| Live mode | `EYES_PROVIDERS=live` on Manufact (main fec9f09): Inkbox texting (shared line +16504849720, `connect @hackathon` then START), Claude vision and safety classifier, InsForge storage, place lookup. Stripe and Primitive simulated, and every worker-facing text and page says so (#75) |
-| Live-verified (STATUS) | safety rules and classifier refusals; Claude vision verdicts; face-photo deletion; real Claude over the MCP connector through quote, ask and await with a stand-in worker; worker sign-up page against the live API; owner console; smoke 13/13 |
-| Not yet live-verified | a real iMessage to a phone (G1), Stripe top-up and transfer (G2), Primitive email thread, Armature analytics |
+| Live mode | Manufact Cloud hosts the MCP/API application; Cloudflare supplies the edge and static sites. ChatGPT and Claude use `https://mcp.eyes.pictures/mcp`; REST/uploads/webhooks stay at `https://api.eyes.pictures`, whose legacy MCP endpoint remains supported. |
+| Current verification | Dedicated-host OAuth/card metadata and live API are verified; 13 model-visible tools plus app-only `confirm_ask` share the service. Interactive `ask_eyes` is read-only until explicit card confirmation. Photo moderation rejects confirmed graphic gore or explicit sexual content, not faces alone. |
+| Remaining limits | Stripe provider is live but payments/$20 credit are test-only. Follow-up visual checks on the operator's ChatGPT/Claude test accounts were quota-blocked on 2026-10-18, not unavailable for all users. Primitive unrestricted sending and external custom-alias SPF remain unresolved. |
 | CI and tests | lint, typecheck, unit, contract, integration, golden and demo e2e, safety rules, intent, secrets; `pnpm ax:eval` (Claude client passes locally); `safety-llm-eval` and the Claude PR reviewer run with the repo secret |
-| Agent experience | 9 MCP tools, REST mirror, llms.txt, openapi.json, agent card, `eyes` CLI, every error with a fix |
+| Agent experience | 13 model-visible MCP tools, app-only `confirm_ask`, shared `ui://eyes/confirmation-card.html`, unchanged direct REST/CLI dispatch; acceptance and classifier-review tools remain available |
 
-## 2. Work in flight
+Marketplace 1.0.3 is a configured draft with preflight complete, not submitted or published. Legal owner attestations and test-mode limits remain.
+
+## 2. Historical work-in-flight snapshot (2026-10-17)
 
 | Task | What | Status |
 |---|---|---|
@@ -25,17 +27,17 @@ Every PR: spec + test + intent verifiers, security on money/auth/webhooks/safety
 
 ## 3. Next (in order)
 
-1. **G1 with a person**: a teammate iPhone joins, texts `connect @hackathon` then START, gets an offer for a real task at Blue Bottle Mint Plaza, replies YES, captures; record it in STATUS and SUBMISSION.
-2. **Stripe** when the key lands (section 4), then rebuild Sites with `VITE_LIVE_PAYOUTS=true`; G2.
-3. **Primitive** when the key lands; the email beat of the demo.
+1. **Client visuals:** record a fresh in-chat ChatGPT/Claude visual result only after account quotas permit it; current API/card-protocol verification is not that result.
+2. **Marketplace:** retain draft status until the legal owner completes attestations and explicitly submits/publishes; keep test-payment limits visible.
+3. **Email:** preserve iMessage-only onboarding and first-contact Inkbox fallback; do not claim unrestricted Primitive delivery or resolved external-alias SPF.
 4. Deferred issues, by demo impact: #28 (link revocation), #29 (withdraw to card), #30 (per-task event trail), #31 (durable expiry), #34 (worker report), #38 (owner link address), #54 (masked owner email), #71.
 5. **Phase 4**: remaining SUBMISSION TODOs from STATUS, the 90 s video from docs/DEMO.md, backup video, final README pass.
 
-## 4. When each key lands (exact steps)
+## 4. Historical key-onboarding sequence
 
 Order agreed with the humans: Inkbox (in person) -> Manufact -> InsForge -> Stripe -> Primitive -> Armature. Anthropic is a prerequisite for any live mode: without `ANTHROPIC_API_KEY` the server refuses `EYES_PROVIDERS=live` on purpose (the safety classifier and photo verification would be off).
 
-Set server env with `npx mcp-use servers env set 0526925a-58ae-4d83-9c3b-ed378926c260 KEY=VALUE` (secrets with `--secret` where supported), then `npx mcp-use deployments restart <running id>` (env is read at start; merges do not auto-deploy). Code changes: `npx mcp-use deploy --yes --dockerfile Dockerfile` from an up-to-date main.
+Current deployment and recovery guidance is in [DEPLOY §2](DEPLOY.md#2-mcpapi-server-on-manufact-cloud). The dated provisioning rows below record earlier setup, not current commands to wait for keys or redeploy to InsForge Sites. Preserve the Manufact origin and separate MCP/REST public hosts.
 
 | Key | Steps | Proof (live-verified) |
 |---|---|---|

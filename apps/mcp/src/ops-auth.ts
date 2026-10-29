@@ -33,10 +33,13 @@ const HEADERS = {
   "Cache-Control": "no-store",
   "Referrer-Policy": "same-origin",
   "Content-Security-Policy":
-    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
+    "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
 };
 const STYLE = `${PAGE_CSS}
-body.ui { background: var(--eyes-surface-secondary); }
+/* The header wordmark starts where the card starts. */
+body.ui { background: var(--eyes-surface-secondary); --ui-column: var(--eyes-measure); }
+body.ui .ui-site-head__inner { padding-inline: var(--eyes-space-4); }
+@media (max-width: 36rem) { body.ui .ui-site-head__inner { padding-inline: var(--eyes-space-8); } }
 .wrap { padding: var(--eyes-space-8) var(--eyes-space-4) var(--eyes-space-10); }
 main.ui-card { margin: 0 auto; }
 .rows { display: grid; gap: var(--eyes-space-3); margin: 0; padding: 0; list-style: none; border-top: 0; }

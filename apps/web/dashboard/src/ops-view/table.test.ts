@@ -386,4 +386,21 @@ describe("createTable, server-paged", () => {
     happy.dispatchEvent(new happy.Event("scroll"));
     expect(shape()).toEqual(["gap 80px", "300", "300", "300", "300"]);
   });
+
+  it("sizes spacers from the measured height of the rows they replace", () => {
+    const { table, happy } = remote({ window: { rows: 4, height: 10 } });
+    const many = Array.from({ length: 12 }, (_, i) => ({ ...ROWS[0], id: i }) as Row);
+    let top = 0;
+    (table.el.querySelector("table") as HTMLElement).getBoundingClientRect = () => ({ top }) as DOMRect;
+    table.setRows(many);
+    // The four drawn rows are really 25 px tall, not the 10 px estimate: the spacer for 8 rows is 200 px.
+    for (const tr of table.el.querySelectorAll("tbody tr:not(.tbl-spacer)"))
+      (tr as HTMLElement).getBoundingClientRect = () => ({ height: 25 }) as DOMRect;
+    top = -250;
+    happy.dispatchEvent(new happy.Event("scroll"));
+    const gaps = [...table.el.querySelectorAll(".tbl-spacer td")].map(
+      (td) => (td as HTMLElement).style.height,
+    );
+    expect(gaps).toEqual(["200px"]);
+  });
 });

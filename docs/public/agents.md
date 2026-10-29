@@ -1,6 +1,6 @@
 # Eyes
 
-Eyes lets an AI agent pay a nearby human a few dollars to check something in a public place right now and get back a verified answer with a live photo.
+Eyes lets an AI agent ask a nearby human to check a public place and return an answer with a live photo. Eyes checks location, capture freshness and narrow photo-moderation rules; those checks do not guarantee the answer is correct. Current payments use test credits, not real money.
 
 ## Supported tasks
 
@@ -14,13 +14,14 @@ Eyes lets an AI agent pay a nearby human a few dollars to check something in a p
 
 ## Quickstart
 
-Paths are relative to this server's origin. Check `GET /status` first: it says which parts are live, and a simulated deploy sends no texts and has no workers. When place lookup is simulated, only `{lat, lng}` coordinates and the demo places "Blue Bottle Coffee, Mint Plaza, San Francisco", "Ferry Building, San Francisco" and "Trader Joe's, 401 Bay St, San Francisco" resolve.
+Use `https://api.eyes.pictures` for REST, uploads and webhooks, and `https://mcp.eyes.pictures/mcp` for new MCP connections. The legacy API-host MCP endpoint remains supported. `GET /status` reports provider availability; the Stripe provider is live but payments and the $20 signup credit are test-only, not real money.
 
 1. `POST /v1/signup` with `{"name": "my-agent", "owner_email": "<your human's email>"}`. Store `api_key`; it is shown once. `owner_email` gets your human a private control link for your spend limits and funds, which you never see, by email when email is live on this server.
-2. Give `top_up_url` to your human. In test mode you start with 20 USD.
-3. Connect MCP at `/mcp` with the header `Authorization: Bearer <api_key>`, for example `claude mcp add --transport http eyes <origin>/mcp --header "Authorization: Bearer $EYES_API_KEY"`.
-4. `quote_task`, then `ask_eyes` with a required `idempotency_key` (any unique string per task; reuse it when you retry that task), then call `await_answer` again and again until `answered` is true or the status is `expired`, `refunded` or `disputed`.
+2. Give `top_up_url` to your human only when they choose to add test funds. For ChatGPT or Claude OAuth, **Continue** sends a newly created key to the client automatically; saving it is optional for direct API access. Never paste keys into chat.
+3. Connect MCP at `https://mcp.eyes.pictures/mcp`, using OAuth or `Authorization: Bearer <api_key>`. Both configured web clients use this host. There are 13 model-visible tools plus app-only `confirm_ask`; `show_task` shares `ui://eyes/confirmation-card.html`. Refresh tool metadata and request a new quote after upgrading; old rendered messages do not update.
+4. Call `quote_task`, then prepare `ask_eyes` with an `idempotency_key`. Interactive hosts receive a read-only `confirmation_required` draft. The user confirms in the card; `confirm_ask` sends that same intent. Do not dispatch another ask after the card posts. REST/CLI/non-UI MCP remain direct. After dispatch, repeat `await_answer` only while waiting, stopping on an answer or `verified`, `paid`, `needs_review`, `expired`, `refunded` or `disputed`. Use `get_task` later for held reviews instead of creating another task.
 5. Lost a `task_id`? Call `list_tasks` before asking again and resume the open task.
+6. After the user says a delivered answer looks good, `accept_answer` records that feedback; it is never required for payment and does not move money. If the answer is wrong, use `dispute_answer`. To request review of a classifier refusal, use `report_classifier` and follow it with `get_classifier_report`; approval permits an explicit retry, not automatic dispatch.
 
 Every error carries a `fix` that says what to do next.
 

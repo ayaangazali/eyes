@@ -2,15 +2,26 @@
 
 Run from the repo root. Keys go in `.env` (never committed). Names are in `.env.example`.
 
-## 1. InsForge (database, photos, worker web)
+## 1. InsForge (database and photos; worker pages are on Cloudflare)
 1. `npx @insforge/cli login`, then create or link the project (`npx @insforge/cli link`), and copy `INSFORGE_BASE_URL`, `INSFORGE_ANON_KEY`, `INSFORGE_API_KEY` into `.env`.
 2. Apply our migrations through the REST migrations endpoint: `node --env-file=.env scripts/insforge-migrate.ts` (409 means already applied).
 3. Create the public photo bucket: `npx @insforge/cli storage create-bucket photos --public`.
 4. Live check that the admin key can run our functions (RLS and EXECUTE grants are unverified on InsForge):
    `curl -s -X POST "$INSFORGE_BASE_URL/api/database/rpc/eyes_agent_by_key_hash" -H "Authorization: Bearer $INSFORGE_API_KEY" -H 'content-type: application/json' -d '{"p_key_hash":"x"}'` must return `[]`, not a permission error.
 
-## 2. MCP server on Cloudflare Containers
-The server runs as one container (the repo `Dockerfile`: Node 26, `node apps/mcp/src/main.ts`, port 3000) behind the `eyes-api` Worker in `apps/edge/api`, which also owns the `api.eyes.pictures` custom domain. Account `2c040ec5bc2efe34e60ab5b1b4fd2e99`, container application `eyes-api-eyesserver`.
+## 2. MCP/API server on Manufact Cloud
+
+Current application host: Manufact Cloud, `https://warm-spark-aocdd.run.mcp-use.com`. ChatGPT and Claude use live `https://mcp.eyes.pictures/mcp`; legacy `https://api.eyes.pictures/mcp` remains supported. REST/uploads/webhooks stay on `https://api.eyes.pictures`; Cloudflare `eyes-api` forwards both hosts and ops to the same Manufact origin. Cloudflare also hosts static landing and worker pages.
+
+The operator deployment loop deploys the API to Manufact and preserves the edge origin. Keep `EYES_PUBLIC_MCP_URL=https://mcp.eyes.pictures/mcp` separate from `EYES_PUBLIC_API_URL=https://api.eyes.pictures`. The registry has 13 model-visible tools plus app-only `confirm_ask`, sharing `ui://eyes/confirmation-card.html`; no old React-view build is required.
+
+After this confirmation-contract cutover, refresh/rescan the app's tool metadata and open a new quote; reconnect only if needed. Old rendered cards are not retroactively updated, and their interactive `ask_eyes` calls remain read-only. Reuse existing credentials; no key rotation is required.
+
+Stripe's provider is live, but payments and the $20 signup credit are test-only. ChatGPT card protocol/live API are verified; follow-up visual checks on the operator's test accounts were quota-blocked on 2026-10-18, not unavailable for all users. Marketplace 1.0.3 is a configured draft, not submitted or published.
+
+### Historical Cloudflare Container procedure — not current production
+
+The commands below describe the earlier container host. Do not use them to replace the current Manufact application or its origin.
 
 Run every wrangler command from `apps/edge/api` with `env -u CLOUDFLARE_API_TOKEN -u CLOUDFLARE_ACCOUNT_ID npx -y wrangler@4 …`: the repo `.env` holds the clef token for the server, which is not allowed to deploy, and wrangler picks it up from the repo root. Wrangler then uses the `wrangler login` OAuth session (needs `containers (write)`). Docker must be running (OrbStack: `orb start`) to build the image.
 
@@ -34,25 +45,29 @@ Ops and ClickHouse settings (any host):
    Ops dashboard: `https://internal.eyes.pictures` (its own host, served by the same container; the `eyes-api` Worker has it as a second custom domain). The server derives it from `EYES_PUBLIC_API_URL` by swapping `api.` for `internal.`; set `EYES_OPS_URL` to use another name. On that host the root is the dashboard and nothing else of the API answers; on the API host `/ops*` answers 301 to it; on loopback `/ops` still works for local runs. It sits behind the operator allowlist (`ops_allowlist`; migration 015 seeds only placeholders, so add real operators at `/allowlist`, signing in the first time with `EYES_OPS_KEY`). An operator signs in at `/login` with a code sent by text (Inkbox) or email (Primitive); the session cookie lasts 12 h. Optional break-glass: `EYES_OPS_KEY` (32+ random chars, `openssl rand -hex 32`); opening `https://internal.eyes.pictures/<EYES_OPS_KEY>` signs the browser in without a code. Shorter than 32 characters, the server refuses to start. Never post that URL publicly, in a screenshot, an issue or a shared chat; to revoke it set a new key and restart.
    Optional ClickHouse for the ops event log and the Trends charts (Postgres stays the source of truth): set `CLICKHOUSE_URL` (HTTP interface, e.g. `http://127.0.0.1:8123`), `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DATABASE` (default `eyes`), then `node --env-file=.env scripts/clickhouse-migrate.ts` (safe to re-run). Local: `docker run -d --name eyes-ch -p 127.0.0.1:8123:8123 -e CLICKHOUSE_USER=eyes -e CLICKHOUSE_PASSWORD=<random> clickhouse/clickhouse-server:25.8`. Unset, the charts read the Postgres feed and the last 500 events in memory. While ClickHouse is down the server keeps the newest 10,000 events and retries with backoff; `/ops/series` reports how many it dropped.
 
-## 3. Worker web on InsForge Sites
+## 3. Worker web: Cloudflare current, InsForge Sites historical
+
+Current pages are `https://app.eyes.pictures` and `https://eyes.pictures`, built with REST base `https://api.eyes.pictures`. The InsForge Sites commands below are historical. The current dispatcher is `connect @eyes-dispatch`.
 1. `VITE_EYES_API_URL=https://<public api origin> VITE_INKBOX_NUMBER=+1XXXXXXXXXX pnpm --filter @eyes/web-worker build`. On the shared Inkbox line (no dedicated number), also set `VITE_INKBOX_CONNECT="connect @<agent handle>"`: the JOIN page then asks for that text before START. Set `VITE_LIVE_PAYOUTS=true` only when the server has `STRIPE_SECRET_KEY`; without it the JOIN and capture pages say payouts are simulated and show no amounts, matching what the server texts workers.
 2. `npx @insforge/cli deployments deploy ./apps/web/worker/dist` (static output; camera and GPS need the HTTPS `*.insforge.site` URL).
-3. Or on Cloudflare, with the landing page on the apex: `pnpm --filter @eyes/web-landing build && (cd apps/web/landing && npx wrangler deploy)` serves `eyes.pictures`; build the worker web as above with `VITE_EYES_API_URL=https://api.eyes.pictures`, then `cd apps/web/worker && npx wrangler deploy` serves `app.eyes.pictures`; `api.eyes.pictures` is the `eyes-api` Worker and container from section 2. Set the server's `EYES_PUBLIC_API_URL` and `EYES_WORKER_WEB_URL` to those two names.
+3. Current Cloudflare targets: build/deploy from `apps/web/worker` for `app.eyes.pictures`, and `apps/web/landing` for `eyes.pictures`, using the existing operator runbook. The API behind the Cloudflare edge is Manufact-hosted, not the old container.
 
 ## 4. Webhooks
+
+`<public>` in this section remains `https://api.eyes.pictures`; provider webhooks do not move to the MCP host.
 - Inkbox (iMessage line, chosen for cost): subscribe identity `eyes-dispatch` to `imessage.received` at `<public>/webhooks/inkbox`; put the signing key in `INKBOX_WEBHOOK_SIGNING_KEY`. Worker phones must be iPhones. If the console gives a shared router number plus a connect command instead of a dedicated number (the free plan: `inkbox.imessages.getTriageNumber()` returns it, and `inkbox.imessages.listNumbers()` is empty), set `INKBOX_PHONE_NUMBER` to the router number and build the worker web with `VITE_INKBOX_CONNECT`; each worker texts the connect command to the router first, then START. Cold first messages are limited to 159 chars with no links (our offers comply). Inkbox caps agent-initiated conversations at 10 new recipients per hour and 40 per 24 h, but "recipients who message the line first do not consume these first-contact slots": every worker texts START first, so the cap does not apply to Eyes.
 - Stripe: two event destinations to `<public>/webhooks/stripe`: "Your account" with `checkout.session.completed` (`STRIPE_WEBHOOK_SECRET`) and "Connected accounts" with `account.updated` (`STRIPE_CONNECT_WEBHOOK_SECRET`). Fund the platform: `node --env-file=.env packages/payments/scripts/fund-platform.ts 100`.
-- Primitive: HTTP endpoint webhook to `<public>/webhooks/primitive` (`PRIMITIVE_WEBHOOK_SECRET`); note the assigned domain as `PRIMITIVE_DOMAIN`.
+- Primitive: signed inbound webhook remains at `<public>/webhooks/primitive`, with `PRIMITIVE_WEBHOOK_SECRET` and `PRIMITIVE_DOMAIN`. Outbound DNS and one owner Gmail delivery are verified; unrestricted sending remains disabled, first-contact delivery can fall back to Inkbox, and external custom-alias SPF is unresolved.
 
 ## 5. Live smoke checklist (G1, then G2)
 1. `GET <public>/healthz`: every provider `live`, db `insforge`.
 2. Each worker phone (iPhone, with Settings > Messages > Send & Receive > Start New Conversations From set to the phone number, not an Apple ID email): JOIN at `<worker web>/`, text START, receive the payout setup link, finish Stripe test onboarding (SMS code 000-000, SSN 222222222, routing 110000000, account 000123456789).
-3. Agent: `claude mcp add --transport http eyes <public>/mcp --header "Authorization: Bearer $EYES_API_KEY"` (key from `POST <public>/v1/signup`).
+3. Agent: connect to `https://mcp.eyes.pictures/mcp` with an existing key or the web OAuth flow; signup and REST calls stay at `https://api.eyes.pictures`.
 4. Ask about the demo cafe; a nearby phone gets the offer text, replies YES, gets the capture link, takes the photo; Claude's `await_answer` returns the verified answer with `photo_url`.
 5. G2: the Stripe dashboard shows the top-up, then the transfer to the worker's connected account; `get_balance` drops by 3.50; "Photograph the house at 123 Oak St" is refused with `unsafe_task`.
 6. Record each result in STATUS.md "Live verification" with the time and what was seen.
 
-## Manufact redeploy notes (old host, not in use since T6.11; learned 2026-10-17)
+## Historical Manufact deployment notes (2026-10-17; not the current operator procedure)
 
 - Merges to GitHub main do not deploy. The server builds from a Manufact-managed mirror (`manufacts/eyes-*`) that `npx mcp-use deploy` uploads to. After a merge: `git pull` on main, then `npx -y mcp-use@2.10.0 deploy --yes --json --dockerfile Dockerfile`.
 - The id that `deploy` returns goes to `stopped` within seconds; the real build is the `webhook` deployment created right after it. Watch `npx mcp-use deployments list` for that one to reach `running`.
@@ -60,9 +75,13 @@ Ops and ClickHouse settings (any host):
 - InsForge migrations must be applied in strictly increasing version order: the API rejects any version older than the latest applied one (`DATABASE_MIGRATION_ALREADY_EXISTS`, "Migration version must be newer than the latest applied migration"). If `007_*` merges before `006_*`, do not run `scripts/insforge-migrate.ts` until `006` is on main, or `006` can never be applied. Applied so far (2026-10-17): 001-020.
 - Never set `EYES_FAKE_WEBHOOKS=1` on a deployed server. It exists only so local tests can send fake-signed Stripe webhooks; on a deploy with fake payments it would let anyone credit balances and mark workers onboarded (fixed in PR #56, which closes the route unless this flag is set).
 
-## Roll back to the Mac
+## Current iPhone distribution
 
-Use this when the container is broken and a fix is not quick. It runs the server on this Mac again and sends `api.eyes.pictures` (and with it every provider webhook, all of which point at `https://api.eyes.pictures/webhooks/<x>`) to the Inkbox tunnel. Each process runs in its own session (`os.setsid`), so it outlives the shell that started it. Agents share one uid, so stop processes by verified PID only, never `pkill -f`.
+Use the existing ad-hoc release flow, not TestFlight. The app remains connected across task photos. The worker page's three-second post-install fill/disabled timer is a grace period, not OS install detection. **Use iMessage only** skips optional email setup.
+
+## Historical rollback-to-Mac procedure
+
+The following local-tunnel commands are retained as history, not current recovery instructions. Restore the last verified Manufact deployment with operator approval; do not silently move MCP, API or provider webhooks.
 
 1. Start the server on `:3000` (first check `lsof -nP -iTCP:3000 -sTCP:LISTEN` is empty, or `kill` that PID):
    ```sh

@@ -129,7 +129,7 @@ code, pre { font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); 
 .chart__axis--max { top: 0; } .chart__axis--min { bottom: 0; }
 .chart__dot { position: absolute; width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; border-radius: 50%; background: color-mix(in srgb, var(--eyes-accent) 65%, var(--eyes-text)); box-shadow: 0 0 0 2px var(--eyes-surface); }
 .chart.bad .chart__dot { background: var(--eyes-danger-text); }
-.chart__cursor { position: absolute; top: 0 !important; bottom: 0; width: 1px; background: var(--eyes-border-strong); pointer-events: none; }
+.chart__cursor { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--eyes-border-strong); pointer-events: none; }
 .chart__tip { position: absolute; transform: translate(-50%, calc(-100% - 8px)); padding: 2px var(--eyes-space-2); border-radius: var(--eyes-radius-sm); background: var(--eyes-text); color: var(--eyes-surface); font-size: var(--eyes-text-xs); font-variant-numeric: tabular-nums; white-space: nowrap; pointer-events: none; z-index: 2; }
 .chart__dot[hidden], .chart__cursor[hidden], .chart__tip[hidden] { display: none; }
 @media (max-width: 640px) {
@@ -187,6 +187,8 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 .tbl-table .q { font-weight: var(--eyes-weight-medium); }
 .tbl-empty { margin: var(--eyes-space-4) 0; }
 .tbl-toggle { display: none; }
+/* A spacer stands in for rows out of view: only its height counts. */
+.tbl-table .tbl-spacer, .tbl-table .tbl-spacer td { padding: 0 !important; margin: 0 !important; border: 0 !important; }
 @media (max-width: 640px) {
   .tbl-bar { margin: 0 calc(-1 * var(--eyes-space-4)); }
   .tbl-bar .tbl-search { flex: 1 1 0; }
@@ -212,7 +214,7 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 #events .tbl-table td { padding-top: 6px; padding-bottom: 6px; vertical-align: middle; }
 #events .tbl-table td:nth-child(-n + 3) { width: 1%; white-space: nowrap; }
 .ev-sum { display: block; max-width: 0; min-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); color: var(--eyes-text); }
-.tbl-detail td { padding: 0 var(--eyes-space-2) var(--eyes-space-3) !important; background: var(--eyes-surface-secondary); }
+.tbl-detail td { padding: 0 var(--eyes-space-2) var(--eyes-space-3); background: var(--eyes-surface-secondary); }
 .ev-detail { display: grid; gap: var(--eyes-space-2); justify-items: start; padding-top: var(--eyes-space-2); }
 .ev-detail__summary { margin: 0; font-family: var(--eyes-font-mono); font-size: var(--eyes-text-xs); white-space: pre-wrap; word-break: break-word; }
 .ev-detail__data { margin: 0; max-width: 100%; font-size: var(--eyes-text-xs); white-space: pre-wrap; word-break: break-word; color: var(--eyes-text-secondary); }
@@ -225,11 +227,35 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 @media (max-width: 640px) {
   /* Phones keep the log to one line per event too: icons, time, then the summary, cut. */
   #events .tbl-table tr:not(.tbl-detail):not(.tbl-spacer) { display: flex; align-items: center; gap: var(--eyes-space-2); padding: 6px 0; }
-  #events .tbl-table td { display: block; margin: 0 !important; padding: 0 !important; width: auto !important; }
-  #events .tbl-table td::before { content: none !important; }
+  #events .tbl-table td { display: block; margin: 0; padding: 0; width: auto; }
+  #events .tbl-table td::before { content: none; }
   #events .tbl-table td:nth-child(2) { font-size: var(--eyes-text-xs); color: var(--eyes-text-tertiary); white-space: nowrap; }
   #events .tbl-table td:last-child { flex: 1; min-width: 0; }
 }
+
+/* Decisions in the review and ticket panels: one primary action, the rest in a menu, an inline confirm. */
+.decide { display: grid; gap: var(--eyes-space-2); padding-top: var(--eyes-space-3); border-top: 1px solid var(--eyes-border-subtle); }
+.decide__field { display: grid; gap: var(--eyes-space-1); }
+.decide__label { font-size: var(--eyes-text-sm); font-weight: var(--eyes-weight-medium); }
+.decide__note { width: 100%; min-height: 2.75rem; resize: vertical; font: inherit; font-size: var(--eyes-text-sm); field-sizing: content; max-height: 14rem; }
+.decide__note[aria-invalid="true"] { border-color: var(--eyes-danger-text); }
+.decide__hint { margin: 0; font-size: var(--eyes-text-xs); color: var(--eyes-text-tertiary); }
+.decide__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--eyes-space-2); min-height: 2.25rem; }
+.decide__row.is-confirming { padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-md); background: var(--eyes-surface-secondary); }
+.decide__question { flex: 1 1 14rem; font-size: var(--eyes-text-sm); font-weight: var(--eyes-weight-medium); }
+.decide__menuwrap { position: relative; }
+.decide__menu { position: absolute; top: calc(100% + 4px); left: 0; z-index: 3; display: grid; min-width: 13rem; padding: var(--eyes-space-1); border-radius: var(--eyes-radius-md); background: var(--eyes-surface); box-shadow: var(--eyes-hairline), 0 8px 24px rgb(0 0 0 / 0.16); transform-origin: top left; }
+.decide__menu[hidden] { display: none; }
+.decide__item { all: unset; box-sizing: border-box; padding: var(--eyes-space-2) var(--eyes-space-3); border-radius: var(--eyes-radius-sm); font-size: var(--eyes-text-sm); cursor: pointer; }
+.decide__item:focus-visible { outline: 2px solid var(--eyes-accent); outline-offset: -2px; }
+.decide__item.is-danger { color: var(--eyes-danger-text); }
+@media (hover: hover) and (pointer: fine) { .decide__item:hover { background: var(--eyes-surface-secondary); } }
+.decide__status { display: flex; align-items: center; gap: var(--eyes-space-1); margin: 0; font-size: var(--eyes-text-sm); }
+.decide__status:empty { display: none; }
+.decide__status.is-ok { color: var(--eyes-success-text); }
+.decide__status.is-error { color: var(--eyes-danger-text); }
+.toasts { position: fixed; left: 50%; bottom: var(--eyes-space-6); z-index: 2000; transform: translateX(-50%); pointer-events: none; }
+.toast { display: flex; align-items: center; gap: var(--eyes-space-2); max-width: min(32rem, calc(100vw - 2rem)); padding: var(--eyes-space-2) var(--eyes-space-4); border-radius: 999px; background: var(--eyes-text); color: var(--eyes-surface); font-size: var(--eyes-text-sm); box-shadow: 0 8px 24px rgb(0 0 0 / 0.2); }
 
 /* Motion (Emil Kowalski's rules): strong custom ease-out, transform and opacity only, under 300 ms,
    press feedback on everything pressable, hover gated to fine pointers, nothing on keyboard actions. */
@@ -249,7 +275,17 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
 @starting-style { #review-panel[open] { opacity: 0; transform: scale(0.96); } }
 #review-panel::backdrop { transition: opacity 200ms ease; }
 @starting-style { #review-panel[open]::backdrop { opacity: 0; } }
+/* Menus scale from their trigger; the confirm row and the result fade in; toasts rise in, leave faster. */
+.decide__menu { transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out); }
+@starting-style { .decide__menu { opacity: 0; transform: scale(0.97); } }
+.decide__row.is-confirming, .decide__status { transition: opacity 150ms var(--ease-out); }
+@starting-style { .decide__row.is-confirming, .decide__status { opacity: 0; } }
+.toast { transition: transform 300ms ease, opacity 300ms ease; }
+@starting-style { .toast { opacity: 0; transform: translateY(100%); } }
+.toast.is-leaving { opacity: 0; transform: translateY(40%); transition-duration: 200ms; }
 @media (prefers-reduced-motion: reduce) {
+  .toast, .toast.is-leaving, .decide__menu { transform: none; }
+  @starting-style { .toast, .decide__menu { transform: none; } }
   .ui-button, .tbl-sort, .attention__link, .new-events, .tbl-toggle, #review-panel[open] { transition: opacity 150ms ease, background-color 150ms ease; }
   .ui-button:active:not(:disabled), .tbl-sort:active, .attention__link:active, .new-events:active { transform: none; }
   @starting-style { .new-events, #review-panel[open] { transform: none; } }
@@ -316,57 +352,35 @@ th[aria-sort="descending"] .tbl-sort::after { content: " ↓"; }
   </div>
 
   <div id="p-support" class="panel" role="tabpanel" aria-labelledby="tab-support" hidden>
-    <section class="ui-card c12 fill">
+    <section class="ui-card c12">
       <header class="ui-card__header"><h2 class="ui-card__title">Support tickets</h2><span id="tickets-count" class="ui-badge"></span></header>
-      <div class="filters short">
-        <input id="t-q" class="ui-input" type="search" placeholder="Search question, message, task id" aria-label="Search tickets">
-        <select id="t-status" class="ui-input" aria-label="Ticket status">
-          <option value="open">Open</option><option value="resolved">Resolved</option><option value="">All</option>
-        </select>
-      </div>
-      <div class="grow">
-        <ul id="tickets-list" class="rows"></ul>
-        <button id="t-more" class="ui-button ui-button--ghost ui-button--sm" type="button" hidden>Show more</button>
-      </div>
+      <div id="tickets"></div>
     </section>
   </div>
 
   <div id="p-tasks" class="panel" role="tabpanel" aria-labelledby="tab-tasks" hidden>
-    <section class="ui-card c12 fill">
-      <header class="ui-card__header"><h2 class="ui-card__title">Recent tasks</h2><span id="tasks-shown" class="sub">newest first</span></header>
-      <div class="filters short">
-        <select id="task-status" class="ui-input" aria-label="Task status">
-          <option value="">All statuses</option><option>dispatched</option><option>claimed</option><option>submitted</option>
-          <option value="needs_review">needs review</option><option>disputed</option><option>verified</option><option>paid</option>
-          <option>expired</option><option>refunded</option>
-        </select>
-      </div>
-      <ul id="task-list" class="rows grow"></ul>
+    <section class="ui-card c12">
+      <header class="ui-card__header"><h2 class="ui-card__title">Tasks</h2><span class="sub">newest first</span></header>
+      <div id="tasks"></div>
     </section>
   </div>
 
   <div id="p-workers" class="panel" role="tabpanel" aria-labelledby="tab-workers" hidden>
-    <section class="ui-card c8 fill">
+    <section class="ui-card c7">
       <header class="ui-card__header"><h2 class="ui-card__title">Workers</h2><span class="sub">positions rounded to about 100 m</span></header>
       <div id="worker-stats" class="stats"></div>
-      <div id="map" class="grow"></div>
+      <div id="map"></div>
     </section>
-    <section class="ui-card c4 fill">
-      <header class="ui-card__header"><h2 class="ui-card__title">All workers</h2><span class="sub">available first</span></header>
-      <ul id="workers-list" class="rows grow"></ul>
+    <section class="ui-card c5">
+      <header class="ui-card__header"><h2 class="ui-card__title">All workers</h2><span class="sub">the filters pick the map markers too</span></header>
+      <div id="workers"></div>
     </section>
   </div>
 
   <div id="p-money" class="panel" role="tabpanel" aria-labelledby="tab-money" hidden>
-    <section class="ui-card c12 fill">
-      <header class="ui-card__header"><h2 class="ui-card__title">Ledger</h2><span class="sub">latest rows</span></header>
-      <div class="filters short">
-        <select id="ledger-type" class="ui-input" aria-label="Ledger row type">
-          <option value="">All rows</option><option value="topup">Top-ups</option><option value="payout">Payouts</option>
-          <option value="escrow">Escrow</option><option value="release">Releases</option><option value="refund">Refunds</option><option value="fee">Fees</option>
-        </select>
-      </div>
-      <div class="grow"><div id="ledger" class="ledger"></div></div>
+    <section class="ui-card c12">
+      <header class="ui-card__header"><h2 class="ui-card__title">Ledger</h2><span id="ledger-total" class="sub"></span></header>
+      <div id="ledger"></div>
     </section>
   </div>
 

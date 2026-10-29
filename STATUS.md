@@ -1,5 +1,21 @@
 # STATUS
 
+## Current state (2026-10-18)
+
+Dedicated MCP is live at `https://mcp.eyes.pictures/mcp`, with ChatGPT and Claude configured there. The registry has 13 model-visible tools plus app-only `confirm_ask`; `show_task` uses shared `ui://eyes/confirmation-card.html`. Interactive `ask_eyes` prepares a read-only draft; explicit card confirmation dispatches the same idempotent intent. REST, CLI and non-UI MCP remain direct. Refresh app tool metadata and open a new quote after the cutover; old rendered messages do not update retroactively. Legacy API-host MCP remains supported. REST/uploads/webhooks stay at `https://api.eyes.pictures`; Manufact hosts the application and Cloudflare provides edge/static hosting.
+
+Published confirmation checkpoint `0a39eee72bf067892a42655de8269860ceb05678` verified at 2026-10-18 14:06 UTC: deployed/API checkpoints match, corrected smoke exited 0, and dedicated-host metadata shows 14 total tools / 13 model-visible, app-only/private `confirm_ask`, read-only interactive `ask_eyes` titled “Prepare a task for confirmation,” and `ui://eyes/confirmation-card.html`. Evidence: `/tmp/eyes-confirmation-final-proof.json` and `/tmp/eyes-confirmation-final-smoke.log`. The existing probe key was reused; signup and paid Ask were skipped. This is not fresh in-chat visual acceptance.
+
+Native iPhone distribution is ad hoc, not TestFlight; the app stays connected across task photos. Optional email can be skipped with **Use iMessage only**. The three-second post-install timer is a grace period, not OS detection. OAuth **Continue** passes a new key to each web client automatically.
+
+Photo moderation rejects confirmed graphic gore or explicit sexual content, not faces alone; task privacy/safety is separate. Stripe's provider is live, but payments and $20 credit remain test-only. Primitive outbound DNS and one owner Gmail delivery are verified; unrestricted sending is disabled, Inkbox first-contact fallback remains, and external custom-alias SPF is unresolved.
+
+Known unresolved gap: STOP handling and the documented email-deletion policy are not fully aligned. This documentation refresh does not fix that policy–implementation gap.
+
+Marketplace 1.0.3 is a configured draft with preflight complete, not submitted/published; legal owner attestations and test-mode limits remain. Live ChatGPT API/card protocol is verified. **Verification note (2026-10-18):** follow-up in-chat visual checks on the operator's ChatGPT and Claude test accounts hit account quotas; this is not a general limitation on either client's card capabilities.
+
+## Historical snapshots and task board
+
 Updated: 2026-10-17 09:50 PT by orchestrator. 51 PRs merged in total, 1 open (#77). Live: Manufact at main 409376c (EYES_PROVIDERS=live: Inkbox texting, Claude vision + classifier, InsForge storage, geo live; Stripe and Primitive simulated), Sites ca4391f9 (JOIN open, shared line, simulated-pay copy) + InsForge (DB 001-014, Sites) + ops dashboard. Two security sweeps and two fresh-eyes audits done. What is left needs vendor keys, a person, or a product decision: docs/PLAN.md §4 and 'Needs from humans'.
 
 ## Task board

@@ -14,18 +14,20 @@ Flow:
 1. An agent (Claude, ChatGPT, Codex, any MCP client) calls an Eyes tool with a question, location, bounty, deadline.
 2. Eyes texts nearby registered humans ("workers") the task.
 3. The first worker to reply YES claims it, walks over, opens a capture page that takes a live photo and GPS.
-4. Eyes verifies: GPS within radius, photo captured live within the deadline, and a moderation check confirms the photo is safe to share (Eyes never judges whether the answer is correct; a human disputes wrong answers, ADR-025).
+4. Eyes checks GPS within radius, live capture freshness and narrowly scoped photo moderation. Only confirmed graphic gore or explicit sexual content is rejected; faces alone are allowed. Task-request privacy restrictions remain separate. Eyes does not judge answer correctness.
 5. The agent receives a structured answer (text, photo URL, timestamp, distance, confidence). The worker is paid automatically.
 
 Pricing: default $3 bounty to the human plus $0.50 Eyes fee, escrowed from the agent's balance on post, refunded if unclaimed or expired.
 
+Current deployment uses test payments and a $20 test signup credit despite the Stripe provider being live; no real money moves. ChatGPT and Claude are configured at `https://mcp.eyes.pictures/mcp`, with 13 model-visible tools plus app-only `confirm_ask`. REST/uploads/webhooks stay at `https://api.eyes.pictures`, whose old MCP connector remains supported. `show_task` shares `ui://eyes/confirmation-card.html`; no legacy React-view build is required.
+
 Sponsor tracks:
-- Primitive: agents get an Eyes email identity; agents email questions to their private Eyes address (ADR-007) and get threaded answers with the photo attached. Workers are reached by text only; worker email replies were dropped (ADR-007). Inbound mail reaches our signed `/webhooks/primitive` route from Primitive's managed subdomain. Prize: best agent communication setup, demo must show an agent-side email thread.
+- Primitive: agents get an Eyes email identity and threaded replies. Worker email is optional; onboarding can continue with iMessage only. Outbound DNS and one owner Gmail delivery are verified, but unrestricted domain sending is disabled, first-contact Inkbox fallback remains, and external custom-alias SPF is unresolved.
 - Stripe: prepaid agent balance via Checkout; per-API-key spend controls (max bounty, daily cap, allowed task types); escrow, release, Connect Express payout to workers (test mode); refunds on expiry. Prize wants clear user control over what agents can do and spend: spend limits and the refund path must be visible in the demo.
 - Inkbox: the Eyes dispatcher is an Inkbox identity with a phone number; texts or iMessages workers, receives YES claims, sends capture links and payout confirmations.
-- Manufact: MCP server built with the mcp-use SDK (TypeScript), deployed on Manufact Cloud.
+- Manufact: current MCP/API host at `https://warm-spark-aocdd.run.mcp-use.com`; public MCP is `https://mcp.eyes.pictures/mcp`, REST is `https://api.eyes.pictures`, and Cloudflare supplies edge/static hosting.
 - Armature: best Agent Experience (AX), see §9.
-- InsForge: Postgres, storage (photos), functions, schedules (cron), Sites hosting for worker pages.
+- InsForge: Postgres and photo storage; worker pages now run at `https://app.eyes.pictures` on Cloudflare, not InsForge Sites.
 
 ## §2 Process rules
 
@@ -93,13 +95,20 @@ Phase 4 (6:00 to 9:30 AM Sunday): bug fixes only, demo 5 times, backup video, RE
 
 Every description, parameter doc and error is written for an LLM reader: explicit, with examples, always saying what to do next. Schemas are frozen in `packages/core/src/schemas.ts` (`TOOLS`).
 
+The registry contains 13 model-visible tools plus app-only `confirm_ask`. The calls below include the task-list, card, acceptance and classifier-review additions; `accept_answer` only records feedback and never triggers payment.
+
 1. `quote_task(location, task_type)` -> `{ workers_nearby, est_minutes_to_answer, suggested_bounty_usd, allowed, reason_if_not, resolved_location }`. `location` is `{lat, lng}`, an address, or "place name, city".
-2. `ask_eyes(question, location, task_type, bounty_usd=3, deadline_minutes=30, require_photo=true, idempotency_key)` -> `{ task_id, status: "dispatched", workers_notified, escrowed_usd, deadline_at, next_step }`. `task_type` is one of `is_open, line_length, in_stock, photo_of_place, price_check, crowd_level, other_public`.
-3. `await_answer(task_id, timeout_seconds=50, max 55)` long-polls until answered or timeout (ADR-002). The description must tell the agent to call it immediately after `ask_eyes` and to keep calling it, because agents cannot watch for events in the background.
+2. Interactive `ask_eyes` returns a read-only `confirmation_required` draft for ChatGPT, Claude connectors and negotiated MCP Apps clients. It creates no task, escrow or worker messages. Explicit card confirmation invokes app-only `confirm_ask` with the same intent key. REST, CLI and non-UI MCP retain direct dispatch.
+3. After dispatch, `await_answer(task_id, timeout_seconds=50, max 55)` long-polls until answered or timeout. Do not await a draft or dispatch a second paid task after card confirmation.
 4. `get_task(task_id)` -> status in `dispatched|claimed|submitted|verified|paid|expired|refunded|disputed|needs_review`.
 5. `cancel_task(task_id)` -> refund if unclaimed.
 6. `dispute_answer(task_id, reason)` -> holds payout, flags for review.
 7. `get_balance()`, `get_spend_policy()`.
+8. `list_tasks(status?, limit?)` lists this agent's tasks for resuming work.
+9. `show_task(task_id)` renders the same task through shared `ui://eyes/confirmation-card.html`.
+10. `accept_answer(task_id)` records explicit positive user feedback without changing the payout.
+11. `report_classifier` requests internal review of a refused task.
+12. `get_classifier_report` reads that review; approval requires an explicit retry and does not dispatch automatically.
 
 Answer:
 ```
@@ -191,15 +200,15 @@ intent/  scripts/  e2e/  .claude/agents/  .github/workflows/  STATUS.md
 
 Eyes only allows tasks about public, commercial or civic places.
 - Every task passes the rule layer and the LLM classifier before dispatch. Reject: targeting a specific private person; private residences or home addresses; a person's vehicle; entering private property; photographing identifiable people; following anyone; illegal or dangerous tasks. Rejections return a clear, non-judgmental `unsafe_task` error with `fix`.
-- Workers are told never to photograph faces; photos with prominent faces are rejected (vision verdict `prominent_faces`).
+- Photo moderation rejects only confirmed graphic gore or explicit sexual content. Faces alone are not rejected or deleted. Provider failures require review; these photo rules do not relax task-request privacy restrictions.
 - Per-agent spend caps and daily caps. Workers can report a task; reported tasks pause (stretch).
 
 ## §13 Demo script (90 seconds)
 
 1. "Agents can read the whole internet but can't see the street outside." In Claude: "Is the line at [DEMO_CAFE] long right now? Use Eyes."
-2. Claude calls `quote_task` then `ask_eyes`; the dashboard shows the pin and "3 workers notified."
+2. Claude calls `quote_task` then prepares a read-only `ask_eyes` draft; the user reviews the card and presses **Ask**. Only then does the dashboard show the dispatched task and notified workers.
 3. A teammate already at the cafe gets the text, replies YES, snaps the photo.
-4. Claude receives: "Short line, about 4 people, photo attached, verified 38 m away, $3.50 total." The Eyes dashboard ledger shows the escrow released; the Stripe dashboard shows the top-up and the $3 transfer to the worker's connected account (escrow is an Eyes ledger entry, not a Stripe object).
+4. Claude receives the actual answer, photo and checks. The ledger and Stripe test dashboard can show test escrow and a test transfer; no real money moves. Only show a card if the client renders it, and never present a quota-blocked visual check as a fresh pass.
 5. A rejected task ("photograph the house at [address]") returns a polite refusal. An agent emails Eyes and gets a threaded answer with the photo attached.
 6. Close: "Eyes turns 8 billion humans into an API agents can pay for."
 

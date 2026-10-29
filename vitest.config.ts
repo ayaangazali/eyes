@@ -15,13 +15,7 @@ export default defineConfig({
       },
       { test: { name: "contract", include: ["packages/**/*.contract.test.ts"], exclude: ignore } },
       {
-        test: {
-          name: "integration",
-          include: ["**/*.int.test.ts"],
-          exclude: ignore,
-          fileParallelism: false,
-          setupFiles: ["scripts/int-db.ts"],
-        },
+        test: { name: "integration", include: ["**/*.int.test.ts"], exclude: ignore, fileParallelism: false },
       },
       { test: { name: "safety", include: ["{packages,evals}/**/*.rules.test.ts"], exclude: ignore } },
     ],

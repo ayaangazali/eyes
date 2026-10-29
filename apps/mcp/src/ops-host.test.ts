@@ -95,6 +95,15 @@ describe("ops host routing", () => {
     ).toBe(200);
   });
 
+  it("serves the header font on the ops host, and its pages allow it", async () => {
+    const fetch = setup();
+    const font = await fetch("internal.eyes.test", "/fonts/instrument-sans.woff2");
+    expect(font.status).toBe(200);
+    expect((await fetch("internal.eyes.test", "/login")).headers.get("content-security-policy")).toContain(
+      "font-src 'self'",
+    );
+  });
+
   it("answers nothing else of the API on the ops host", async () => {
     const fetch = setup();
     for (const path of ["/healthz", "/v1/balance", "/llms.txt", "/mcp"]) {
