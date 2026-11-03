@@ -8,6 +8,6 @@
   "dependencies": {
     "@eyes/core": "workspace:*",
     "@insforge/sdk": "1.5.2",
-    "postgres": "3.4.9"
+    "postgres": "4.0.0"
   }
 }
