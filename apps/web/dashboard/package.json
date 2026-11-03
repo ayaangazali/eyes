@@ -16,6 +16,6 @@
   "devDependencies": {
     "@eyes/engine": "workspace:*",
     "happy-dom": "21.0.4",
-    "postgres": "3.4.9"
+    "postgres": "4.0.0"
   }
 }
