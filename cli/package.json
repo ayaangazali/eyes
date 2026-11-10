@@ -19,6 +19,6 @@
     "@eyes/db": "workspace:*",
     "@eyes/engine": "workspace:*",
     "@eyes/mcp": "workspace:*",
-    "postgres": "4.0.0"
+    "postgres": "4.1.0"
   }
 }
